@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs/promises');
 const os = require('os');
-const sqlite3 = require('better-sqlite3');
+const sqlite3 = require('sqlite3');
 const dbPath = path.join(os.homedir(), 'npcsh_history.db');
 const fetch = require('node-fetch');
 const { dialog } = require('electron');
@@ -136,21 +136,6 @@ app.whenReady().then(async () => {
       }
     });
 
-    backendProcess.on('error', (err) => {
-      console.error('Failed to start backend server:', err);
-      // Try fallback to npc serve if bundled server fails
-      log('Attempting fallback to npc serve...');
-      backendProcess = spawn('npc', ['serve', '-p', '5337'], {
-        stdio: 'inherit',
-        env: {
-          ...process.env,
-          CORNERIA_DATA_DIR: dataPath,
-          NPC_STUDIO_PORT: '5337',
-          FLASK_DEBUG: '1',
-          PYTHONUNBUFFERED: '1',
-        },
-      });
-    });
     
     // Wait for server to be ready before proceeding
     const serverReady = await waitForServer();

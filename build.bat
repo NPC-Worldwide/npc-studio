@@ -1,77 +1,92 @@
 @echo off
-:: Build and install npc-studio with additional packages
 setlocal enabledelayedexpansion
 
-:: Activate the virtual environment
-echo ==== Activating virtual environment ====
-call %USERPROFILE%\npcww\npcsh\.venv\Scripts\activate.bat
+echo Current directory: %CD%
 
+
+REM 1. Activate virtual environment
+call "%USERPROFILE%\npcww\.venv\Scripts\activate.bat"
 if %errorlevel% neq 0 (
     echo ==== Failed to activate virtual environment ====
     exit /b 1
 )
+REM Ensure PyInstaller is installed in the venv
+"%USERPROFILE%\npcww\.venv\Scripts\python.exe" -m pip install pyinstaller
 
-:: Ensure required packages are installed
-echo ==== Ensuring required packages are installed ====
-pip install -U ollama transformers diffusers
+REM 2. Check for EXE and build if missing
+if not exist "pyinstaller_dist\npc_studio_serve.exe" (
+    echo ==== npc_studio_serve.exe not found, running PyInstaller ====
+"%USERPROFILE%\npcww\.venv\Scripts\python.exe" -m PyInstaller --onefile ^
+  --clean ^
+  --distpath pyinstaller_dist ^
+  --noupx ^
+  --hidden-import=npcpy ^
+  --hidden-import=flask ^
+  --hidden-import=flask_cors ^
+  --hidden-import=flask_sse ^
+  --hidden-import=redis ^
+  --hidden-import=pyyaml ^
+  --hidden-import=pillow ^
+  --hidden-import=nltk ^
+  --hidden-import=litellm ^
+  --hidden-import=anthropic ^
+  --hidden-import=openai ^
+  --hidden-import=google-genai ^
+  --hidden-import=tiktoken_ext.openai_public ^
+  --hidden-import=tiktoken_ext ^
+  --hidden-import=sentence_transformers ^
+  --hidden-import=chromadb ^
+  --collect-data=litellm ^
+  npc_studio_serve.py
 
+    if %errorlevel% neq 0 (
+        echo ==== PyInstaller failed! ====
+        exit /b 1
+    )
+) else (
+    echo ==== npc_studio_serve.exe already exists, skipping PyInstaller ====
+)
+
+REM 3. Show result
+echo ==== After PyInstaller ====
+dir pyinstaller_dist
+
+:: 3. Build frontend
+call npm run build:vite
 if %errorlevel% neq 0 (
-    echo ==== Failed to install required packages ====
+    echo ==== Frontend build failed ====
     exit /b 1
 )
 
-:: Run PyInstaller for the Python component with additional packages
-echo ==== Packaging Python component with PyInstaller ====
-pyinstaller --onefile --hidden-import=ollama --hidden-import=transformers --hidden-import=diffusers npc_studio_serve.py
-
-if %errorlevel% neq 0 (
-    echo ==== PyInstaller packaging failed ====
+:: 4. Create resources/backend folder
+echo ==== Creating resources\backend ====
+mkdir resources 2>nul
+mkdir resources\backend 2>nul
+if not exist "resources\backend" (
+    echo ==== ERROR: Could not create resources\backend ====
     exit /b 1
 )
+dir resources
+dir resources\backend
 
-:: Build the frontend
-echo ==== Building npc-studio ====
-cd %USERPROFILE%\npcww\npc-studio
-npm run build
+:: 5. Copy backend EXE
+echo ==== Copying backend EXE ====
+if not exist "pyinstaller_dist\npc_studio_serve.exe" (
+    echo ==== ERROR: pyinstaller_dist\npc_studio_serve.exe does not exist ====
+    exit /b 1
+)
+copy /Y pyinstaller_dist\npc_studio_serve.exe resources\backend\npc_studio_serve.exe
+if not exist "resources\backend\npc_studio_serve.exe" (
+    echo ==== ERROR: Copy failed: npc_studio_serve.exe not found in resources\backend ====
+    exit /b 1
+)
+dir resources\backend
 
+:: 6. Package with electron-builder
+call npm run electron:build
 if %errorlevel% neq 0 (
     echo ==== npm build failed ====
     exit /b 1
 )
 
-:: Find the path to the new .exe file
-for /r .\dist-electron %%f in (*.exe) do (
-    set "EXE_FILE=%%f"
-    goto :found
-)
-:found
-
-if not defined EXE_FILE (
-    echo Error: Could not find .exe file after build
-    exit /b 1
-)
-
-echo ==== Found .exe package: %EXE_FILE% ====
-
-echo ==== Uninstalling existing npc-studio ====
-:: Try to uninstall if it exists, but don't fail if it doesn't
-wmic product where "name='npc-studio'" call uninstall /nointeractive || echo npc-studio not previously installed
-
-echo ==== Installing new npc-studio package ====
-:: Run the installer
-"%EXE_FILE%" /S
-
-if %errorlevel% neq 0 (
-    echo ==== Installation failed ====
-    exit /b 1
-)
-
-:: Add the PyInstaller output to the installation
-echo ==== Copying PyInstaller output to installation directory ====
-copy /Y "dist\npc_studio_serve.exe" "%PROGRAMFILES%\npc-studio\"
-
-:: Create a folder for additional dependencies if needed
-mkdir "%PROGRAMFILES%\npc-studio\dependencies" 2>nul
-
-echo ==== Installation complete ====
-echo You can now run 'npc-studio' to start the application
+echo ==== Build script completed successfully ====
