@@ -7,8 +7,10 @@
 
 NPC Studio is an AI IDE that lets users have AI conversations, edit files, explore data, execute code, and much more.
 
+Executables available for Linux, MacOS (Soon), and Windows at [our website](https://npcworldwi.de/npc-toolkit).
 
 ## Installation
+
 When installed via the executables or if you manually build npc-studio yourself, then it will be available as
 ```bash
 npc-studio
