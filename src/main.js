@@ -115,9 +115,9 @@ app.whenReady().then(async () => {
     log(`Using backend path: ${backendPath}`);
     
     // Make sure it's executable
-    if (app.isPackaged && fs.existsSync(backendPath)) {
-      fs.chmodSync(backendPath, '755');
-    }
+    //if (app.isPackaged && fs.existsSync(backendPath)) {
+    //  fs.chmodSync(backendPath, '755');
+    //}
     
     backendProcess = spawn(backendPath, {
       stdio: 'inherit',

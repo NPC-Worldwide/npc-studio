@@ -12,43 +12,61 @@ flask_sse
 redis
 pyyaml
 pillow
+npcpy
 EOF
 
 # Use PyInstaller with optimization flags to reduce size
 # Note: All --exclude-module flags must be part of a single command
 
-pyinstaller --onefile \
-  --clean \
-  --distpath pyinstaller_dist \
-  --noupx \
-  --exclude-module=matplotlib \
-  --exclude-module=scipy \
-  --exclude-module=tensorflow \
-  --exclude-module=torch \
-  --exclude-module=sklearn \
-  --exclude-module=notebook \
-  --exclude-module=ipython \
-  --exclude-module=jupyter \
-  --exclude-module=nbconvert \
-  --exclude-module=cv2 \
-  --exclude-module=PIL.ImageTk \
-  --exclude-module=PIL.ImageQt \
-  --exclude-module=docx \
-  --exclude-module=pptx \
-  --exclude-module=cuda \
-  --exclude-module=cudnn \
-  --exclude-module=cudart \
-  --exclude-module=cublas \
-  --exclude-module=cupy \
-  --exclude-module=numba.cuda \
-  --exclude-module=torch.cuda \
-  --exclude-module=tensorflow.python.framework.cuda_util \
-  npc_studio_serve.py
+pyinstaller --onefile  \
+    --clean \
+    --distpath pyinstaller_dist \
+    --noupx \
+    --hidden-import=npcpy \
+    --hidden-import=litellm\
+    --hidden-import=ollama \
+    --hidden-import=flask \
+    --hidden-import=flask_cors \
+    --hidden-import=flask_sse \
+    --hidden-import=redis \
+    --hidden-import=pyyaml \
+    --hidden-import=pillow \
+    --hidden-import=nltk \
+    --hidden-import=anthropic \
+    --hidden-import=openai \
+    --hidden-import=google-genai \
+    --hidden-import=tiktoken_ext.openai_public \
+    --hidden-import=tiktoken_ext \
+    --hidden-import=chromadb \
+    --hidden-import=pydantic \
+    --hidden-import=tiktoken_ext.openai_public \
+    --hidden-import=tiktoken_ext \
+    --exclude-module=scipy \
+    --exclude-module=tensorflow \
+    --exclude-module=torch \
+    --exclude-module=sklearn \
+    --exclude-module=notebook \
+    --exclude-module=ipython \
+    --exclude-module=jupyter \
+    --exclude-module=nbconvert \
+    --exclude-module=cv2 \
+    --exclude-module=PIL.ImageTk \
+    --exclude-module=PIL.ImageQt \
+    --exclude-module=docx \
+    --exclude-module=pptx \
+    --exclude-module=cuda \
+    --exclude-module=cudnn \
+    --exclude-module=cudart \
+    --exclude-module=cublas \
+    --exclude-module=cupy \
+    --exclude-module=logfire\
+    --exclude-module=numba.cuda \
+    --exclude-module=torch.cuda \
+    --exclude-module=tensorflow.python.framework.cuda_util \
+    --collect-data=litellm \
+    npc_studio_serve.py
 
 # Copy PyInstaller output to resources directory
-mkdir -p ./dist/resources/backend
-cp ./pyinstaller_dist/npc_studio_serve ./dist/resources/backend/
-
 
 ### uncomment above if you make changes to the backend
 ### most of the time tho you just need to run the electron build
@@ -60,12 +78,20 @@ echo "==== Building npc-studio ===="
 
 # Create directory structure for our resources
 # mkdir -p ./dist/resources/backend - Moved above to ensure directory exists before copy
+mkdir -p ./dist/resources
 
 # Copy requirements file
 cp requirements.txt ./dist/resources/
 
 # Build the electron app (electron-builder will handle dependencies)
-npm run build
+npm run build:vite
+
+mkdir -p ./dist/resources/backend
+cp ./pyinstaller_dist/npc_studio_serve ./dist/resources/backend/
+chmod +x ./dist/resources/backend/npc_studio_serve
+
+npm run electron:build
+
 
 echo "==== Found .deb package in dist-electron directory ===="
 
