@@ -6,4 +6,4 @@ if __name__ == "__main__":
     start_flask_server(
         port="5337", 
         cors_origins="localhost:5173", 
-        debug=True)
+        debug=False)

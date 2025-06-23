@@ -41,7 +41,7 @@
       "icon": "assets/icon.png",
       "extraResources": [
         {
-          "from": "dist/resources/backend/npc_studio_serve",
+          "from": "resources/backend/npc_studio_serve",
           "to": "backend/npc_studio_serve"
         }
       ]

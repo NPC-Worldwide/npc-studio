@@ -46,7 +46,7 @@ const SCREENSHOT_COOLDOWN = 1000; // 1 second cooldown between screenshots
 let backendProcess = null;
 
 
-async function waitForServer(maxAttempts = 30, delay = 1000) {
+async function waitForServer(maxAttempts = 120, delay = 1000) {
   log('Waiting for backend server to start...');
   
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
