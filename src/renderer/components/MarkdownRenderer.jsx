@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState , memo} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Copy, Check } from 'lucide-react';
 
-const CodeBlock = ({ node, inline, className, children, ...props }) => {
+const CodeBlock = React.memo(({ node, inline, className, children, ...props }) => {
     const [copied, setCopied] = useState(false);
     const match = /language-(\w+)/.exec(className || '');
     const codeString = String(children).replace(/\n$/, '');
@@ -17,7 +17,6 @@ const CodeBlock = ({ node, inline, className, children, ...props }) => {
         }).catch(err => console.error('Failed to copy code:', err));
     };
 
-    // Detect current theme from body class
     const isDarkMode = document.body.classList.contains('dark-mode');
 
     if (inline) {
@@ -56,7 +55,9 @@ const CodeBlock = ({ node, inline, className, children, ...props }) => {
             </SyntaxHighlighter>
         </div>
     );
-};
+});
+
+
 
 const MarkdownRenderer = ({ content }) => {
     return (
@@ -139,4 +140,4 @@ const MarkdownRenderer = ({ content }) => {
     );
 };
 
-export default MarkdownRenderer;
+export default React.memo(MarkdownRenderer);

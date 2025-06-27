@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import {
     Folder, File, ChevronRight, Settings, Edit, Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare, ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, Send
 } from 'lucide-react';
@@ -59,6 +59,94 @@ const highlightSearchTerm = (text, term) => {
         return text;
     }
 };
+
+const ChatMessage = memo(({ message, isSelected, messageSelectionMode, toggleMessageSelection, handleMessageContextMenu, searchTerm, activeSearchResult }) => {
+    const showStreamingIndicators = !!message.isStreaming;
+    const messageId = message.id || message.timestamp;
+
+    return (
+        <div
+            id={`message-${messageId}`}
+            className={`max-w-[85%] rounded-lg p-3 relative ${
+                message.role === 'user' ? 'theme-message-user' : 'theme-message-assistant'
+            } ${message.type === 'error' ? 'theme-message-error theme-border' : ''} ${
+                isSelected ? 'ring-2 ring-blue-500' : ''
+            } ${activeSearchResult === messageId ? 'ring-2 ring-yellow-500' : ''} ${messageSelectionMode ? 'cursor-pointer' : ''}`}
+            onClick={() => messageSelectionMode && toggleMessageSelection(messageId)}
+            onContextMenu={(e) => handleMessageContextMenu(e, messageId)}
+        >
+            {messageSelectionMode && (
+                <div className="absolute top-2 right-2 z-10">
+                    <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleMessageSelection(messageId)}
+                        className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
+            )}
+            <div className="text-xs theme-text-muted mb-1 opacity-80">
+                {message.role === 'user' ? 'You' : (message.npc || message.model || 'Assistant')}
+                <span className="ml-2">
+                    {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+            </div>
+            <div className="relative message-content-area">
+                {showStreamingIndicators && (
+                    <div className="absolute top-0 left-0 -translate-y-full flex space-x-1 mb-1">
+                        <div className="w-1.5 h-1.5 theme-text-muted rounded-full animate-bounce"></div>
+                        <div className="w-1.5 h-1.5 theme-text-muted rounded-full animate-bounce" style={{ animationDelay: '0.15s' }}></div>
+                        <div className="w-1.5 h-1.5 theme-text-muted rounded-full animate-bounce" style={{ animationDelay: '0.3s' }}></div>
+                    </div>
+                )}
+                {message.reasoningContent && (
+                    <div className="mb-3 px-3 py-2 theme-bg-tertiary rounded-md border-l-2 border-yellow-500">
+                        <div className="text-xs text-yellow-400 mb-1 font-semibold">Thinking Process:</div>
+                        <div className="prose prose-sm prose-invert max-w-none theme-text-secondary text-sm">
+                            <MarkdownRenderer content={message.reasoningContent || ''} />
+                        </div>
+                    </div>
+                )}
+                <div className="prose prose-sm prose-invert max-w-none theme-text-primary">
+                    {searchTerm && message.content ? (
+                        <MarkdownRenderer content={highlightSearchTerm(message.content, searchTerm)} />
+                    ) : (
+                        <MarkdownRenderer content={message.content || ''} />
+                    )}
+                    {showStreamingIndicators && message.type !== 'error' && (
+                        <span className="ml-1 inline-block w-0.5 h-4 theme-text-primary animate-pulse stream-cursor"></span>
+                    )}
+                </div>
+                {message.toolCalls && message.toolCalls.length > 0 && (
+                    <div className="mt-3 px-3 py-2 theme-bg-tertiary rounded-md border-l-2 border-blue-500">
+                        <div className="text-xs text-blue-400 mb-1 font-semibold">Function Calls:</div>
+                        {message.toolCalls.map((tool, idx) => (
+                            <div key={idx} className="mb-2 last:mb-0">
+                                <div className="text-blue-300 text-sm">{tool.function_name || tool.function?.name || "Function"}</div>
+                                <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">{JSON.stringify(tool.arguments || tool.function?.arguments || {}, null, 2)}</pre>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {message.attachments?.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2 border-t theme-border pt-2">
+                        {message.attachments.map((attachment, idx) => (
+                            <div key={idx} className="text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1">
+                                <Paperclip size={12} className="flex-shrink-0" />
+                                <span className="truncate" title={attachment.name}>{attachment.name}</span>
+                                {attachment.data && attachment.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i) && (
+                                    <img src={attachment.data} alt={attachment.name} className="mt-1 max-w-[100px] max-h-[100px] rounded-md object-cover"/>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+});
+
 
 
 const ChatInterface = () => {
@@ -257,34 +345,37 @@ const ChatInterface = () => {
     };
 
     // Message selection handlers
-const toggleMessageSelection = (messageId) => {
-    if (!messageSelectionMode) return;
-    setSelectedMessages(prev => {
-        const newSelected = new Set(prev);
-        if (newSelected.has(messageId)) {
-            newSelected.delete(messageId);
-        } else {
-            newSelected.add(messageId);
-        }
-        return newSelected;
-    });
-};
+    const toggleMessageSelection = useCallback((messageId) => {
+        if (!messageSelectionMode) return;
+        setSelectedMessages(prev => {
+            const newSelected = new Set(prev);
+            if (newSelected.has(messageId)) {
+                newSelected.delete(messageId);
+            } else {
+                newSelected.add(messageId);
+            }
+            return newSelected;
+        });
+    }, [messageSelectionMode]); // Dependency: only re-create if messageSelectionMode changes
+
 
 const toggleMessageSelectionMode = () => {
     setMessageSelectionMode(!messageSelectionMode);
     setSelectedMessages(new Set());
     setMessageContextMenuPos(null);
 };
-
-const handleMessageContextMenu = (e, messageId) => {
+const handleMessageContextMenu = useCallback((e, messageId) => {
     e.preventDefault();
-    if (!selectedMessages.has(messageId) && selectedMessages.size > 0) {
-        setSelectedMessages(prev => new Set([...prev, messageId]));
-    } else if (selectedMessages.size === 0) {
-        setSelectedMessages(new Set([messageId]));
-    }
+    setSelectedMessages(prev => {
+        if (!prev.has(messageId) && prev.size > 0) {
+            return new Set([...prev, messageId]);
+        } else if (prev.size === 0) {
+            return new Set([messageId]);
+        }
+        return prev;
+    });
     setMessageContextMenuPos({ x: e.clientX, y: e.clientY, messageId });
-};
+}, []); 
 
 const handleApplyPromptToMessages = async (operationType, customPrompt = '') => {
     const selectedIds = Array.from(selectedMessages);
@@ -2451,125 +2542,21 @@ const handleFileContextMenu = (e, filePath) => {
     
                         {/* Only show the number of messages specified by displayedMessageCount */}
                         {allMessages.slice(-displayedMessageCount).map((message) => {
-                            const showStreamingIndicators = !!message.isStreaming;
                             const messageId = message.id || message.timestamp;
-                            const isSelected = selectedMessages.has(messageId);
-    
-    
                             return (
-                                // FIX 1: Added the required "key" prop to the root element in the map.
-                                <div
+                                <ChatMessage
                                     key={messageId}
-                                    id={`message-${messageId}`}
-                                    className={`max-w-[85%] rounded-lg p-3 relative ${
-                                        message.role === 'user'
-                                            ? 'theme-message-user'
-                                            : 'theme-message-assistant'
-                                        } ${message.type === 'error' ? 'theme-message-error theme-border' : ''} ${
-                                        isSelected ? 'ring-2 ring-blue-500' : ''
-                                    } ${activeSearchResult === messageId ? 'ring-2 ring-yellow-500' : ''} ${messageSelectionMode ? 'cursor-pointer' : ''}`}
-                                    onClick={() => messageSelectionMode && toggleMessageSelection(messageId)}
-                                    onContextMenu={(e) => handleMessageContextMenu(e, messageId)}
-                                >
-                                    {messageSelectionMode && (
-                                        <div className="absolute top-2 right-2 z-10">
-                                            <input
-                                                type="checkbox"
-                                                checked={isSelected}
-                                                onChange={() => toggleMessageSelection(messageId)}
-                                                className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
-                                                onClick={(e) => e.stopPropagation()}
-                                            />
-                                        </div>
-                                    )}
-    
-                                    {/* Message header */}
-                                    <div className="text-xs theme-text-muted mb-1 opacity-80">
-                                        {message.role === 'user' ? 'You' : (message.npc || message.model || 'Assistant')}
-                                        <span className="ml-2">
-                                            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                    </div>
-    
-                                    {/* Message content Area */}
-                                    <div className="relative message-content-area">
-                                        {/* Bouncing dots shown above the message only when streaming */}
-                                        {showStreamingIndicators && (
-                                            <div className="absolute top-0 left-0 -translate-y-full flex space-x-1 mb-1">
-                                                <div className="w-1.5 h-1.5 theme-text-muted rounded-full animate-bounce"></div>
-                                                <div className="w-1.5 h-1.5 theme-text-muted rounded-full animate-bounce" style={{ animationDelay: '0.15s' }}></div>
-                                                <div className="w-1.5 h-1.5 theme-text-muted rounded-full animate-bounce" style={{ animationDelay: '0.3s' }}></div>
-                                            </div>
-                                        )}
-    
-                                        {/* Reasoning Content (Thoughts) Section */}
-                                        {message.reasoningContent && (
-                                            <div className="mb-3 px-3 py-2 theme-bg-tertiary rounded-md border-l-2 border-yellow-500">
-                                                <div className="text-xs text-yellow-400 mb-1 font-semibold">Thinking Process:</div>
-                                                <div className="prose prose-sm prose-invert max-w-none theme-text-secondary text-sm">
-                                                    <MarkdownRenderer content={message.reasoningContent || ''} />
-                                                </div>
-                                            </div>
-                                        )}
-    
-                                        {/* Main Content - with highlighted search term if needed */}
-                                        <div className="prose prose-sm prose-invert max-w-none theme-text-primary">
-                                            {searchTerm && message.content ? (
-                                                <MarkdownRenderer 
-                                                    content={highlightSearchTerm(message.content, searchTerm)} 
-                                                />
-                                            ) : (
-                                                <MarkdownRenderer content={message.content || ''} />
-                                            )}
-                                            {showStreamingIndicators && message.type !== 'error' && (
-                                                <span className="ml-1 inline-block w-0.5 h-4 theme-text-primary animate-pulse stream-cursor"></span>
-                                            )}
-                                        </div>
-    
-                                        {/* LLM tool Calls Section */}
-                                        {message.toolCalls && message.toolCalls.length > 0 && (
-                                            <div className="mt-3 px-3 py-2 theme-bg-tertiary rounded-md border-l-2 border-blue-500">
-                                                <div className="text-xs text-blue-400 mb-1 font-semibold">Function Calls:</div>
-                                                {message.toolCalls.map((tool, idx) => (
-                                                    <div key={idx} className="mb-2 last:mb-0">
-                                                        <div className="text-blue-300 text-sm">
-                                                            {tool.function_name || tool.function?.name || "Function"}
-                                                        </div>
-                                                        <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">
-                                                            {JSON.stringify(
-                                                                tool.arguments || tool.function?.arguments || {},
-                                                                null, 2
-                                                            )}
-                                                        </pre>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-    
-                                        {/* Attachments */}
-                                        {message.attachments?.length > 0 && (
-                                            <div className="mt-2 flex flex-wrap gap-2 border-t theme-border pt-2">
-                                                {message.attachments.map((attachment, idx) => (
-                                                    <div key={idx} className="text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1">
-                                                        <Paperclip size={12} className="flex-shrink-0" />
-                                                        <span className="truncate" title={attachment.name}>{attachment.name}</span>
-                                                        {/* Add image preview if data exists and is an image */}
-                                                        {attachment.data && attachment.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i) && (
-                                                            <img
-                                                                src={attachment.data} // Assuming base64 data URL
-                                                                alt={attachment.name}
-                                                                className="mt-1 max-w-[100px] max-h-[100px] rounded-md object-cover"
-                                                            />
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div> {/* End message-content-area */}
-                                </div>
-                                // FIX 2: Removed the extra, unmatched closing </div> tag from here.
+                                    message={message}
+                                    isSelected={selectedMessages.has(messageId)}
+                                    messageSelectionMode={messageSelectionMode}
+                                    toggleMessageSelection={toggleMessageSelection}
+                                    handleMessageContextMenu={handleMessageContextMenu}
+                                    searchTerm={searchTerm}
+                                    activeSearchResult={activeSearchResult}
+                                />
                             );
                         })}
+
                     </>
                 )}
             </div>
