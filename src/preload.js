@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('api', {
         current_path: data.currentPath,
         conversationId: data.conversationId,
         model: data.model,
+        provider:data.provider,
         npc: data.npc,
     }),
     executeCommandStream: (data) => ipcRenderer.invoke('executeCommandStream', data),

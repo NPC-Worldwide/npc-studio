@@ -22,7 +22,11 @@ const log = (...messages) => {
     console.log(msg);
     logStream.write(`${msg}\n`);
 };
-const DEFAULT_SHORTCUT = 'CommandOrControl+Space';
+// Use Option+Space on macOS, Command/Control+Space elsewhere
+const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
+
+
+
 const DEFAULT_CONFIG = {
   baseDir: path.resolve(os.homedir(), '.npcsh'),
   stream: true,
@@ -180,6 +184,7 @@ function ensureUserDataDirectory() {
   return userDataPath;
 }
 
+
 function registerGlobalShortcut(win) {
   if (!win) {
     console.warn('No window provided to registerGlobalShortcut');
@@ -207,6 +212,7 @@ function registerGlobalShortcut(win) {
       win.webContents.send('show-macro-input');
     });
     console.log('Macro shortcut registered:', macroSuccess);
+    
     const screenshotSuccess = globalShortcut.register('Alt+Shift+4', async () => {
       // Prevent multiple captures at once
       const now = Date.now();
@@ -249,7 +255,9 @@ function registerGlobalShortcut(win) {
             }
           });
 
+          console.log(bounds);
           const image = sources[0].thumbnail.crop(bounds);
+          console.log(image);
           const screenshotPath = path.join(DEFAULT_CONFIG.baseDir, 'screenshots', `screenshot-${Date.now()}.png`);
 
           // Write file synchronously
@@ -806,24 +814,23 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
 
 ipcMain.handle('executeCommandStream', async (event, data) => {
   const currentStreamId = data.streamId || generateId(); // Should always have data.streamId from new React code
-  log(`[Main Process] executeCommandStream: Starting. streamId: ${currentStreamId}, command: ${data.commandstr ? data.commandstr.substring(0,50) : 'N/A'}...`);
 
+  
   try {
     const apiUrl = 'http://127.0.0.1:5337/api/stream';
-    log(`[Main Process] executeCommandStream: Fetching from ${apiUrl} for streamId ${currentStreamId}`);
-    
+=    
     // Create the request payload, including the npcSource parameter
     const payload = {
       commandstr: data.commandstr,
       currentPath: data.currentPath,
       conversationId: data.conversationId,
       model: data.model,
+      provider:data.provider,
       npc: data.npc,
       npcSource: data.npcSource || 'global', // Add the npcSource parameter (project or global)
       attachments: data.attachments || []
     };
     
-    log(`[Main Process] executeCommandStream: Payload for streamId ${currentStreamId}:`, JSON.stringify(payload));
     
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -834,30 +841,30 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
     log(`[Main Process] executeCommandStream: Backend response status for streamId ${currentStreamId}: ${response.status}`);
     if (!response.ok) {
       const errorText = await response.text();
-      log(`[Main Process] executeCommandStream: Backend error for streamId ${currentStreamId}: ${response.status} - ${errorText}`);
+
       throw new Error(`HTTP error! Status: ${response.status}. Body: ${errorText}`);
     }
 
     const stream = response.body;
     if (!stream) {
-        log(`[Main Process] executeCommandStream: No response body (stream) from backend for streamId ${currentStreamId}.`);
-        event.sender.send('stream-error', { streamId: currentStreamId, error: 'Backend returned no stream data.' });
+
+      event.sender.send('stream-error', { streamId: currentStreamId, error: 'Backend returned no stream data.' });
         return { error: 'Backend returned no stream data.', streamId: currentStreamId };
     }
     
     activeStreams.set(currentStreamId, { stream, eventSender: event.sender });
-    log(`[Main Process] executeCommandStream: Stream ${currentStreamId} added to activeStreams. Listening for data...`);
 
+    
     // IIFE to capture currentStreamId for async handlers
     (function(capturedStreamId) {
       let chunkCount = 0;
       stream.on('data', (chunk) => {
         chunkCount++;
         const chunkContent = chunk.toString();
-        log(`[Main Process] executeCommandStream: Stream data CHUNK #${chunkCount} for streamId ${capturedStreamId}: ${chunkContent.substring(0, 100)}...`);
+
         if (event.sender.isDestroyed()) {
-            log(`[Main Process] executeCommandStream: Renderer destroyed for streamId ${capturedStreamId}. Stopping stream.`);
-            stream.destroy();
+
+          stream.destroy();
             activeStreams.delete(capturedStreamId);
             return;
         }
@@ -868,7 +875,7 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       });
 
       stream.on('end', () => {
-        log(`[Main Process] executeCommandStream: Stream ENDED for streamId ${capturedStreamId}. Total chunks: ${chunkCount}.`);
+
         if (!event.sender.isDestroyed()) {
             event.sender.send('stream-complete', { streamId: capturedStreamId });
         }
@@ -876,7 +883,7 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       });
 
       stream.on('error', (err) => {
-        log(`[Main Process] executeCommandStream: Stream ERROR for streamId ${capturedStreamId}: ${err.message}`);
+
         if (!event.sender.isDestroyed()) {
             event.sender.send('stream-error', {
               streamId: capturedStreamId,
@@ -890,7 +897,7 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
     return { streamId: currentStreamId }; // Acknowledge stream setup
 
   } catch (err) {
-    log(`[Main Process] executeCommandStream: CATCH block error for streamId ${currentStreamId}: ${err.message}`);
+
     if (event.sender && !event.sender.isDestroyed()) {
         event.sender.send('stream-error', {
           streamId: currentStreamId, // The ID it was trying to use
@@ -912,37 +919,82 @@ ipcMain.handle('get-message-attachments', async (event, messageId) => {
   return response.json();
 });
 
-ipcMain.handle('executeCommand', async (_, data) => {
+ipcMain.handle('executeCommand', async (event, data) => {
+    const currentStreamId = generateId();
+    log(`[Main Process] executeCommand: Starting. streamId: ${currentStreamId}`);
+
     try {
-      console.log('Executing command:', data);
-      console.log('Data type:', typeof data);
-      
-      const response = await fetch('http://127.0.0.1:5337/api/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          commandstr: data.commandstr,
-          currentPath: data.current_path || data.currentPath || DEFAULT_CONFIG.baseDir,
-          conversationId: data.conversationId || null,
-          model: data.model || DEFAULT_CONFIG.model,
-          npc: data.npc || DEFAULT_CONFIG.npc
-        })
-      });
+        const apiUrl = 'http://127.0.0.1:5337/api/execute';
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                commandstr: data.commandstr,
+                currentPath: data.currentPath,
+                conversationId: data.conversationId,
+                model: data.model,
+                provider: data.provider,
+                npc: data.npc,
+                npcSource: data.npcSource || 'global',
+                attachments: data.attachments || []
+            })
+        });
 
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.error || `HTTP error! status: ${response.status}`);
-      }
-      return result;
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP error! Status: ${response.status}. Body: ${errorText}`);
+        }
+
+        const stream = response.body;
+        if (!stream) {
+            throw new Error('Backend returned no stream data.');
+        }
+
+        // Match the working stream pattern
+        activeStreams.set(currentStreamId, { stream, eventSender: event.sender });
+
+        stream.on('data', (chunk) => {
+            if (event.sender.isDestroyed()) {
+                stream.destroy();
+                activeStreams.delete(currentStreamId);
+                return;
+            }
+            event.sender.send('stream-data', {
+                streamId: currentStreamId,
+                chunk: chunk.toString()
+            });
+        });
+
+        stream.on('end', () => {
+            if (!event.sender.isDestroyed()) {
+                event.sender.send('stream-complete', { streamId: currentStreamId });
+            }
+            activeStreams.delete(currentStreamId);
+        });
+
+        stream.on('error', (err) => {
+            if (!event.sender.isDestroyed()) {
+                event.sender.send('stream-error', {
+                    streamId: currentStreamId,
+                    error: err.message
+                });
+            }
+            activeStreams.delete(currentStreamId);
+        });
+
+        return { streamId: currentStreamId };
+
     } catch (err) {
-      console.error('Error in executeCommand:', err);
-      return { error: err.message };
+        if (event.sender && !event.sender.isDestroyed()) {
+            event.sender.send('stream-error', {
+                streamId: currentStreamId,
+                error: err.message
+            });
+        }
+        return { error: err.message, streamId: currentStreamId };
     }
-  });
-
-  ipcMain.handle('getConversations', async (_, path) => {
+});
+ipcMain.handle('getConversations', async (_, path) => {
     try {
       //console.log('Handler: getConversations called for path:', path);
       // Add filesystem check to see if directory exists

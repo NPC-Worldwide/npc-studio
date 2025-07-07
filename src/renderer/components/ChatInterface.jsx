@@ -1350,206 +1350,205 @@ const handleFileContextMenu = (e, filePath) => {
         }
     };
 
-    // In ChatInterface.js
+useEffect(() => {
+    console.log('[REACT] Stream listener useEffect: Checking conditions. Config loaded:', !!config, 'Config stream enabled:', config?.stream, 'Listeners already attached:', listenersAttached.current);
 
-    // Replace your existing useEffect for stream listeners with this one:
-    useEffect(() => {
-        console.log('[REACT] Stream listener useEffect: Checking conditions. Config loaded:', !!config, 'Config stream enabled:', config?.stream, 'Listeners already attached:', listenersAttached.current);
+    if (config && config.stream && !listenersAttached.current) {
+        console.log('[REACT] Stream listener useEffect: ATTACHING listeners.');
 
-        if (config && config.stream && !listenersAttached.current) {
-            console.log('[REACT] Stream listener useEffect: ATTACHING listeners.');
-            const handleStreamData = (_, { streamId: incomingStreamId, chunk }) => {
-                console.log(`[REACT] RAW handleStreamData: incomingStreamId=${incomingStreamId}, currentStreamIdRef=${streamIdRef.current}, chunk PRESENT: ${!!chunk}`);
-                if (chunk) {
-                     console.log(`[REACT] RAW chunk content (first 100 chars): ${chunk.substring(0,100)}`);
-                }
+        const handleStreamData = (_, { streamId: incomingStreamId, chunk }) => {
+            console.log(`[REACT] RAW handleStreamData: incomingStreamId=${incomingStreamId}, currentStreamIdRef=${streamIdRef.current}, chunk PRESENT: ${!!chunk}`);
             
-                if (streamIdRef.current !== incomingStreamId) {
-                    console.warn(`[REACT] handleStreamData: Mismatched stream ID. Expected ${streamIdRef.current}, got ${incomingStreamId}. Ignoring chunk.`);
-                    return;
+            // Initialize stream ID if not set
+            if (!streamIdRef.current) {
+                streamIdRef.current = incomingStreamId;
+            }
+
+            if (streamIdRef.current !== incomingStreamId) {
+                console.warn(`[REACT] Stream mismatch: ${streamIdRef.current} vs ${incomingStreamId}`);
+                return;
+            }
+            
+            try {
+                let content = '';
+                let reasoningContent = '';
+                let toolCalls = null;
+                let isDecision = false;
+                
+                if (typeof chunk === 'string') {
+                    if (chunk.startsWith('data:')) {
+                        const dataContent = chunk.replace(/^data:\s*/, '').trim();
+                        if (dataContent === '[DONE]') {
+                            console.log('[REACT] handleStreamData: Received [DONE] signal for stream:', incomingStreamId);
+                            return;
+                        }
+                        if (dataContent) {
+                            const parsed = JSON.parse(dataContent);
+                            isDecision = parsed.choices?.[0]?.delta?.role === 'decision';
+                            content = parsed.choices?.[0]?.delta?.content || '';
+                            reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content || '';
+                            toolCalls = parsed.tool_calls || null;
+                        }
+                    } else {
+                        content = chunk;
+                    }
+                } else if (chunk && chunk.choices) {
+                    isDecision = chunk.choices[0]?.delta?.role === 'decision';
+                    content = chunk.choices[0]?.delta?.content || '';
+                    reasoningContent = chunk.choices[0]?.delta?.reasoning_content || '';
+                    toolCalls = chunk.tool_calls || null;
                 }
+
+                if (content || reasoningContent || toolCalls) {
+                    console.log('[REACT] handleStreamData:', 
+                        isDecision ? 'Decision content:' : 'Regular content:', 
+                        content.substring(0, 50) + "..."
+                    );
+                    
+                    setMessages(prev => {
+                        const msgIndex = prev.findIndex(m => m.id === incomingStreamId && 
+                            (m.role === 'assistant' || m.role === 'decision'));
+                        if (msgIndex !== -1) {
+                            const newMessages = [...prev];
+                            newMessages[msgIndex] = {
+                                ...newMessages[msgIndex],
+                                role: isDecision ? 'decision' : 'assistant',
+                                content: (newMessages[msgIndex].content || '') + content,
+                                reasoningContent: (newMessages[msgIndex].reasoningContent || '') + reasoningContent,
+                                toolCalls: toolCalls ? 
+                                    (newMessages[msgIndex].toolCalls || []).concat(toolCalls) : 
+                                    newMessages[msgIndex].toolCalls,
+                                npc: newMessages[msgIndex].npc || currentNPC
+                            };
+                            return newMessages;
+                        }
+                        return [...prev, {
+                            id: incomingStreamId,
+                            role: isDecision ? 'decision' : 'assistant',
+                            content: content,
+                            reasoningContent: reasoningContent,
+                            toolCalls: toolCalls ? [toolCalls] : [],
+                            npc: currentNPC,
+                            timestamp: Date.now()
+                        }];
+                    });
+
+                    setAllMessages(prev => {
+                        const msgIndex = prev.findIndex(m => m.id === incomingStreamId && 
+                            (m.role === 'assistant' || m.role === 'decision'));
+                        if (msgIndex !== -1) {
+                            const newMessages = [...prev];
+                            newMessages[msgIndex] = {
+                                ...newMessages[msgIndex],
+                                role: isDecision ? 'decision' : 'assistant',
+                                content: (newMessages[msgIndex].content || '') + content,
+                                reasoningContent: (newMessages[msgIndex].reasoningContent || '') + reasoningContent,
+                                toolCalls: toolCalls ? 
+                                    (newMessages[msgIndex].toolCalls || []).concat(toolCalls) : 
+                                    newMessages[msgIndex].toolCalls,
+                                npc: newMessages[msgIndex].npc || currentNPC
+                            };
+                            return newMessages;
+                        }
+                        return prev;
+                    });
+                }
+            } catch (err) {
+                console.error('[REACT] handleStreamData: Error processing stream chunk:', err, 'Raw chunk:', chunk);
+            }
+        };
+
+        const handleStreamComplete = async (_, { streamId: completedStreamId } = {}) => {
+            console.log(`[REACT] handleStreamComplete: streamId=${completedStreamId}, currentStreamIdRef=${streamIdRef.current}`);
+            
+            setMessages(prev => prev.map(msg => 
+                msg.streamId ? { ...msg, streamId: null } : msg
+            ));
+            
+            setAllMessages(prev => prev.map(msg => 
+                msg.streamId ? { ...msg, streamId: null } : msg
+            ));
+
+            if (streamIdRef.current === completedStreamId || !completedStreamId) {
+                console.log(`[REACT] handleStreamComplete: Resetting streaming state`);
+                setIsStreaming(false);
+                streamIdRef.current = null;
                 
                 try {
-                    let content = '';
-                    let reasoningContent = '';
-                    let toolCalls = null;
-                    
-                    if (typeof chunk === 'string') {
-                        if (chunk.startsWith('data:')) {
-                            const dataContent = chunk.replace(/^data:\s*/, '').trim();
-                            if (dataContent === '[DONE]') {
-                                console.log('[REACT] handleStreamData: Received [DONE] signal for stream:', incomingStreamId);
-                                return;
-                            }
-                            if (dataContent) {
-                                const parsed = JSON.parse(dataContent);
-                                content = parsed.choices?.[0]?.delta?.content || '';
-                                reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content || '';
-                                toolCalls = parsed.tool_calls || null;
-                            }
-                        } else {
-                            content = chunk;
-                        }
-                    } else if (chunk && chunk.choices) {
-                        content = chunk.choices[0]?.delta?.content || '';
-                        reasoningContent = chunk.choices[0]?.delta?.reasoning_content || '';
-                        toolCalls = chunk.tool_calls || null;
-                    }
-            
-                    // Process and update message with content
-                    if (content || reasoningContent || toolCalls) {
-                        console.log('[REACT] handleStreamData: Appending content:', content.substring(0, 50) + "...");
-                        if (reasoningContent) {
-                            console.log('[REACT] handleStreamData: Appending reasoning content:', reasoningContent.substring(0, 50) + "...");
-                        }
-                        if (toolCalls) {
-                            console.log('[REACT] handleStreamData: Received tool calls:', JSON.stringify(toolCalls).substring(0, 50) + "...");
-                        }
+                    console.log(`[REACT] handleStreamComplete: Forcing conversation refresh`);
+                    if (currentPath) {
+                        const response = await window.api.getConversations(normalizePath(currentPath));
                         
-                        setMessages(prev => {
-                            const msgIndex = prev.findIndex(m => m.id === incomingStreamId && m.role === 'assistant');
-                            if (msgIndex !== -1) {
-                                const newMessages = [...prev];
-                                newMessages[msgIndex] = {
-                                    ...newMessages[msgIndex],
-                                    content: (newMessages[msgIndex].content || '') + content,
-                                    reasoningContent: (newMessages[msgIndex].reasoningContent || '') + reasoningContent,
-                                    toolCalls: toolCalls ? 
-                                        (newMessages[msgIndex].toolCalls || []).concat(toolCalls) : 
-                                        newMessages[msgIndex].toolCalls,
-                                    // Ensure the NPC name is preserved
-                                    npc: newMessages[msgIndex].npc || currentNPC
-                                };
-                                return newMessages;
-                            }
-                            console.warn('[REACT] handleStreamData: Assistant placeholder message not found for streamId:', incomingStreamId);
-                            return prev;
-                        });
-
-                        // Also update allMessages to keep them in sync
-                        setAllMessages(prev => {
-                            const msgIndex = prev.findIndex(m => m.id === incomingStreamId && m.role === 'assistant');
-                            if (msgIndex !== -1) {
-                                const newMessages = [...prev];
-                                newMessages[msgIndex] = {
-                                    ...newMessages[msgIndex],
-                                    content: (newMessages[msgIndex].content || '') + content,
-                                    reasoningContent: (newMessages[msgIndex].reasoningContent || '') + reasoningContent,
-                                    toolCalls: toolCalls ? 
-                                        (newMessages[msgIndex].toolCalls || []).concat(toolCalls) : 
-                                        newMessages[msgIndex].toolCalls,
-                                    // Ensure the NPC name is preserved
-                                    npc: newMessages[msgIndex].npc || currentNPC
-                                };
-                                return newMessages;
-                            }
-                            return prev;
-                        });
+                        if (response?.conversations) {
+                            const formattedConversations = response.conversations.map(conv => ({
+                                id: conv.id,
+                                title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
+                                preview: conv.preview || 'No content',
+                                timestamp: conv.timestamp || Date.now()
+                            }));
+                            
+                            formattedConversations.sort((a, b) => b.timestamp - a.timestamp);
+                            
+                            console.log(`[REACT] handleStreamComplete: Setting ${formattedConversations.length} conversations`);
+                            setDirectoryConversations([...formattedConversations]);
+                        } else {
+                            console.error('[REACT] handleStreamComplete: No conversations in response:', response);
+                        }
                     }
                 } catch (err) {
-                    console.error('[REACT] handleStreamData: Error processing stream chunk:', err, 'Raw chunk:', chunk);
+                    console.error('[REACT] handleStreamComplete: Error refreshing conversations:', err);
                 }
-            };
+            }
+        };
 
-            
-            const handleStreamComplete = async (_, { streamId: completedStreamId } = {}) => {
-                console.log(`[REACT] handleStreamComplete: streamId=${completedStreamId}, currentStreamIdRef=${streamIdRef.current}`);
-                
-                // Update UI first regardless of streamId match
-                setMessages(prev => prev.map(msg => 
-                    msg.streamId ? { ...msg, streamId: null } : msg
-                ));
-                
-                setAllMessages(prev => prev.map(msg => 
-                    msg.streamId ? { ...msg, streamId: null } : msg
-                ));
+        const handleStreamError = (_, { streamId: errorStreamId, error } = {}) => {
+            console.error(`[REACT] handleStreamError: streamId=${errorStreamId}, currentStreamIdRef=${streamIdRef.current}, error=${error}`);
+            if (streamIdRef.current === errorStreamId) {
+                setIsStreaming(false);
+                streamIdRef.current = null;
+            }
+            setMessages(prev => {
+                const msgIndex = prev.findIndex(m => m.id === errorStreamId && m.role === 'assistant');
+                if (msgIndex !== -1) {
+                    const updatedMessages = [...prev];
+                    updatedMessages[msgIndex] = {
+                        ...updatedMessages[msgIndex],
+                        content: (updatedMessages[msgIndex].content || '') + `\n[STREAM ERROR: ${error}]`,
+                        type: 'error',
+                        streamId: null
+                    };
+                    return updatedMessages;
+                }
+                return [...prev, { 
+                    id: generateId(), 
+                    role: 'assistant', 
+                    content: `[STREAM ERROR (streamId ${errorStreamId || 'unknown'}): ${error}]`, 
+                    timestamp: new Date().toISOString(), 
+                    type: 'error' 
+                }];
+            });
+        };
 
-                // If this is our current stream, reset streaming state
-                if (streamIdRef.current === completedStreamId || !completedStreamId) {
-                    console.log(`[REACT] handleStreamComplete: Resetting streaming state`);
-                    setIsStreaming(false);
-                    streamIdRef.current = null;
-                    
-                    // FORCE refresh conversations directly from the API
-                    try {
-                        console.log(`[REACT] handleStreamComplete: Forcing conversation refresh`);
-                        if (currentPath) {
-                            // Get fresh conversations directly from the backend
-                            const response = await window.api.getConversations(normalizePath(currentPath));
-                            
-                            if (response?.conversations) {
-                                // Format conversations properly with newest first
-                                const formattedConversations = response.conversations.map(conv => ({
-                                    id: conv.id,
-                                    title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
-                                    preview: conv.preview || 'No content',
-                                    timestamp: conv.timestamp || Date.now()
-                                }));
-                                
-                                // Sort conversations by timestamp, newest first
-                                formattedConversations.sort((a, b) => b.timestamp - a.timestamp);
-                                
-                                // Force complete replacement of conversations list to trigger UI update
-                                console.log(`[REACT] handleStreamComplete: Setting ${formattedConversations.length} conversations`);
-                                setDirectoryConversations([...formattedConversations]);
-                            } else {
-                                console.error('[REACT] handleStreamComplete: No conversations in response:', response);
-                            }
-                        }
-                    } catch (err) {
-                        console.error('[REACT] handleStreamComplete: Error refreshing conversations:', err);
-                    }
-                }
-            };
-    
-            const handleStreamError = (_, { streamId: errorStreamId, error } = {}) => {
-                console.error(`[REACT] handleStreamError: streamId=${errorStreamId}, currentStreamIdRef=${streamIdRef.current}, error=${error}`);
-                if (streamIdRef.current === errorStreamId) {
-                    setIsStreaming(false);
-                    streamIdRef.current = null;
-                }
-                setMessages(prev => {
-                    const msgIndex = prev.findIndex(m => m.id === errorStreamId && m.role === 'assistant');
-                    if (msgIndex !== -1) {
-                        const updatedMessages = [...prev];
-                        updatedMessages[msgIndex] = {
-                            ...updatedMessages[msgIndex],
-                            content: (updatedMessages[msgIndex].content || '') + `\n[STREAM ERROR: ${error}]`,
-                            type: 'error',
-                            streamId: null
-                        };
-                        return updatedMessages;
-                    }
-                    return [...prev, { 
-                        id: generateId(), 
-                        role: 'assistant', 
-                        content: `[STREAM ERROR (streamId ${errorStreamId || 'unknown'}): ${error}]`, 
-                        timestamp: new Date().toISOString(), 
-                        type: 'error' 
-                    }];
-                });
-            };
-    
-            const cleanupStreamData = window.api.onStreamData(handleStreamData);
-            const cleanupStreamComplete = window.api.onStreamComplete(handleStreamComplete);
-            const cleanupStreamError = window.api.onStreamError(handleStreamError);
-            
-            listenersAttached.current = true;
-            console.log('[REACT] Stream listener useEffect: Stream listeners ATTACHED.');
-    
-            return () => {
-                console.log('[REACT] Stream listener useEffect: CLEANING UP listeners.');
-                cleanupStreamData();
-                cleanupStreamComplete();
-                cleanupStreamError();
-                listenersAttached.current = false;
-            };
-        } else {
-            if (!config) console.log('[REACT] Stream listener useEffect: Not attaching, config is null.');
-            else if (!config.stream) console.log('[REACT] Stream listener useEffect: Not attaching, config.stream is false.');
-            else if (listenersAttached.current) console.log('[REACT] Stream listener useEffect: Not attaching, listeners already attached (this should not happen if logic is correct).');
-        }
-    }, [config]);
+        const cleanupStreamData = window.api.onStreamData(handleStreamData);
+        const cleanupStreamComplete = window.api.onStreamComplete(handleStreamComplete);
+        const cleanupStreamError = window.api.onStreamError(handleStreamError);
+        
+        listenersAttached.current = true;
+        console.log('[REACT] Stream listener useEffect: Stream listeners ATTACHED.');
+
+        return () => {
+            console.log('[REACT] Stream listener useEffect: CLEANING UP listeners.');
+            cleanupStreamData();
+            cleanupStreamComplete();
+            cleanupStreamError();
+            listenersAttached.current = false;
+        };
+    } else {
+        if (!config) console.log('[REACT] Stream listener useEffect: Not attaching, config is null.');
+        else if (!config.stream) console.log('[REACT] Stream listener useEffect: Not attaching, config.stream is false.');
+        else if (listenersAttached.current) console.log('[REACT] Stream listener useEffect: Not attaching, listeners already attached (this should not happen if logic is correct).');
+    }
+}, [config]);
 
 
     // Update the handleInputSubmit function to pass the complete NPC object to the backend instead of just the name
