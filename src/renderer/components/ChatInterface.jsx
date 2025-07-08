@@ -168,6 +168,7 @@ const ChatInterface = () => {
     const [activeConversationId, setActiveConversationId] = useState(null);
     const [messages, setMessages] = useState([]);
     const [currentModel, setCurrentModel] = useState(null);
+    const [currentProvider, setCurrentProvider] = useState(null);
     const [currentNPC, setCurrentNPC] = useState(null);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(true);
@@ -465,6 +466,7 @@ const handleApplyPromptToMessages = async (operationType, customPrompt = '') => 
             currentPath,
             conversationId: newConversation.id,
             model: currentModel,
+            provider: currentProvider,
             npc: selectedNpc ? selectedNpc.name : currentNPC,
             npcSource: selectedNpc ? selectedNpc.source : 'global',
             attachments: [],
@@ -1213,10 +1215,13 @@ const handleFileContextMenu = (e, filePath) => {
                     if (!currentModel || !currentValid) {
                         if (config?.model && configValid) {
                             setCurrentModel(config.model);
+                            setCurrentProvider(config.provider);
                         } else if (response.models.length > 0) {
                             setCurrentModel(response.models[0].value);
+                            console.log('response models', response.models)
                         } else {
                             setCurrentModel(null);
+                            setCurrentProvider(null);
                         }
                     }
                 } else {
@@ -1227,6 +1232,7 @@ const handleFileContextMenu = (e, filePath) => {
                 setModelsError(err.message);
                 setAvailableModels([]);
                 setCurrentModel(config?.model || 'llama3.2');
+                setCurrentProvider(config?.provider || 'ollama');
             } finally {
                 setModelsLoading(false);
             }
@@ -1255,6 +1261,7 @@ const handleFileContextMenu = (e, filePath) => {
             const conversation = await window.api.createConversation({
                 title: 'New Conversation',
                 model: currentModel || config?.model || 'llama3.2',
+                provider: currentProvider || config?.provider || 'ollama', 
                 directory_path: currentPath
             });
             
@@ -1595,6 +1602,7 @@ useEffect(() => {
                 timestamp: new Date().toISOString(),
                 streamId: newStreamId, 
                 model: currentModel,
+                provider: currentProvider, 
                 npc: currentNPC
             };
             
@@ -2784,7 +2792,15 @@ useEffect(() => {
                 <div className={`flex items-center gap-2 px-2 pb-2 ${isStreaming ? 'opacity-50' : ''}`}>
                     <select
                         value={currentModel || ''}
-                        onChange={e => setCurrentModel(e.target.value)}
+                        onChange={(e) => {
+                            const selectedModel = availableModels.find(m => m.value === e.target.value);
+                            setCurrentModel(e.target.value);
+                            if (selectedModel?.provider) {
+                                setCurrentProvider(selectedModel.provider);
+                            }
+                        }}
+
+
                         className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
                         disabled={modelsLoading || !!modelsError || isStreaming} // Disable while streaming
                     >

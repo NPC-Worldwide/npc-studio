@@ -817,15 +817,14 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
 
   
   try {
-    const apiUrl = 'http://127.0.0.1:5337/api/stream';
-=    
+    const apiUrl = 'http://127.0.0.1:5337/api/stream';   
     // Create the request payload, including the npcSource parameter
     const payload = {
       commandstr: data.commandstr,
       currentPath: data.currentPath,
       conversationId: data.conversationId,
       model: data.model,
-      provider:data.provider,
+      provider: data.provider,
       npc: data.npc,
       npcSource: data.npcSource || 'global', // Add the npcSource parameter (project or global)
       attachments: data.attachments || []

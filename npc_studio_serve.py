@@ -1,6 +1,6 @@
 # npc_serve.py
 
-from npcpy.modes.serve import start_flask_server
+from npcpy.serve import start_flask_server
 if __name__ == "__main__":
     
     start_flask_server(
