@@ -1,6 +1,6 @@
 {
   "name": "npc-studio",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "The premier AI IDE powered by the NPC Toolkit.",
   "author": "Chris Agostino <info@npcworldwi.de>",
   "main": "src/main.js",
