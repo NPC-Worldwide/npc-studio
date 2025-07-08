@@ -637,6 +637,7 @@ const handleApplyPromptToFiles = async (operationType, customPrompt = '') => {
             currentPath,
             conversationId: newConversation.id,
             model: currentModel,
+            provider: currentProvider,
             npc: selectedNpc ? selectedNpc.name : currentNPC,
             npcSource: selectedNpc ? selectedNpc.source : 'global',
             attachments: [],
@@ -1616,11 +1617,13 @@ useEffect(() => {
             
             // Send the NPC name and information about where it's stored (project or global)
             // This is what the backend needs to properly load the NPC file
+            console.log('current model', currentModel, 'current provider', currentProvider)
             const result = await window.api.executeCommandStream({
                 commandstr: currentInputVal,
                 currentPath,
                 conversationId: activeConversationId,
                 model: currentModel,
+                provider: currentProvider,
                 npc: selectedNpc ? selectedNpc.name : currentNPC,
                 npcSource: selectedNpc ? selectedNpc.source : 'global', // Either 'project' or 'global'
                 attachments: currentAttachmentsVal.map(file => ({
@@ -1785,6 +1788,7 @@ useEffect(() => {
                 currentPath,
                 conversationId: newConversation.id,
                 model: currentModel,
+                provider: currentProvider, 
                 npc: selectedNpc ? selectedNpc.name : currentNPC,
                 npcSource: selectedNpc ? selectedNpc.source : 'global',
                 attachments: [],
