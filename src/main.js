@@ -575,29 +575,48 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
-    if (!activeStreams.has(streamIdToInterrupt)) {
-      return { success: false, error: 'Stream not found' };
-    }
+
   
-    try {
-      const { stream } = activeStreams.get(streamIdToInterrupt);
-      
-      // Destroy the stream and clean up
-      if (stream && typeof stream.destroy === 'function') {
-        stream.destroy();
-      }
-      
-      activeStreams.delete(streamIdToInterrupt);
-      return { success: true };
-      
-    } catch (error) {
-      console.error('Error interrupting stream:', error);
-      return { success: false, error: error.message };
-    }
-  });
+
+ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
+  log(`[Main Process] Received request to interrupt stream: ${streamIdToInterrupt}`);
   
-  ipcMain.handle('wait-for-screenshot', async (event, screenshotPath) => {
+  try {
+    const response = await fetch('http://127.0.0.1:5337/api/interrupt', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ streamId: streamIdToInterrupt }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Backend failed to acknowledge interruption: ${errorText}`);
+    }
+
+    const result = await response.json();
+    log(`[Main Process] Backend response to interruption:`, result.message);
+    
+    // It's still good practice to destroy the client-side stream to stop processing
+    // any data that might already be in the pipe.
+    if (activeStreams.has(streamIdToInterrupt)) {
+        const { stream } = activeStreams.get(streamIdToInterrupt);
+        if (stream && typeof stream.destroy === 'function') {
+            stream.destroy();
+        }
+        // The 'end' and 'error' listeners on the stream will handle deleting from activeStreams.
+    }
+    
+    return { success: true };
+    
+  } catch (error) {
+    console.error('[Main Process] Error sending interrupt request to backend:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('wait-for-screenshot', async (event, screenshotPath) => {
     const maxAttempts = 20; // 10 seconds total
     const delay = 500; // 500ms between attempts
 
@@ -812,24 +831,27 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
 
 
 
-ipcMain.handle('executeCommandStream', async (event, data) => {
-  const currentStreamId = data.streamId || generateId(); // Should always have data.streamId from new React code
 
+ipcMain.handle('executeCommandStream', async (event, data) => {
+  // Your React code is already generating a streamId, which is perfect.
+  const currentStreamId = data.streamId || generateId(); 
+  log(`[Main Process] executeCommandStream: Starting stream with ID: ${currentStreamId}`);
   
   try {
-    const apiUrl = 'http://127.0.0.1:5337/api/stream';   
-    // Create the request payload, including the npcSource parameter
+    const apiUrl = 'http://127.0.0.1:5337/api/stream'; // Or /api/execute if that's the one
+    
+    // --- KEY CHANGE: Ensure streamId is in the payload ---
     const payload = {
+      streamId: currentStreamId, // Pass the ID to the backend
       commandstr: data.commandstr,
       currentPath: data.currentPath,
       conversationId: data.conversationId,
       model: data.model,
       provider: data.provider,
       npc: data.npc,
-      npcSource: data.npcSource || 'global', // Add the npcSource parameter (project or global)
+      npcSource: data.npcSource || 'global',
       attachments: data.attachments || []
     };
-    
     
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -837,52 +859,45 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       body: JSON.stringify(payload)
     });
 
-    log(`[Main Process] executeCommandStream: Backend response status for streamId ${currentStreamId}: ${response.status}`);
+    log(`[Main Process] Backend response status for streamId ${currentStreamId}: ${response.status}`);
     if (!response.ok) {
       const errorText = await response.text();
-
       throw new Error(`HTTP error! Status: ${response.status}. Body: ${errorText}`);
     }
 
     const stream = response.body;
     if (!stream) {
-
       event.sender.send('stream-error', { streamId: currentStreamId, error: 'Backend returned no stream data.' });
-        return { error: 'Backend returned no stream data.', streamId: currentStreamId };
+      return { error: 'Backend returned no stream data.', streamId: currentStreamId };
     }
     
+    // Keep track of the stream to manage listeners
     activeStreams.set(currentStreamId, { stream, eventSender: event.sender });
-
     
-    // IIFE to capture currentStreamId for async handlers
+    // This listener setup is correct and does not need to change.
     (function(capturedStreamId) {
-      let chunkCount = 0;
       stream.on('data', (chunk) => {
-        chunkCount++;
-        const chunkContent = chunk.toString();
-
         if (event.sender.isDestroyed()) {
-
           stream.destroy();
-            activeStreams.delete(capturedStreamId);
-            return;
+          activeStreams.delete(capturedStreamId);
+          return;
         }
         event.sender.send('stream-data', {
           streamId: capturedStreamId,
-          chunk: chunkContent
+          chunk: chunk.toString()
         });
       });
 
       stream.on('end', () => {
-
+        log(`[Main Process] Stream ${capturedStreamId} ended from backend.`);
         if (!event.sender.isDestroyed()) {
-            event.sender.send('stream-complete', { streamId: capturedStreamId });
+          event.sender.send('stream-complete', { streamId: capturedStreamId });
         }
         activeStreams.delete(capturedStreamId);
       });
 
       stream.on('error', (err) => {
-
+        log(`[Main Process] Stream ${capturedStreamId} error:`, err.message);
         if (!event.sender.isDestroyed()) {
             event.sender.send('stream-error', {
               streamId: capturedStreamId,
@@ -893,13 +908,13 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       });
     })(currentStreamId);
 
-    return { streamId: currentStreamId }; // Acknowledge stream setup
+    return { streamId: currentStreamId };
 
   } catch (err) {
-
+    log(`[Main Process] Error setting up stream ${currentStreamId}:`, err.message);
     if (event.sender && !event.sender.isDestroyed()) {
         event.sender.send('stream-error', {
-          streamId: currentStreamId, // The ID it was trying to use
+          streamId: currentStreamId,
           error: `Failed to set up stream: ${err.message}`
         });
     }
