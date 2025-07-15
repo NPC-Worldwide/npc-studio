@@ -13,6 +13,76 @@ const defaultSettings = {
     darkThemeColor: "#000000",
     lightThemeColor: "#FFFFFF"
 };
+const [verificationStatus, setVerificationStatus] = useState({
+    isVerifying: false,
+    status: null,
+    message: null
+});
+
+// Add this handler function with your other handlers
+const handleLicenseValidation = async () => {
+    if (!globalSettings.NPCSH_LICENSE_KEY) {
+        setVerificationStatus({
+            isVerifying: false,
+            status: 'error',
+            message: 'Please enter a license key'
+        });
+        return;
+    }
+
+    setVerificationStatus({
+        isVerifying: true,
+        status: null,
+        message: 'Verifying license...'
+    });
+
+    try {
+        const response = await fetch('https://license-verification-120419531021.us-central1.run.app', {
+            method: 'POST', 
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                license_key: globalSettings.NPCSH_LICENSE_KEY,
+                timestamp: Date.now()
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.valid) {
+            // Store the session token
+            localStorage.setItem('npc_session_token', data.sessionToken);
+            localStorage.setItem('npc_license_expiry', data.expiresAt);
+            
+            setVerificationStatus({
+                isVerifying: false,
+                status: 'success',
+                message: 'License verified successfully'
+            });
+
+            // Update global settings with verified status
+            setGlobalSettings({
+                ...globalSettings,
+                licenseStatus: 'verified'
+            });
+        } else {
+            setVerificationStatus({
+                isVerifying: false,
+                status: 'error',
+                message: data.error || 'License verification failed'
+            });
+        }
+    } catch (error) {
+        console.error('License verification error:', error);
+        setVerificationStatus({
+            isVerifying: false,
+            status: 'error',
+            message: 'Connection error during verification'
+        });
+    }
+};
+
 
 const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
     const [activeTab, setActiveTab] = useState('global');
@@ -185,11 +255,31 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
                                     Purchase a license
                                 </button>
                                 <button
-                                    onClick={() => console.log('Validating license...')}
-                                    className="text-sm bg-green-600 hover:bg-green-500 px-3 py-2 rounded text-white"
-                                >
-                                    Validate License
-                                </button>
+    onClick={handleLicenseValidation}
+    disabled={verificationStatus.isVerifying}
+    className={`text-sm px-3 py-2 rounded text-white ${
+        verificationStatus.isVerifying 
+            ? 'bg-gray-500' 
+            : verificationStatus.status === 'success'
+                ? 'bg-green-600 hover:bg-green-500'
+                : 'bg-blue-600 hover:bg-blue-500'
+    }`}
+>
+    {verificationStatus.isVerifying 
+        ? 'Verifying...' 
+        : verificationStatus.status === 'success'
+            ? 'Verified' 
+            : 'Validate License'
+    }
+</button>
+{verificationStatus.message && (
+    <span className={`text-sm ${
+        verificationStatus.status === 'success' ? 'text-green-400' : 'text-red-400'
+    }`}>
+        {verificationStatus.message}
+    </span>
+)}
+
                             </div>
                         </div>
                     </div>

@@ -15,7 +15,7 @@ flask_sse
 redis
 pyyaml
 pillow
-npcpy
+npcpy==1.0.31
 EOF
 
 pyinstaller --onefile  \
@@ -62,6 +62,7 @@ pyinstaller --onefile  \
     --exclude-module=nltk \
     --exclude-module=tensorflow.python.framework.cuda_util \
     --collect-data=litellm \
+    --collect-data=npcpy\
     npc_studio_serve.py
 
 # Prepare resources for Electron app
