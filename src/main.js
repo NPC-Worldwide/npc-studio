@@ -451,7 +451,7 @@ if (!gotTheLock) {
           ...details.responseHeaders,
           'Content-Security-Policy': [
             "default-src 'self' 'unsafe-inline' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "connect-src 'self' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
+            "connect-src 'self' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 https://web.squarecdn.com https://*.squarecdn.com https://*.square.site https://license-verification-120419531021.us-central1.run.app;" +
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
             "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
             "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
