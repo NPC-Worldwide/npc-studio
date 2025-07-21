@@ -26,6 +26,19 @@ const log = (...messages) => {
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
 
 
+const dbQuery = (query, params = []) => {
+  return new Promise((resolve, reject) => {
+    // Use OPEN_READONLY to prevent accidental writes
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) return reject(err);
+    });
+    db.all(query, params, (err, rows) => {
+      db.close();
+      if (err) return reject(err);
+      resolve(rows);
+    });
+  });
+};
 
 const DEFAULT_CONFIG = {
   baseDir: path.resolve(os.homedir(), '.npcsh'),
@@ -490,8 +503,6 @@ if (!gotTheLock) {
 
 
 
-
-
   ipcMain.on('submit-macro', (event, command) => {
     // Hide the window after macro submission
     mainWindow.hide();
@@ -830,6 +841,34 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
 });
 
 
+
+ipcMain.handle('get-usage-stats', async () => {
+  try {
+    const conversationQuery = `SELECT COUNT(DISTINCT conversation_id) as total FROM conversation_history;`;
+    const messagesQuery = `SELECT COUNT(*) as total FROM conversation_history WHERE role = 'user' OR role = 'assistant';`;
+    const modelsQuery = `SELECT model, COUNT(*) as count FROM conversation_history WHERE model IS NOT NULL AND model != '' GROUP BY model ORDER BY count DESC LIMIT 5;`;
+    const npcsQuery = `SELECT npc, COUNT(*) as count FROM conversation_history WHERE npc IS NOT NULL AND npc != '' GROUP BY npc ORDER BY count DESC LIMIT 5;`;
+
+    const [convResult] = await dbQuery(conversationQuery);
+    const [msgResult] = await dbQuery(messagesQuery);
+    const topModels = await dbQuery(modelsQuery);
+    const topNPCs = await dbQuery(npcsQuery);
+
+    return {
+      stats: {
+        totalConversations: convResult?.total || 0,
+        totalMessages: msgResult?.total || 0,
+        topModels: topModels,
+        topNPCs: topNPCs
+      },
+      error: null
+    };
+
+  } catch (err) {
+    console.error('Error fetching usage stats:', err);
+    return { stats: null, error: err.message };
+  }
+});
 
 
 ipcMain.handle('executeCommandStream', async (event, data) => {

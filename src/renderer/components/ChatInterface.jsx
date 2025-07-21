@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import {
-    Folder, File, ChevronRight, Settings, Edit, Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare, ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, Send
+    Folder, File, ChevronRight, Settings, Edit, Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare, ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, Send, BarChart3
 } from 'lucide-react';
 import MacroInput from './MacroInput';
 import SettingsMenu from './SettingsMenu';
@@ -9,6 +9,7 @@ import PhotoViewer from './PhotoViewer';
 import JinxMenu from './JinxMenu';
 import '../../index.css';
 import MarkdownRenderer from './MarkdownRenderer';
+import DataDash from './DataDash';
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const normalizePath = (path) => {
@@ -199,6 +200,7 @@ const ChatInterface = () => {
     const [directoryConversations, setDirectoryConversations] = useState([]);
     const [isStreaming, setIsStreaming] = useState(false);
     const streamIdRef = useRef(null);
+    const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false); // State for the new menu
 
     const [availableNPCs, setAvailableNPCs] = useState([]);
     const [npcsLoading, setNpcsLoading] = useState(false);
@@ -1924,6 +1926,8 @@ useEffect(() => {
                 <div className="flex gap-2 justify-center">
                     <button onClick={handleImagesClick} className="p-2 theme-hover rounded-full transition-all" aria-label="View Images"><Image size={16} /></button>
                     <button onClick={handleScreenshotsClick} className="p-2 theme-hover rounded-full transition-all" aria-label="View Screenshots"><Camera size={16} /></button>
+                    <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
+
                     <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
                     <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
                 </div>
@@ -2845,6 +2849,8 @@ useEffect(() => {
         <>
             <NPCTeamMenu isOpen={npcTeamMenuOpen} onClose={handleCloseNpcTeamMenu} currentPath={currentPath} startNewConversation={startNewConversationWithNpc}/>
             <JinxMenu isOpen={jinxMenuOpen} onClose={() => setJinxMenuOpen(false)} currentPath={currentPath}/>
+            <DataDash isOpen={dashboardMenuOpen} onClose={() => setDashboardMenuOpen(false)} />
+
             <SettingsMenu isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} currentPath={currentPath} onPathChange={(newPath) => { setCurrentPath(newPath); }}/>
             {isMacroInputOpen && (<MacroInput isOpen={isMacroInputOpen} currentPath={currentPath} onClose={() => { setIsMacroInputOpen(false); window.api?.hideMacro?.(); }} onSubmit={({ macro, conversationId, result }) => { setActiveConversationId(conversationId); setCurrentConversation({ id: conversationId, title: macro.trim().slice(0, 50) }); if (!result) { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: 'Processing...', timestamp: new Date().toISOString(), type: 'message' }]); } else { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: result?.output || 'No response', timestamp: new Date().toISOString(), type: 'message' }]); } refreshConversations(); }}/> )}
             <PhotoViewer isOpen={photoViewerOpen} onClose={() => setPhotoViewerOpen(false)} type={photoViewerType}/>

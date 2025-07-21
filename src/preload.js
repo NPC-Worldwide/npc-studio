@@ -26,7 +26,7 @@ contextBridge.exposeInMainWorld('api', {
     deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
     renameFile: (oldPath, newPath) => ipcRenderer.invoke('renameFile', oldPath, newPath),
 
-// Command operations
+    // Command operations
     executeCommand: (data) => ipcRenderer.invoke('executeCommand', {
         commandstr: data.commandstr,
         current_path: data.currentPath,
@@ -36,14 +36,6 @@ contextBridge.exposeInMainWorld('api', {
         npc: data.npc,
     }),
     executeCommandStream: (data) => ipcRenderer.invoke('executeCommandStream', data),
-    onStreamData: (callback) => {
-        // The callback will receive (event, { streamId, chunk })
-        ipcRenderer.on('stream-data', callback);
-        return () => ipcRenderer.removeListener('stream-data', callback);
-    },
-    
-    onStreamComplete: (callback) => ipcRenderer.on('stream-complete', callback),
-    onStreamError: (callback) => ipcRenderer.on('stream-error', callback),
     interruptStream: async (streamIdToInterrupt) => {
         try {
             await ipcRenderer.invoke('interruptStream', streamIdToInterrupt);
@@ -53,20 +45,16 @@ contextBridge.exposeInMainWorld('api', {
             throw error;
         }
     },
-
-
-
-    checkFileExists: async (path) => {
-        try {
-            await fs.access(path);
-            return true;
-        } catch {
-            return false;
-        }
+    
+    // Stream listeners
+    onStreamData: (callback) => {
+        ipcRenderer.on('stream-data', callback);
+        return () => ipcRenderer.removeListener('stream-data', callback);
     },
+    onStreamComplete: (callback) => ipcRenderer.on('stream-complete', callback),
+    onStreamError: (callback) => ipcRenderer.on('stream-error', callback),
 
-    showPromptDialog: (options) => ipcRenderer.invoke('showPromptDialog', options),
-
+    // Jinx operations
     getJinxsGlobal: async () => {
         try {
             const response = await fetch('http://127.0.0.1:5337/api/jinxs/global');
@@ -74,7 +62,6 @@ contextBridge.exposeInMainWorld('api', {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            console.log('API returned jinxs data:', data); // Debug what's returned
             return data; 
         } catch (error) {
             console.error('Error loading global jinxs:', error);
@@ -88,7 +75,6 @@ contextBridge.exposeInMainWorld('api', {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            console.log('API returned project jinxs data:', data); // Debug what's returned
             return data;
         } catch (error) {
             console.error('Error loading project jinxs:', error);
@@ -96,49 +82,44 @@ contextBridge.exposeInMainWorld('api', {
         }
     },
     saveJinx: (data) => ipcRenderer.invoke('save-jinx', data),
-
+    
+    // NPC operations
     getNPCTeamProject: async (currentPath) => {
         if (!currentPath || typeof currentPath !== 'string') {
           throw new Error('currentPath must be a string');
         }
         return await ipcRenderer.invoke('getNPCTeamProject', currentPath);
-      },
+    },
+    getNPCTeamGlobal: () => ipcRenderer.invoke('getNPCTeamGlobal'),
+    
+    // Attachment operations
     getMessageAttachments: (messageId) => ipcRenderer.invoke('get-message-attachments', messageId),
     getAttachment: (attachmentId) => ipcRenderer.invoke('get-attachment', attachmentId),
-
-    getNPCTeamGlobal: () => ipcRenderer.invoke('getNPCTeamGlobal'),
-    checkServerConnection: () => ipcRenderer.invoke('checkServerConnection'),
-    getWorkingDirectory: () => ipcRenderer.invoke('getWorkingDirectory'),
-    setWorkingDirectory: (dir) => ipcRenderer.invoke('setWorkingDirectory', dir),
-    deleteConversation: (id) => ipcRenderer.invoke('deleteConversation', id),
-    convertFileToBase64: (path) => ipcRenderer.invoke('convertFileToBase64', path),
     get_attachment_response: (attachmentData, conversationId) =>
         ipcRenderer.invoke('get_attachment_response', attachmentData, conversationId),
+
+    // Settings & Config
+    loadGlobalSettings: () => ipcRenderer.invoke('loadGlobalSettings'),
+    getAvailableModels: (currentPath) => ipcRenderer.invoke('getAvailableModels', currentPath),
     updateShortcut: (shortcut) => ipcRenderer.invoke('update-shortcut', shortcut),
+
+    // Screenshot & Macro
     onShowMacroInput: (callback) => {
       ipcRenderer.on('show-macro-input', callback);
       return () => ipcRenderer.removeListener('show-macro-input', callback);
     },
     submitMacro: (macro) => ipcRenderer.invoke('submit-macro', macro),
-    captureScreenshot: async () => {
-        console.log('PRELOAD: Capture screenshot called');  // This should show up
-        try {
-            const result = await ipcRenderer.invoke('captureScreenshot');
-            console.log('PRELOAD: Got result:', result);
-            return result;
-        } catch (error) {
-            console.error('PRELOAD: Screenshot error:', error);
-            throw error;
-        }
-    },
     onScreenshotCaptured: (callback) => {
         const wrappedCallback = (_, data) => callback(data);
         ipcRenderer.on('screenshot-captured', wrappedCallback);
         return () => ipcRenderer.removeListener('screenshot-captured', wrappedCallback);
     },
-    loadGlobalSettings: () => ipcRenderer.invoke('loadGlobalSettings'),
-    getAvailableModels: (currentPath) => ipcRenderer.invoke('getAvailableModels', currentPath),
 
-    // Shell operationss
+    // Dashboard / Stats
+    getUsageStats: () => ipcRenderer.invoke('get-usage-stats'),
+
+    // Utility
+    showPromptDialog: (options) => ipcRenderer.invoke('showPromptDialog', options),
+    checkServerConnection: () => ipcRenderer.invoke('checkServerConnection'),
     openExternal: (url) => ipcRenderer.invoke('openExternal', url),
 });
