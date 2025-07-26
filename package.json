@@ -1,7 +1,7 @@
 {
   "name": "npc-studio",
-  "version": "0.0.4",
-  "description": "The premier AI IDE powered by the NPC Toolkit.",
+  "version": "0.0.5",
+  "description": "The AI IDE.",
   "author": "Chris Agostino <info@npcworldwi.de>",
   "main": "src/main.js",
   "files": [
@@ -84,8 +84,14 @@
     "forceCodeSigning": false
   },
   "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/lang-python": "^6.2.1",
     "@headlessui/react": "^2.2.0",
+    "@lezer/highlight": "^1.2.1",
     "@supabase/supabase-js": "^2.47.15",
+    "@uiw/codemirror-theme-github": "^4.24.1",
+    "@uiw/codemirror-theme-vscode": "^4.24.1",
+    "@uiw/react-codemirror": "^4.24.1",
     "debounce": "^2.0.0",
     "electron-store": "^10.0.1",
     "install": "^0.13.0",

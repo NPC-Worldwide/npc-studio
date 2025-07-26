@@ -936,6 +936,83 @@ body.dark-mode .conversation-selected svg {
     color: #ccfbf1 !important;
 }
 
+/* === CodeMirror Editor Theming - START === */
+
+/* CodeMirror specific styles */
+.cm-editor {
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+.cm-scroller {
+  overflow: auto !important;
+  height: 100% !important;
+}
+
+.cm-content {
+  min-height: 100% !important;
+}
+
+/* Ensure the parent container allows scrolling */
+.code-editor-container {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Light Mode Editor Theme */
+body.light-mode .cm-editor {
+  color: var(--theme-text-light);
+  background-color: var(--theme-bg-light);
+}
+body.light-mode .cm-content {
+  caret-color: var(--theme-primary-light);
+}
+body.light-mode .cm-cursor, body.light-mode .cm-dropCursor {
+  border-left-color: var(--theme-primary-light) !important;
+}
+body.light-mode .cm-selectionBackground,
+body.light-mode .cm-content ::selection {
+  background-color: #dbeafe !important; /* A soft blue selection */
+}
+body.light-mode .cm-gutters {
+  background-color: var(--theme-bg-secondary-light);
+  color: var(--theme-text-muted-light);
+  border-right: 1px solid var(--theme-border-light);
+}
+body.light-mode .cm-activeLine,
+body.light-mode .cm-activeLineGutter {
+  background-color: #f1f5f9;
+}
+
+/* Dark Mode Editor Theme */
+body.dark-mode .cm-editor {
+  color: var(--theme-text-dark);
+  background-color: var(--theme-bg-secondary-dark);
+}
+body.dark-mode .cm-content {
+  caret-color: var(--theme-primary-dark);
+}
+body.dark-mode .cm-cursor, body.dark-mode .cm-dropCursor {
+  border-left-color: var(--theme-primary-dark) !important;
+}
+body.dark-mode .cm-selectionBackground,
+body.dark-mode .cm-content ::selection {
+  background-color: #334155 !important; /* Your tertiary dark background */
+}
+body.dark-mode .cm-gutters {
+  background-color: var(--theme-bg-dark);
+  color: var(--theme-text-muted-dark);
+  border-right: 1px solid var(--theme-border-dark);
+}
+body.dark-mode .cm-activeLine,
+body.dark-mode .cm-activeLineGutter {
+  background-color: #334155;
+}
+
+/* === CodeMirror Editor Theming - END === */
+
 /* ...existing animation keyframes... */
 .streaming-dots {
     display: flex;

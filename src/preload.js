@@ -25,6 +25,15 @@ contextBridge.exposeInMainWorld('api', {
     writeFileContent: (filePath, content) => ipcRenderer.invoke('write-file-content', filePath, content),
     deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
     renameFile: (oldPath, newPath) => ipcRenderer.invoke('renameFile', oldPath, newPath),
+    getGlobalContext: () => ipcRenderer.invoke('get-global-context'),
+    saveGlobalContext: (contextData) => ipcRenderer.invoke('save-global-context', contextData),
+    getProjectContext: (path) => ipcRenderer.invoke('get-project-context', path),
+    saveProjectContext: (data) => ipcRenderer.invoke('save-project-context', data),
+
+
+    getLastUsedInDirectory: (path) => ipcRenderer.invoke('get-last-used-in-directory', path),
+    getLastUsedInConversation: (conversationId) => ipcRenderer.invoke('get-last-used-in-conversation', conversationId),
+
 
     // Command operations
     executeCommand: (data) => ipcRenderer.invoke('executeCommand', {
@@ -35,6 +44,7 @@ contextBridge.exposeInMainWorld('api', {
         provider:data.provider,
         npc: data.npc,
     }),
+
     executeCommandStream: (data) => ipcRenderer.invoke('executeCommandStream', data),
     interruptStream: async (streamIdToInterrupt) => {
         try {
@@ -48,12 +58,20 @@ contextBridge.exposeInMainWorld('api', {
     
     // Stream listeners
     onStreamData: (callback) => {
-        ipcRenderer.on('stream-data', callback);
-        return () => ipcRenderer.removeListener('stream-data', callback);
+        const handler = (_, data) => callback(_, data);
+        ipcRenderer.on('stream-data', handler);
+        return () => ipcRenderer.removeListener('stream-data', handler);
     },
-    onStreamComplete: (callback) => ipcRenderer.on('stream-complete', callback),
-    onStreamError: (callback) => ipcRenderer.on('stream-error', callback),
-
+    onStreamComplete: (callback) => {
+        const handler = (_, data) => callback(_, data);
+        ipcRenderer.on('stream-complete', handler);
+        return () => ipcRenderer.removeListener('stream-complete', handler);
+    },
+    onStreamError: (callback) => {
+        const handler = (_, data) => callback(_, data);
+        ipcRenderer.on('stream-error', handler);
+        return () => ipcRenderer.removeListener('stream-error', handler);
+    },
     // Jinx operations
     getJinxsGlobal: async () => {
         try {

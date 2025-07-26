@@ -1422,6 +1422,43 @@ app.on('window-all-closed', () => {
 
   console.log('MAIN PROCESS SETUP COMPLETE');
 }
+ipcMain.handle('get-global-context', async () => {
+  return await callBackendApi('http://127.0.0.1:5337/api/context/global');
+});
+
+ipcMain.handle('save-global-context', async (event, contextData) => {
+  return await callBackendApi('http://127.0.0.1:5337/api/context/global', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context: contextData }),
+  });
+});
+ipcMain.handle('get-last-used-in-directory', async (event, path) => {
+  if (!path) return { model: null, npc: null, error: 'Path is required' };
+  const url = `http://127.0.0.1:5337/api/last_used_in_directory?path=${encodeURIComponent(path)}`;
+  return await callBackendApi(url);
+});
+
+ipcMain.handle('get-last-used-in-conversation', async (event, conversationId) => {
+  if (!conversationId) return { model: null, npc: null, error: 'Conversation ID is required' };
+  const url = `http://127.0.0.1:5337/api/last_used_in_conversation?conversationId=${encodeURIComponent(conversationId)}`;
+  return await callBackendApi(url);
+});
+ipcMain.handle('get-project-context', async (event, path) => {
+  if (!path) return { error: 'Path is required' };
+  const url = `http://127.0.0.1:5337/api/context/project?path=${encodeURIComponent(path)}`;
+  return await callBackendApi(url);
+});
+
+ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
+  if (!path) return { error: 'Path is required' };
+  const url = `http://127.0.0.1:5337/api/context/project`;
+  return await callBackendApi(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, context: contextData }),
+  });
+});
 
 // Add file rename functionality
   ipcMain.handle('renameFile', async (_, oldPath, newPath) => {

@@ -8,9 +8,15 @@ import NPCTeamMenu from './NPCTeamMenu';
 import PhotoViewer from './PhotoViewer';
 import JinxMenu from './JinxMenu';
 import '../../index.css';
+import CtxEditor from './CtxEditor';
 import MarkdownRenderer from './MarkdownRenderer';
 import DataDash from './DataDash';
+import CodeEditor from './CodeEditor';
+
 const generateId = () => Math.random().toString(36).substr(2, 9);
+
+const LAST_ACTIVE_PATH_KEY = 'npcStudioLastPath'; // <-- ADD THIS LINE
+const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
 
 const normalizePath = (path) => {
     if (!path) return '';
@@ -61,14 +67,24 @@ const highlightSearchTerm = (text, term) => {
     }
 };
 
-const ChatMessage = memo(({ message, isSelected, messageSelectionMode, toggleMessageSelection, handleMessageContextMenu, searchTerm, activeSearchResult }) => {
+
+const ChatMessage = memo(({ 
+    message, 
+    isSelected, 
+    messageSelectionMode, 
+    toggleMessageSelection, 
+    handleMessageContextMenu, 
+    searchTerm, 
+    activeSearchResult,
+    onResendMessage
+}) => {
     const showStreamingIndicators = !!message.isStreaming;
     const messageId = message.id || message.timestamp;
 
     return (
         <div
             id={`message-${messageId}`}
-            className={`max-w-[85%] rounded-lg p-3 relative ${
+            className={`max-w-[85%] rounded-lg p-3 relative group ${
                 message.role === 'user' ? 'theme-message-user' : 'theme-message-assistant'
             } ${message.type === 'error' ? 'theme-message-error theme-border' : ''} ${
                 isSelected ? 'ring-2 ring-blue-500' : ''
@@ -87,11 +103,35 @@ const ChatMessage = memo(({ message, isSelected, messageSelectionMode, toggleMes
                     />
                 </div>
             )}
+            
+            {message.role === 'user' && !messageSelectionMode && onResendMessage && (
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onResendMessage(message);
+                        }}
+                        className="p-1 theme-hover rounded-full transition-all"
+                        title="Resend"  // <- Updated this
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                    </button>
+                </div>
+            )}
+
             <div className="text-xs theme-text-muted mb-1 opacity-80">
                 {message.role === 'user' ? 'You' : (message.npc || message.model || 'Assistant')}
                 <span className="ml-2">
                     {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
+                {message.originalModel && message.originalNPC && (
+                    <span className="ml-2 text-yellow-400 text-xs">
+                        (Resent from {message.originalNPC} / {message.originalModel})
+                    </span>
+                )}
             </div>
             <div className="relative message-content-area">
                 {showStreamingIndicators && (
@@ -149,7 +189,6 @@ const ChatMessage = memo(({ message, isSelected, messageSelectionMode, toggleMes
 });
 
 
-
 const ChatInterface = () => {
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [editedPath, setEditedPath] = useState('');
@@ -202,6 +241,21 @@ const ChatInterface = () => {
     const streamIdRef = useRef(null);
     const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false); // State for the new menu
 
+    const [aiEditModal, setAiEditModal] = useState({
+        isOpen: false,
+        type: '',
+        selectedText: '',
+        selectionStart: 0,
+        selectionEnd: 0,
+        aiResponse: '',
+        aiResponseDiff: [], // ADD THIS LINE
+        showDiff: false,
+        isLoading: false,
+        streamId: null,
+        modelForEdit: null,
+        npcForEdit: null,
+        customEditPrompt: ''
+    });    
     const [availableNPCs, setAvailableNPCs] = useState([]);
     const [npcsLoading, setNpcsLoading] = useState(false);
     const [npcsError, setNpcsError] = useState(null);
@@ -220,10 +274,12 @@ const ChatInterface = () => {
         defaultPrompt: '',
         onConfirm: null
     });
+    const [ctxEditorOpen, setCtxEditorOpen] = useState(false);
 
     // --- NEW: Collapsible section states ---
     const [filesCollapsed, setFilesCollapsed] = useState(true); // Set to true by default
     const [conversationsCollapsed, setConversationsCollapsed] = useState(true); // Set to true by default
+    const chatContainerRef = useRef(null); // Ref for the chat messages container
 
     // --- NEW/ADJUSTED SEARCH STATE ---
     const [searchTerm, setSearchTerm] = useState('');
@@ -235,6 +291,12 @@ const ChatInterface = () => {
     const [activeSearchResult, setActiveSearchResult] = useState(null); // ID of highlighted message
     const searchInputRef = useRef(null); // Ref to focus the search input
 
+    const [resendModal, setResendModal] = useState({
+        isOpen: false,
+        message: null,
+        selectedModel: '',
+        selectedNPC: ''
+    });
     // --- NEW: useEffect for Ctrl+F shortcut ---
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -249,6 +311,11 @@ const ChatInterface = () => {
         };
     }, []);
 
+    useEffect(() => {
+        if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+    }, [messages, activeConversationId]); // Re-scroll when messages update or conversation changes
 
     // --- NEW: Handler for deep search submission ---
     const handleSearchSubmit = async () => {
@@ -380,6 +447,152 @@ const handleMessageContextMenu = useCallback((e, messageId) => {
     setMessageContextMenuPos({ x: e.clientX, y: e.clientY, messageId });
 }, []); 
 
+
+const handleEditorContextMenu = (e) => {
+    const textarea = e.target;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = textarea.value.substring(start, end);
+    
+    if (selectedText.length > 0) {
+        e.preventDefault();
+        setAiEditModal(prev => ({
+            ...prev,
+            selectedText,
+            selectionStart: start,
+            selectionEnd: end
+        }));
+        
+        // Show context menu at cursor position
+        const rect = textarea.getBoundingClientRect();
+        const contextMenu = document.getElementById('editor-context-menu');
+        if (contextMenu) {
+            contextMenu.style.display = 'block';
+            contextMenu.style.left = `${e.clientX}px`;
+            contextMenu.style.top = `${e.clientY}px`;
+        }
+    }
+};
+
+const handleAIEdit = async (action) => {
+    // If we're performing an 'edit' action, get a custom prompt from the user
+    let customPromptInput = '';
+    if (action === 'edit') {
+        const result = await window.api.showPromptDialog({
+            title: 'Edit Code',
+            message: 'What changes do you want the AI to make?',
+            defaultValue: 'Refactor this for clarity and efficiency:'
+        });
+        if (result === null) { // User cancelled
+            return;
+        }
+        customPromptInput = result;
+    }
+
+    const newStreamId = generateId();
+    
+    setAiEditModal(prev => ({
+        ...prev,
+        isOpen: true,
+        type: action,
+        isLoading: true,
+        aiResponse: '',
+        showDiff: action !== 'ask', // Show diff for 'document' and 'edit' by default
+        streamId: newStreamId,
+        modelForEdit: currentModel, // Initialize with current chat model
+        npcForEdit: currentNPC,     // Initialize with current chat NPC
+        customEditPrompt: customPromptInput // Store custom prompt if applicable
+    }));
+
+    // Hide context menu immediately
+    const contextMenu = document.getElementById('editor-context-menu');
+    if (contextMenu) {
+        contextMenu.style.display = 'none';
+    }
+
+    try {
+        let prompt = '';
+        switch (action) {
+            case 'ask':
+                prompt = `Please analyze and explain this code. Provide a concise overview, highlighting its purpose, key components, and any notable patterns or potential improvements:\n\n\`\`\`\n${aiEditModal.selectedText}\n\`\`\``;
+                break;
+            case 'document':
+                prompt = `Add comprehensive inline comments and, if appropriate, a docstring to this code. Ensure the comments explain complex logic, parameters, return values, and any assumptions. Return only the commented version of the code, preserving original indentation and structure:\n\n\`\`\`\n${aiEditModal.selectedText}\n\`\`\``;
+                break;
+            case 'edit':
+                prompt = `${customPromptInput}\n\nHere is the code to apply changes to. Return only the modified code:\n\n\`\`\`\n${aiEditModal.selectedText}\n\`\`\``;
+                break;
+        }
+
+        const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
+
+        const result = await window.api.executeCommandStream({
+            commandstr: prompt,
+            currentPath,
+            conversationId: null, // Intentionally not saving to main chat history
+            model: currentModel, // Use current selected model for the prompt
+            provider: currentProvider,
+            npc: selectedNpc ? selectedNpc.name : currentNPC,
+            npcSource: selectedNpc ? selectedNpc.source : 'global',
+            attachments: [],
+            streamId: newStreamId
+        });
+
+        if (result && result.error) {
+            throw new Error(result.error);
+        }
+
+    } catch (err) {
+        console.error('Error processing AI edit:', err);
+        setError(err.message);
+        setAiEditModal(prev => ({
+            ...prev,
+            isLoading: false
+        }));
+    }
+};
+
+const generateDiff = (original, modified) => {
+    const originalLines = original.split('\n');
+    const modifiedLines = modified.split('\n');
+    
+    const diff = [];
+    let i = 0, j = 0;
+    
+    while (i < originalLines.length || j < modifiedLines.length) {
+        if (i >= originalLines.length) {
+            // Added lines
+            diff.push({ type: 'added', content: modifiedLines[j], lineNumber: j + 1 });
+            j++;
+        } else if (j >= modifiedLines.length) {
+            // Removed lines
+            diff.push({ type: 'removed', content: originalLines[i], lineNumber: i + 1 });
+            i++;
+        } else if (originalLines[i] === modifiedLines[j]) {
+            // Unchanged lines
+            diff.push({ type: 'unchanged', content: originalLines[i], lineNumber: i + 1 });
+            i++;
+            j++;
+        } else {
+            // Changed lines
+            diff.push({ type: 'removed', content: originalLines[i], lineNumber: i + 1 });
+            diff.push({ type: 'added', content: modifiedLines[j], lineNumber: j + 1 });
+            i++;
+            j++;
+        }
+    }
+    
+    return diff;
+};
+
+const applyAIEdit = () => {
+    const newContent = fileContent.substring(0, aiEditModal.selectionStart) + 
+                      aiEditModal.aiResponse + 
+                      fileContent.substring(aiEditModal.selectionEnd);
+    
+    handleFileContentChange(newContent);
+    setAiEditModal({ isOpen: false, type: '', selectedText: '', selectionStart: 0, selectionEnd: 0, aiResponse: '', showDiff: false, isLoading: false });
+};
 const handleApplyPromptToMessages = async (operationType, customPrompt = '') => {
     const selectedIds = Array.from(selectedMessages);
     if (selectedIds.length === 0) return;
@@ -718,56 +931,49 @@ const handleFileContextMenu = (e, filePath) => {
     }
     setFileContextMenuPos({ x: e.clientX, y: e.clientY, filePath });
 };
+const loadAvailableNPCs = async () => {
+    if (!currentPath) return []; // Return empty array if no path
+    setNpcsLoading(true);
+    setNpcsError(null);
+    try {
+        // First load project NPCs
+        const projectResponse = await window.api.getNPCTeamProject(currentPath);
+        const projectNPCs = projectResponse.npcs || [];
+        
+        // Then load global NPCs
+        const globalResponse = await window.api.getNPCTeamGlobal();
+        const globalNPCs = globalResponse.npcs || [];
+        
+        // Format and combine both sets
+        const formattedProjectNPCs = projectNPCs.map(npc => ({
+            ...npc,
+            value: npc.name,
+            display_name: `${npc.name} | Project`,
+            source: 'project'
+        }));
+        
+        const formattedGlobalNPCs = globalNPCs.map(npc => ({
+            ...npc,
+            value: npc.name,
+            display_name: `${npc.name} | Global`,
+            source: 'global'
+        }));
+        
+        // Combine project NPCs first, then global NPCs
+        const combinedNPCs = [...formattedProjectNPCs, ...formattedGlobalNPCs];
+        setAvailableNPCs(combinedNPCs); // Update state for dropdowns
+        return combinedNPCs; // IMPORTANT: Return the fetched NPCs for immediate use
+    } catch (err) {
+        console.error('Error fetching NPCs:', err);
+        setNpcsError(err.message);
+        setAvailableNPCs([]);
+        return []; // Return empty array on error
+    } finally {
+        setNpcsLoading(false);
+    }
+};
 
-    const loadAvailableNPCs = async () => {
-        if (!currentPath) return;
-        
-        setNpcsLoading(true);
-        setNpcsError(null);
-        
-        try {
-            // First load project NPCs
-            const projectResponse = await window.api.getNPCTeamProject(currentPath);
-            const projectNPCs = projectResponse.npcs || [];
-            
-            // Then load global NPCs
-            const globalResponse = await window.api.getNPCTeamGlobal();
-            const globalNPCs = globalResponse.npcs || [];
-            
-            // Format and combine both sets
-            const formattedProjectNPCs = projectNPCs.map(npc => ({
-                ...npc,
-                value: npc.name,
-                display_name: `${npc.name} | Project`,
-                source: 'project'
-            }));
-            
-            const formattedGlobalNPCs = globalNPCs.map(npc => ({
-                ...npc,
-                value: npc.name,
-                display_name: `${npc.name} | Global`,
-                source: 'global'
-            }));
-            
-            // Combine with project NPCs first, then global NPCs
-            const combinedNPCs = [...formattedProjectNPCs, ...formattedGlobalNPCs];
-            setAvailableNPCs(combinedNPCs);
-            
-            // Check if current NPC is valid, otherwise select first NPC if available
-            const currentValid = combinedNPCs.some(npc => npc.value === currentNPC);
-            if (!currentNPC || !currentValid) {
-                if (combinedNPCs.length > 0) {
-                    setCurrentNPC(combinedNPCs[0].value);
-                }
-            }
-        } catch (err) {
-            console.error('Error fetching NPCs:', err);
-            setNpcsError(err.message);
-            setAvailableNPCs([]);
-        } finally {
-            setNpcsLoading(false);
-        }
-    };
+
 
     // Add this useEffect to load NPCs when the path changes
     useEffect(() => {
@@ -833,11 +1039,23 @@ const handleFileContextMenu = (e, filePath) => {
             setIsSaving(false);
         }
     };
-
-    const handleFileContentChange = (newContent) => {
-        setFileContent(newContent);
+    const handleFileContentChange = useCallback((value) => {
+        setFileContent(value);
         setFileChanged(true);
-    };
+    }, []); // useCallback to prevent re-renders
+
+    // This handler receives start/end positions from CodeMirror
+    const handleTextSelection = useCallback((from, to) => {
+        const selectedText = fileContent.substring(from, to);
+        if (selectedText.length > 0) {
+            setAiEditModal(prev => ({
+                ...prev,
+                selectedText,
+                selectionStart: from,
+                selectionEnd: to,
+            }));
+        }
+    }, [fileContent]); // Depends on fileContent to get the substring
 
     // --- NEW: File renaming state and handlers ---
     const [isRenamingFile, setIsRenamingFile] = useState(false);
@@ -945,35 +1163,119 @@ const handleFileContextMenu = (e, filePath) => {
         loadData();
     }, [currentPath]);
 
+    useEffect(() => {
+        if (currentPath) {
+            localStorage.setItem(LAST_ACTIVE_PATH_KEY, currentPath);
+        }
+    }, [currentPath]);
 
 
-    const handleConversationSelect = async (conversationId) => {
+useEffect(() => {
+    if (!aiEditModal.isOpen || !aiEditModal.isLoading) return;
+
+    const currentStreamId = aiEditModal.streamId;
+    
+    const handleAIStreamData = (_, { streamId, chunk }) => {
+        if (streamId !== currentStreamId) return;
+        
         try {
-          setIsEditing(false);
-          setCurrentFile(null);
-          //console.log('Selecting conversation:', conversationId);
-          setActiveConversationId(conversationId);
-          //console.log('Active conversation ID set to:', conversationId);
+            let content = '';
+            if (typeof chunk === 'string') {
+                if (chunk.startsWith('data:')) {
+                    const dataContent = chunk.replace(/^data:\s*/, '').trim();
+                    if (dataContent === '[DONE]') return;
+                    if (dataContent) {
+                        const parsed = JSON.parse(dataContent);
+                        content = parsed.choices?.[0]?.delta?.content || '';
+                    }
+                } else {
+                    content = chunk;
+                }
+            } else if (chunk && chunk.choices) {
+                content = chunk.choices[0]?.delta?.content || '';
+            }
+            
+            if (content) {
+                // Update the raw response in real-time
+                setAiEditModal(prev => ({
+                    ...prev,
+                    aiResponse: (prev.aiResponse || '') + content
+                }));
+            }
+        } catch (err) {
+            console.error('Error processing AI edit stream chunk:', err);
+        }
+    };
 
-          const selectedConv = directoryConversations.find(conv => conv.id === conversationId);
-          //console.log('Found conversation object:', selectedConv);
-          if (selectedConv) {
+    const handleAIStreamComplete = (_, { streamId }) => {
+        if (streamId !== currentStreamId) return;
+        
+        // Now that the stream is done, calculate the final diff
+        setAiEditModal(prev => {
+            const finalDiff = prev.showDiff ? generateDiff(prev.selectedText, prev.aiResponse) : [];
+            return {
+                ...prev,
+                isLoading: false,
+                aiResponseDiff: finalDiff
+            };
+        });
+    };
+
+    const handleAIStreamError = (_, { streamId, error }) => {
+        if (streamId !== currentStreamId) return;
+        
+        console.error('AI edit stream error:', error);
+        setError(error);
+        setAiEditModal(prev => ({ ...prev, isLoading: false }));
+    };
+
+    const cleanupStreamData = window.api.onStreamData(handleAIStreamData);
+    const cleanupStreamComplete = window.api.onStreamComplete(handleAIStreamComplete);  
+    const cleanupStreamError = window.api.onStreamError(handleAIStreamError);
+
+    return () => {
+        cleanupStreamData();
+        cleanupStreamComplete();
+        cleanupStreamError();
+    };
+}, [aiEditModal.isOpen, aiEditModal.isLoading, aiEditModal.streamId]);
+
+
+    // Effect to save activeConversationId to localStorage whenever it changes
+    // Clears if no active conversation (e.g., when opening a file)
+    useEffect(() => {
+        if (activeConversationId) {
+            localStorage.setItem(LAST_ACTIVE_CONVO_ID_KEY, activeConversationId);
+        } else {
+            localStorage.removeItem(LAST_ACTIVE_CONVO_ID_KEY);
+        }
+    }, [activeConversationId]);    
+
+
+
+
+
+const handleConversationSelect = async (conversationId) => {
+    try {
+        setIsEditing(false);
+        setCurrentFile(null);
+        setActiveConversationId(conversationId);
+
+        const selectedConv = directoryConversations.find(conv => conv.id === conversationId);
+        if (selectedConv) {
             setCurrentConversation(selectedConv);
-          } else {
-             setCurrentConversation(null);
-          }
+        } else {
+            setCurrentConversation(null);
+        }
 
-          setMessages([]); // Clear messages initially
-          setAllMessages([]); // Clear all messages too
-          setDisplayedMessageCount(10); // Reset pagination
+        setMessages([]);
+        setAllMessages([]);
+        setDisplayedMessageCount(10);
 
-          //console.log('Fetching messages for conversation:', conversationId);
-          const response = await window.api.getConversationMessages(conversationId);
-          //console.log('Raw message response from API:', response);
+        const response = await window.api.getConversationMessages(conversationId);
 
-          // Check if the response *itself* is the array of messages
-          if (response && Array.isArray(response)) {
-             const formattedMessages = response.map(msg => ({
+        if (response && Array.isArray(response)) {
+            const formattedMessages = response.map(msg => ({
                 role: msg.role || 'assistant',
                 content: msg.content || '',
                 timestamp: msg.timestamp || new Date().toISOString(),
@@ -981,31 +1283,36 @@ const handleFileContextMenu = (e, filePath) => {
                 model: msg.model,
                 npc: msg.npc,
                 attachments: msg.attachment_data ? [{
-                  name: msg.attachment_name,
-                  data: `data:image/png;base64,${msg.attachment_data}`, // Assuming base64 image data
-                }] : (msg.attachments || []) // Preserve if already formatted
-              }));
-              //console.log('Setting messages:', formattedMessages);
-              setAllMessages(formattedMessages); // Store all messages
-              setMessages(formattedMessages); // Keep for backward compatibility
-          } else if (response?.error) {
-               console.error("Error fetching messages:", response.error);
-               setError(response.error);
-               setMessages([]);
-               setAllMessages([]);
-          }
-           else {
-            //console.log("No messages found or invalid response format for conversation:", conversationId);
+                    name: msg.attachment_name,
+                    data: `data:image/png;base64,${msg.attachment_data}`,
+                }] : (msg.attachments || [])
+            }));
+            setAllMessages(formattedMessages);
+            setMessages(formattedMessages);
+
+
+        setTimeout(() => {
+                if (chatContainerRef.current) {
+                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+                }
+            },0)
+        } else if (response?.error) {
+            console.error("Error fetching messages:", response.error);
+            setError(response.error);
             setMessages([]);
             setAllMessages([]);
-          }
-        } catch (err) {
-          console.error('Error in handleConversationSelect:', err);
-          setError(err.message);
-          setMessages([]);
-          setAllMessages([]);
+        } else {
+            setMessages([]);
+            setAllMessages([]);
         }
-      };
+    } catch (err) {
+        console.error('Error in handleConversationSelect:', err);
+        setError(err.message);
+        setMessages([]);
+        setAllMessages([]);
+    }
+};
+    
 
 
     const startNewConversationWithNpc = async (npc) => {
@@ -1165,85 +1472,172 @@ const handleFileContextMenu = (e, filePath) => {
         }
     };
 
+    const fetchModels = async () => {
+        if (!currentPath) return []; // Return empty array if no path
+        setModelsLoading(true);
+        setModelsError(null);
+        try {
+            const response = await window.api.getAvailableModels(currentPath);
+            if (response?.models && Array.isArray(response.models)) {
+                setAvailableModels(response.models); // Update state for dropdowns
+                return response.models; // IMPORTANT: Return the fetched models for immediate use
+            } else {
+                throw new Error(response?.error || "Invalid models response");
+            }
+        } catch (err) {
+            console.error('Error fetching models:', err);
+            setModelsError(err.message);
+            setAvailableModels([]);
+            return []; // Return empty array on error
+        } finally {
+            setModelsLoading(false);
+        }
+    };
 
-    // Initialization Effect (runs once)
-    useEffect(() => {
-        const init = async () => {
+useEffect(() => {
+    const initApplicationData = async () => {
+        setLoading(true);
+        setError(null);
+
+        // Step 0: Load initial configuration if not already loaded
+        if (!config) {
             try {
-                setLoading(true);
                 const loadedConfig = await window.api.getDefaultConfig();
                 if (!loadedConfig || !loadedConfig.baseDir) throw new Error('Invalid config');
                 setConfig(loadedConfig);
                 setBaseDir(loadedConfig.baseDir);
-                const defaultPath = await loadDefaultPath();
-                const pathToUse = defaultPath || loadedConfig.baseDir;
-                setCurrentPath(pathToUse); // This will trigger the next effect
+                return;
             } catch (err) {
-                console.error('Initialization error:', err);
+                console.error('Initial config load error:', err);
                 setError(err.message);
-            }        };
-        init();
-    }, []); // Empty dependency array - runs once
-
-    useEffect(() => {
-        const loadData = async () => {
-            if (currentPath) {
-                setLoading(true);
-                await loadDirectoryStructure(currentPath); // This now also calls loadConversations
                 setLoading(false);
-                initialLoadComplete.current = true;
-                 // Ensure a conversation is active after initial load if none was selected
-                if (!activeConversationId && directoryConversations.length === 0) {
-                    await createNewConversation();
-                } else if (!activeConversationId && directoryConversations.length > 0) {
-                    // Select first convo if none active after load
-                     await handleConversationSelect(directoryConversations[0].id);
-                }
+                return;
             }
-        };
-        loadData();
-    }, [currentPath]);
-
-    useEffect(() => {
-        const fetchModels = async () => {
-            if (!currentPath) return;
-            setModelsLoading(true);
-            setModelsError(null);
-            try {
-                const response = await window.api.getAvailableModels(currentPath);
-                if (response?.models && Array.isArray(response.models)) {
-                    setAvailableModels(response.models);
-                    const currentValid = response.models.some(m => m.value === currentModel);
-                    const configValid = response.models.some(m => m.value === config?.model);
-                    if (!currentModel || !currentValid) {
-                        if (config?.model && configValid) {
-                            setCurrentModel(config.model);
-                            setCurrentProvider(config.provider);
-                        } else if (response.models.length > 0) {
-                            setCurrentModel(response.models[0].value);
-                            console.log('response models', response.models)
-                        } else {
-                            setCurrentModel(null);
-                            setCurrentProvider(null);
-                        }
-                    }
-                } else {
-                    throw new Error(response?.error || "Invalid models response");
-                }
-            } catch (err) {
-                console.error('Error fetching models:', err);
-                setModelsError(err.message);
-                setAvailableModels([]);
-                setCurrentModel(config?.model || 'llama3.2');
-                setCurrentProvider(config?.provider || 'ollama');
-            } finally {
-                setModelsLoading(false);
-            }
-        };
-        if (currentPath) {
-             fetchModels();
         }
-    }, [currentPath, config]);
+
+        // Step 1: Determine the initial path to use
+        let initialPathToLoad = config.baseDir;
+        const storedPath = localStorage.getItem(LAST_ACTIVE_PATH_KEY);
+        if (storedPath) {
+            const pathExistsResponse = await window.api.readDirectoryStructure(storedPath);
+            if (!pathExistsResponse?.error) {
+                initialPathToLoad = storedPath;
+            } else {
+                console.warn(`Stored path "${storedPath}" is invalid or inaccessible. Falling back to default.`);
+                localStorage.removeItem(LAST_ACTIVE_PATH_KEY);
+            }
+        } else if (config.default_folder) {
+            initialPathToLoad = config.default_folder;
+        }
+
+        if (currentPath !== initialPathToLoad) {
+            setCurrentPath(initialPathToLoad);
+            return;
+        }
+
+        initialLoadComplete.current = true;
+
+        // Load directory structure and conversations for the determined path
+        await loadDirectoryStructure(currentPath);
+
+        // Fetch available models and NPCs for the determined path
+        const fetchedModels = await fetchModels();
+        const fetchedNPCs = await loadAvailableNPCs();
+
+        // Determine current model and NPC based on database history/fallbacks
+        let modelToSet = config.model || 'llama3.2';
+        let providerToSet = config.provider || 'ollama';
+        let npcToSet = config.npc || 'sibiji';
+
+        // Get the stored conversation ID
+        const storedConvoId = localStorage.getItem(LAST_ACTIVE_CONVO_ID_KEY);
+        let targetConvoId = null;
+
+        // Wait for conversations to be loaded and then check if stored convo exists
+        // We need to get the fresh conversations since loadDirectoryStructure just loaded them
+        const currentConversations = directoryConversationsRef.current;
+        
+        if (storedConvoId) {
+            const convoInCurrentDir = currentConversations.find(conv => conv.id === storedConvoId);
+            if (convoInCurrentDir) {
+                targetConvoId = storedConvoId;
+                // Load specific model/NPC for this conversation
+                const lastUsedInConvo = await window.api.getLastUsedInConversation(targetConvoId);
+                if (lastUsedInConvo?.model) {
+                    const validModel = fetchedModels.find(m => m.value === lastUsedInConvo.model);
+                    if (validModel) { 
+                        modelToSet = validModel.value; 
+                        providerToSet = validModel.provider; 
+                    }
+                }
+                if (lastUsedInConvo?.npc) {
+                    const validNpc = fetchedNPCs.find(n => n.value === lastUsedInConvo.npc);
+                    if (validNpc) { 
+                        npcToSet = validNpc.value; 
+                    }
+                }
+            } else {
+                localStorage.removeItem(LAST_ACTIVE_CONVO_ID_KEY);
+            }
+        }
+
+        // If no specific conversation's model/NPC was loaded, try directory defaults
+        if (!targetConvoId) {
+            const lastUsedInDir = await window.api.getLastUsedInDirectory(currentPath);
+            if (lastUsedInDir?.model) {
+                const validModel = fetchedModels.find(m => m.value === lastUsedInDir.model);
+                if (validModel) { 
+                    modelToSet = validModel.value; 
+                    providerToSet = validModel.provider; 
+                }
+            }
+            if (lastUsedInDir?.npc) {
+                const validNpc = fetchedNPCs.find(n => n.value === lastUsedInDir.npc);
+                if (validNpc) { 
+                    npcToSet = validNpc.value; 
+                }
+            }
+        }
+        
+        // Final validation against available lists
+        if (!fetchedModels.some(m => m.value === modelToSet) && fetchedModels.length > 0) {
+            modelToSet = fetchedModels[0].value;
+            providerToSet = fetchedModels[0].provider;
+        } else if (fetchedModels.length === 0) {
+            modelToSet = 'llama3.2';
+            providerToSet = 'ollama';
+        }
+
+        if (!fetchedNPCs.some(n => n.value === npcToSet) && fetchedNPCs.length > 0) {
+            npcToSet = fetchedNPCs[0].value;
+        } else if (fetchedNPCs.length === 0) {
+            npcToSet = 'sibiji';
+        }
+
+        setCurrentModel(modelToSet);
+        setCurrentProvider(providerToSet);
+        setCurrentNPC(npcToSet);
+
+        // Now handle conversation selection with the fresh conversation list
+        if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
+            // We have a valid stored conversation - select it
+            console.log('Selecting stored conversation:', targetConvoId);
+            await handleConversationSelect(targetConvoId);
+        } else if (currentConversations.length > 0) {
+            // No valid stored conversation, but we have conversations - select the first one
+            console.log('Selecting first conversation:', currentConversations[0].id);
+            await handleConversationSelect(currentConversations[0].id);
+        } else {
+            // No conversations at all - create a new one
+            console.log('Creating new conversation - none found');
+            await createNewConversation();
+        }
+
+        setLoading(false);
+    };
+
+    initApplicationData();
+}, [currentPath, config]);    
 
     const goUpDirectory = async () => {
         try {
@@ -1257,37 +1651,38 @@ const handleFileContextMenu = (e, filePath) => {
     };
 
 
-    const createNewConversation = async () => {
-        try {
-            setIsEditing(false);
-            setCurrentFile(null);
-            const conversation = await window.api.createConversation({
-                title: 'New Conversation',
-                model: currentModel || config?.model || 'llama3.2',
-                provider: currentProvider || config?.provider || 'ollama', 
-                directory_path: currentPath
-            });
-            
-            // Insert the new conversation at the beginning of the array (newest first)
-            setDirectoryConversations(prev => [{
-                 id: conversation.id,
-                 title: 'New Conversation',
-                 preview: 'No content',
-                 timestamp: Date.now()
-            }, ...prev]);
-            
-            setActiveConversationId(conversation.id); // Set it active
-            setCurrentConversation(conversation);
-            setMessages([]); // Clear messages
-            setAllMessages([]); // Also clear allMessages
-            setDisplayedMessageCount(10); // Reset pagination count
-            return conversation; // Return the created conversation
-        } catch (err) {
-            console.error('Error creating conversation:', err);
-            setError(err.message);
-            throw err;
-        }
-    };
+const createNewConversation = async () => {
+    try {
+        setIsEditing(false);
+        setCurrentFile(null);
+        const conversation = await window.api.createConversation({
+            title: 'New Conversation',
+            // Use the *currently selected* model and provider in the dropdowns
+            model: currentModel,
+            provider: currentProvider,
+            directory_path: currentPath
+        });
+        
+        // Insert the new conversation at the beginning of the array (newest first)
+        setDirectoryConversations(prev => [{
+             id: conversation.id,
+             title: 'New Conversation',
+             preview: 'No content',
+             timestamp: Date.now()
+        }, ...prev]);
+        
+        setActiveConversationId(conversation.id); // Set it active
+        setCurrentConversation(conversation);
+        setMessages([]); // Clear messages
+        setAllMessages([]); // Also clear allMessages
+        setDisplayedMessageCount(10); // Reset pagination count
+        return conversation; // Return the created conversation
+    } catch (err) {
+        console.error('Error creating conversation:', err);
+        setError(err.message);
+        throw err;
+    }
+};    
 
     const createNewTextFile = async () => {
         try {
@@ -1929,6 +2324,10 @@ useEffect(() => {
                     <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
 
                     <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
+                    <button onClick={() => setCtxEditorOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Context Editor">
+                        <FileJson size={16} />
+                    </button>
+
                     <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
                 </div>
             </div>
@@ -2340,12 +2739,122 @@ useEffect(() => {
             </div>
         )
     );
+const handleResendMessage = (messageToResend) => {
+    if (isStreaming) {
+        console.warn('Cannot resend while streaming');
+        return;
+    }
 
-    const renderFileEditor = () => {
-        const fileName = currentFile ? currentFile.split('/').pop() : '';
-        return (
-        <div className="flex-1 flex flex-col bg-gray-800">
-            <div className="p-2 border-b border-gray-700 flex items-center justify-between flex-shrink-0">
+    setResendModal({
+        isOpen: true,
+        message: messageToResend,
+        selectedModel: currentModel,
+        selectedNPC: currentNPC
+    });
+};
+
+const handleResendWithSettings = async (messageToResend, selectedModel, selectedNPC) => {
+    if (isStreaming || !activeConversationId) {
+        console.warn('Cannot resend while streaming or no active conversation');
+        return;
+    }
+
+    try {
+        const newStreamId = generateId();
+        streamIdRef.current = newStreamId;
+        setIsStreaming(true);
+
+        const selectedNpc = availableNPCs.find(npc => npc.value === selectedNPC);
+
+        const resentUserMessage = {
+            id: generateId(),
+            role: 'user',
+            content: messageToResend.content,
+            timestamp: new Date().toISOString(),
+            attachments: messageToResend.attachments || [],
+            originalModel: messageToResend.model || null,
+            originalNPC: messageToResend.npc || null,
+            isResent: true
+        };
+
+        const assistantPlaceholderMessage = {
+            id: newStreamId,
+            role: 'assistant',
+            content: '',
+            reasoningContent: '',
+            toolCalls: [],
+            timestamp: new Date().toISOString(),
+            streamId: newStreamId,
+            model: selectedModel,
+            npc: selectedNPC
+        };
+
+        setMessages(prev => [...prev, resentUserMessage, assistantPlaceholderMessage]);
+        setAllMessages(prev => [...prev, resentUserMessage, assistantPlaceholderMessage]);
+
+        console.log(`Resending message with model: ${selectedModel}, NPC: ${selectedNPC}`);
+
+        // Find the provider for the selected model
+        const selectedModelObj = availableModels.find(m => m.value === selectedModel);
+        const providerToUse = selectedModelObj ? selectedModelObj.provider : currentProvider;
+
+        const result = await window.api.executeCommandStream({
+            commandstr: messageToResend.content,
+            currentPath,
+            conversationId: activeConversationId,
+            model: selectedModel,
+            provider: providerToUse,
+            npc: selectedNpc ? selectedNpc.name : selectedNPC,
+            npcSource: selectedNpc ? selectedNpc.source : 'global',
+            attachments: messageToResend.attachments?.map(att => ({
+                name: att.name, 
+                path: att.path, 
+                size: att.size, 
+                type: att.type
+            })) || [],
+            streamId: newStreamId
+        });
+
+        if (result && result.error) {
+            throw new Error(result.error);
+        }
+
+        console.log(`Message resent successfully with streamId: ${newStreamId}`);
+
+    } catch (err) {
+        console.error('Error resending message:', err);
+        setError(err.message);
+        
+        setIsStreaming(false);
+        streamIdRef.current = null;
+        
+        setMessages(prev => [...prev, {
+            id: generateId(),
+            role: 'assistant',
+            content: `[Error resending message: ${err.message}]`,
+            timestamp: new Date().toISOString(),
+            type: 'error'
+        }]);
+    }
+};
+
+
+const renderFileEditor = () => {
+    const fileName = currentFile ? currentFile.split('/').pop() : '';
+
+    const handleEditorContextMenu = (e) => {
+        // We only show the context menu if there's a selection
+        if (aiEditModal.selectedText.length > 0) {
+            e.preventDefault();
+            // Store position and make the menu visible using state
+            setContextMenuPos({ x: e.clientX, y: e.clientY });
+        }
+        // If there's no selection, we allow the default browser context menu
+    };
+
+    return (
+        <div className="flex-1 flex flex-col theme-bg-secondary overflow-hidden">
+            <div className="p-2 border-b theme-border flex items-center justify-between flex-shrink-0">
                 {isRenamingFile ? (
                     <div className="flex items-center gap-2">
                         <input
@@ -2353,43 +2862,20 @@ useEffect(() => {
                             value={newFileName}
                             onChange={(e) => setNewFileName(e.target.value)}
                             onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleRenameFile();
-                                }
-                                if (e.key === 'Escape') {
-                                    e.preventDefault();
-                                    setIsRenamingFile(false);
-                                }
+                                if (e.key === 'Enter') { e.preventDefault(); handleRenameFile(); }
+                                if (e.key === 'Escape') { e.preventDefault(); setIsRenamingFile(false); }
                             }}
-                            className="text-sm bg-gray-900 text-gray-300 px-2 py-1 rounded border border-gray-700"
+                            className="text-sm theme-bg-primary theme-text-primary px-2 py-1 rounded theme-border border"
                             autoFocus
                         />
-                        <button 
-                            onClick={handleRenameFile}
-                            className="px-2 py-1 bg-green-600 hover:bg-green-500 rounded text-sm"
-                        >
-                            Save
-                        </button>
-                        <button 
-                            onClick={() => setIsRenamingFile(false)}
-                            className="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm"
-                        >
-                            Cancel
-                        </button>
+                        <button onClick={handleRenameFile} className="px-2 py-1 theme-button-success rounded text-sm">Save</button>
+                        <button onClick={() => setIsRenamingFile(false)} className="px-2 py-1 theme-button rounded text-sm">Cancel</button>
                     </div>
                 ) : (
                     <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-300 truncate">{fileName}</span>
-                        <button
-                            onClick={() => {
-                                setNewFileName(fileName);
-                                setIsRenamingFile(true);
-                            }}
-                            className="p-1 hover:bg-gray-700 rounded"
-                            title="Rename file"
-                        >
-                            <Edit size={12} className="text-gray-400" />
+                        <span className="text-sm theme-text-primary truncate">{fileName}</span>
+                        <button onClick={() => { setNewFileName(fileName); setIsRenamingFile(true); }} className="p-1 theme-hover rounded" title="Rename file">
+                            <Edit size={12} className="theme-text-muted" />
                         </button>
                     </div>
                 )}
@@ -2397,24 +2883,60 @@ useEffect(() => {
                     <button 
                         onClick={handleFileSave} 
                         disabled={!fileChanged || isSaving} 
-                        className={`px-3 py-1 rounded text-sm transition-colors ${
-                            !fileChanged || isSaving 
-                            ? 'bg-gray-600 opacity-50 cursor-not-allowed' 
-                            : 'bg-green-600 hover:bg-green-500'
-                        }`}
+                        className={`px-3 py-1 rounded text-sm transition-colors ${!fileChanged || isSaving ? 'bg-gray-600 opacity-50 cursor-not-allowed' : 'theme-button-success'}`}
                     >
                         {isSaving ? 'Saving...' : 'Save'}
                     </button>
-                    <button onClick={() => setIsEditing(false)} className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm">Close</button>
+                    <button onClick={() => setIsEditing(false)} className="px-3 py-1 theme-button rounded text-sm">Close</button>
                 </div>
             </div>
-            <div className="flex-1 overflow-y-auto">
-                <textarea value={fileContent} onChange={(e) => handleFileContentChange(e.target.value)} className="w-full h-full bg-gray-900 text-gray-200 p-4 font-mono text-sm resize-none focus:outline-none"/>
-            </div>
+
+            {/* The key fix: flex-1 and min-h-0 on the container */}
+
+<div className="flex-1 overflow-hidden relative">
+    <div className="absolute top-0 left-0 right-0 bottom-0 overflow-auto">
+        <CodeEditor
+            value={fileContent}
+            onChange={handleFileContentChange}
+            filePath={currentFile}
+            onSave={handleFileSave}
+            onContextMenu={handleEditorContextMenu}
+            onSelect={handleTextSelection}
+        />
+    </div>
+</div>
+
+            {/* Context menu for AI operations */}
+            {contextMenuPos && (
+                <>
+                    <div 
+                        className="fixed inset-0 z-40"
+                        onClick={() => setContextMenuPos(null)}
+                    />
+                    <div 
+                        className="absolute theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                        style={{ top: contextMenuPos.y, left: contextMenuPos.x }}
+                    >
+                        <button onClick={() => { handleAIEdit('ask'); setContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <MessageSquare size={16} />
+                            <span>Ask AI</span>
+                        </button>
+                        <button onClick={() => { handleAIEdit('document'); setContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <FileText size={16} />
+                            <span>Document</span>
+                        </button>
+                        <button onClick={() => { handleAIEdit('edit'); setContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <Edit size={16} />
+                            <span>Edit</span>
+                        </button>
+                    </div>
+                </>
+            )}
         </div>
-        );
-    };
-    const renderChatView = () => (
+    );
+};
+
+const renderChatView = () => (
         <div className="flex-1 flex flex-col min-h-0">
             <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary">
                 <div>Active Conversation: {activeConversationId || 'None'}</div>
@@ -2443,7 +2965,7 @@ useEffect(() => {
     
             </div>
     
-            <div className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
+            <div ref={chatContainerRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
                 {/* Search Results Display */}
                 {messageSearchResults.length > 0 && (
                     <div className="sticky top-0 z-10 theme-bg-secondary p-2 rounded-md border theme-border shadow-md mb-2">
@@ -2555,7 +3077,6 @@ useEffect(() => {
                             </div>
                         )}
     
-                        {/* Only show the number of messages specified by displayedMessageCount */}
                         {allMessages.slice(-displayedMessageCount).map((message) => {
                             const messageId = message.id || message.timestamp;
                             return (
@@ -2568,6 +3089,7 @@ useEffect(() => {
                                     handleMessageContextMenu={handleMessageContextMenu}
                                     searchTerm={searchTerm}
                                     activeSearchResult={activeSearchResult}
+                                    onResendMessage={handleResendMessage}
                                 />
                             );
                         })}
@@ -2852,8 +3374,175 @@ useEffect(() => {
             <DataDash isOpen={dashboardMenuOpen} onClose={() => setDashboardMenuOpen(false)} />
 
             <SettingsMenu isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} currentPath={currentPath} onPathChange={(newPath) => { setCurrentPath(newPath); }}/>
+        {resendModal.isOpen && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-md w-full">
+                    <h3 className="text-lg font-medium mb-4 theme-text-primary">Resend Message</h3>
+                    
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium mb-2 theme-text-primary">Model:</label>
+                        <select
+                            value={resendModal.selectedModel}
+                            onChange={(e) => setResendModal(prev => ({ ...prev, selectedModel: e.target.value }))}
+                            className="w-full theme-input text-sm rounded px-3 py-2 border"
+                            disabled={modelsLoading || !!modelsError}
+                        >
+                            {modelsLoading && <option value="">Loading...</option>}
+                            {modelsError && <option value="">Error loading models</option>}
+                            {!modelsLoading && !modelsError && availableModels.length === 0 && (<option value="">No models</option>)}
+                            {!modelsLoading && !modelsError && availableModels.map(model => (
+                                <option key={model.value} value={model.value}>{model.display_name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium mb-2 theme-text-primary">NPC:</label>
+                        <select
+                            value={resendModal.selectedNPC}
+                            onChange={(e) => setResendModal(prev => ({ ...prev, selectedNPC: e.target.value }))}
+                            className="w-full theme-input text-sm rounded px-3 py-2 border"
+                            disabled={npcsLoading || !!npcsError}
+                        >
+                            {npcsLoading && <option value="">Loading NPCs...</option>}
+                            {npcsError && <option value="">Error loading NPCs</option>}
+                            {!npcsLoading && !npcsError && availableNPCs.length === 0 && (
+                                <option value="">No NPCs available</option>
+                            )}
+                            {!npcsLoading && !npcsError && availableNPCs.map(npc => (
+                                <option key={`${npc.source}-${npc.value}`} value={npc.value}>
+                                    {npc.display_name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="mb-4 p-3 theme-bg-tertiary rounded border">
+                        <div className="text-xs theme-text-muted mb-1">Message to resend:</div>
+                        <div className="text-sm theme-text-primary max-h-20 overflow-y-auto">
+                            {resendModal.message?.content?.substring(0, 200)}
+                            {resendModal.message?.content?.length > 200 && '...'}
+                        </div>
+                    </div>
+                    
+                    <div className="flex justify-end gap-3">
+                        <button
+                            className="px-4 py-2 theme-button theme-hover rounded text-sm"
+                            onClick={() => setResendModal({ isOpen: false, message: null, selectedModel: '', selectedNPC: '' })}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            className="px-4 py-2 theme-button-primary rounded text-sm"
+                            onClick={() => {
+                                handleResendWithSettings(
+                                    resendModal.message, 
+                                    resendModal.selectedModel, 
+                                    resendModal.selectedNPC
+                                );
+                                setResendModal({ isOpen: false, message: null, selectedModel: '', selectedNPC: '' });
+                            }}
+                            disabled={!resendModal.selectedModel || !resendModal.selectedNPC}
+                        >
+                            Resend
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+    {aiEditModal.isOpen && (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <h3 className="text-lg font-medium mb-4 theme-text-primary">
+                {aiEditModal.type === 'ask' ? 'AI Analysis' : 
+                 aiEditModal.type === 'document' ? 'Document Code' :
+                 'Edit Code'}
+            </h3>
+            
+            {/* Model/NPC Selectors (no changes needed) */}
+            
+            <div className="flex-1 overflow-hidden flex flex-col">
+                <div className="mb-2">
+                    <h4 className="text-sm font-medium theme-text-primary mb-2">Original Code:</h4>
+                    <pre className="theme-bg-primary p-3 rounded text-xs overflow-x-auto border max-h-24">
+                        <code>{aiEditModal.selectedText}</code>
+                    </pre>
+                </div>
+
+                {/* --- DYNAMIC CONTENT AREA --- */}
+                <div className="flex-1 overflow-y-auto mt-2 border theme-border rounded">
+                    {aiEditModal.isLoading ? (
+                        // WHILE LOADING: Show raw, streaming text
+                        <div className="p-3">
+                            <h4 className="text-sm font-medium theme-text-primary mb-2">Generating...</h4>
+                            <pre className="text-xs whitespace-pre-wrap theme-text-secondary">
+                                {aiEditModal.aiResponse}
+                                <span className="inline-block w-2 h-4 bg-blue-400 animate-pulse ml-1"></span>
+                            </pre>
+                        </div>
+                    ) : (
+                        // AFTER LOADING: Show formatted result
+                        aiEditModal.aiResponse && (
+                            aiEditModal.showDiff ? (
+                                // Final Diff View
+                                <div>
+                                    <h4 className="text-sm font-medium theme-text-primary p-3">Changes Preview:</h4>
+                                    <div className="theme-bg-primary">
+                                        {aiEditModal.aiResponseDiff.map((line, index) => (
+                                            <div key={index} className={`px-3 font-mono text-xs ${
+                                                line.type === 'added' ? 'bg-green-900/30' :
+                                                line.type === 'removed' ? 'bg-red-900/30' : ''
+                                            }`}>
+                                                <span className={`inline-block w-4 ${
+                                                    line.type === 'added' ? 'text-green-400' :
+                                                    line.type === 'removed' ? 'text-red-400' : 'text-gray-500'
+                                                }`}>
+                                                    {line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}
+                                                </span>
+                                                <span className="whitespace-pre-wrap">{line.content}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                // Final Markdown View for "Ask AI"
+                                <div className="p-3">
+                                    <h4 className="text-sm font-medium theme-text-primary mb-2">AI Analysis:</h4>
+                                    <div className="prose prose-sm prose-invert max-w-none theme-text-primary">
+                                        <MarkdownRenderer content={aiEditModal.aiResponse} />
+                                    </div>
+                                </div>
+                            )
+                        )
+                    )}
+                </div>
+            </div>
+            
+            {/* --- Buttons --- */}
+            <div className="flex justify-end gap-3 mt-4">
+                <button
+                    className="px-4 py-2 theme-button theme-hover rounded text-sm"
+                    onClick={() => setAiEditModal({ ...aiEditModal, isOpen: false })}
+                    disabled={aiEditModal.isLoading}
+                >
+                    {aiEditModal.type === 'ask' || aiEditModal.isLoading ? 'Close' : 'Cancel'}
+                </button>
+                {(aiEditModal.type === 'document' || aiEditModal.type === 'edit') && !aiEditModal.isLoading && aiEditModal.aiResponse && (
+                    <button className="px-4 py-2 theme-button-primary rounded text-sm" onClick={applyAIEdit}>
+                        Apply Changes
+                    </button>
+                )}
+            </div>
+        </div>
+    </div>
+)}
             {isMacroInputOpen && (<MacroInput isOpen={isMacroInputOpen} currentPath={currentPath} onClose={() => { setIsMacroInputOpen(false); window.api?.hideMacro?.(); }} onSubmit={({ macro, conversationId, result }) => { setActiveConversationId(conversationId); setCurrentConversation({ id: conversationId, title: macro.trim().slice(0, 50) }); if (!result) { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: 'Processing...', timestamp: new Date().toISOString(), type: 'message' }]); } else { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: result?.output || 'No response', timestamp: new Date().toISOString(), type: 'message' }]); } refreshConversations(); }}/> )}
             <PhotoViewer isOpen={photoViewerOpen} onClose={() => setPhotoViewerOpen(false)} type={photoViewerType}/>
+            <CtxEditor 
+                isOpen={ctxEditorOpen} 
+                onClose={() => setCtxEditorOpen(false)} 
+                currentPath={currentPath}
+            />               
         </>
     );
 

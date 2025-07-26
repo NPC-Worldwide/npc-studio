@@ -19,7 +19,8 @@ const CodeBlock = React.memo(({ node, inline, className, children, ...props }) =
 
     const isDarkMode = document.body.classList.contains('dark-mode');
 
-    if (inline) {
+    const shouldRenderInline = inline || codeString.length <= 60;
+    if (shouldRenderInline) {
         return (
             <code className="theme-code-inline px-1 py-0.5 rounded-sm font-mono text-xs" {...props}>
                 {children}
@@ -27,9 +28,11 @@ const CodeBlock = React.memo(({ node, inline, className, children, ...props }) =
         );
     }
 
+
     return (
         <div className="relative group my-2 theme-bg-tertiary rounded-md overflow-hidden theme-border border">
             <div className="flex items-center justify-between px-4 py-1 theme-bg-secondary text-xs theme-text-muted">
+
                 <span>{match && match[1] ? match[1] : 'code'}</span>
                 <button
                     onClick={handleCopy}
@@ -42,17 +45,19 @@ const CodeBlock = React.memo(({ node, inline, className, children, ...props }) =
                         <Copy size={14} />
                     )}
                 </button>
-            </div>
-            <SyntaxHighlighter
-                style={isDarkMode ? atomDark : oneLight}
+
+            </div>          
+              <SyntaxHighlighter
+                style={isDarkMode ? atomDark : oneLight} // Controls syntax colors AND background
                 language={match ? match[1] : null}
-                PreTag="div"
-                className="!theme-bg-tertiary !p-4 text-sm"
+                PreTag="div" // Ensure it renders as a div, not a pre, for consistent styling control
                 showLineNumbers={true}
                 {...props}
             >
                 {codeString}
             </SyntaxHighlighter>
+
+
         </div>
     );
 });
