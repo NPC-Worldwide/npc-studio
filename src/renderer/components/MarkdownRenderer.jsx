@@ -47,15 +47,17 @@ const CodeBlock = React.memo(({ node, inline, className, children, ...props }) =
                 </button>
 
             </div>          
-              <SyntaxHighlighter
-                style={isDarkMode ? atomDark : oneLight} // Controls syntax colors AND background
-                language={match ? match[1] : null}
-                PreTag="div" // Ensure it renders as a div, not a pre, for consistent styling control
-                showLineNumbers={true}
-                {...props}
-            >
-                {codeString}
-            </SyntaxHighlighter>
+        <SyntaxHighlighter
+            style={isDarkMode ? atomDark : oneLight}
+            language={match ? match[1] : null}
+            PreTag="div"
+            showLineNumbers={true}
+            wrapLines={true} // Use the library's built-in line wrapping
+            lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap' } }} // Apply styles to each line
+            {...props}
+        >
+            {codeString}
+        </SyntaxHighlighter>
 
 
         </div>

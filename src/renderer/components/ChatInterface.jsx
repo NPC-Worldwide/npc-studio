@@ -27,6 +27,107 @@ const normalizePath = (path) => {
     return normalizedPath;
 };
 
+
+const LayoutNode = memo(({ node, path, component }) => {
+    if (!node) return null;
+
+    // --- RENDER A SPLIT CONTAINER ---
+    if (node.type === 'split') {
+        const handleResize = (e, index) => {
+            e.preventDefault();
+            const parentNode = component.findNodeByPath(component.rootLayoutNode, path);
+            if (!parentNode) return;
+            const startSizes = [...parentNode.sizes];
+            const isHorizontal = parentNode.direction === 'horizontal';
+            const startPos = isHorizontal ? e.clientX : e.clientY;
+            const containerSize = isHorizontal ? e.currentTarget.parentElement.offsetWidth : e.currentTarget.parentElement.offsetHeight;
+
+            const onMouseMove = (moveEvent) => {
+                const currentPos = isHorizontal ? moveEvent.clientX : moveEvent.clientY;
+                const deltaPercent = ((currentPos - startPos) / containerSize) * 100;
+                let newSizes = [...startSizes];
+                const amount = Math.min(newSizes[index + 1] - 10, Math.max(-(newSizes[index] - 10), deltaPercent));
+                newSizes[index] += amount;
+                newSizes[index + 1] -= amount;
+
+                component.setRootLayoutNode(currentRoot => {
+                    const newRoot = JSON.parse(JSON.stringify(currentRoot));
+                    const target = component.findNodeByPath(newRoot, path);
+                    if (target) target.sizes = newSizes;
+                    return newRoot;
+                });
+            };
+            const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp, { once: true });
+        };
+
+        return (
+            <div className={`flex flex-1 ${node.direction === 'horizontal' ? 'flex-row' : 'flex-col'} w-full h-full overflow-hidden`}>
+                {node.children.map((child, index) => (
+                    <React.Fragment key={child.id}>
+                        <div className="flex overflow-hidden" style={{ flexBasis: `${node.sizes[index]}%` }}>
+                            <LayoutNode node={child} path={[...path, index]} component={component} />
+                        </div>
+                        {index < node.children.length - 1 && (
+                            <div
+                                className={`flex-shrink-0 ${node.direction === 'horizontal' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'} bg-gray-700 hover:bg-blue-500 transition-colors`}
+                                onMouseDown={(e) => handleResize(e, index)}
+                            />
+                        )}
+                    </React.Fragment>
+                ))}
+            </div>
+        );
+    }
+
+    // --- RENDER A CONTENT PANE ---
+    if (node.type === 'content') {
+        const { activeContentPaneId, setActiveContentPaneId, draggedItem, setDraggedItem, dropTarget, setDropTarget, contentDataRef, updateContentPane, performSplit, renderChatView, renderFileEditor } = component;
+        const isActive = node.id === activeContentPaneId;
+        const isTargeted = dropTarget?.nodePath.join('') === path.join('');
+
+        const onDrop = (e, side) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!draggedItem) return;
+            const contentType = draggedItem.type === 'conversation' ? 'chat' : 'editor';
+            if (side === 'center') {
+                updateContentPane(node.id, contentType, draggedItem.id);
+            } else {
+                performSplit(path, side, contentType, draggedItem.id);
+            }
+            setDraggedItem(null);
+            setDropTarget(null);
+        };
+
+        return (
+            <div
+                className={`flex-1 flex flex-col relative border ${isActive ? 'border-blue-500 ring-1 ring-blue-500' : 'theme-border'}`}
+                onClick={() => setActiveContentPaneId(node.id)}
+                onDragLeave={() => setDropTarget(null)}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
+                onDrop={(e) => onDrop(e, 'center')}
+            >
+                {draggedItem && (
+                    <>
+                        <div className={`absolute left-0 top-0 bottom-0 w-1/4 z-10 ${isTargeted && dropTarget.side === 'left' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'left' }); }} onDrop={(e) => onDrop(e, 'left')} />
+                        <div className={`absolute right-0 top-0 bottom-0 w-1/4 z-10 ${isTargeted && dropTarget.side === 'right' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'right' }); }} onDrop={(e) => onDrop(e, 'right')} />
+                        <div className={`absolute left-0 top-0 right-0 h-1/4 z-10 ${isTargeted && dropTarget.side === 'top' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'top' }); }} onDrop={(e) => onDrop(e, 'top')} />
+                        <div className={`absolute left-0 bottom-0 right-0 h-1/4 z-10 ${isTargeted && dropTarget.side === 'bottom' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'bottom' }); }} onDrop={(e) => onDrop(e, 'bottom')} />
+                    </>
+                )}
+                {contentDataRef.current[node.id]?.contentType === 'chat' ? renderChatView({ nodeId: node.id }) : renderFileEditor({ nodeId: node.id })}
+            </div>
+        );
+    }
+    return null;
+});
+
+
 const getFileIcon = (filename) => {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     const iconProps = { size: 16, className: "flex-shrink-0" };
@@ -112,7 +213,7 @@ const ChatMessage = memo(({
                             onResendMessage(message);
                         }}
                         className="p-1 theme-hover rounded-full transition-all"
-                        title="Resend"  // <- Updated this
+                        title="Resend"
                     >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="23 4 23 10 17 10"></polyline>
@@ -122,17 +223,25 @@ const ChatMessage = memo(({
                 </div>
             )}
 
-            <div className="text-xs theme-text-muted mb-1 opacity-80">
-                {message.role === 'user' ? 'You' : (message.npc || message.model || 'Assistant')}
-                <span className="ml-2">
-                    {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                {message.originalModel && message.originalNPC && (
-                    <span className="ml-2 text-yellow-400 text-xs">
+            {/* --- THIS IS THE IMPROVED HEADER --- */}
+            <div className="flex justify-between items-center text-xs theme-text-muted mb-1 opacity-80">
+                <span className="font-semibold">{message.role === 'user' ? 'You' : (message.npc || 'Agent')}</span>
+                <div className="flex items-center gap-2">
+                    {message.role !== 'user' && message.model && (
+                        <span className="truncate" title={message.model}>{message.model}</span>
+                    )}
+                    <span>
+                        {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                </div>
+            </div>
+             {message.originalModel && message.originalNPC && (
+                    <span className="text-yellow-400 text-xs mb-1 block">
                         (Resent from {message.originalNPC} / {message.originalModel})
                     </span>
                 )}
-            </div>
+            {/* --- END IMPROVED HEADER --- */}
+
             <div className="relative message-content-area">
                 {showStreamingIndicators && (
                     <div className="absolute top-0 left-0 -translate-y-full flex space-x-1 mb-1">
@@ -206,7 +315,7 @@ const ChatInterface = () => {
     const [currentPath, setCurrentPath] = useState('');
     const [folderStructure, setFolderStructure] = useState({});
     const [activeConversationId, setActiveConversationId] = useState(null);
-    const [messages, setMessages] = useState([]);
+
     const [currentModel, setCurrentModel] = useState(null);
     const [currentProvider, setCurrentProvider] = useState(null);
     const [currentNPC, setCurrentNPC] = useState(null);
@@ -256,13 +365,15 @@ const ChatInterface = () => {
         npcForEdit: null,
         customEditPrompt: ''
     });    
+
+    
     const [availableNPCs, setAvailableNPCs] = useState([]);
     const [npcsLoading, setNpcsLoading] = useState(false);
     const [npcsError, setNpcsError] = useState(null);
 
-    const [allMessages, setAllMessages] = useState([]);
     const [displayedMessageCount, setDisplayedMessageCount] = useState(10);
     const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
+    const streamToPaneRef = useRef({});
 
     const [selectedMessages, setSelectedMessages] = useState(new Set());
     const [messageSelectionMode, setMessageSelectionMode] = useState(false);
@@ -290,6 +401,17 @@ const ChatInterface = () => {
     const [messageSearchResults, setMessageSearchResults] = useState([]); // Stores in-chat match locations
     const [activeSearchResult, setActiveSearchResult] = useState(null); // ID of highlighted message
     const searchInputRef = useRef(null); // Ref to focus the search input
+    // --- TILING WINDOW MANAGER STATE ---
+    // The core data structure for the layout tree
+    const [rootLayoutNode, setRootLayoutNode] = useState(null);
+    // The ID of the currently focused pane
+    const [activeContentPaneId, setActiveContentPaneId] = useState(null);
+    // State for drag & drop operations
+    const [draggedItem, setDraggedItem] = useState(null);
+    const [dropTarget, setDropTarget] = useState(null);
+    // A ref to hold bulky data for each pane, preventing state updates on every keypress
+    const contentDataRef = useRef({});
+
 
     const [resendModal, setResendModal] = useState({
         isOpen: false,
@@ -315,9 +437,34 @@ const ChatInterface = () => {
         if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
-    }, [messages, activeConversationId]); // Re-scroll when messages update or conversation changes
+    }, [ activeConversationId]); // Re-scroll when messages update or conversation changes
 
     // --- NEW: Handler for deep search submission ---
+    const findNodeByPath = useCallback((node, path) => {
+        if (!node || !path) return null;
+        let currentNode = node;
+        for (const index of path) {
+            if (currentNode && currentNode.children && currentNode.children[index]) {
+                currentNode = currentNode.children[index];
+            } else {
+                return null;
+            }
+        }
+        return currentNode;
+    }, []);
+
+        const findNodePath = (node, id, currentPath = []) => {
+        if (!node) return null;
+        if (node.id === id) return currentPath;
+        if (node.type === 'split') {
+            for (let i = 0; i < node.children.length; i++) {
+                const result = findNodePath(node.children[i], id, [...currentPath, i]);
+                if (result) return result;
+            }
+        }
+        return null;
+    };
+    
     const handleSearchSubmit = async () => {
         if (!searchTerm.trim()) {
             setIsSearching(false);
@@ -596,8 +743,10 @@ const applyAIEdit = () => {
 const handleApplyPromptToMessages = async (operationType, customPrompt = '') => {
     const selectedIds = Array.from(selectedMessages);
     if (selectedIds.length === 0) return;
-    
-    const selectedMsgs = allMessages.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData || !activePaneData.chatMessages) return;
+    const allMessagesInPane = activePaneData.chatMessages.allMessages;
+    const selectedMsgs = allMessagesInPane.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
     if (selectedMsgs.length === 0) return;
 
     let prompt = '';
@@ -718,7 +867,11 @@ const handleApplyPromptToCurrentConversation = async (operationType, customPromp
     const selectedIds = Array.from(selectedMessages);
     if (selectedIds.length === 0) return;
     
-    const selectedMsgs = allMessages.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData || !activePaneData.chatMessages) return;
+    const allMessagesInPane = activePaneData.chatMessages.allMessages;
+    const selectedMsgs = allMessagesInPane.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
+
     if (selectedMsgs.length === 0) return;
 
     let prompt = '';
@@ -998,22 +1151,352 @@ const loadAvailableNPCs = async () => {
     }, [isDarkMode]);
 
 
+const updateContentPane = useCallback(async (paneId, newContentType, newContentId) => {
+    // Ensure the data object for this pane exists
+    if (!contentDataRef.current[paneId]) {
+        contentDataRef.current[paneId] = {};
+    }
+    const paneData = contentDataRef.current[paneId];
+    
+    // Update content type and ID
+    paneData.contentType = newContentType;
+    paneData.contentId = newContentId;
 
-    const handleFileClick = async (filePath) => {
+    // Load data based on content type
+    if (newContentType === 'editor') {
         try {
-            const response = await window.api.readFileContent(filePath);
-            if (response.error) throw new Error(response.error);
-            setCurrentFile(filePath);
-            setFileContent(response.content);
-            setIsEditing(true);
-            setFileChanged(false);
-            setActiveConversationId(null);
+            const response = await window.api.readFileContent(newContentId);
+            paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
+            paneData.fileChanged = false;
         } catch (err) {
-            console.error('Error opening file:', err);
+            paneData.fileContent = `Error loading file: ${err.message}`;
+        }
+    } else if (newContentType === 'chat') {
+        // Initialize chat messages object if it doesn't exist
+        if (!paneData.chatMessages) {
+            paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+        }
+        try {
+            const msgs = await window.api.getConversationMessages(newContentId);
+            if (msgs && Array.isArray(msgs)) {
+                const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
+                paneData.chatMessages.allMessages = formatted;
+                // Use the existing displayedMessageCount for this pane, or default to 20
+                const count = paneData.chatMessages.displayedMessageCount || 20;
+                paneData.chatMessages.messages = formatted.slice(-count);
+            } else {
+                 paneData.chatMessages.messages = [];
+                 paneData.chatMessages.allMessages = [];
+            }
+        } catch (err) {
+            console.error(`Error loading messages for convo ${newContentId}:`, err);
+            paneData.chatMessages.messages = [];
+            paneData.chatMessages.allMessages = [];
+        }
+    }
+    
+    // This function now ONLY updates data. The calling function is responsible for triggering re-renders.
+}, []);
+
+
+    
+    // Splits a pane to create a new one
+    const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
+        setRootLayoutNode(oldRoot => {
+            if (!oldRoot) return oldRoot;
+
+            const newRoot = JSON.parse(JSON.stringify(oldRoot));
+            let parentNode = null;
+            let targetNode = newRoot;
+            let targetIndexInParent = -1;
+
+            for (let i = 0; i < targetNodePath.length; i++) {
+                parentNode = targetNode;
+                targetIndexInParent = targetNodePath[i];
+                targetNode = targetNode.children[targetIndexInParent];
+            }
+
+            const newPaneId = generateId();
+            const newPaneNode = { id: newPaneId, type: 'content' };
+
+            contentDataRef.current[newPaneId] = {};
+            updateContentPane(newPaneId, newContentType, newContentId);
+
+            const isHorizontalSplit = side === 'left' || side === 'right';
+            const newSplitNode = {
+                id: generateId(),
+                type: 'split',
+                direction: isHorizontalSplit ? 'horizontal' : 'vertical',
+                children: [],
+                sizes: [50, 50]
+            };
+
+            if (side === 'left' || side === 'top') {
+                newSplitNode.children = [newPaneNode, targetNode];
+            } else {
+                newSplitNode.children = [targetNode, newPaneNode];
+            }
+
+            if (parentNode) {
+                parentNode.children[targetIndexInParent] = newSplitNode;
+            } else {
+                // If we split the root, the new split node becomes the root
+                return newSplitNode;
+            }
+            
+            setActiveContentPaneId(newPaneId);
+            return newRoot;
+        });
+    }, [updateContentPane]);
+
+    // Closes a pane and re-balances the layout
+
+const closeContentPane = useCallback((paneId, nodePath) => {
+    setRootLayoutNode(currentRoot => {
+        if (!currentRoot) return null;
+
+        let newRoot = JSON.parse(JSON.stringify(currentRoot));
+
+        if (newRoot.id === paneId) {
+            delete contentDataRef.current[paneId];
+            setActiveContentPaneId(null);
+            return null;
+        }
+
+        if (!nodePath || nodePath.length === 0) return newRoot;
+
+        const parentPath = nodePath.slice(0, -1);
+        const childIndex = nodePath[nodePath.length - 1];
+        const parentNode = findNodeByPath(newRoot, parentPath);
+
+        if (!parentNode || !parentNode.children) {
+            console.error("Cannot close pane: parent not found.");
+            return currentRoot;
+        }
+
+        parentNode.children.splice(childIndex, 1);
+        parentNode.sizes.splice(childIndex, 1);
+        delete contentDataRef.current[paneId];
+
+        if (parentNode.children.length === 1) {
+            // Only one child left in this parent - need to collapse this split
+            const remainingChild = parentNode.children[0];
+            
+            if (parentPath.length === 0) {
+                // The parent is the root - replace the entire root with the single child
+                newRoot = remainingChild;
+            } else {
+                // There's a grandparent - replace the parent with the single child
+                const grandParentNode = findNodeByPath(newRoot, parentPath.slice(0, -1));
+                if (grandParentNode) {
+                    const parentIndex = parentPath[parentPath.length - 1];
+                    grandParentNode.children[parentIndex] = remainingChild;
+                    // The grandparent's sizes don't need to change - it still has the same number of children
+                }
+            }
+        } else if (parentNode.children.length > 1) {
+            // Multiple children remaining - redistribute sizes equally
+            const equalSize = 100 / parentNode.children.length;
+            parentNode.sizes = new Array(parentNode.children.length).fill(equalSize);
+        }
+        
+        if (activeContentPaneId === paneId) {
+            const remainingPaneIds = Object.keys(contentDataRef.current);
+            setActiveContentPaneId(remainingPaneIds.length > 0 ? remainingPaneIds[0] : null);
+        }
+
+        return newRoot;
+    });
+}, [activeContentPaneId, findNodeByPath]);
+
+    // Initial layout setup
+    useEffect(() => {
+        if (!rootLayoutNode && !loading) {
+            const initialPaneId = generateId();
+            const storedConvoId = localStorage.getItem(LAST_ACTIVE_CONVO_ID_KEY);
+            const initialLayout = {
+                id: initialPaneId,
+                type: 'content'
+            };
+            contentDataRef.current[initialPaneId] = {};
+            updateContentPane(initialPaneId, 'chat', storedConvoId || directoryConversationsRef.current[0]?.id || null);
+            setRootLayoutNode(initialLayout);
+            setActiveContentPaneId(initialPaneId);
+        }
+    }, [loading]); // Run once after initial loading is complete
+const handleConversationSelect = async (conversationId) => {
+    setActiveConversationId(conversationId);
+    setCurrentFile(null);
+
+    // If no layout exists, CREATE THE FIRST PANE.
+    if (!rootLayoutNode) {
+        const newPaneId = generateId();
+        const newLayout = { id: newPaneId, type: 'content' };
+        
+        contentDataRef.current[newPaneId] = {};
+        await updateContentPane(newPaneId, 'chat', conversationId);
+        
+        setRootLayoutNode(newLayout);
+        setActiveContentPaneId(newPaneId);
+    } 
+    // If a layout already exists, just update the content of the active pane.
+    else {
+        // Use the activeContentPaneId if it exists, otherwise find the first pane.
+        const paneToUpdate = activeContentPaneId || Object.keys(contentDataRef.current)[0];
+        if (paneToUpdate) {
+            await updateContentPane(paneToUpdate, 'chat', conversationId);
+            setRootLayoutNode(prev => ({...prev}));
+        }
+    }
+};
+
+
+// REPLACE your entire handleFileClick function with this:
+const handleFileClick = async (filePath) => {
+    setCurrentFile(filePath);
+    setActiveConversationId(null);
+
+    // If no layout exists, create the first pane.
+    if (!rootLayoutNode) {
+        const newPaneId = generateId();
+        const newLayout = { id: newPaneId, type: 'content' };
+        
+        contentDataRef.current[newPaneId] = {};
+        await updateContentPane(newPaneId, 'editor', filePath);
+        
+        setRootLayoutNode(newLayout);
+        setActiveContentPaneId(newPaneId);
+    } 
+    // If a layout exists, update the data and trigger a re-render.
+    else {
+        await updateContentPane(activeContentPaneId, 'editor', filePath);
+        setRootLayoutNode(prev => ({...prev}));
+    }
+};
+    
+
+const createNewConversation = async () => {
+    try {
+        // This part is correct: it calls the backend.
+        const conversation = await window.api.createConversation({ directory_path: currentPath });
+
+        if (!conversation || !conversation.id) {
+            throw new Error("Failed to create conversation or received invalid data from backend.");
+        }
+
+        // --- THIS IS THE FIX ---
+        // The API returns a full conversation object. Use it directly.
+        // We format it to match the structure of conversations loaded from the directory.
+        const formattedNewConversation = {
+            id: conversation.id,
+            title: conversation.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
+            preview: conversation.preview || 'No content',
+            timestamp: conversation.timestamp || new Date().toISOString() // Use backend timestamp or fallback
+        };
+        
+        // Add the correctly formatted conversation to the top of the list
+        setDirectoryConversations(prev => [formattedNewConversation, ...prev]);
+        // --- END OF FIX ---
+        
+        // This will now handle opening the new conversation in a pane correctly.
+        await handleConversationSelect(conversation.id);
+        
+        return conversation;
+    } catch (err) {
+        console.error("Error creating new conversation:", err);
+        setError(err.message);
+    }
+};
+
+    const createNewTextFile = async () => {
+        try {
+            const filename = `untitled-${Date.now()}.txt`;
+            const filepath = normalizePath(`${currentPath}/${filename}`);
+            await window.api.writeFileContent(filepath, '');
+            await loadDirectoryStructure(currentPath); // Refresh sidebar
+            await handleFileClick(filepath); // Open in active pane
+        } catch (err) {
             setError(err.message);
         }
     };
 
+const handleInputSubmit = async (e) => {
+    e.preventDefault();
+    if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
+        return;
+    }
+    
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) {
+        console.error("No active chat pane to send message to.");
+        return;
+    }
+
+    const conversationId = paneData.contentId;
+    const newStreamId = generateId();
+    
+    streamToPaneRef.current[newStreamId] = activeContentPaneId;
+    setIsStreaming(true);
+
+    const userMessage = { 
+        id: generateId(), 
+        role: 'user', 
+        content: input, 
+        timestamp: new Date().toISOString(), 
+        attachments: uploadedFiles.map(f => ({ name: f.name })) 
+    };
+
+    // --- THIS IS THE KEY CHANGE ---
+    // Pre-populate the placeholder with the correct NPC and Model
+    const assistantPlaceholder = { 
+        id: newStreamId, 
+        role: 'assistant', 
+        content: '', 
+        timestamp: new Date().toISOString(), 
+        isStreaming: true, 
+        streamId: newStreamId,
+        npc: currentNPC,      // <-- ADD THIS
+        model: currentModel   // <-- ADD THIS
+    };
+    // --- END CHANGE ---
+
+    if (!paneData.chatMessages) {
+        paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+    }
+
+    paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
+    paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+
+    setRootLayoutNode(prev => ({ ...prev }));
+    setInput('');
+    setUploadedFiles([]);
+
+    try {
+        const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
+        await window.api.executeCommandStream({
+            commandstr: input, 
+            currentPath, 
+            conversationId, 
+            model: currentModel, 
+            provider: currentProvider,
+            npc: selectedNpc ? selectedNpc.name : currentNPC,
+            npcSource: selectedNpc ? selectedNpc.source : 'global',
+            attachments: uploadedFiles.map(f => ({ name: f.name, path: f.path, size: f.size, type: f.type })),
+            streamId: newStreamId
+        });
+    } catch (err) {
+        setError(err.message);
+        setIsStreaming(false);
+        delete streamToPaneRef.current[newStreamId];
+    }
+};
+
+
+    // A separate, memoized component for recursively rendering the layout.
+
+
+    
+    
     // Add isSaving state
     const [isSaving, setIsSaving] = useState(false);
 
@@ -1089,46 +1572,66 @@ const loadAvailableNPCs = async () => {
         }
     };
 
-    const deleteSelectedConversations = async () => {
-        const selectedConversationIds = Array.from(selectedConvos);
-        const selectedFilePaths = Array.from(selectedFiles);
-        
-        if (selectedConversationIds.length === 0 && selectedFilePaths.length === 0) return;
-        
-        try {
-            // Delete selected conversations
-            if (selectedConversationIds.length > 0) {
-                await Promise.all(selectedConversationIds.map(id => window.api.deleteConversation(id)));
-                await loadConversations(currentPath);
+
+const deleteSelectedConversations = async () => {
+    const selectedConversationIds = Array.from(selectedConvos);
+    const selectedFilePaths = Array.from(selectedFiles);
+    
+    if (selectedConversationIds.length === 0 && selectedFilePaths.length === 0) return;
+
+    try {
+        // Delete selected conversations
+        if (selectedConversationIds.length > 0) {
+            // Find all panes that need to be closed because their conversation is being deleted
+            const panesToClose = [];
+            for (const paneId in contentDataRef.current) {
+                if (selectedConversationIds.includes(contentDataRef.current[paneId].contentId)) {
+                    const nodePath = findNodePath(rootLayoutNode, paneId);
+                    if (nodePath) {
+                        panesToClose.push({ paneId, nodePath });
+                    }
+                }
             }
             
-            // Delete selected files
-            if (selectedFilePaths.length > 0) {
-                await Promise.all(selectedFilePaths.map(filePath => window.api.deleteFile(filePath)));
-                
-                // If current file is being deleted, close the editor
-                if (selectedFilePaths.includes(currentFile)) {
-                    setCurrentFile(null);
-                    setIsEditing(false);
-                    setFileContent('');
-                    setFileChanged(false);
-                }
-                
-                // Refresh folder structure
-                const structureResult = await window.api.readDirectoryStructure(currentPath);
-                if (structureResult && !structureResult.error) {
-                    setFolderStructure(structureResult);
-                }
+            // Close the affected panes first to avoid errors
+            // We process in reverse to avoid messing up paths of subsequent nodes
+            for (let i = panesToClose.length - 1; i >= 0; i--) {
+                closeContentPane(panesToClose[i].paneId, panesToClose[i].nodePath);
             }
-        } catch (err) {
-            console.error('Error deleting items:', err);
-            setError(err.message);
+
+            await Promise.all(selectedConversationIds.map(id => window.api.deleteConversation(id)));
+            // Refresh the conversation list in the sidebar
+            await refreshConversations(); 
         }
         
-        // Clear selections
-        setSelectedConvos(new Set());
-        setSelectedFiles(new Set());
-    };
+        // Delete selected files (your existing logic for this is mostly correct)
+        if (selectedFilePaths.length > 0) {
+            const panesToClose = [];
+            for (const paneId in contentDataRef.current) {
+                 if (selectedFilePaths.includes(contentDataRef.current[paneId].contentId)) {
+                    const nodePath = findNodePath(rootLayoutNode, paneId);
+                     if (nodePath) {
+                        panesToClose.push({ paneId, nodePath });
+                    }
+                 }
+            }
+            for (let i = panesToClose.length - 1; i >= 0; i--) {
+                closeContentPane(panesToClose[i].paneId, panesToClose[i].nodePath);
+            }
+
+            await Promise.all(selectedFilePaths.map(filePath => window.api.deleteFile(filePath)));
+            await loadDirectoryStructure(currentPath); // Full refresh for files
+        }
+
+    } catch (err) {
+        console.error('Error deleting items:', err);
+        setError(err.message);
+    }
+    
+    // Clear selections
+    setSelectedConvos(new Set());
+    setSelectedFiles(new Set());
+};
 
     useEffect(() => {
         const loadData = async () => {
@@ -1255,63 +1758,6 @@ useEffect(() => {
 
 
 
-const handleConversationSelect = async (conversationId) => {
-    try {
-        setIsEditing(false);
-        setCurrentFile(null);
-        setActiveConversationId(conversationId);
-
-        const selectedConv = directoryConversations.find(conv => conv.id === conversationId);
-        if (selectedConv) {
-            setCurrentConversation(selectedConv);
-        } else {
-            setCurrentConversation(null);
-        }
-
-        setMessages([]);
-        setAllMessages([]);
-        setDisplayedMessageCount(10);
-
-        const response = await window.api.getConversationMessages(conversationId);
-
-        if (response && Array.isArray(response)) {
-            const formattedMessages = response.map(msg => ({
-                role: msg.role || 'assistant',
-                content: msg.content || '',
-                timestamp: msg.timestamp || new Date().toISOString(),
-                type: msg.content?.startsWith('/') ? 'command' : 'message',
-                model: msg.model,
-                npc: msg.npc,
-                attachments: msg.attachment_data ? [{
-                    name: msg.attachment_name,
-                    data: `data:image/png;base64,${msg.attachment_data}`,
-                }] : (msg.attachments || [])
-            }));
-            setAllMessages(formattedMessages);
-            setMessages(formattedMessages);
-
-
-        setTimeout(() => {
-                if (chatContainerRef.current) {
-                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-                }
-            },0)
-        } else if (response?.error) {
-            console.error("Error fetching messages:", response.error);
-            setError(response.error);
-            setMessages([]);
-            setAllMessages([]);
-        } else {
-            setMessages([]);
-            setAllMessages([]);
-        }
-    } catch (err) {
-        console.error('Error in handleConversationSelect:', err);
-        setError(err.message);
-        setMessages([]);
-        setAllMessages([]);
-    }
-};
     
 
 
@@ -1651,76 +2097,9 @@ useEffect(() => {
     };
 
 
-const createNewConversation = async () => {
-    try {
-        setIsEditing(false);
-        setCurrentFile(null);
-        const conversation = await window.api.createConversation({
-            title: 'New Conversation',
-            // Use the *currently selected* model and provider in the dropdowns
-            model: currentModel,
-            provider: currentProvider,
-            directory_path: currentPath
-        });
-        
-        // Insert the new conversation at the beginning of the array (newest first)
-        setDirectoryConversations(prev => [{
-             id: conversation.id,
-             title: 'New Conversation',
-             preview: 'No content',
-             timestamp: Date.now()
-        }, ...prev]);
-        
-        setActiveConversationId(conversation.id); // Set it active
-        setCurrentConversation(conversation);
-        setMessages([]); // Clear messages
-        setAllMessages([]); // Also clear allMessages
-        setDisplayedMessageCount(10); // Reset pagination count
-        return conversation; // Return the created conversation
-    } catch (err) {
-        console.error('Error creating conversation:', err);
-        setError(err.message);
-        throw err;
-    }
-};    
 
-    const createNewTextFile = async () => {
-        try {
-            // Generate a unique filename with timestamp
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            const filename = `untitled-${timestamp}.txt`;
-            
-            // Fix the double slash issue by ensuring proper path joining
-            const filepath = currentPath.endsWith('/') 
-                ? `${currentPath}${filename}` 
-                : `${currentPath}/${filename}`;
-            
-            // Create an empty text file
-            const response = await window.api.writeFileContent(filepath, '');
-            if (response.error) throw new Error(response.error);
-            
-            
-            // Refresh the folder structure to include the new file
-            const structureResult = await window.api.readDirectoryStructure(currentPath);
-            if (structureResult && !structureResult.error) {
-                setFolderStructure(structureResult);
-                
-                // Wait for React to process the folder structure update, THEN set current file
-                setTimeout(() => {
-                    setCurrentFile(filepath);
-                    setFileContent('');
-                    setIsEditing(true);
-                    setFileChanged(false);
-                    setActiveConversationId(null);
-                }, 0);
-            }
-            
-            console.log('Created new text file:', filepath);
-        } catch (err) {
-            console.error('Error creating new text file:', err);
-            setError(err.message);
-        }
-    };
+
+    
 
     const handleDrop = (e) => {
         e.preventDefault();
@@ -1756,316 +2135,130 @@ const createNewConversation = async () => {
     };
 
 useEffect(() => {
-    console.log('[REACT] Stream listener useEffect: Checking conditions. Config loaded:', !!config, 'Config stream enabled:', config?.stream, 'Listeners already attached:', listenersAttached.current);
+    // We only attach listeners if streaming is enabled in the config.
+    if (!config?.stream || listenersAttached.current) return;
 
-    if (config && config.stream && !listenersAttached.current) {
-        console.log('[REACT] Stream listener useEffect: ATTACHING listeners.');
+    console.log('[REACT] Attaching PANE-AWARE stream listeners.');
 
-        const handleStreamData = (_, { streamId: incomingStreamId, chunk }) => {
-            console.log(`[REACT] RAW handleStreamData: incomingStreamId=${incomingStreamId}, currentStreamIdRef=${streamIdRef.current}, chunk PRESENT: ${!!chunk}`);
-            
-            // Initialize stream ID if not set
-            if (!streamIdRef.current) {
-                streamIdRef.current = incomingStreamId;
-            }
+    // --- PANE-AWARE STREAM DATA HANDLER ---
+    const handleStreamData = (_, { streamId: incomingStreamId, chunk }) => {
+        // 1. Find which pane this stream belongs to.
+        const targetPaneId = streamToPaneRef.current[incomingStreamId];
+        if (!targetPaneId) return; // Ignore streams not meant for our panes.
 
-            if (streamIdRef.current !== incomingStreamId) {
-                console.warn(`[REACT] Stream mismatch: ${streamIdRef.current} vs ${incomingStreamId}`);
-                return;
-            }
-            
-            try {
-                let content = '';
-                let reasoningContent = '';
-                let toolCalls = null;
-                let isDecision = false;
-                
-                if (typeof chunk === 'string') {
-                    if (chunk.startsWith('data:')) {
-                        const dataContent = chunk.replace(/^data:\s*/, '').trim();
-                        if (dataContent === '[DONE]') {
-                            console.log('[REACT] handleStreamData: Received [DONE] signal for stream:', incomingStreamId);
-                            return;
-                        }
-                        if (dataContent) {
-                            const parsed = JSON.parse(dataContent);
-                            isDecision = parsed.choices?.[0]?.delta?.role === 'decision';
-                            content = parsed.choices?.[0]?.delta?.content || '';
-                            reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content || '';
-                            toolCalls = parsed.tool_calls || null;
-                        }
-                    } else {
-                        content = chunk;
-                    }
-                } else if (chunk && chunk.choices) {
-                    isDecision = chunk.choices[0]?.delta?.role === 'decision';
-                    content = chunk.choices[0]?.delta?.content || '';
-                    reasoningContent = chunk.choices[0]?.delta?.reasoning_content || '';
-                    toolCalls = chunk.tool_calls || null;
-                }
+        // 2. Get the data for that specific pane.
+        const paneData = contentDataRef.current[targetPaneId];
+        if (!paneData || !paneData.chatMessages) return;
 
-                if (content || reasoningContent || toolCalls) {
-                    console.log('[REACT] handleStreamData:', 
-                        isDecision ? 'Decision content:' : 'Regular content:', 
-                        content.substring(0, 50) + "..."
-                    );
-                    
-                    setMessages(prev => {
-                        const msgIndex = prev.findIndex(m => m.id === incomingStreamId && 
-                            (m.role === 'assistant' || m.role === 'decision'));
-                        if (msgIndex !== -1) {
-                            const newMessages = [...prev];
-                            newMessages[msgIndex] = {
-                                ...newMessages[msgIndex],
-                                role: isDecision ? 'decision' : 'assistant',
-                                content: (newMessages[msgIndex].content || '') + content,
-                                reasoningContent: (newMessages[msgIndex].reasoningContent || '') + reasoningContent,
-                                toolCalls: toolCalls ? 
-                                    (newMessages[msgIndex].toolCalls || []).concat(toolCalls) : 
-                                    newMessages[msgIndex].toolCalls,
-                                npc: newMessages[msgIndex].npc || currentNPC
-                            };
-                            return newMessages;
-                        }
-                        return [...prev, {
-                            id: incomingStreamId,
-                            role: isDecision ? 'decision' : 'assistant',
-                            content: content,
-                            reasoningContent: reasoningContent,
-                            toolCalls: toolCalls ? [toolCalls] : [],
-                            npc: currentNPC,
-                            timestamp: Date.now()
-                        }];
-                    });
-
-                    setAllMessages(prev => {
-                        const msgIndex = prev.findIndex(m => m.id === incomingStreamId && 
-                            (m.role === 'assistant' || m.role === 'decision'));
-                        if (msgIndex !== -1) {
-                            const newMessages = [...prev];
-                            newMessages[msgIndex] = {
-                                ...newMessages[msgIndex],
-                                role: isDecision ? 'decision' : 'assistant',
-                                content: (newMessages[msgIndex].content || '') + content,
-                                reasoningContent: (newMessages[msgIndex].reasoningContent || '') + reasoningContent,
-                                toolCalls: toolCalls ? 
-                                    (newMessages[msgIndex].toolCalls || []).concat(toolCalls) : 
-                                    newMessages[msgIndex].toolCalls,
-                                npc: newMessages[msgIndex].npc || currentNPC
-                            };
-                            return newMessages;
-                        }
-                        return prev;
-                    });
-                }
-            } catch (err) {
-                console.error('[REACT] handleStreamData: Error processing stream chunk:', err, 'Raw chunk:', chunk);
-            }
-        };
-
-        const handleStreamComplete = async (_, { streamId: completedStreamId } = {}) => {
-            console.log(`[REACT] handleStreamComplete: streamId=${completedStreamId}, currentStreamIdRef=${streamIdRef.current}`);
-            
-            setMessages(prev => prev.map(msg => 
-                msg.streamId ? { ...msg, streamId: null } : msg
-            ));
-            
-            setAllMessages(prev => prev.map(msg => 
-                msg.streamId ? { ...msg, streamId: null } : msg
-            ));
-
-            if (streamIdRef.current === completedStreamId || !completedStreamId) {
-                console.log(`[REACT] handleStreamComplete: Resetting streaming state`);
-                setIsStreaming(false);
-                streamIdRef.current = null;
-                
-                try {
-                    console.log(`[REACT] handleStreamComplete: Forcing conversation refresh`);
-                    if (currentPath) {
-                        const response = await window.api.getConversations(normalizePath(currentPath));
-                        
-                        if (response?.conversations) {
-                            const formattedConversations = response.conversations.map(conv => ({
-                                id: conv.id,
-                                title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
-                                preview: conv.preview || 'No content',
-                                timestamp: conv.timestamp || Date.now()
-                            }));
-                            
-                            formattedConversations.sort((a, b) => b.timestamp - a.timestamp);
-                            
-                            console.log(`[REACT] handleStreamComplete: Setting ${formattedConversations.length} conversations`);
-                            setDirectoryConversations([...formattedConversations]);
-                        } else {
-                            console.error('[REACT] handleStreamComplete: No conversations in response:', response);
-                        }
-                    }
-                } catch (err) {
-                    console.error('[REACT] handleStreamComplete: Error refreshing conversations:', err);
-                }
-            }
-        };
-
-        const handleStreamError = (_, { streamId: errorStreamId, error } = {}) => {
-            console.error(`[REACT] handleStreamError: streamId=${errorStreamId}, currentStreamIdRef=${streamIdRef.current}, error=${error}`);
-            if (streamIdRef.current === errorStreamId) {
-                setIsStreaming(false);
-                streamIdRef.current = null;
-            }
-            setMessages(prev => {
-                const msgIndex = prev.findIndex(m => m.id === errorStreamId && m.role === 'assistant');
-                if (msgIndex !== -1) {
-                    const updatedMessages = [...prev];
-                    updatedMessages[msgIndex] = {
-                        ...updatedMessages[msgIndex],
-                        content: (updatedMessages[msgIndex].content || '') + `\n[STREAM ERROR: ${error}]`,
-                        type: 'error',
-                        streamId: null
-                    };
-                    return updatedMessages;
-                }
-                return [...prev, { 
-                    id: generateId(), 
-                    role: 'assistant', 
-                    content: `[STREAM ERROR (streamId ${errorStreamId || 'unknown'}): ${error}]`, 
-                    timestamp: new Date().toISOString(), 
-                    type: 'error' 
-                }];
-            });
-        };
-
-        const cleanupStreamData = window.api.onStreamData(handleStreamData);
-        const cleanupStreamComplete = window.api.onStreamComplete(handleStreamComplete);
-        const cleanupStreamError = window.api.onStreamError(handleStreamError);
-        
-        listenersAttached.current = true;
-        console.log('[REACT] Stream listener useEffect: Stream listeners ATTACHED.');
-
-        return () => {
-            console.log('[REACT] Stream listener useEffect: CLEANING UP listeners.');
-            cleanupStreamData();
-            cleanupStreamComplete();
-            cleanupStreamError();
-            listenersAttached.current = false;
-        };
-    } else {
-        if (!config) console.log('[REACT] Stream listener useEffect: Not attaching, config is null.');
-        else if (!config.stream) console.log('[REACT] Stream listener useEffect: Not attaching, config.stream is false.');
-        else if (listenersAttached.current) console.log('[REACT] Stream listener useEffect: Not attaching, listeners already attached (this should not happen if logic is correct).');
-    }
-}, [config]);
-
-
-    // Update the handleInputSubmit function to pass the complete NPC object to the backend instead of just the name
-    const handleInputSubmit = async (e) => {
-        e.preventDefault();
-        console.log(`[REACT] handleInputSubmit: Entry. isStreaming=${isStreaming}, input="${input.trim().substring(0,20)}...", activeConversationId=${activeConversationId}, uploadedFiles=${uploadedFiles.length}`);
-
-        if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeConversationId) {
-            console.warn('[REACT] handleInputSubmit: Submission blocked.');
-            return;
-        }
-    
-        const currentInputVal = input; 
-        const currentAttachmentsVal = [...uploadedFiles]; 
-        const newStreamId = generateId();
-        
-        // Find the full NPC object to get its source (project or global)
-        const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
-        console.log(`[REACT] Selected NPC:`, selectedNpc);
-        
-        console.log(`[REACT] handleInputSubmit: Setting streamIdRef.current to ${newStreamId}`);
-        streamIdRef.current = newStreamId;
-        
-        console.log(`[REACT] handleInputSubmit: Calling setIsStreaming(true). Current isStreaming state before call: ${isStreaming}`);
-        setIsStreaming(true);
-    
-        console.log(`[REACT] handleInputSubmit: Preparing to send stream ${newStreamId} for input: "${currentInputVal.substring(0,50)}..."`);
-    
         try {
-            const userMessage = {
-                id: generateId(),
-                role: 'user',
-                content: currentInputVal,
-                timestamp: new Date().toISOString(),
-                attachments: currentAttachmentsVal.map(f => ({ name: f.name, type: f.type, size: f.size }))
-            };
-
-            const assistantPlaceholderMessage = {
-                id: newStreamId, 
-                role: 'assistant',
-                content: '', 
-                reasoningContent: '',
-                toolCalls: [],
-                timestamp: new Date().toISOString(),
-                streamId: newStreamId, 
-                model: currentModel,
-                provider: currentProvider, 
-                npc: currentNPC
-            };
-            
-            // Update both message arrays for pagination
-            setMessages(prev => [...prev, userMessage, assistantPlaceholderMessage]);
-            setAllMessages(prev => [...prev, userMessage, assistantPlaceholderMessage]);
-            setInput(''); 
-            setUploadedFiles([]); 
-
-            console.log(`[REACT] handleInputSubmit: Calling window.api.executeCommandStream with streamId ${newStreamId}. State updated for UI.`);
-            
-            // Send the NPC name and information about where it's stored (project or global)
-            // This is what the backend needs to properly load the NPC file
-            console.log('current model', currentModel, 'current provider', currentProvider)
-            const result = await window.api.executeCommandStream({
-                commandstr: currentInputVal,
-                currentPath,
-                conversationId: activeConversationId,
-                model: currentModel,
-                provider: currentProvider,
-                npc: selectedNpc ? selectedNpc.name : currentNPC,
-                npcSource: selectedNpc ? selectedNpc.source : 'global', // Either 'project' or 'global'
-                attachments: currentAttachmentsVal.map(file => ({
-                    name: file.name, path: file.path, size: file.size, type: file.type
-                })),
-                streamId: newStreamId
-            });
-    
-            if (result && result.error) {
-                console.error(`[REACT] handleInputSubmit: executeCommandStream returned an error immediately for streamId ${result.streamId || newStreamId}: ${result.error}`);
-                throw new Error(result.error);
-            } else if (result && result.streamId === newStreamId) {
-                console.log(`[REACT] handleInputSubmit: executeCommandStream call acknowledged for streamId ${newStreamId}. Waiting for data...`);
-            } else {
-                console.warn(`[REACT] handleInputSubmit: executeCommandStream call returned unexpected result:`, result);
+            // (Your existing chunk parsing logic is excellent, we'll keep it)
+            let content = '', reasoningContent = '', toolCalls = null, isDecision = false;
+            if (typeof chunk === 'string') {
+                if (chunk.startsWith('data:')) {
+                    const dataContent = chunk.replace(/^data:\s*/, '').trim();
+                    if (dataContent === '[DONE]') return;
+                    if (dataContent) {
+                        const parsed = JSON.parse(dataContent);
+                        isDecision = parsed.choices?.[0]?.delta?.role === 'decision';
+                        content = parsed.choices?.[0]?.delta?.content || '';
+                        reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content || '';
+                        toolCalls = parsed.tool_calls || null;
+                    }
+                } else { content = chunk; }
+            } else if (chunk?.choices) {
+                isDecision = chunk.choices[0]?.delta?.role === 'decision';
+                content = chunk.choices[0]?.delta?.content || '';
+                reasoningContent = chunk.choices[0]?.delta?.reasoning_content || '';
+                toolCalls = chunk.tool_calls || null;
             }
-    
-        } catch (err) {
-            console.error('[REACT] handleInputSubmit: CATCH block. Error:', err.message);
-            if (streamIdRef.current === newStreamId) {
-                 console.log(`[REACT] handleInputSubmit: CATCH block. Clearing streamIdRef for ${newStreamId}.`);
-                 streamIdRef.current = null;
-            }
-            setIsStreaming(false); 
-            
-            setMessages(prev => {
-                const msgIndex = prev.findIndex(m => m.id === newStreamId && m.role === 'assistant');
-                if (msgIndex !== -1) {
-                    const updatedMessages = [...prev];
-                    updatedMessages[msgIndex] = {
-                        ...updatedMessages[msgIndex],
-                        content: (updatedMessages[msgIndex].content || '') + `\n[Error during submission: ${err.message}]`,
-                        type: 'error',
-                        streamId: null
-                    };
-                    return updatedMessages;
+
+            // 3. Update the data *inside the correct pane's ref*.
+            const msgIndex = paneData.chatMessages.allMessages.findIndex(m => m.id === incomingStreamId);
+            if (msgIndex !== -1) {
+                const message = paneData.chatMessages.allMessages[msgIndex];
+                message.role = isDecision ? 'decision' : 'assistant';
+                message.content = (message.content || '') + content;
+                message.reasoningContent = (message.reasoningContent || '') + reasoningContent;
+                if (toolCalls) {
+                    message.toolCalls = (message.toolCalls || []).concat(toolCalls);
                 }
-                return [...prev, {
-                    id: generateId(), role: 'assistant',
-                    content: `[Error during submission: ${err.message}]`,
-                    timestamp: new Date().toISOString(), type: 'error'
-                }];
-            });
+
+                // 4. Update the displayed messages slice.
+                paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+
+                // 5. Trigger a re-render.
+                setRootLayoutNode(prev => ({ ...prev }));
+            }
+        } catch (err) {
+            console.error('[REACT] Error processing stream chunk:', err, 'Raw chunk:', chunk);
         }
     };
+
+    // --- PANE-AWARE STREAM COMPLETION HANDLER ---
+    const handleStreamComplete = async (_, { streamId: completedStreamId } = {}) => {
+        const targetPaneId = streamToPaneRef.current[completedStreamId];
+        if (targetPaneId) {
+            const paneData = contentDataRef.current[targetPaneId];
+            if (paneData?.chatMessages) {
+                const msgIndex = paneData.chatMessages.allMessages.findIndex(m => m.id === completedStreamId);
+                if (msgIndex !== -1) {
+                    paneData.chatMessages.allMessages[msgIndex].isStreaming = false;
+                    paneData.chatMessages.allMessages[msgIndex].streamId = null;
+                }
+            }
+            // Clean up the tracking ref.
+            delete streamToPaneRef.current[completedStreamId];
+        }
+
+        // If no more streams are running anywhere, update the global UI.
+        if (Object.keys(streamToPaneRef.current).length === 0) {
+            setIsStreaming(false);
+        }
+
+        setRootLayoutNode(prev => ({ ...prev })); // Final re-render.
+        await refreshConversations(); // Refresh sidebar to show new preview.
+    };
+    
+    // --- PANE-AWARE STREAM ERROR HANDLER ---
+    const handleStreamError = (_, { streamId: errorStreamId, error } = {}) => {
+        const targetPaneId = streamToPaneRef.current[errorStreamId];
+        if (targetPaneId) {
+            const paneData = contentDataRef.current[targetPaneId];
+             if (paneData?.chatMessages) {
+                const msgIndex = paneData.chatMessages.allMessages.findIndex(m => m.id === errorStreamId);
+                if (msgIndex !== -1) {
+                    const message = paneData.chatMessages.allMessages[msgIndex];
+                    message.content += `\n\n[STREAM ERROR: ${error}]`;
+                    message.type = 'error';
+                    message.isStreaming = false;
+                }
+            }
+            delete streamToPaneRef.current[errorStreamId];
+        }
+
+        if (Object.keys(streamToPaneRef.current).length === 0) {
+            setIsStreaming(false);
+        }
+        setRootLayoutNode(prev => ({ ...prev }));
+    };
+
+    const cleanupStreamData = window.api.onStreamData(handleStreamData);
+    const cleanupStreamComplete = window.api.onStreamComplete(handleStreamComplete);
+    const cleanupStreamError = window.api.onStreamError(handleStreamError);
+    
+    listenersAttached.current = true;
+
+    return () => {
+        console.log('[REACT] Cleaning up stream listeners.');
+        cleanupStreamData();
+        cleanupStreamComplete();
+        cleanupStreamError();
+        listenersAttached.current = false;
+    };
+}, [config]); // This dependency is correct.
+
+
+
 
     const handleInterruptStream = async () => {
         // Only proceed if currently streaming and have a stream ID
@@ -2115,6 +2308,28 @@ useEffect(() => {
         }
     };
 
+    const getConversationStats = (messages) => {
+    if (!messages || messages.length === 0) {
+        return { messageCount: 0, tokenCount: 0, models: new Set(), agents: new Set(), providers: new Set() };
+    }
+
+    const stats = messages.reduce((acc, msg) => {
+        // Simple token estimation: average 4 chars per token
+        acc.tokenCount += Math.ceil((msg.content || '').length / 4);
+        
+        if (msg.role !== 'user') {
+            if (msg.model) acc.models.add(msg.model);
+            if (msg.npc) acc.agents.add(msg.npc);
+            if (msg.provider) acc.providers.add(msg.provider);
+        }
+        return acc;
+    }, { tokenCount: 0, models: new Set(), agents: new Set(), providers: new Set() });
+
+    return {
+        messageCount: messages.length,
+        ...stats
+    };
+};
     const handleSummarizeAndStart = async () => {
         const selectedIds = Array.from(selectedConvos);
         if (selectedIds.length === 0) return;
@@ -2381,6 +2596,7 @@ useEffect(() => {
                     {activeFile && (
                         <div className="px-1 mt-1">
                             <button
+
                                 onClick={() => handleFileClick(activeFile.content.path)}
                                 className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded" title={`Edit ${activeFile.name}`}
                             >
@@ -2421,13 +2637,17 @@ useEffect(() => {
                 const isActiveFile = currentFile === fullPath; // Highlight if this file is open
                 const isSelected = selectedFiles.has(fullPath);
                 
-                // Get the actual file index (only counting files, not folders)
+                // Get the actual file index (only coun
+                // ting files, not folders)
                 const fileEntries = sortedEntries.filter(([, content]) => content?.type === 'file');
                 const currentFileIndex = fileEntries.findIndex(([, content]) => content?.path === fullPath);
                
                 entries.push(
                     <div key={`file-${fullPath}`}>
                         <button 
+                            draggable="true"
+                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; setDraggedItem({ type: 'file', id: fullPath }); }}
+                            onDragEnd={() => setDraggedItem(null)}
                             onClick={(e) => {
                                 if (e.ctrlKey || e.metaKey) {
                                     // Ctrl+Click for multi-select
@@ -2595,13 +2815,18 @@ useEffect(() => {
                 {header}
                 <div className="px-1">
                     {conversations.map((conv, index) => {
+
                         const isSelected = selectedConvos?.has(conv.id);
-                        const isActive = conv.id === activeConversationId && !currentFile; // Only highlight if no file is open
+                        const isActive = conv.id === activeConversationId && !currentFile;
                         const isLastClicked = lastClickedIndex === index;
+
                         
                         return (
                             <button
-                                key={conv.id}
+                            key={conv.id}
+                            draggable="true"
+                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; setDraggedItem({ type: 'conversation', id: conv.id }); }}
+                            onDragEnd={() => setDraggedItem(null)}
                                 onClick={(e) => { 
                                     if (e.ctrlKey || e.metaKey) { 
                                         const newSelected = new Set(selectedConvos || new Set()); 
@@ -2837,407 +3062,155 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
         }]);
     }
 };
+const renderFileEditor = ({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData) return null;
 
+        const { contentId: filePath, fileContent, fileChanged } = paneData;
+        const fileName = filePath?.split('/').pop() || 'Untitled';
 
-const renderFileEditor = () => {
-    const fileName = currentFile ? currentFile.split('/').pop() : '';
+        const onContentChange = (value) => {
+            if (contentDataRef.current[nodeId]) {
+                contentDataRef.current[nodeId].fileContent = value;
+                if (!contentDataRef.current[nodeId].fileChanged) {
+                    contentDataRef.current[nodeId].fileChanged = true;
+                    setRootLayoutNode(p => ({ ...p }));
+                }
+            }
+        };
 
-    const handleEditorContextMenu = (e) => {
-        // We only show the context menu if there's a selection
-        if (aiEditModal.selectedText.length > 0) {
-            e.preventDefault();
-            // Store position and make the menu visible using state
-            setContextMenuPos({ x: e.clientX, y: e.clientY });
-        }
-        // If there's no selection, we allow the default browser context menu
-    };
+        const onSave = async () => {
+            const currentPaneData = contentDataRef.current[nodeId];
+            if (currentPaneData?.contentId && currentPaneData.fileChanged) {
+                await window.api.writeFileContent(currentPaneData.contentId, currentPaneData.fileContent);
+                currentPaneData.fileChanged = false;
+                setRootLayoutNode(p => ({ ...p }));
+            }
+        };
 
-    return (
-        <div className="flex-1 flex flex-col theme-bg-secondary overflow-hidden">
-            <div className="p-2 border-b theme-border flex items-center justify-between flex-shrink-0">
-                {isRenamingFile ? (
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="text"
-                            value={newFileName}
-                            onChange={(e) => setNewFileName(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') { e.preventDefault(); handleRenameFile(); }
-                                if (e.key === 'Escape') { e.preventDefault(); setIsRenamingFile(false); }
-                            }}
-                            className="text-sm theme-bg-primary theme-text-primary px-2 py-1 rounded theme-border border"
-                            autoFocus
-                        />
-                        <button onClick={handleRenameFile} className="px-2 py-1 theme-button-success rounded text-sm">Save</button>
-                        <button onClick={() => setIsRenamingFile(false)} className="px-2 py-1 theme-button rounded text-sm">Cancel</button>
+        return (
+            <div className="flex-1 flex flex-col theme-bg-secondary overflow-hidden">
+                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+                    <div className="flex items-center gap-2 truncate">
+                        {getFileIcon(fileName)}
+                        <span className="truncate" title={filePath}>{fileName}{fileChanged ? '*' : ''}</span>
                     </div>
-                ) : (
                     <div className="flex items-center gap-2">
-                        <span className="text-sm theme-text-primary truncate">{fileName}</span>
-                        <button onClick={() => { setNewFileName(fileName); setIsRenamingFile(true); }} className="p-1 theme-hover rounded" title="Rename file">
-                            <Edit size={12} className="theme-text-muted" />
-                        </button>
+                        <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
+                        {/* THIS IS THE CORRECTED CLOSE BUTTON LOGIC */}
+                        <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
                     </div>
-                )}
-                <div className="flex gap-2">
-                    <button 
-                        onClick={handleFileSave} 
-                        disabled={!fileChanged || isSaving} 
-                        className={`px-3 py-1 rounded text-sm transition-colors ${!fileChanged || isSaving ? 'bg-gray-600 opacity-50 cursor-not-allowed' : 'theme-button-success'}`}
-                    >
-                        {isSaving ? 'Saving...' : 'Save'}
-                    </button>
-                    <button onClick={() => setIsEditing(false)} className="px-3 py-1 theme-button rounded text-sm">Close</button>
+                </div>
+                <div className="flex-1 relative">
+                    <CodeEditor value={fileContent || ''} onChange={onContentChange} onSave={onSave} filePath={filePath} />
                 </div>
             </div>
+        );
+    };
 
-            {/* The key fix: flex-1 and min-h-0 on the container */}
+const renderChatView = ({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
 
-<div className="flex-1 overflow-hidden relative">
-    <div className="absolute top-0 left-0 right-0 bottom-0 overflow-auto">
-        <CodeEditor
-            value={fileContent}
-            onChange={handleFileContentChange}
-            filePath={currentFile}
-            onSave={handleFileSave}
-            onContextMenu={handleEditorContextMenu}
-            onSelect={handleTextSelection}
-        />
-    </div>
-</div>
+    const { contentId: conversationId } = paneData;
+    const scrollRef = useRef(null);
 
-            {/* Context menu for AI operations */}
-            {contextMenuPos && (
-                <>
-                    <div 
-                        className="fixed inset-0 z-40"
-                        onClick={() => setContextMenuPos(null)}
-                    />
-                    <div 
-                        className="absolute theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
-                        style={{ top: contextMenuPos.y, left: contextMenuPos.x }}
-                    >
-                        <button onClick={() => { handleAIEdit('ask'); setContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
-                            <MessageSquare size={16} />
-                            <span>Ask AI</span>
-                        </button>
-                        <button onClick={() => { handleAIEdit('document'); setContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
-                            <FileText size={16} />
-                            <span>Document</span>
-                        </button>
-                        <button onClick={() => { handleAIEdit('edit'); setContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
-                            <Edit size={16} />
-                            <span>Edit</span>
-                        </button>
+    // This effect loads messages and calculates stats when the conversation ID changes
+    useEffect(() => {
+        if (!conversationId) return;
+        
+        const load = async () => {
+            const currentPane = contentDataRef.current[nodeId];
+            if (!currentPane) return;
+            
+            const msgs = await window.api.getConversationMessages(conversationId);
+            
+            if (msgs && Array.isArray(msgs)) {
+                const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
+                
+                // Initialize chatMessages if it doesn't exist
+                if (!currentPane.chatMessages) {
+                     currentPane.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+                }
+
+                currentPane.chatMessages.allMessages = formatted;
+                const count = currentPane.chatMessages.displayedMessageCount || 20;
+                currentPane.chatMessages.messages = formatted.slice(-count);
+                
+                // Calculate and store stats
+                currentPane.chatStats = getConversationStats(formatted);
+                
+                setRootLayoutNode(p => ({ ...p }));
+            }
+        };
+        load();
+    }, [conversationId, nodeId]);
+
+    // This effect auto-scrolls when messages change
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    }, [paneData?.chatMessages?.messages]); // Trigger on the visible messages array
+
+    const loadPreviousMessages = () => {
+        const currentPane = contentDataRef.current[nodeId];
+        if (currentPane && currentPane.chatMessages) {
+            currentPane.chatMessages.displayedMessageCount += 20;
+            currentPane.chatMessages.messages = currentPane.chatMessages.allMessages.slice(-currentPane.chatMessages.displayedMessageCount);
+            setRootLayoutNode(p => ({ ...p }));
+        }
+    };
+
+    const messagesToDisplay = paneData.chatMessages?.messages || [];
+    const totalMessages = paneData.chatMessages?.allMessages?.length || 0;
+    const stats = paneData.chatStats || {};
+    const path = findNodePath(rootLayoutNode, nodeId);
+
+    return (
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* --- THE NEW, USEFUL HEADER --- */}
+            <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary">
+                <div className="flex justify-between items-center">
+                    <span className="truncate min-w-0 font-semibold" title={conversationId}>
+                        Conversation: {conversationId?.slice(-8) || 'None'}
+                    </span>
+                    <button onClick={() => closeContentPane(nodeId, path)} className="p-1 theme-hover rounded-full flex-shrink-0">
+                        <X size={14} />
+                    </button>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-gray-400">
+                    <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
+                    <span><Terminal size={12} className="inline mr-1"/>~{stats.tokenCount || 0} Tokens</span>
+                    <span><Code2 size={12} className="inline mr-1"/>{stats.models?.size || 0} Models</span>
+                    <span><Users size={12} className="inline mr-1"/>{stats.agents?.size || 0} Agents</span>
+                </div>
+            </div>
+            {/* --- END HEADER --- */}
+
+            <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
+                {totalMessages > messagesToDisplay.length && (
+                    <div className="text-center">
+                        <button onClick={loadPreviousMessages} className="theme-button theme-hover px-3 py-1 text-xs rounded">Load More</button>
                     </div>
-                </>
-            )}
+                )}
+                {messagesToDisplay.map(msg => 
+                    <ChatMessage 
+                        key={msg.id} 
+                        message={msg}
+                        isSelected={selectedMessages.has(msg.id)} 
+                        messageSelectionMode={messageSelectionMode} 
+                        toggleMessageSelection={toggleMessageSelection} 
+                        handleMessageContextMenu={handleMessageContextMenu} 
+                        searchTerm={searchTerm} 
+                        activeSearchResult={activeSearchResult} 
+                        onResendMessage={handleResendMessage}
+                    />
+                )}
+            </div>
         </div>
     );
 };
-
-const renderChatView = () => (
-        <div className="flex-1 flex flex-col min-h-0">
-            <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary">
-                <div>Active Conversation: {activeConversationId || 'None'}</div>
-                <div>Messages Count: {messages.length}</div>
-                <div>Current Path: {currentPath}</div>
-    
-                <div className="flex items-center gap-2">
-                {messageSelectionMode && selectedMessages.size > 0 && (
-                    <span className="text-blue-400 text-xs">
-                        {selectedMessages.size} message{selectedMessages.size === 1 ? '' : 's'} selected
-                    </span>
-                )}
-                <button
-                    onClick={toggleMessageSelectionMode}
-                    className={`px-3 py-1 rounded text-xs transition-all ${
-                        messageSelectionMode
-                            ? 'theme-button-primary'
-                            : 'theme-button theme-hover'
-                    }`}
-                    title={messageSelectionMode ? 'Exit selection mode' : 'Enter selection mode'}
-                >
-                    <ListFilter size={14} className="inline mr-1" />
-                    {messageSelectionMode ? 'Exit Select' : 'Select Messages'}
-                </button>
-            </div>
-    
-            </div>
-    
-            <div ref={chatContainerRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
-                {/* Search Results Display */}
-                {messageSearchResults.length > 0 && (
-                    <div className="sticky top-0 z-10 theme-bg-secondary p-2 rounded-md border theme-border shadow-md mb-2">
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm theme-text-primary">
-                                Found {messageSearchResults.length} result{messageSearchResults.length === 1 ? '' : 's'} for "{searchTerm}"
-                            </span>
-                            <button 
-                                onClick={() => {
-                                    setMessageSearchResults([]);
-                                    setActiveSearchResult(null);
-                                }}
-                                className="theme-hover rounded-full p-1"
-                            >
-                                <X size={14} />
-                            </button>
-                        </div>
-                        <div className="flex gap-2 mt-2 flex-wrap">
-                            {messageSearchResults.map((result, index) => (
-                                <button
-                                    key={result.messageId}
-                                    onClick={() => {
-                                        setActiveSearchResult(result.messageId);
-                                        const messageElement = document.getElementById(`message-${result.messageId}`);
-                                        if (messageElement) {
-                                            messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                        }
-                                    }}
-                                    className={`text-xs px-2 py-1 rounded ${
-                                        activeSearchResult === result.messageId
-                                            ? 'theme-button-primary'
-                                            : 'theme-button theme-hover'
-                                    }`}
-                                >
-                                    Result {index + 1}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Prompt Modal Rendering */}
-                {promptModal.isOpen && (
-                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-40 p-4">
-                        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-lg w-full">
-                            <h3 className="text-lg font-medium mb-3 theme-text-primary">{promptModal.title}</h3>
-                            <p className="theme-text-muted mb-4 text-sm">{promptModal.message}</p>
-                            <textarea
-                                className="w-full h-48 theme-input border rounded p-2 mb-4 font-mono text-sm"
-                                defaultValue={promptModal.defaultValue}
-                                id="promptInputModal"
-                                autoFocus
-                            />
-                            <div className="flex justify-end gap-3">
-                                <button
-                                    className="px-4 py-2 theme-button theme-hover rounded text-sm"
-                                    onClick={() => setPromptModal({ ...promptModal, isOpen: false })}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    className="px-4 py-2 theme-button-primary rounded text-sm"
-                                    onClick={() => {
-                                        const value = document.getElementById('promptInputModal').value;
-                                        promptModal.onConfirm?.(value);
-                                        setPromptModal({ ...promptModal, isOpen: false });
-                                    }}
-                                >
-                                    OK
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-    
-                {/* Message List with Lazy Loading */}
-                {!activeConversationId ? (
-                    <div className="flex items-center justify-center h-full theme-text-muted">
-                        Select or create a conversation
-                    </div>
-                ) : allMessages.length === 0 ? (
-                    <div className="text-center theme-text-muted pt-10">
-                        No messages in this conversation
-                    </div>
-                ) : (
-                    <>
-                        {/* Load More Button - only shown if more than 10 messages */}
-                        {allMessages.length > displayedMessageCount && (
-                            <div className="flex justify-center mb-4">
-                                <button
-                                    onClick={async () => {
-                                        setLoadingMoreMessages(true);
-                                        try {
-                                            // Simulate loading more messages
-                                            await new Promise(resolve => setTimeout(resolve, 500));
-    
-                                            // Increase the count of displayed messages
-                                            setDisplayedMessageCount(prev => prev + 10);
-                                        } catch (err) {
-                                            console.error('Error loading more messages:', err);
-                                        } finally {
-                                            setLoadingMoreMessages(false);
-                                        }
-                                    }} // This would be replaced with actual pagination logic
-                                    className="px-4 py-2 theme-button theme-hover rounded-md text-sm"
-                                >
-                                    {loadingMoreMessages ? 'Loading...' : `Load Previous Messages (${allMessages.length - displayedMessageCount} more)`}
-                                </button>
-                            </div>
-                        )}
-    
-                        {allMessages.slice(-displayedMessageCount).map((message) => {
-                            const messageId = message.id || message.timestamp;
-                            return (
-                                <ChatMessage
-                                    key={messageId}
-                                    message={message}
-                                    isSelected={selectedMessages.has(messageId)}
-                                    messageSelectionMode={messageSelectionMode}
-                                    toggleMessageSelection={toggleMessageSelection}
-                                    handleMessageContextMenu={handleMessageContextMenu}
-                                    searchTerm={searchTerm}
-                                    activeSearchResult={activeSearchResult}
-                                    onResendMessage={handleResendMessage}
-                                />
-                            );
-                        })}
-
-                    </>
-                )}
-            </div>
-    
-    
-    
-            {/* Uploaded files preview */}
-            {uploadedFiles.length > 0 && (
-                 <div className="px-4 pt-2 flex gap-2 flex-wrap border-t theme-border max-h-28 overflow-y-auto theme-bg-secondary flex-shrink-0">
-                    {uploadedFiles.map(file => (
-                        <div key={file.id} className="relative flex-shrink-0 mb-2">
-                            <img
-                                src={file.preview || `file://${file.path}`} // Use file protocol for local paths if no preview
-                                alt={file.name}
-                                className="w-16 h-16 object-cover rounded theme-border border"
-                                // Add error handling for broken images if needed
-                                onError={(e) => { e.target.style.display = 'none'; /* Hide broken image icon */ }}
-                            />
-                            <button
-                                onClick={() => {
-                                    setUploadedFiles(prev => prev.filter(f => f.id !== file.id));
-                                    if (file.preview) URL.revokeObjectURL(file.preview);
-                                }}
-                                className="absolute -top-1 -right-1 theme-button-danger text-white rounded-full p-0.5 leading-none flex items-center justify-center w-4 h-4"
-                                aria-label="Remove file"
-                            >
-                                <X size={10} strokeWidth={3} />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
-    
-            {renderInputArea()}
-    
-            {/* Message Context Menu */}
-            {messageContextMenuPos && (
-                <div
-                    className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
-                    style={{ top: messageContextMenuPos.y, left: messageContextMenuPos.x }}
-                    onMouseLeave={() => setMessageContextMenuPos(null)}
-                >
-                    <button
-                        onClick={() => handleApplyPromptToMessages('summarize')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <MessageSquare size={16} />
-                        <span>Summarize in New Conversation ({selectedMessages.size})</span>
-                    </button>
-                    <button
-                        onClick={() => handleApplyPromptToCurrentConversation('summarize')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <MessageSquare size={16} />
-                        <span>Summarize in Input Field ({selectedMessages.size})</span>
-                    </button>
-                    <div className="border-t theme-border my-1"></div>
-                    <button
-                        onClick={() => handleApplyPromptToMessages('analyze')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <Edit size={16} />
-                        <span>Analyze in New Conversation ({selectedMessages.size})</span>
-                    </button>
-                    <button
-                        onClick={() => handleApplyPromptToCurrentConversation('analyze')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <Edit size={16} />
-                        <span>Analyze in Input Field ({selectedMessages.size})</span>
-                    </button>
-                    <div className="border-t theme-border my-1"></div>
-                    <button
-                        onClick={() => handleApplyPromptToMessages('extract')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <FileText size={16} />
-                        <span>Extract in New Conversation ({selectedMessages.size})</span>
-                    </button>
-                    <button
-                        onClick={() => handleApplyPromptToCurrentConversation('extract')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <FileText size={16} />
-                        <span>Extract in Input Field ({selectedMessages.size})</span>
-                    </button>
-                </div>
-            )}
-            {/* File Context Menu */}
-            {fileContextMenuPos && (
-                <div
-                    className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
-                    style={{ top: fileContextMenuPos.y, left: fileContextMenuPos.x }}
-                    onMouseLeave={() => setFileContextMenuPos(null)}
-                >
-                    <button
-                        onClick={() => handleApplyPromptToFiles('summarize')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <MessageSquare size={16} />
-                        <span>Summarize Files ({selectedFiles.size})</span>
-                    </button>
-                    <button
-                        onClick={() => handleApplyPromptToFilesInInput('summarize')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <MessageSquare size={16} />
-                        <span>Summarize in Input Field ({selectedFiles.size})</span>
-                    </button>
-                    <div className="border-t theme-border my-1"></div>
-                    <button
-                        onClick={() => handleApplyPromptToFiles('analyze')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <Edit size={16} />
-                        <span>Analyze Files ({selectedFiles.size})</span>
-                    </button>
-                    <button
-                        onClick={() => handleApplyPromptToFilesInInput('analyze')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <Edit size={16} />
-                        <span>Analyze in Input Field ({selectedFiles.size})</span>
-                    </button>
-                    <div className="border-t theme-border my-1"></div>
-                    <button
-                        onClick={() => handleApplyPromptToFiles('refactor')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <Code2 size={16} />
-                        <span>Refactor Code ({selectedFiles.size})</span>
-                    </button>
-                    <button
-                        onClick={() => handleApplyPromptToFiles('document')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                    >
-                        <FileText size={16} />
-                        <span>Document Code ({selectedFiles.size})</span>
-                    </button>
-                </div>
-            )}
-        </div>
-    );
-
 
     const renderInputArea = () => (
         <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
@@ -3361,12 +3334,72 @@ const renderChatView = () => (
         </div>
     );
 
-    const renderMainContent = () => (
-        <main className={`flex-1 flex flex-col bg-gray-900 ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
-            {isEditing ? renderFileEditor() : renderChatView()}
-        </main>
-    );
+    const renderMainContent = () => {
+        // This object passes all necessary functions and state to the recursive renderer
+        // without needing to pass them all as individual props.
+        const layoutComponentApi = {
+            rootLayoutNode, setRootLayoutNode, findNodeByPath,
+            activeContentPaneId, setActiveContentPaneId,
+            draggedItem, setDraggedItem, dropTarget, setDropTarget,
+            contentDataRef, updateContentPane, performSplit,
+            renderChatView, renderFileEditor
+        };
 
+        if (!rootLayoutNode) {
+            return (
+                <div 
+                    className="flex-1 flex items-center justify-center border-2 border-dashed border-gray-400 m-4"
+                    onDragOver={(e) => { 
+                        e.preventDefault(); 
+                        e.stopPropagation(); 
+                    }}
+                    onDrop={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        if (!draggedItem) return;
+                        
+                        const newPaneId = generateId();
+                        const newLayout = { id: newPaneId, type: 'content' };
+                        const contentType = draggedItem.type === 'conversation' ? 'chat' : 'editor';
+                        
+                        contentDataRef.current[newPaneId] = {};
+                        await updateContentPane(newPaneId, contentType, draggedItem.id);
+                        
+                        setRootLayoutNode(newLayout);
+                        setActiveContentPaneId(newPaneId);
+                        setDraggedItem(null);
+                    }}
+                >
+                    <div className="text-center text-gray-500">
+                        <div className="text-xl mb-2">No panes open</div>
+                        <div>Drag a conversation or file here to create a new pane</div>
+                    </div>
+                </div>
+            );
+        }
+
+
+        return (
+            <main className={`flex-1 flex flex-col bg-gray-900 ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
+                <div className="flex-1 flex overflow-hidden">
+
+                    {
+                    rootLayoutNode ? (
+                        <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentApi} />
+                    ) : (
+                        <div className="flex-1 flex items-center justify-center theme-text-muted">
+                            {loading ? "Loading..." : "Drag a conversation or file to start."}
+                        </div>
+                    )}
+                </div>
+                {/* Global Input Area */}
+                <div className="flex-shrink-0">
+                    {renderInputArea()}
+                </div>
+            </main>
+        );
+    };
     const renderModals = () => (
         <>
             <NPCTeamMenu isOpen={npcTeamMenuOpen} onClose={handleCloseNpcTeamMenu} currentPath={currentPath} startNewConversation={startNewConversationWithNpc}/>
