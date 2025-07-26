@@ -1572,67 +1572,41 @@ const handleInputSubmit = async (e) => {
         }
     };
 
+// In ChatInterface.jsx
+// REPLACE your entire deleteSelectedConversations function with this:
 
 const deleteSelectedConversations = async () => {
-    const selectedConversationIds = Array.from(selectedConvos);
-    const selectedFilePaths = Array.from(selectedFiles);
-    
-    if (selectedConversationIds.length === 0 && selectedFilePaths.length === 0) return;
+   const selectedConversationIds = Array.from(selectedConvos);
+   const selectedFilePaths = Array.from(selectedFiles);
+   
+   if (selectedConversationIds.length === 0 && selectedFilePaths.length === 0) {
+       return; // Nothing to do
+   }
+   
+   try {
+       // --- Call the backend to delete from the database ---
+       if (selectedConversationIds.length > 0) {
+           console.log('Deleting conversations from database:', selectedConversationIds);
+           await Promise.all(selectedConversationIds.map(id => window.api.deleteConversation(id)));
+       }
+       
+       if (selectedFilePaths.length > 0) {
+           console.log('Deleting files from filesystem:', selectedFilePaths);
+           await Promise.all(selectedFilePaths.map(filePath => window.api.deleteFile(filePath)));
+       }
 
-    try {
-        // Delete selected conversations
-        if (selectedConversationIds.length > 0) {
-            // Find all panes that need to be closed because their conversation is being deleted
-            const panesToClose = [];
-            for (const paneId in contentDataRef.current) {
-                if (selectedConversationIds.includes(contentDataRef.current[paneId].contentId)) {
-                    const nodePath = findNodePath(rootLayoutNode, paneId);
-                    if (nodePath) {
-                        panesToClose.push({ paneId, nodePath });
-                    }
-                }
-            }
-            
-            // Close the affected panes first to avoid errors
-            // We process in reverse to avoid messing up paths of subsequent nodes
-            for (let i = panesToClose.length - 1; i >= 0; i--) {
-                closeContentPane(panesToClose[i].paneId, panesToClose[i].nodePath);
-            }
+       // --- Refresh the UI from the source of truth ---
+       await loadDirectoryStructure(currentPath);
 
-            await Promise.all(selectedConversationIds.map(id => window.api.deleteConversation(id)));
-            // Refresh the conversation list in the sidebar
-            await refreshConversations(); 
-        }
-        
-        // Delete selected files (your existing logic for this is mostly correct)
-        if (selectedFilePaths.length > 0) {
-            const panesToClose = [];
-            for (const paneId in contentDataRef.current) {
-                 if (selectedFilePaths.includes(contentDataRef.current[paneId].contentId)) {
-                    const nodePath = findNodePath(rootLayoutNode, paneId);
-                     if (nodePath) {
-                        panesToClose.push({ paneId, nodePath });
-                    }
-                 }
-            }
-            for (let i = panesToClose.length - 1; i >= 0; i--) {
-                closeContentPane(panesToClose[i].paneId, panesToClose[i].nodePath);
-            }
-
-            await Promise.all(selectedFilePaths.map(filePath => window.api.deleteFile(filePath)));
-            await loadDirectoryStructure(currentPath); // Full refresh for files
-        }
-
-    } catch (err) {
-        console.error('Error deleting items:', err);
-        setError(err.message);
-    }
-    
-    // Clear selections
-    setSelectedConvos(new Set());
-    setSelectedFiles(new Set());
+   } catch (err) {
+       console.error('Error deleting items:', err);
+       setError(err.message);
+   } finally {
+       // --- Clear selections ---
+       setSelectedConvos(new Set());
+       setSelectedFiles(new Set());
+   }
 };
-
     useEffect(() => {
         const loadData = async () => {
             if (currentPath) {

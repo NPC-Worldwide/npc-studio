@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
     open_directory_picker: () => ipcRenderer.invoke('open_directory_picker'),
 
     // Conversation operations
+    deleteConversation: (id) => ipcRenderer.invoke('deleteConversation', id),
     getConversations: (path) => ipcRenderer.invoke('getConversations', path),
     getConversationsInDirectory: (path) => ipcRenderer.invoke('getConversationsInDirectory', path),
     getConversationMessages: (id) => ipcRenderer.invoke('getConversationMessages', id),
