@@ -15,7 +15,7 @@ flask_sse
 redis
 pyyaml
 pillow
-npcpy==1.0.31
+npcpy==1.0.37
 EOF
 
 pyinstaller --onefile  \
