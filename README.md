@@ -50,7 +50,7 @@ See thinking traces from agents:
 ## Edit plain text files
 - NPC Studio is not just a chat interface, users can also edit plain text files (with agent-based integrations soon to come).
 
-![npc studio interface for editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/code_editing.png)
+![npc studio interface for editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/code_editor.png)
 
 ## Analyze text files with AI
 ![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/fill_analyze.png)
