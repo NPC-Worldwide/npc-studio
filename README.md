@@ -11,7 +11,8 @@ Executables available for Linux, MacOS, and Windows at [our website](https://enp
 At the moment, NPC Studio requires you to independently have ollama installed (or other API keys within .env files) and for you to have pulled models yourself. In future releases, we intend to bundle a program that can install ollama and models from within NPC Studio itself. We also aim to provide inference for users who don't have the local hardware necessary to run models. 
 If you have issues during installation, please let us know!
 
-Demo video:
+## Demo video:
+
 <a href="https://www.youtube.com/watch?v=rXkc2CrLNb4" target="_blank">
   <img src="https://img.youtube.com/vi/rXkc2CrLNb4/0.jpg" alt="Watch the video" />
 </a>
