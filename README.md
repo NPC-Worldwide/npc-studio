@@ -34,12 +34,12 @@ See thinking traces from agents:
 
 - Aggregate conversations:
 
-![select multiple conversations](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/aggregrate_conversations.png)
+![select multiple conversations](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/convo_agg.png)
 
-- Aggregate messages (to come)
+-![Aggregate messages](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/agg_messages.png) 
 
 ## Create and manage agents, tools
-- NPC Studio uses the `npcsh` agent framework to simplify the building and orchestration of AI agents.
+- NPC Studio uses the `npcpy` agent framework to simplify the building and orchestration of AI agents.
 
 ![edit your agents](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/edit_npcs.png)
 
@@ -50,8 +50,10 @@ See thinking traces from agents:
 ## Edit plain text files
 - NPC Studio is not just a chat interface, users can also edit plain text files (with agent-based integrations soon to come).
 
-![npc studio interface for editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/edit_files.png)
+![npc studio interface for editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/code_editing.png)
 
+## Analyze text files with AI
+![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/fill_analyze.png)
 
 
 ## Edit settings 
@@ -65,28 +67,26 @@ See thinking traces from agents:
 
 ![npc studio env variables for project settings](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/env_variables.png)
 
--When working in a specific folder, NPC Studio will discover an `.env` fiel if it's present and will use these API keys to determine which models can be used within the project.
+-When working in a specific folder, NPC Studio will discover an `.env` file if it's present and will use these API keys to determine which models can be used within the project.
 
 ![npc studio chat model selector](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/model_selector.png)
 
 
 
 
-## Activity Dashboard (planned)
+## Activity Dashboard
 
-- view key activity metrics 
-
-## Knowledge Graph (planned)
-- view the knowledge graph built up over time through your actions
-
-## Use mixtures of agents (planned)
-
-## Exploratory data analysis (planned)
-
-## Automate with cron jobs and system daemons (planned)
+The activity dashboard will soon feature a query input that can be toggled between SQL and natural
+language. 
+![Data Dash](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/data_dash.png)
 
 
 
+## Planned Components
+- Knowledge Graph: view the knowledge graph built up over time through your actions
+- Run simple mixture of agent scenarios
+- Exploratory data analysis through `guac` integration
+- Users will be able to toggle different views of their usage in the data dash and to modify the dashboard itself with specific desired graphs.
 
 ## Getting Started with Development
 
@@ -110,8 +110,7 @@ Start the electron backend:
 npm run dev
 ```
 Start the flask backend:
-```bash
-npc serve -p 5337 -c 'localhost:5137' # the -c indicates the url of the frontend so that the server can use CORS
+
 ```
 Alternatively use the wrapper script that is provided
 ```bash
@@ -123,18 +122,22 @@ npm start
 ```
 
 
-## Build
+## Build 
+Linux:
 ```bash
-npm run build
+./build.sh
 ```
-This will build the frontend and backend into a single executable file. In its current state, it specifies a build target for
-creating .deb and AppImage files in linux. Other OS to be added in the future.
+This will build the frontend and backend into a single executable file. 
 
+Mac:
+```bash
+./build-mac.sh
+```
+Windows:
+```
+.\build.bat
+```
 
 ### License
 NPC Studio is licensed under AGPLv3 with additional terms explicitly prohibiting the offering of third-party SaaS services which provide a user access to any web-hosted version of the software as well as prohibiting the packaged re-sale of the product. Please see the [LICENSE](LICENSE) file for further details.
 
-
-### items to do...
-- letting ppl see lineage in npc team
-- database overview tab
