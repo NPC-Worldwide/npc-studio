@@ -411,6 +411,7 @@ const ChatInterface = () => {
     const [dropTarget, setDropTarget] = useState(null);
     // A ref to hold bulky data for each pane, preventing state updates on every keypress
     const contentDataRef = useRef({});
+    const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
 
 
     const [resendModal, setResendModal] = useState({
@@ -583,16 +584,23 @@ const toggleMessageSelectionMode = () => {
 };
 const handleMessageContextMenu = useCallback((e, messageId) => {
     e.preventDefault();
-    setSelectedMessages(prev => {
-        if (!prev.has(messageId) && prev.size > 0) {
-            return new Set([...prev, messageId]);
-        } else if (prev.size === 0) {
-            return new Set([messageId]);
-        }
-        return prev;
-    });
+    e.stopPropagation();
+    // If not in selection mode, enter it and select the current message
+    if (!messageSelectionMode) {
+        setMessageSelectionMode(true);
+        setSelectedMessages(new Set([messageId]));
+    } else {
+        // If already in selection mode, just add the right-clicked message to the selection
+        setSelectedMessages(prev => {
+            const newSelected = new Set(prev);
+            if (!newSelected.has(messageId)) {
+                newSelected.add(messageId);
+            }
+            return newSelected;
+        });
+    }
     setMessageContextMenuPos({ x: e.clientX, y: e.clientY, messageId });
-}, []); 
+}, [messageSelectionMode]);
 
 
 const handleEditorContextMenu = (e) => {
@@ -621,20 +629,28 @@ const handleEditorContextMenu = (e) => {
     }
 };
 
-const handleAIEdit = async (action) => {
-    // If we're performing an 'edit' action, get a custom prompt from the user
-    let customPromptInput = '';
-    if (action === 'edit') {
-        const result = await window.api.showPromptDialog({
-            title: 'Edit Code',
-            message: 'What changes do you want the AI to make?',
-            defaultValue: 'Refactor this for clarity and efficiency:'
+
+const handleAIEdit = async (action, customPrompt = null) => {
+    // Hide the right-click context menu immediately
+    setEditorContextMenuPos(null);
+
+    // If the action is 'edit' and we haven't received a custom prompt yet,
+    // open our custom modal to ask the user for one.
+    if (action === 'edit' && customPrompt === null) {
+        setPromptModal({
+            isOpen: true,
+            title: 'Customize AI Edit',
+            message: 'Describe the changes you want the AI to make to the selected code.',
+            defaultValue: 'Refactor this for clarity and efficiency',
+            onConfirm: (userPrompt) => {
+                // Once the user confirms, call this function again with the provided prompt.
+                handleAIEdit('edit', userPrompt);
+            },
         });
-        if (result === null) { // User cancelled
-            return;
-        }
-        customPromptInput = result;
+        return; // Stop execution until the user provides a prompt
     }
+
+    // --- Proceed with the AI request ---
 
     const newStreamId = generateId();
     
@@ -644,40 +660,39 @@ const handleAIEdit = async (action) => {
         type: action,
         isLoading: true,
         aiResponse: '',
-        showDiff: action !== 'ask', // Show diff for 'document' and 'edit' by default
+        showDiff: action !== 'ask',
         streamId: newStreamId,
-        modelForEdit: currentModel, // Initialize with current chat model
-        npcForEdit: currentNPC,     // Initialize with current chat NPC
-        customEditPrompt: customPromptInput // Store custom prompt if applicable
+        modelForEdit: currentModel,
+        npcForEdit: currentNPC,
+        customEditPrompt: customPrompt || ''
     }));
 
-    // Hide context menu immediately
-    const contextMenu = document.getElementById('editor-context-menu');
-    if (contextMenu) {
-        contextMenu.style.display = 'none';
-    }
-
     try {
-        let prompt = '';
+        let finalPrompt = '';
+        const activePaneData = contentDataRef.current[activeContentPaneId];
+        const selectedText = activePaneData ? (activePaneData.fileContent || '').substring(aiEditModal.selectionStart, aiEditModal.selectionEnd) : '';
+
+        if (!selectedText) throw new Error("No text selected.");
+
         switch (action) {
             case 'ask':
-                prompt = `Please analyze and explain this code. Provide a concise overview, highlighting its purpose, key components, and any notable patterns or potential improvements:\n\n\`\`\`\n${aiEditModal.selectedText}\n\`\`\``;
+                finalPrompt = `Please analyze and explain this code. Provide a concise overview, highlighting its purpose, key components, and any notable patterns or potential improvements:\n\n\`\`\`\n${selectedText}\n\`\`\``;
                 break;
             case 'document':
-                prompt = `Add comprehensive inline comments and, if appropriate, a docstring to this code. Ensure the comments explain complex logic, parameters, return values, and any assumptions. Return only the commented version of the code, preserving original indentation and structure:\n\n\`\`\`\n${aiEditModal.selectedText}\n\`\`\``;
+                finalPrompt = `Add comprehensive inline comments and, if appropriate, a docstring to this code. Ensure the comments explain complex logic, parameters, return values, and any assumptions. Return only the commented version of the code, preserving original indentation and structure:\n\n\`\`\`\n${selectedText}\n\`\`\``;
                 break;
             case 'edit':
-                prompt = `${customPromptInput}\n\nHere is the code to apply changes to. Return only the modified code:\n\n\`\`\`\n${aiEditModal.selectedText}\n\`\`\``;
+                finalPrompt = `${customPrompt}\n\nHere is the code to apply changes to. Return only the modified code:\n\n\`\`\`\n${selectedText}\n\`\`\``;
                 break;
         }
 
         const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
 
         const result = await window.api.executeCommandStream({
-            commandstr: prompt,
+            commandstr: finalPrompt,
             currentPath,
-            conversationId: null, // Intentionally not saving to main chat history
-            model: currentModel, // Use current selected model for the prompt
+            conversationId: null,
+            model: currentModel,
             provider: currentProvider,
             npc: selectedNpc ? selectedNpc.name : currentNPC,
             npcSource: selectedNpc ? selectedNpc.source : 'global',
@@ -694,11 +709,11 @@ const handleAIEdit = async (action) => {
         setError(err.message);
         setAiEditModal(prev => ({
             ...prev,
-            isLoading: false
+            isLoading: false,
+            isOpen: false, // Close modal on error
         }));
     }
 };
-
 const generateDiff = (original, modified) => {
     const originalLines = original.split('\n');
     const modifiedLines = modified.split('\n');
@@ -733,20 +748,44 @@ const generateDiff = (original, modified) => {
 };
 
 const applyAIEdit = () => {
-    const newContent = fileContent.substring(0, aiEditModal.selectionStart) + 
+    // Ensure there is an active pane
+    if (!activeContentPaneId) return;
+    const paneData = contentDataRef.current[activeContentPaneId];
+    // Ensure the active pane is an editor
+    if (!paneData || paneData.contentType !== 'editor') return;
+
+    const originalContent = paneData.fileContent || '';
+
+    const newContent = originalContent.substring(0, aiEditModal.selectionStart) + 
                       aiEditModal.aiResponse + 
-                      fileContent.substring(aiEditModal.selectionEnd);
+                      originalContent.substring(aiEditModal.selectionEnd);
     
-    handleFileContentChange(newContent);
+    // Update the file content and changed status directly in the pane's data ref
+    paneData.fileContent = newContent;
+    paneData.fileChanged = true;
+
+    // Trigger a re-render of the layout to show the changes (e.g., the '*' for unsaved)
+    setRootLayoutNode(p => ({ ...p }));
+    
+    // Close the AI Edit modal
     setAiEditModal({ isOpen: false, type: '', selectedText: '', selectionStart: 0, selectionEnd: 0, aiResponse: '', showDiff: false, isLoading: false });
 };
+
+
 const handleApplyPromptToMessages = async (operationType, customPrompt = '') => {
     const selectedIds = Array.from(selectedMessages);
     if (selectedIds.length === 0) return;
+
+    // --- THIS IS THE FIX: Get messages from the active pane's data ---
     const activePaneData = contentDataRef.current[activeContentPaneId];
-    if (!activePaneData || !activePaneData.chatMessages) return;
+    if (!activePaneData || !activePaneData.chatMessages) {
+        console.error("No active chat pane data found for message operation.");
+        return;
+    }
     const allMessagesInPane = activePaneData.chatMessages.allMessages;
     const selectedMsgs = allMessagesInPane.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
+    // --- END FIX ---
+    
     if (selectedMsgs.length === 0) return;
 
     let prompt = '';
@@ -772,94 +811,23 @@ const handleApplyPromptToMessages = async (operationType, customPrompt = '') => 
     const fullPrompt = prompt + messagesText;
 
     try {
-        // For batch operations, always create a new conversation
         console.log('Creating new conversation for message operation:', operationType);
         const newConversation = await createNewConversation();
         
-        if (!newConversation) {
-            throw new Error('Failed to create new conversation');
-        }
+        if (!newConversation) throw new Error('Failed to create new conversation');
 
-        // Set the new conversation as active
-        setActiveConversationId(newConversation.id);
-        setCurrentConversation(newConversation);
-        
-        // Clear current messages and prepare for new conversation
-        setMessages([]);
-        setAllMessages([]);
-        setDisplayedMessageCount(10);
-
-        // Generate a new stream ID for this operation
-        const newStreamId = generateId();
-        streamIdRef.current = newStreamId;
-        setIsStreaming(true);
-
-        // Find the full NPC object to get its source (project or global)
-        const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
-
-        // Create user message and assistant placeholder for the new conversation
-        const userMessage = {
-            id: generateId(),
-            role: 'user',
-            content: fullPrompt,
-            timestamp: new Date().toISOString(),
-            type: 'message'
-        };
-
-        const assistantPlaceholderMessage = {
-            id: newStreamId,
-            role: 'assistant',
-            content: '',
-            reasoningContent: '',
-            toolCalls: [],
-            timestamp: new Date().toISOString(),
-            streamId: newStreamId,
-            model: currentModel,
-            npc: currentNPC
-        };
-
-        // Update both message arrays
-        setMessages([userMessage, assistantPlaceholderMessage]);
-        setAllMessages([userMessage, assistantPlaceholderMessage]);
-
-        console.log('Sending message operation to backend with streamId:', newStreamId);
-
-        // Execute the command with the new conversation ID
-        const result = await window.api.executeCommandStream({
-            commandstr: fullPrompt,
-            currentPath,
-            conversationId: newConversation.id,
-            model: currentModel,
-            provider: currentProvider,
-            npc: selectedNpc ? selectedNpc.name : currentNPC,
-            npcSource: selectedNpc ? selectedNpc.source : 'global',
-            attachments: [],
-            streamId: newStreamId
-        });
-
-        if (result && result.error) {
-            throw new Error(result.error);
-        }
-
-        console.log('Message operation initiated successfully in new conversation:', newConversation.id);
+        // The createNewConversation function already handles opening the new convo in a pane.
+        // Now, we just need to send the message by populating the input field.
+        setInput(fullPrompt);
         
     } catch (err) {
         console.error('Error processing messages:', err);
         setError(err.message);
-        
-        // Reset streaming state on error
-        setIsStreaming(false);
-        streamIdRef.current = null;
-        
-        // Fallback: put the prompt in the input field of the current conversation
-        if (activeConversationId) {
-            setInput(fullPrompt);
-        }
+        setInput(fullPrompt); // Fallback to setting input on error
     } finally {
-        // Clear selection
         setSelectedMessages(new Set());
         setMessageContextMenuPos(null);
-        setMessageOperationModal({ ...messageOperationModal, isOpen: false });
+        setMessageSelectionMode(false);
     }
 };
 
@@ -867,11 +835,16 @@ const handleApplyPromptToCurrentConversation = async (operationType, customPromp
     const selectedIds = Array.from(selectedMessages);
     if (selectedIds.length === 0) return;
     
+    // --- THIS IS THE FIX: Get messages from the active pane's data ---
     const activePaneData = contentDataRef.current[activeContentPaneId];
-    if (!activePaneData || !activePaneData.chatMessages) return;
+    if (!activePaneData || !activePaneData.chatMessages) {
+        console.error("No active chat pane data found for message operation.");
+        return;
+    }
     const allMessagesInPane = activePaneData.chatMessages.allMessages;
     const selectedMsgs = allMessagesInPane.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
-
+    // --- END FIX ---
+    
     if (selectedMsgs.length === 0) return;
 
     let prompt = '';
@@ -896,28 +869,13 @@ const handleApplyPromptToCurrentConversation = async (operationType, customPromp
 
     const fullPrompt = prompt + messagesText;
 
-    try {
-        // For input field operations, just populate the input field
-        // Make sure we have an active conversation
-        if (!activeConversationId) {
-            console.log('No active conversation, creating new one for input field operation');
-            await createNewConversation();
-        }
-
-        // Put the prompt in the input field for the user to review and potentially modify
-        setInput(fullPrompt);
-        
-        console.log('Message operation prompt added to input field');
-        
-    } catch (err) {
-        console.error('Error preparing prompt for input field:', err);
-        setError(err.message);
-    } finally {
-        // Clear selection
-        setSelectedMessages(new Set());
-        setMessageContextMenuPos(null);
-        setMessageOperationModal({ ...messageOperationModal, isOpen: false });
-    }
+    // Put the prompt in the input field for the user to review and send
+    setInput(fullPrompt);
+    
+    // Clear selection state
+    setSelectedMessages(new Set());
+    setMessageContextMenuPos(null);
+    setMessageSelectionMode(false);
 };
 
 // --- NEW: File operation handlers ---
@@ -1199,7 +1157,61 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
 }, []);
 
 
-    
+    const renderMessageContextMenu = () => (
+    messageContextMenuPos && (
+        <div
+            className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+            style={{ top: messageContextMenuPos.y, left: messageContextMenuPos.x }}
+            onMouseLeave={() => setMessageContextMenuPos(null)}
+        >
+            <button
+                onClick={() => handleApplyPromptToMessages('summarize')}
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+            >
+                <MessageSquare size={14} />
+                <span>Summarize in New Convo ({selectedMessages.size})</span>
+            </button>
+            <button
+                onClick={() => handleApplyPromptToCurrentConversation('summarize')}
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+            >
+                <Edit size={14} />
+                <span>Summarize in Input Field ({selectedMessages.size})</span>
+            </button>
+            <div className="border-t theme-border my-1"></div>
+            <button
+                onClick={() => handleApplyPromptToMessages('analyze')}
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+            >
+                <Terminal size={14} />
+                <span>Analyze in New Convo ({selectedMessages.size})</span>
+            </button>
+            <button
+                onClick={() => handleApplyPromptToCurrentConversation('analyze')}
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+            >
+                <Edit size={14} />
+                <span>Analyze in Input Field ({selectedMessages.size})</span>
+            </button>
+            <div className="border-t theme-border my-1"></div>
+            <button
+                onClick={() => handleApplyPromptToMessages('extract')}
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+            >
+                <FileText size={14} />
+                <span>Extract in New Convo ({selectedMessages.size})</span>
+            </button>
+            <button
+                onClick={() => handleApplyPromptToCurrentConversation('extract')}
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+            >
+                <Edit size={14} />
+                <span>Extract in Input Field ({selectedMessages.size})</span>
+            </button>
+        </div>
+    )
+);
+
     // Splits a pane to create a new one
     const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
         setRootLayoutNode(oldRoot => {
@@ -1529,7 +1541,13 @@ const handleInputSubmit = async (e) => {
 
     // This handler receives start/end positions from CodeMirror
     const handleTextSelection = useCallback((from, to) => {
-        const selectedText = fileContent.substring(from, to);
+        // Only act if there's an active pane
+        if (!activeContentPaneId) return;
+        const paneData = contentDataRef.current[activeContentPaneId];
+        // And if that pane is an editor
+        if (!paneData || paneData.contentType !== 'editor') return;
+
+        const selectedText = (paneData.fileContent || '').substring(from, to);
         if (selectedText.length > 0) {
             setAiEditModal(prev => ({
                 ...prev,
@@ -1538,7 +1556,7 @@ const handleInputSubmit = async (e) => {
                 selectionEnd: to,
             }));
         }
-    }, [fileContent]); // Depends on fileContent to get the substring
+    }, [activeContentPaneId]); // This depends on which pane is active
 
     // --- NEW: File renaming state and handlers ---
     const [isRenamingFile, setIsRenamingFile] = useState(false);
@@ -3036,51 +3054,93 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
         }]);
     }
 };
+
 const renderFileEditor = ({ nodeId }) => {
-        const paneData = contentDataRef.current[nodeId];
-        if (!paneData) return null;
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData) return null;
 
-        const { contentId: filePath, fileContent, fileChanged } = paneData;
-        const fileName = filePath?.split('/').pop() || 'Untitled';
+    const { contentId: filePath, fileContent, fileChanged } = paneData;
+    const fileName = filePath?.split('/').pop() || 'Untitled';
 
-        const onContentChange = (value) => {
-            if (contentDataRef.current[nodeId]) {
-                contentDataRef.current[nodeId].fileContent = value;
-                if (!contentDataRef.current[nodeId].fileChanged) {
-                    contentDataRef.current[nodeId].fileChanged = true;
-                    setRootLayoutNode(p => ({ ...p }));
-                }
-            }
-        };
-
-        const onSave = async () => {
-            const currentPaneData = contentDataRef.current[nodeId];
-            if (currentPaneData?.contentId && currentPaneData.fileChanged) {
-                await window.api.writeFileContent(currentPaneData.contentId, currentPaneData.fileContent);
-                currentPaneData.fileChanged = false;
+    const onContentChange = (value) => {
+        if (contentDataRef.current[nodeId]) {
+            contentDataRef.current[nodeId].fileContent = value;
+            if (!contentDataRef.current[nodeId].fileChanged) {
+                contentDataRef.current[nodeId].fileChanged = true;
                 setRootLayoutNode(p => ({ ...p }));
             }
-        };
+        }
+    };
 
-        return (
-            <div className="flex-1 flex flex-col theme-bg-secondary overflow-hidden">
-                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
-                    <div className="flex items-center gap-2 truncate">
-                        {getFileIcon(fileName)}
-                        <span className="truncate" title={filePath}>{fileName}{fileChanged ? '*' : ''}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
-                        {/* THIS IS THE CORRECTED CLOSE BUTTON LOGIC */}
-                        <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
-                    </div>
+    const onSave = async () => {
+        const currentPaneData = contentDataRef.current[nodeId];
+        if (currentPaneData?.contentId && currentPaneData.fileChanged) {
+            await window.api.writeFileContent(currentPaneData.contentId, currentPaneData.fileContent);
+            currentPaneData.fileChanged = false;
+            setRootLayoutNode(p => ({ ...p }));
+        }
+    };
+
+    const onEditorContextMenu = (e) => {
+        // Only show the context menu if there is a text selection in the active editor pane
+        if (aiEditModal.selectedText.length > 0 && activeContentPaneId === nodeId) {
+            e.preventDefault();
+            setEditorContextMenuPos({ x: e.clientX, y: e.clientY });
+        }
+    };
+
+    return (
+        <div className="flex-1 flex flex-col theme-bg-secondary relative">
+            <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+                <div className="flex items-center gap-2 truncate">
+                    {getFileIcon(fileName)}
+                    <span className="truncate" title={filePath}>{fileName}{fileChanged ? '*' : ''}</span>
                 </div>
-                <div className="flex-1 relative">
-                    <CodeEditor value={fileContent || ''} onChange={onContentChange} onSave={onSave} filePath={filePath} />
+                <div className="flex items-center gap-2">
+                    <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
+                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
                 </div>
             </div>
-        );
-    };
+            <div className="flex-1 overflow-hidden">
+                <CodeEditor
+                    value={fileContent || ''}
+                    onChange={onContentChange}
+                    onSave={onSave}
+                    filePath={filePath}
+                    onSelect={handleTextSelection}      // <-- ADD THIS
+                    onContextMenu={onEditorContextMenu} // <-- ADD THIS
+                />
+            </div>
+
+            {/* AI Editor Context Menu */}
+            {editorContextMenuPos && activeContentPaneId === nodeId && (
+                <>
+                    <div 
+                        className="fixed inset-0 z-40"
+                        onClick={() => setEditorContextMenuPos(null)} // Click away to close
+                    />
+                    <div 
+                        className="absolute theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                        style={{ top: editorContextMenuPos.y, left: editorContextMenuPos.x }}
+                    >
+                        <button onClick={() => { handleAIEdit('ask'); setEditorContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <MessageSquare size={16} />
+                            <span>Ask AI</span>
+                        </button>
+                        <button onClick={() => { handleAIEdit('document'); setEditorContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <FileText size={16} />
+                            <span>Document</span>
+                        </button>
+                        <button onClick={() => { handleAIEdit('edit'); setEditorContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <Edit size={16} />
+                            <span>Edit</span>
+                        </button>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
 
 const renderChatView = ({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -3143,15 +3203,28 @@ const renderChatView = ({ nodeId }) => {
 
     return (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {/* --- THE NEW, USEFUL HEADER --- */}
+
             <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary">
                 <div className="flex justify-between items-center">
                     <span className="truncate min-w-0 font-semibold" title={conversationId}>
                         Conversation: {conversationId?.slice(-8) || 'None'}
                     </span>
-                    <button onClick={() => closeContentPane(nodeId, path)} className="p-1 theme-hover rounded-full flex-shrink-0">
-                        <X size={14} />
-                    </button>
+                    <div className="flex items-center gap-2">
+
+                        <button
+                            onClick={toggleMessageSelectionMode}
+                            className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
+                                messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'
+                            }`}
+                            title={messageSelectionMode ? 'Exit selection mode' : 'Enter selection mode'}
+                        >
+                            <ListFilter size={14} />
+                            {messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
+                        </button>
+                        <button onClick={() => closeContentPane(nodeId, path)} className="p-1 theme-hover rounded-full flex-shrink-0">
+                            <X size={14} />
+                        </button>
+                    </div>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-gray-400">
                     <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
@@ -3170,9 +3243,9 @@ const renderChatView = ({ nodeId }) => {
                 )}
                 {messagesToDisplay.map(msg => 
                     <ChatMessage 
-                        key={msg.id} 
+                        key={msg.id || msg.timestamp}
                         message={msg}
-                        isSelected={selectedMessages.has(msg.id)} 
+                        isSelected={selectedMessages.has(msg.id || msg.timestamp)} 
                         messageSelectionMode={messageSelectionMode} 
                         toggleMessageSelection={toggleMessageSelection} 
                         handleMessageContextMenu={handleMessageContextMenu} 
@@ -3185,7 +3258,7 @@ const renderChatView = ({ nodeId }) => {
         </div>
     );
 };
-
+    
     const renderInputArea = () => (
         <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
             <div
@@ -3457,6 +3530,59 @@ const renderChatView = ({ nodeId }) => {
                 </div>
             </div>
         )}
+{promptModal.isOpen && (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-lg w-full">
+            <div className="flex flex-col items-center text-center">
+                <div className="theme-bg-tertiary p-3 rounded-full mb-4">
+                    {/* You can replace this with a more specific icon if you have one */}
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="theme-text-primary">
+                        <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
+                        <path d="M12 15a6 6 0 0 0-3.25 11.25"/>
+                        <path d="M12 3a6 6 0 0 0 3.25 11.25"/>
+                        <path d="M12 22a6 6 0 0 0 3.25-11.25"/>
+                        <path d="M12 3a6 6 0 0 0-3.25 11.25"/>
+                        <path d="M12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+                    </svg>
+                </div>
+                <h3 className="text-lg font-medium mb-2 theme-text-primary">{promptModal.title}</h3>
+                <p className="theme-text-muted mb-4 text-sm">{promptModal.message}</p>
+            </div>
+            <textarea
+                className="w-full h-24 theme-input border rounded p-2 mb-4 font-mono text-sm"
+                defaultValue={promptModal.defaultValue}
+                id="customPromptInput"
+                autoFocus
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        const value = document.getElementById('customPromptInput').value;
+                        promptModal.onConfirm?.(value);
+                        setPromptModal({ ...promptModal, isOpen: false });
+                    }
+                }}
+            />
+            <div className="flex justify-end gap-3">
+                <button
+                    className="px-4 py-2 theme-button theme-hover rounded text-sm"
+                    onClick={() => setPromptModal({ ...promptModal, isOpen: false })}
+                >
+                    Cancel
+                </button>
+                <button
+                    className="px-4 py-2 theme-button-primary rounded text-sm"
+                    onClick={() => {
+                        const value = document.getElementById('customPromptInput').value;
+                        promptModal.onConfirm?.(value);
+                        setPromptModal({ ...promptModal, isOpen: false });
+                    }}
+                >
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+)}        
     {aiEditModal.isOpen && (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
         <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden flex flex-col">
@@ -3543,6 +3669,8 @@ const renderChatView = ({ nodeId }) => {
         </div>
     </div>
 )}
+        {renderMessageContextMenu()}
+
             {isMacroInputOpen && (<MacroInput isOpen={isMacroInputOpen} currentPath={currentPath} onClose={() => { setIsMacroInputOpen(false); window.api?.hideMacro?.(); }} onSubmit={({ macro, conversationId, result }) => { setActiveConversationId(conversationId); setCurrentConversation({ id: conversationId, title: macro.trim().slice(0, 50) }); if (!result) { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: 'Processing...', timestamp: new Date().toISOString(), type: 'message' }]); } else { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: result?.output || 'No response', timestamp: new Date().toISOString(), type: 'message' }]); } refreshConversations(); }}/> )}
             <PhotoViewer isOpen={photoViewerOpen} onClose={() => setPhotoViewerOpen(false)} type={photoViewerType}/>
             <CtxEditor 
