@@ -8,8 +8,10 @@
 NPC Studio is an AI IDE that lets users have conversations with LLMs and Agents, edit files, explore data, execute code, and much more.
 
 Executables available for Linux, MacOS, and Windows at [our website](https://enpisi.com/npc-studio).
-At the moment, NPC Studio requires you to independently have ollama installed (or other API keys) and for you to have pulled models yourself. In future releases, we intend to bundle a program that can install ollama and models from within NPC Studio itself. If you have issues during installation, please let us know!
+At the moment, NPC Studio requires you to independently have ollama installed (or other API keys within .env files) and for you to have pulled models yourself. In future releases, we intend to bundle a program that can install ollama and models from within NPC Studio itself. We also aim to provide inference for users who don't have the local hardware necessary to run models. 
+If you have issues during installation, please let us know!
 
+![NPC Studio Demo](https://www.youtube.com/watch?v=rXkc2CrLNb4)
 
 ## Installation
 
