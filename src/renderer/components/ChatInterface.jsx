@@ -2252,54 +2252,60 @@ useEffect(() => {
 
 
 
-    const handleInterruptStream = async () => {
-        // Only proceed if currently streaming and have a stream ID
-        if (isStreaming && streamIdRef.current) {
-            const streamIdToInterrupt = streamIdRef.current; // Capture ID before clearing
-            console.log(`[REACT] handleInterruptStream: Attempting to interrupt stream: ${streamIdToInterrupt}`);
 
-            // --- IMMEDIATE UI UPDATE ---
-            // Stop global streaming state FIRST for instant feedback
-            setIsStreaming(false);
-            // Clear the ref so new data for this ID is ignored even before API call finishes
-            streamIdRef.current = null;
-            // Update the specific message to indicate interruption
-            setMessages(prev => {
-                const newMessages = [...prev];
-                const msgIndex = newMessages.findIndex(m => m.id === streamIdToInterrupt && m.role === 'assistant');
-                if (msgIndex !== -1) {
-                    newMessages[msgIndex] = {
-                        ...newMessages[msgIndex],
-                        content: (newMessages[msgIndex].content || '') + `\n\n[Stream Interrupted by User]`,
-                        isStreaming: false, // Mark message as not streaming
-                        streamId: null      // Clear streamId from message
-                    };
-                    console.log(`[REACT] handleInterruptStream: Updated message ${streamIdToInterrupt} UI for interruption.`);
-                } else {
-                    console.warn(`[REACT] handleInterruptStream: Placeholder message not found for interrupted stream ${streamIdToInterrupt}.`);
-                }
-                return newMessages;
-            });
-            // --- END IMMEDIATE UI UPDATE ---
+const handleInterruptStream = async () => {
+    // Find the stream ID that belongs to the currently active chat pane.
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData || !activePaneData.chatMessages) {
+        console.warn("Interrupt clicked but no active chat pane found.");
+        return;
+    }
 
-            // --- Call Backend API ---
-            try {
-                await window.api.interruptStream(streamIdToInterrupt);
-                console.log(`[REACT] handleInterruptStream: API call to interrupt stream ${streamIdToInterrupt} successful.`);
-            } catch (error) {
-                console.error(`[REACT] handleInterruptStream: API call to interrupt stream ${streamIdToInterrupt} failed:`, error);
-                // Optionally update the message again to show interruption attempt failed
-                setMessages(prev => prev.map(msg =>
-                    msg.id === streamIdToInterrupt
-                        ? { ...msg, content: msg.content + " [Interruption Attempt Failed]" }
-                        : msg
-                ));
+    // Find the message that is currently streaming in this specific pane.
+    const streamingMessage = activePaneData.chatMessages.allMessages.find(m => m.isStreaming);
+    if (!streamingMessage || !streamingMessage.streamId) {
+        console.warn("Interrupt clicked, but no streaming message found in the active pane.");
+        // As a fallback, try to stop any stream if the UI is stuck.
+        if (isStreaming) {
+            const anyStreamId = Object.keys(streamToPaneRef.current)[0];
+            if (anyStreamId) {
+                await window.api.interruptStream(anyStreamId);
+                console.log(`Fallback interrupt sent for stream: ${anyStreamId}`);
             }
-        } else {
-            console.warn(`[REACT] handleInterruptStream: Called when not streaming or streamIdRef is null. isStreaming=${isStreaming}, streamIdRef=${streamIdRef.current}`);
+            setIsStreaming(false);
         }
-    };
+        return;
+    }
+    
+    const streamIdToInterrupt = streamingMessage.streamId;
+    console.log(`[REACT] handleInterruptStream: Attempting to interrupt stream: ${streamIdToInterrupt}`);
 
+    // --- IMMEDIATE UI UPDATE (PANE-AWARE) ---
+    streamingMessage.content = (streamingMessage.content || '') + `\n\n[Stream Interrupted by User]`;
+    streamingMessage.isStreaming = false;
+    streamingMessage.streamId = null;
+    
+    // Clean up the global tracking refs
+    delete streamToPaneRef.current[streamIdToInterrupt];
+    if (Object.keys(streamToPaneRef.current).length === 0) {
+        setIsStreaming(false);
+    }
+    
+    // Force a re-render to show the updated message text
+    setRootLayoutNode(prev => ({ ...prev }));
+    // --- END UI UPDATE ---
+
+    // --- Call Backend API ---
+    try {
+        await window.api.interruptStream(streamIdToInterrupt);
+        console.log(`[REACT] handleInterruptStream: API call to interrupt stream ${streamIdToInterrupt} successful.`);
+    } catch (error) {
+        console.error(`[REACT] handleInterruptStream: API call to interrupt stream ${streamIdToInterrupt} failed:`, error);
+        // Optionally update the message again to show interruption attempt failed
+        streamingMessage.content += " [Interruption API call failed]";
+        setRootLayoutNode(prev => ({ ...prev }));
+    }
+};
     const getConversationStats = (messages) => {
     if (!messages || messages.length === 0) {
         return { messageCount: 0, tokenCount: 0, models: new Set(), agents: new Set(), providers: new Set() };
