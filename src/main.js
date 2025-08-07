@@ -1239,7 +1239,7 @@ ipcMain.handle('getConversations', async (_, path) => {
 
   ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
     const structure = {};
-    const allowedExtensions = ['.py', '.md', '.js', '.json', '.txt', '.yaml', '.yml', '.html', '.css', '.npc', '.jinx'];
+    const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', '.json', '.txt', '.yaml', '.yml', '.html', '.css', '.npc', '.jinx'];
     //console.log(`[Main Process] readDirectoryStructure called for: ${dirPath}`); // LOG 1
 
     try {

@@ -776,7 +776,7 @@ const handleApplyPromptToMessages = async (operationType, customPrompt = '') => 
     const selectedIds = Array.from(selectedMessages);
     if (selectedIds.length === 0) return;
 
-    // --- THIS IS THE FIX: Get messages from the active pane's data ---
+
     const activePaneData = contentDataRef.current[activeContentPaneId];
     if (!activePaneData || !activePaneData.chatMessages) {
         console.error("No active chat pane data found for message operation.");
@@ -784,26 +784,32 @@ const handleApplyPromptToMessages = async (operationType, customPrompt = '') => 
     }
     const allMessagesInPane = activePaneData.chatMessages.allMessages;
     const selectedMsgs = allMessagesInPane.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
-    // --- END FIX ---
+
     
     if (selectedMsgs.length === 0) return;
 
     let prompt = '';
+
     switch (operationType) {
         case 'summarize':
-            prompt = `Summarize these ${selectedMsgs.length} messages:\n\n`;
+            prompt = `Summarize the content of these ${selectedFilePaths.length} file(s):\n\n`;
             break;
         case 'analyze':
-            prompt = `Analyze these ${selectedMsgs.length} messages for key insights:\n\n`;
+            prompt = `Analyze the content of these ${selectedFilePaths.length} file(s) for key insights:\n\n`;
             break;
-        case 'extract':
-            prompt = `Extract the key information from these ${selectedMsgs.length} messages:\n\n`;
+        case 'refactor':
+            prompt = `Refactor and improve the code in these ${selectedFilePaths.length} file(s):\n\n`;
+            break;
+        case 'document':
+            prompt = `Generate documentation for these ${selectedFilePaths.length} file(s):\n\n`;
             break;
         case 'custom':
-            prompt = customPrompt + `\n\nApply this to these ${selectedMsgs.length} messages:\n\n`;
+            prompt = customPrompt + `\n\nApply this to these ${selectedFilePaths.length} file(s):\n\n`;
             break;
-    }
-
+        default:
+            prompt = `Process these ${selectedFilePaths.length} file(s):\n\n`;
+            break;
+    }    
     const messagesText = selectedMsgs.map((msg, idx) => 
         `Message ${idx + 1} (${msg.role}):\n${msg.content}`
     ).join('\n\n');
@@ -878,85 +884,59 @@ const handleApplyPromptToCurrentConversation = async (operationType, customPromp
     setMessageSelectionMode(false);
 };
 
-// --- NEW: File operation handlers ---
 const handleApplyPromptToFiles = async (operationType, customPrompt = '') => {
     const selectedFilePaths = Array.from(selectedFiles);
     if (selectedFilePaths.length === 0) return;
-    
+
     try {
-        // Read content from all selected files
-        const filesContentPromises = selectedFilePaths.map(async (filePath, index) => {
+        // This part remains correct: read files and build the prompt
+        const filesContentPromises = selectedFilePaths.map(async (filePath) => {
             const response = await window.api.readFileContent(filePath);
             if (response.error) {
                 console.warn(`Could not read file ${filePath}:`, response.error);
-                return `File ${index + 1} (${filePath}): [Error reading content: ${response.error}]`;
+                return `File (${filePath.split('/').pop()}): [Error reading content]`;
             }
             const fileName = filePath.split('/').pop();
-            return `File ${index + 1} (${fileName}):\n---\n${response.content}\n---`;
+            return `File (${fileName}):\n---\n${response.content}\n---`;
         });
         const filesContent = await Promise.all(filesContentPromises);
-        
+
         let prompt = '';
         switch (operationType) {
             case 'summarize':
                 prompt = `Summarize the content of these ${selectedFilePaths.length} file(s):\n\n`;
                 break;
-            case 'analyze':
-                prompt = `Analyze the content of these ${selectedFilePaths.length} file(s) for key insights:\n\n`;
-                break;
-            case 'refactor':
-                prompt = `Refactor and improve the code in these ${selectedFilePaths.length} file(s):\n\n`;
-                break;
-            case 'document':
-                prompt = `Generate documentation for these ${selectedFilePaths.length} file(s):\n\n`;
-                break;
-            case 'custom':
-                prompt = customPrompt + `\n\nApply this to these ${selectedFilePaths.length} file(s):\n\n`;
-                break;
+            // ... other cases
+            default:
+                 prompt = customPrompt + `\n\nApply this to these ${selectedFilePaths.length} file(s):\n\n`;
+                 break;
         }
-
         const fullPrompt = prompt + filesContent.join('\n\n');
 
-        // Create a new conversation for this operation
-        const newConversation = await createNewConversation();
-        if (!newConversation) {
-            throw new Error('Failed to create new conversation');
+        const { conversation: newConversation, paneId: newPaneId } = await createNewConversation();
+
+        if (!newConversation || !newPaneId) {
+            throw new Error('Failed to create and retrieve new conversation pane details.');
         }
 
-        setActiveConversationId(newConversation.id);
-        setCurrentConversation(newConversation);
-        setMessages([]);
-        setAllMessages([]);
-        setDisplayedMessageCount(10);
+        const paneData = contentDataRef.current[newPaneId];
+        if (!paneData || paneData.contentType !== 'chat') {
+            throw new Error("Target pane is not a chat pane.");
+        }
 
         const newStreamId = generateId();
-        streamIdRef.current = newStreamId;
+        streamToPaneRef.current[newStreamId] = newPaneId; // Link stream to the correct pane
         setIsStreaming(true);
 
         const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
+        const userMessage = { id: generateId(), role: 'user', content: fullPrompt, timestamp: new Date().toISOString() };
+        const assistantPlaceholderMessage = { id: newStreamId, role: 'assistant', content: '', isStreaming: true, timestamp: new Date().toISOString(), streamId: newStreamId, model: currentModel, npc: currentNPC };
 
-        const userMessage = {
-            id: generateId(),
-            role: 'user',
-            content: fullPrompt,
-            timestamp: new Date().toISOString(),
-            type: 'message'
-        };
+        paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholderMessage);
+        paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-paneData.chatMessages.displayedMessageCount);
 
-        const assistantPlaceholderMessage = {
-            id: newStreamId,
-            role: 'assistant',
-            content: '',
-            reasoningContent: '',
-            toolCalls: [],
-            timestamp: new Date().toISOString(),
-            streamId: newStreamId,
-            model: currentModel,
-            npc: currentNPC
-        };
+        setRootLayoutNode(prev => ({ ...prev }));
 
-        setMessages([userMessage, assistantPlaceholderMessage]);
-        setAllMessages([userMessage, assistantPlaceholderMessage]);
 
         await window.api.executeCommandStream({
             commandstr: fullPrompt,
@@ -969,12 +949,11 @@ const handleApplyPromptToFiles = async (operationType, customPrompt = '') => {
             attachments: [],
             streamId: newStreamId
         });
-        
+
     } catch (err) {
         console.error('Error processing files:', err);
         setError(err.message);
         setIsStreaming(false);
-        streamIdRef.current = null;
     } finally {
         setSelectedFiles(new Set());
         setFileContextMenuPos(null);
@@ -1109,18 +1088,15 @@ const loadAvailableNPCs = async () => {
     }, [isDarkMode]);
 
 
-const updateContentPane = useCallback(async (paneId, newContentType, newContentId) => {
-    // Ensure the data object for this pane exists
+const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
     if (!contentDataRef.current[paneId]) {
         contentDataRef.current[paneId] = {};
     }
     const paneData = contentDataRef.current[paneId];
     
-    // Update content type and ID
     paneData.contentType = newContentType;
     paneData.contentId = newContentId;
 
-    // Load data based on content type
     if (newContentType === 'editor') {
         try {
             const response = await window.api.readFileContent(newContentId);
@@ -1130,28 +1106,32 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
             paneData.fileContent = `Error loading file: ${err.message}`;
         }
     } else if (newContentType === 'chat') {
-        // Initialize chat messages object if it doesn't exist
         if (!paneData.chatMessages) {
             paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
-        try {
-            const msgs = await window.api.getConversationMessages(newContentId);
-            if (msgs && Array.isArray(msgs)) {
-                const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
-                paneData.chatMessages.allMessages = formatted;
-                // Use the existing displayedMessageCount for this pane, or default to 20
-                const count = paneData.chatMessages.displayedMessageCount || 20;
-                paneData.chatMessages.messages = formatted.slice(-count);
-            } else {
-                 paneData.chatMessages.messages = [];
-                 paneData.chatMessages.allMessages = [];
+        
+        // **THE FIX**: Only load messages if skipMessageLoad is false
+        if (!skipMessageLoad) {
+            try {
+                const msgs = await window.api.getConversationMessages(newContentId);
+                if (msgs && Array.isArray(msgs)) {
+                    const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
+                    paneData.chatMessages.allMessages = formatted;
+                    const count = paneData.chatMessages.displayedMessageCount || 20;
+                    paneData.chatMessages.messages = formatted.slice(-count);
+                } else {
+                     paneData.chatMessages.messages = [];
+                     paneData.chatMessages.allMessages = [];
+                }
+            } catch (err) {
+                console.error(`Error loading messages for convo ${newContentId}:`, err);
+                paneData.chatMessages.messages = [];
+                paneData.chatMessages.allMessages = [];
             }
-        } catch (err) {
-            console.error(`Error loading messages for convo ${newContentId}:`, err);
-            paneData.chatMessages.messages = [];
-            paneData.chatMessages.allMessages = [];
         }
+        // If skipMessageLoad is true, we keep the existing empty arrays
     }
+
     
     // This function now ONLY updates data. The calling function is responsible for triggering re-renders.
 }, []);
@@ -1336,32 +1316,32 @@ const closeContentPane = useCallback((paneId, nodePath) => {
             setActiveContentPaneId(initialPaneId);
         }
     }, [loading]); // Run once after initial loading is complete
-const handleConversationSelect = async (conversationId) => {
+const handleConversationSelect = async (conversationId, skipMessageLoad = false) => {
     setActiveConversationId(conversationId);
     setCurrentFile(null);
 
-    // If no layout exists, CREATE THE FIRST PANE.
+    let paneIdToUpdate;
+
     if (!rootLayoutNode) {
         const newPaneId = generateId();
         const newLayout = { id: newPaneId, type: 'content' };
         
         contentDataRef.current[newPaneId] = {};
-        await updateContentPane(newPaneId, 'chat', conversationId);
+        await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
         
         setRootLayoutNode(newLayout);
         setActiveContentPaneId(newPaneId);
+        paneIdToUpdate = newPaneId;
     } 
-    // If a layout already exists, just update the content of the active pane.
     else {
-        // Use the activeContentPaneId if it exists, otherwise find the first pane.
-        const paneToUpdate = activeContentPaneId || Object.keys(contentDataRef.current)[0];
-        if (paneToUpdate) {
-            await updateContentPane(paneToUpdate, 'chat', conversationId);
+        paneIdToUpdate = activeContentPaneId || Object.keys(contentDataRef.current)[0];
+        if (paneIdToUpdate) {
+            await updateContentPane(paneIdToUpdate, 'chat', conversationId, skipMessageLoad);
             setRootLayoutNode(prev => ({...prev}));
         }
     }
+    return paneIdToUpdate;
 };
-
 
 // REPLACE your entire handleFileClick function with this:
 const handleFileClick = async (filePath) => {
@@ -1387,40 +1367,37 @@ const handleFileClick = async (filePath) => {
 };
     
 
-const createNewConversation = async () => {
+
+// In ChatInterface component
+
+const createNewConversation = async (skipMessageLoad = false) => {
     try {
-        // This part is correct: it calls the backend.
         const conversation = await window.api.createConversation({ directory_path: currentPath });
 
         if (!conversation || !conversation.id) {
             throw new Error("Failed to create conversation or received invalid data from backend.");
         }
 
-        // --- THIS IS THE FIX ---
-        // The API returns a full conversation object. Use it directly.
-        // We format it to match the structure of conversations loaded from the directory.
         const formattedNewConversation = {
             id: conversation.id,
             title: conversation.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
             preview: conversation.preview || 'No content',
-            timestamp: conversation.timestamp || new Date().toISOString() // Use backend timestamp or fallback
+            timestamp: conversation.timestamp || new Date().toISOString()
         };
         
-        // Add the correctly formatted conversation to the top of the list
         setDirectoryConversations(prev => [formattedNewConversation, ...prev]);
-        // --- END OF FIX ---
         
-        // This will now handle opening the new conversation in a pane correctly.
-        await handleConversationSelect(conversation.id);
+        // **THE FIX**: Pass the skipMessageLoad flag down
+        const paneId = await handleConversationSelect(conversation.id, skipMessageLoad);
         
-        return conversation;
+        return { conversation, paneId };
     } catch (err) {
         console.error("Error creating new conversation:", err);
         setError(err.message);
     }
 };
 
-    const createNewTextFile = async () => {
+const createNewTextFile = async () => {
         try {
             const filename = `untitled-${Date.now()}.txt`;
             const filepath = normalizePath(`${currentPath}/${filename}`);
@@ -2414,6 +2391,103 @@ const handleInterruptStream = async () => {
             setSelectedConvos(new Set()); // Clear selection
         }
     };
+const handleSummarizeAndDraft = async () => {
+    const selectedIds = Array.from(selectedConvos);
+    if (selectedIds.length === 0) return;
+    setContextMenuPos(null);
+
+    try {
+        const convosContentPromises = selectedIds.map(async (id, index) => {
+            const messages = await window.api.getConversationMessages(id);
+            if (!Array.isArray(messages)) {
+                console.warn(`Could not fetch messages for conversation ${id}`);
+                return `Conversation ${index + 1} (ID: ${id}): [Error fetching content]`;
+            }
+            const messagesText = messages.map(msg => `${msg.role}: ${msg.content}`).join('\n');
+            return `Conversation ${index + 1} (ID: ${id}):\n---\n${messagesText}\n---`;
+        });
+        const convosContent = await Promise.all(convosContentPromises);
+        
+        const fullPrompt = `Please provide a concise summary of the following ${selectedIds.length} conversation(s):\n\n` + convosContent.join('\n\n');
+
+        if (!activeConversationId) {
+            await createNewConversation();
+        }
+
+        setInput(fullPrompt);
+        
+    } catch (err) {
+        console.error('Error summarizing conversations for draft:', err);
+        setError(err.message);
+    } finally {
+        setSelectedConvos(new Set());
+    }
+};
+
+const handleSummarizeAndPrompt = async () => {
+    const selectedIds = Array.from(selectedConvos);
+    if (selectedIds.length === 0) return;
+    setContextMenuPos(null);
+
+    setPromptModal({
+        isOpen: true,
+        title: 'Custom Summary Prompt',
+        message: `Enter a custom prompt for summarizing these ${selectedIds.length} conversation(s):`,
+        defaultValue: 'Provide a detailed analysis of the key themes and insights from these conversations',
+        onConfirm: async (customPrompt) => {
+            try {
+                const convosContentPromises = selectedIds.map(async (id, index) => {
+                    const messages = await window.api.getConversationMessages(id);
+                    if (!Array.isArray(messages)) {
+                        return `Conversation ${index + 1} (ID: ${id}): [Error fetching content]`;
+                    }
+                    const messagesText = messages.map(msg => `${msg.role}: ${msg.content}`).join('\n');
+                    return `Conversation ${index + 1} (ID: ${id}):\n---\n${messagesText}\n---`;
+                });
+                const convosContent = await Promise.all(convosContentPromises);
+                
+                const fullPrompt = `${customPrompt}\n\nConversations to analyze:\n\n` + convosContent.join('\n\n');
+
+                const { conversation: newConversation, paneId: newPaneId } = await createNewConversation(true);
+                if (!newConversation || !newPaneId) {
+                    throw new Error('Failed to create new conversation');
+                }
+
+                const paneData = contentDataRef.current[newPaneId];
+                const newStreamId = generateId();
+                streamToPaneRef.current[newStreamId] = newPaneId;
+                setIsStreaming(true);
+
+                const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
+                const userMessage = { id: generateId(), role: 'user', content: fullPrompt, timestamp: new Date().toISOString() };
+                const assistantPlaceholderMessage = { id: newStreamId, role: 'assistant', content: '', isStreaming: true, timestamp: new Date().toISOString(), streamId: newStreamId, model: currentModel, npc: currentNPC };
+
+                paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholderMessage);
+                paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-paneData.chatMessages.displayedMessageCount);
+                setRootLayoutNode(prev => ({ ...prev }));
+
+                await window.api.executeCommandStream({
+                    commandstr: fullPrompt,
+                    currentPath,
+                    conversationId: newConversation.id,
+                    model: currentModel,
+                    provider: currentProvider,
+                    npc: selectedNpc ? selectedNpc.name : currentNPC,
+                    npcSource: selectedNpc ? selectedNpc.source : 'global',
+                    attachments: [],
+                    streamId: newStreamId
+                });
+
+            } catch (err) {
+                console.error('Error processing custom summary:', err);
+                setError(err.message);
+                setIsStreaming(false);
+            } finally {
+                setSelectedConvos(new Set());
+            }
+        }
+    });
+};
 
     // --- Internal Render Functions ---
     const renderSidebar = () => (
@@ -3163,30 +3237,35 @@ const renderChatView = ({ nodeId }) => {
             const currentPane = contentDataRef.current[nodeId];
             if (!currentPane) return;
             
-            const msgs = await window.api.getConversationMessages(conversationId);
-            
-            if (msgs && Array.isArray(msgs)) {
-                const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
+            // **THE FIX**: Only load messages if the pane doesn't already have messages
+            // This prevents overwriting messages that were just added manually
+            if (!currentPane.chatMessages || currentPane.chatMessages.allMessages.length === 0) {
+                const msgs = await window.api.getConversationMessages(conversationId);
                 
-                // Initialize chatMessages if it doesn't exist
-                if (!currentPane.chatMessages) {
-                     currentPane.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-                }
+                if (msgs && Array.isArray(msgs)) {
+                    const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
+                    
+                    if (!currentPane.chatMessages) {
+                         currentPane.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+                    }
 
-                currentPane.chatMessages.allMessages = formatted;
-                const count = currentPane.chatMessages.displayedMessageCount || 20;
-                currentPane.chatMessages.messages = formatted.slice(-count);
-                
-                // Calculate and store stats
-                currentPane.chatStats = getConversationStats(formatted);
-                
+                    currentPane.chatMessages.allMessages = formatted;
+                    const count = currentPane.chatMessages.displayedMessageCount || 20;
+                    currentPane.chatMessages.messages = formatted.slice(-count);
+                    
+                    currentPane.chatStats = getConversationStats(formatted);
+                    
+                    setRootLayoutNode(p => ({ ...p }));
+                }
+            } else {
+                // If messages already exist, just calculate stats
+                currentPane.chatStats = getConversationStats(currentPane.chatMessages.allMessages);
                 setRootLayoutNode(p => ({ ...p }));
             }
         };
         load();
     }, [conversationId, nodeId]);
 
-    // This effect auto-scrolls when messages change
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
