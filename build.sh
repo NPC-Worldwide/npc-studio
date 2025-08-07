@@ -64,6 +64,7 @@ pyinstaller --onefile  \
     --exclude-module=torch.cuda \
     --exclude-module=tensorflow.python.framework.cuda_util \
     --collect-data=litellm \
+    --collect-data=npcpy \
     npc_studio_serve.py
 
 # Copy PyInstaller output to resources directory
