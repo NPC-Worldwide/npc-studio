@@ -413,8 +413,7 @@ const ChatInterface = () => {
     // A ref to hold bulky data for each pane, preventing state updates on every keypress
     const contentDataRef = useRef({});
     const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
-
-
+    
     const [resendModal, setResendModal] = useState({
         isOpen: false,
         message: null,
@@ -1101,7 +1100,8 @@ const loadAvailableNPCs = async () => {
     }, [isDarkMode]);
 
 
-const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+
+    const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
     if (!contentDataRef.current[paneId]) {
         contentDataRef.current[paneId] = {};
     }
@@ -1115,6 +1115,7 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
             const response = await window.api.readFileContent(newContentId);
             paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
             paneData.fileChanged = false;
+            paneData.chatStats = null; // Clear stats when switching to an editor
         } catch (err) {
             paneData.fileContent = `Error loading file: ${err.message}`;
         }
@@ -1123,33 +1124,32 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
             paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
         
-        // **THE FIX**: Only load messages if skipMessageLoad is false
-        if (!skipMessageLoad) {
+        if (skipMessageLoad) {
+            // This is for a new, empty conversation. Reset everything.
+            paneData.chatMessages.messages = [];
+            paneData.chatMessages.allMessages = [];
+            paneData.chatStats = getConversationStats([]); // Calculate stats for an empty array
+        } else {
+            // This is for an existing conversation. Load messages and calculate stats.
             try {
                 const msgs = await window.api.getConversationMessages(newContentId);
-                if (msgs && Array.isArray(msgs)) {
-                    const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
-                    paneData.chatMessages.allMessages = formatted;
-                    const count = paneData.chatMessages.displayedMessageCount || 20;
-                    paneData.chatMessages.messages = formatted.slice(-count);
-                } else {
-                     paneData.chatMessages.messages = [];
-                     paneData.chatMessages.allMessages = [];
-                }
+                const formatted = (msgs && Array.isArray(msgs)) 
+                    ? msgs.map(m => ({ ...m, id: m.id || generateId() })) 
+                    : [];
+
+                paneData.chatMessages.allMessages = formatted;
+                const count = paneData.chatMessages.displayedMessageCount || 20;
+                paneData.chatMessages.messages = formatted.slice(-count);
+                paneData.chatStats = getConversationStats(formatted); // Calculate stats on new data
             } catch (err) {
                 console.error(`Error loading messages for convo ${newContentId}:`, err);
                 paneData.chatMessages.messages = [];
                 paneData.chatMessages.allMessages = [];
+                paneData.chatStats = getConversationStats([]); // Reset stats on error
             }
         }
-        // If skipMessageLoad is true, we keep the existing empty arrays
-    }
-
-    
-    // This function now ONLY updates data. The calling function is responsible for triggering re-renders.
-}, []);
-
-
+        }
+    }, []);    
     const renderMessageContextMenu = () => (
     messageContextMenuPos && (
         <div
@@ -1380,33 +1380,44 @@ const handleFileClick = async (filePath) => {
 };
     
 
-
-// In ChatInterface component
-
-const createNewConversation = async (skipMessageLoad = false) => {
+const createNewConversation = async () => {
     try {
         const conversation = await window.api.createConversation({ directory_path: currentPath });
-
         if (!conversation || !conversation.id) {
-            throw new Error("Failed to create conversation or received invalid data from backend.");
+            throw new Error("Failed to create conversation or received invalid data.");
         }
 
         const formattedNewConversation = {
             id: conversation.id,
-            title: conversation.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
-            preview: conversation.preview || 'No content',
+            title: 'New Conversation',
+            preview: 'No content',
             timestamp: conversation.timestamp || new Date().toISOString()
         };
         
+        setActiveConversationId(conversation.id);
+        setCurrentFile(null);
         setDirectoryConversations(prev => [formattedNewConversation, ...prev]);
         
-        // **THE FIX**: Pass the skipMessageLoad flag down
-        const paneId = await handleConversationSelect(conversation.id, skipMessageLoad);
-        
-        return { conversation, paneId };
+        let targetPaneId = activeContentPaneId;
+        if (!rootLayoutNode || !targetPaneId) {
+            const newPaneId = generateId();
+            const newLayout = { id: newPaneId, type: 'content' };
+            contentDataRef.current[newPaneId] = {};
+            setRootLayoutNode(newLayout);
+            setActiveContentPaneId(newPaneId);
+            targetPaneId = newPaneId;
+        }
+
+        await updateContentPane(targetPaneId, 'chat', conversation.id, true);
+
+        setRootLayoutNode(p => ({ ...p }));
+
+        return { conversation, paneId: targetPaneId };
+
     } catch (err) {
         console.error("Error creating new conversation:", err);
         setError(err.message);
+        return { conversation: null, paneId: null };
     }
 };
 
@@ -3074,87 +3085,97 @@ const handleResendMessage = (messageToResend) => {
 };
 
 const handleResendWithSettings = async (messageToResend, selectedModel, selectedNPC) => {
-    if (isStreaming || !activeConversationId) {
-        console.warn('Cannot resend while streaming or no active conversation');
+    // 1. Get the currently active chat pane.
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData || activePaneData.contentType !== 'chat' || !activePaneData.contentId) {
+        setError("Cannot resend: The active pane is not a valid chat window.");
         return;
     }
+    if (isStreaming) {
+        console.warn('Cannot resend while another operation is in progress.');
+        return;
+    }
+    const conversationId = activePaneData.contentId;
+    let newStreamId = null; // Declare here to be available in catch block
 
     try {
-        const newStreamId = generateId();
-        streamIdRef.current = newStreamId;
+        // 2. Prepare for the new streaming response.
+        newStreamId = generateId();
+        streamToPaneRef.current[newStreamId] = activeContentPaneId; // Link stream to the active pane
         setIsStreaming(true);
 
         const selectedNpc = availableNPCs.find(npc => npc.value === selectedNPC);
 
+        // 3. Create a copy of the user message and a placeholder for the AI response.
         const resentUserMessage = {
             id: generateId(),
             role: 'user',
             content: messageToResend.content,
             timestamp: new Date().toISOString(),
             attachments: messageToResend.attachments || [],
-            originalModel: messageToResend.model || null,
-            originalNPC: messageToResend.npc || null,
-            isResent: true
         };
 
         const assistantPlaceholderMessage = {
             id: newStreamId,
             role: 'assistant',
             content: '',
-            reasoningContent: '',
-            toolCalls: [],
+            isStreaming: true,
             timestamp: new Date().toISOString(),
             streamId: newStreamId,
             model: selectedModel,
-            npc: selectedNPC
+            npc: selectedNPC,
         };
 
-        setMessages(prev => [...prev, resentUserMessage, assistantPlaceholderMessage]);
-        setAllMessages(prev => [...prev, resentUserMessage, assistantPlaceholderMessage]);
+        // 4. Add these messages to the *active pane's* data store.
+        if (!activePaneData.chatMessages) {
+             activePaneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+        }
+        activePaneData.chatMessages.allMessages.push(resentUserMessage, assistantPlaceholderMessage);
+        activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(-activePaneData.chatMessages.displayedMessageCount);
 
-        console.log(`Resending message with model: ${selectedModel}, NPC: ${selectedNPC}`);
+        // 5. Trigger a re-render of the layout to show the changes.
+        setRootLayoutNode(prev => ({ ...prev }));
 
-        // Find the provider for the selected model
         const selectedModelObj = availableModels.find(m => m.value === selectedModel);
         const providerToUse = selectedModelObj ? selectedModelObj.provider : currentProvider;
 
-        const result = await window.api.executeCommandStream({
+        // 6. Execute the command.
+        await window.api.executeCommandStream({
             commandstr: messageToResend.content,
             currentPath,
-            conversationId: activeConversationId,
+            conversationId: conversationId, // Use the pane-specific ID
             model: selectedModel,
             provider: providerToUse,
             npc: selectedNpc ? selectedNpc.name : selectedNPC,
             npcSource: selectedNpc ? selectedNpc.source : 'global',
             attachments: messageToResend.attachments?.map(att => ({
-                name: att.name, 
-                path: att.path, 
-                size: att.size, 
-                type: att.type
+                name: att.name, path: att.path, size: att.size, type: att.type
             })) || [],
-            streamId: newStreamId
+            streamId: newStreamId,
         });
-
-        if (result && result.error) {
-            throw new Error(result.error);
-        }
-
-        console.log(`Message resent successfully with streamId: ${newStreamId}`);
 
     } catch (err) {
         console.error('Error resending message:', err);
         setError(err.message);
         
-        setIsStreaming(false);
-        streamIdRef.current = null;
+        // Update the placeholder in the correct pane to show the error
+        if (activePaneData.chatMessages) {
+            const msgIndex = activePaneData.chatMessages.allMessages.findIndex(m => m.id === newStreamId);
+            if (msgIndex !== -1) {
+                const message = activePaneData.chatMessages.allMessages[msgIndex];
+                message.content = `[Error resending message: ${err.message}]`;
+                message.type = 'error';
+                message.isStreaming = false;
+            }
+        }
+
+        // Clean up streaming state if the API call itself failed
+        if (newStreamId) delete streamToPaneRef.current[newStreamId];
+        if (Object.keys(streamToPaneRef.current).length === 0) {
+            setIsStreaming(false);
+        }
         
-        setMessages(prev => [...prev, {
-            id: generateId(),
-            role: 'assistant',
-            content: `[Error resending message: ${err.message}]`,
-            timestamp: new Date().toISOString(),
-            type: 'error'
-        }]);
+        setRootLayoutNode(prev => ({ ...prev }));
     }
 };
 
@@ -3245,6 +3266,7 @@ const renderFileEditor = ({ nodeId }) => {
     );
 };
 
+
 const renderChatView = ({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
     if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
@@ -3252,43 +3274,7 @@ const renderChatView = ({ nodeId }) => {
     const { contentId: conversationId } = paneData;
     const scrollRef = useRef(null);
 
-    // This effect loads messages and calculates stats when the conversation ID changes
-    useEffect(() => {
-        if (!conversationId) return;
-        
-        const load = async () => {
-            const currentPane = contentDataRef.current[nodeId];
-            if (!currentPane) return;
-            
-            // **THE FIX**: Only load messages if the pane doesn't already have messages
-            // This prevents overwriting messages that were just added manually
-            if (!currentPane.chatMessages || currentPane.chatMessages.allMessages.length === 0) {
-                const msgs = await window.api.getConversationMessages(conversationId);
-                
-                if (msgs && Array.isArray(msgs)) {
-                    const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
-                    
-                    if (!currentPane.chatMessages) {
-                         currentPane.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-                    }
-
-                    currentPane.chatMessages.allMessages = formatted;
-                    const count = currentPane.chatMessages.displayedMessageCount || 20;
-                    currentPane.chatMessages.messages = formatted.slice(-count);
-                    
-                    currentPane.chatStats = getConversationStats(formatted);
-                    
-                    setRootLayoutNode(p => ({ ...p }));
-                }
-            } else {
-                // If messages already exist, just calculate stats
-                currentPane.chatStats = getConversationStats(currentPane.chatMessages.allMessages);
-                setRootLayoutNode(p => ({ ...p }));
-            }
-        };
-        load();
-    }, [conversationId, nodeId]);
-
+    // This effect now ONLY handles auto-scrolling to the bottom on new messages.
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -3306,19 +3292,17 @@ const renderChatView = ({ nodeId }) => {
 
     const messagesToDisplay = paneData.chatMessages?.messages || [];
     const totalMessages = paneData.chatMessages?.allMessages?.length || 0;
-    const stats = paneData.chatStats || {};
+    const stats = paneData.chatStats || {}; // Directly use the stats from paneData
     const path = findNodePath(rootLayoutNode, nodeId);
 
     return (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-
             <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary">
                 <div className="flex justify-between items-center">
                     <span className="truncate min-w-0 font-semibold" title={conversationId}>
                         Conversation: {conversationId?.slice(-8) || 'None'}
                     </span>
                     <div className="flex items-center gap-2">
-
                         <button
                             onClick={toggleMessageSelectionMode}
                             className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
@@ -3341,7 +3325,6 @@ const renderChatView = ({ nodeId }) => {
                     <span><Users size={12} className="inline mr-1"/>{stats.agents?.size || 0} Agents</span>
                 </div>
             </div>
-            {/* --- END HEADER --- */}
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
                 {totalMessages > messagesToDisplay.length && (
@@ -3366,7 +3349,6 @@ const renderChatView = ({ nodeId }) => {
         </div>
     );
 };
-    
     const renderInputArea = () => (
         <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
             <div
