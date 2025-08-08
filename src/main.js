@@ -26,15 +26,26 @@ const log = (...messages) => {
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
 
 
+// In main.js
 const dbQuery = (query, params = []) => {
+  console.log(`[DB] EXECUTING: ${query.substring(0, 100).replace(/\s+/g, ' ')}...`, params);
   return new Promise((resolve, reject) => {
-    // Use OPEN_READONLY to prevent accidental writes
-    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
-      if (err) return reject(err);
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+      if (err) {
+        console.error('[DB] CONNECTION ERROR:', err.message);
+        return reject(err);
+      }
     });
+
     db.all(query, params, (err, rows) => {
-      db.close();
-      if (err) return reject(err);
+      db.close((closeErr) => {
+        if (closeErr) console.error('[DB] CLOSE ERROR:', closeErr.message);
+      });
+      if (err) {
+        console.error(`[DB] QUERY FAILED: ${err.message}`);
+        return reject(err);
+      }
+      console.log(`[DB] SUCCESS, Rows: ${rows.length}`);
       resolve(rows);
     });
   });
@@ -589,6 +600,35 @@ if (!gotTheLock) {
 
   
 
+
+
+
+
+// --- Knowledge Graph Handlers ---
+ipcMain.handle('kg:getGraphData', async (event, { generation }) => {
+  const params = generation !== null ? `?generation=${generation}` : '';
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/graph${params}`);
+});
+
+ipcMain.handle('kg:listGenerations', async () => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/generations');
+});
+
+ipcMain.handle('kg:triggerProcess', async (event, { type }) => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/trigger', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ process_type: type }),
+  });
+});
+
+ipcMain.handle('kg:rollback', async (event, { generation }) => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/rollback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ generation }),
+  });
+});
 ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
   log(`[Main Process] Received request to interrupt stream: ${streamIdToInterrupt}`);
   
@@ -785,6 +825,62 @@ app.on('will-quit', () => {
         return { jinxs: [], error: err.message };
     }
 });
+ipcMain.handle('db:listTables', async () => {
+  try {
+    const rows = await dbQuery("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
+    return { tables: rows.map(r => r.name) };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('db:getTableSchema', async (event, { tableName }) => {
+  // Basic validation to prevent obvious SQL injection
+  if (!/^[a-zA-Z0-9_]+$/.test(tableName)) {
+      return { error: 'Invalid table name provided.' };
+  }
+  try {
+    const rows = await dbQuery(`PRAGMA table_info(${tableName});`);
+    return { schema: rows.map(r => ({ name: r.name, type: r.type })) };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('db:exportCSV', async (event, data) => {
+    if (!data || data.length === 0) {
+        return { success: false, error: 'No data to export.'};
+    }
+
+    const { filePath } = await dialog.showSaveDialog({
+        title: 'Export Query Results to CSV',
+        defaultPath: `query-export-${Date.now()}.csv`,
+        filters: [{ name: 'CSV Files', extensions: ['csv'] }]
+    });
+
+    if (!filePath) {
+        return { success: false, message: 'Export cancelled.' };
+    }
+
+    try {
+        const headers = Object.keys(data[0]).join(',');
+        const rows = data.map(row => {
+            return Object.values(row).map(value => {
+                const strValue = String(value ?? '');
+                // Handle commas, quotes, and newlines in values
+                if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+                    return `"${strValue.replace(/"/g, '""')}"`;
+                }
+                return strValue;
+            }).join(',');
+        });
+        const csvContent = `${headers}\n${rows.join('\n')}`;
+        fs.writeFileSync(filePath, csvContent, 'utf-8');
+        return { success: true, path: filePath };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
 
 ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
   try {
@@ -841,34 +937,6 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
 });
 
 
-
-ipcMain.handle('get-usage-stats', async () => {
-  try {
-    const conversationQuery = `SELECT COUNT(DISTINCT conversation_id) as total FROM conversation_history;`;
-    const messagesQuery = `SELECT COUNT(*) as total FROM conversation_history WHERE role = 'user' OR role = 'assistant';`;
-    const modelsQuery = `SELECT model, COUNT(*) as count FROM conversation_history WHERE model IS NOT NULL AND model != '' GROUP BY model ORDER BY count DESC LIMIT 5;`;
-    const npcsQuery = `SELECT npc, COUNT(*) as count FROM conversation_history WHERE npc IS NOT NULL AND npc != '' GROUP BY npc ORDER BY count DESC LIMIT 5;`;
-
-    const [convResult] = await dbQuery(conversationQuery);
-    const [msgResult] = await dbQuery(messagesQuery);
-    const topModels = await dbQuery(modelsQuery);
-    const topNPCs = await dbQuery(npcsQuery);
-
-    return {
-      stats: {
-        totalConversations: convResult?.total || 0,
-        totalMessages: msgResult?.total || 0,
-        topModels: topModels,
-        topNPCs: topNPCs
-      },
-      error: null
-    };
-
-  } catch (err) {
-    console.error('Error fetching usage stats:', err);
-    return { stats: null, error: err.message };
-  }
-});
 
 
 ipcMain.handle('executeCommandStream', async (event, data) => {
@@ -972,6 +1040,96 @@ ipcMain.handle('get-message-attachments', async (event, messageId) => {
   return response.json();
 });
 
+
+ipcMain.handle('get-usage-stats', async () => {
+  console.log('[IPC] get-usage-stats handler STARTED');
+  try {
+    const conversationQuery = `SELECT COUNT(DISTINCT conversation_id) as total FROM conversation_history;`;
+    const messagesQuery = `SELECT COUNT(*) as total FROM conversation_history WHERE role = 'user' OR role = 'assistant';`;
+    const modelsQuery = `SELECT model, COUNT(*) as count FROM conversation_history WHERE model IS NOT NULL AND model != '' GROUP BY model ORDER BY count DESC LIMIT 5;`;
+    const npcsQuery = `SELECT npc, COUNT(*) as count FROM conversation_history WHERE npc IS NOT NULL AND npc != '' GROUP BY npc ORDER BY count DESC LIMIT 5;`;
+
+    const [convResult] = await dbQuery(conversationQuery);
+    const [msgResult] = await dbQuery(messagesQuery);
+    const topModels = await dbQuery(modelsQuery);
+    const topNPCs = await dbQuery(npcsQuery);
+
+    console.log('[IPC] get-usage-stats returning:', {
+      totalConversations: convResult?.total || 0,
+      totalMessages: msgResult?.total || 0,
+      topModels,
+      topNPCs
+    });
+
+    return {
+      stats: {
+        totalConversations: convResult?.total || 0,
+        totalMessages: msgResult?.total || 0,
+        topModels,
+        topNPCs
+      },
+      error: null
+    };
+  } catch (err) {
+    console.error('[IPC] get-usage-stats ERROR:', err);
+    return { stats: null, error: err.message };
+  }
+});
+ipcMain.handle('getActivityData', async (event, { period }) => {
+  try {
+    let dateModifier = '-30 days';
+    if (period === '7d') dateModifier = '-7 days';
+    if (period === '90d') dateModifier = '-90 days';
+
+    const query = `
+      SELECT 
+        strftime('%Y-%m-%d', timestamp) as date, 
+        COUNT(*) as count
+      FROM conversation_history
+      WHERE timestamp >= strftime('%Y-%m-%d %H:%M:%S', 'now', ?)
+      GROUP BY date
+      ORDER BY date ASC;
+    `;
+    
+    const rows = await dbQuery(query, [dateModifier]);
+    return { data: rows, error: null };
+  } catch (err) {
+    return { data: null, error: err.message };
+  }
+});
+
+ipcMain.handle('getHistogramData', async () => {
+  try {
+    const query = `
+      SELECT 
+        CASE
+          WHEN LENGTH(content) BETWEEN 0 AND 50 THEN '0-50'
+          WHEN LENGTH(content) BETWEEN 51 AND 200 THEN '51-200'
+          WHEN LENGTH(content) BETWEEN 201 AND 500 THEN '201-500'
+          WHEN LENGTH(content) BETWEEN 501 AND 1000 THEN '501-1000'
+          ELSE '1000+'
+        END as bin,
+        COUNT(*) as count
+      FROM conversation_history
+      WHERE role = 'user' OR role = 'assistant'
+      GROUP BY bin
+      ORDER BY MIN(LENGTH(content));
+    `;
+    const rows = await dbQuery(query);
+    return { data: rows, error: null };
+  } catch (err) {
+    return { data: null, error: err.message };
+  }
+});
+
+ipcMain.handle('executeSQL', async (event, { query }) => {
+  try {
+    const rows = await dbQuery(query);
+    return { result: rows, error: null };
+  } catch (err) {
+    return { result: null, error: err.message };
+  }
+});
 ipcMain.handle('executeCommand', async (event, data) => {
     const currentStreamId = generateId();
     log(`[Main Process] executeCommand: Starting. streamId: ${currentStreamId}`);
@@ -1317,6 +1475,9 @@ ipcMain.handle('getConversations', async (_, path) => {
       throw err;
     }
   });
+
+  
+
 
   ipcMain.handle('createConversation', async (_, { title, model, provider, directory }) => {
     try {

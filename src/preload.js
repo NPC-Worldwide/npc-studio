@@ -30,12 +30,25 @@ contextBridge.exposeInMainWorld('api', {
     saveGlobalContext: (contextData) => ipcRenderer.invoke('save-global-context', contextData),
     getProjectContext: (path) => ipcRenderer.invoke('get-project-context', path),
     saveProjectContext: (data) => ipcRenderer.invoke('save-project-context', data),
+    getUsageStats: () => ipcRenderer.invoke('get-usage-stats'),
+    getActivityData: (options) => ipcRenderer.invoke('getActivityData', options),
+    getHistogramData: () => ipcRenderer.invoke('getHistogramData'),
+    executeSQL: (options) => ipcRenderer.invoke('executeSQL', options),
 
+    listTables: () => ipcRenderer.invoke('db:listTables'),
+    getTableSchema: (args) => ipcRenderer.invoke('db:getTableSchema', args),
+    exportToCSV: (data) => ipcRenderer.invoke('db:exportCSV', data),
 
     getLastUsedInDirectory: (path) => ipcRenderer.invoke('get-last-used-in-directory', path),
     getLastUsedInConversation: (conversationId) => ipcRenderer.invoke('get-last-used-in-conversation', conversationId),
 
+    kg_getGraphData: (args) => ipcRenderer.invoke('kg:getGraphData', args),
+    kg_listGenerations: () => ipcRenderer.invoke('kg:listGenerations'),
+    kg_triggerProcess: (args) => ipcRenderer.invoke('kg:triggerProcess', args),
+    kg_rollback: (args) => ipcRenderer.invoke('kg:rollback', args),
 
+
+    
     // Command operations
     executeCommand: (data) => ipcRenderer.invoke('executeCommand', {
         commandstr: data.commandstr,
@@ -134,8 +147,6 @@ contextBridge.exposeInMainWorld('api', {
         return () => ipcRenderer.removeListener('screenshot-captured', wrappedCallback);
     },
 
-    // Dashboard / Stats
-    getUsageStats: () => ipcRenderer.invoke('get-usage-stats'),
 
     // Utility
     showPromptDialog: (options) => ipcRenderer.invoke('showPromptDialog', options),

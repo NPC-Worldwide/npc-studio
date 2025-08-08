@@ -349,6 +349,7 @@ const ChatInterface = () => {
     const [isStreaming, setIsStreaming] = useState(false);
     const streamIdRef = useRef(null);
     const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false); // State for the new menu
+    const [analysisContext, setAnalysisContext] = useState(null); 
 
     const [aiEditModal, setAiEditModal] = useState({
         isOpen: false,
@@ -630,6 +631,17 @@ const handleEditorContextMenu = (e) => {
 };
 
 
+
+const handleAnalyzeInDashboard = () => {
+    const selectedIds = Array.from(selectedConvos);
+    if (selectedIds.length === 0) return;
+
+    log(`Analyzing ${selectedIds.length} conversations in dashboard.`);
+    setAnalysisContext({ type: 'conversations', ids: selectedIds });
+    setDashboardMenuOpen(true);
+    setContextMenuPos(null); // Close the context menu
+};
+
 const handleAIEdit = async (action, customPrompt = null) => {
     // Hide the right-click context menu immediately
     setEditorContextMenuPos(null);
@@ -770,6 +782,7 @@ const applyAIEdit = () => {
     // Close the AI Edit modal
     setAiEditModal({ isOpen: false, type: '', selectedText: '', selectionStart: 0, selectionEnd: 0, aiResponse: '', showDiff: false, isLoading: false });
 };
+
 
 
 const handleApplyPromptToMessages = async (operationType, customPrompt = '') => {
@@ -2978,8 +2991,18 @@ const handleSummarizeAndPrompt = async () => {
                     <MessageSquare size={16} />
                     <span>Summarize & Prompt ({selectedConvos?.size || 0})</span>
                 </button>
-            </div>
-        )
+                
+            <div className="border-t theme-border my-1"></div>
+            <button
+                onClick={handleAnalyzeInDashboard}
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+            >
+                <BarChart3 size={16} />
+                <span>Analyze in Dashboard ({selectedConvos?.size || 0})</span>
+            </button>
+        </div>
+
+)
     );
 
     const renderFileContextMenu = () => (
@@ -3536,7 +3559,19 @@ const renderChatView = ({ nodeId }) => {
         <>
             <NPCTeamMenu isOpen={npcTeamMenuOpen} onClose={handleCloseNpcTeamMenu} currentPath={currentPath} startNewConversation={startNewConversationWithNpc}/>
             <JinxMenu isOpen={jinxMenuOpen} onClose={() => setJinxMenuOpen(false)} currentPath={currentPath}/>
-            <DataDash isOpen={dashboardMenuOpen} onClose={() => setDashboardMenuOpen(false)} />
+        <DataDash 
+            isOpen={dashboardMenuOpen} 
+            onClose={() => {
+                setDashboardMenuOpen(false);
+                setAnalysisContext(null); // Reset context on close
+            }}
+            initialAnalysisContext={analysisContext} // Pass the context
+            // Add these props:
+            currentModel={currentModel}
+            currentProvider={currentProvider}
+            currentNPC={currentNPC}
+        />
+
 
             <SettingsMenu isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} currentPath={currentPath} onPathChange={(newPath) => { setCurrentPath(newPath); }}/>
         {resendModal.isOpen && (
@@ -3775,44 +3810,41 @@ const renderChatView = ({ nodeId }) => {
         setNpcTeamMenuOpen(false);
     };
 
-    const handleSearchResultSelect = async (conversationId, searchTerm) => {
-        // First, select the conversation. This will load its messages.
-        await handleConversationSelect(conversationId);
-        
-        // After messages are loaded (handleConversationSelect is async),
-        // we need to wait for the state to update. We use a short timeout
-        // to allow React to re-render with the new messages.
-        setTimeout(() => {
-            // Access the latest messages from the state `allMessages`
-            setAllMessages(currentMessages => {
-                const results = [];
-                currentMessages.forEach((msg, index) => {
-                    if (msg.content && msg.content.toLowerCase().includes(searchTerm.toLowerCase())) {
-                        results.push({
-                            messageId: msg.id || msg.timestamp,
-                            index: index,
-                            content: msg.content
-                        });
-                    }
-                });
+const handleSearchResultSelect = async (conversationId, searchTerm) => {
+    // Select the conversation.
+    await handleConversationSelect(conversationId);
 
-                setMessageSearchResults(results);
-                if (results.length > 0) {
-                    const firstResultId = results[0].messageId;
-                    setActiveSearchResult(firstResultId);
-                    
-                    // Scroll to the first result
-                    setTimeout(() => {
-                        const messageElement = document.getElementById(`message-${firstResultId}`);
-                        if (messageElement) {
-                            messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                    }, 100);
+    setTimeout(() => {
+        // Update state with search results
+        setAllMessages(currentMessages => {
+            const results = [];
+            currentMessages.forEach((msg, index) => {
+                if (msg.content && msg.content.toLowerCase().includes(searchTerm.toLowerCase())) {
+                    results.push({
+                        messageId: msg.id || msg.timestamp,
+                        index: index,
+                        content: msg.content
+                    });
                 }
-                return currentMessages; // Return original messages, no change needed here
             });
-        }, 100); // Small delay to ensure messages are in state
-    };
+            setMessageSearchResults(results);
+            if (results.length > 0) {
+                const firstResultId = results[0].messageId;
+                setActiveSearchResult(firstResultId);
+
+                // Scroll to the first result
+                setTimeout(() => {
+                    const messageElement = document.getElementById(`message-${firstResultId}`);
+                    if (messageElement) {
+                        messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 100);
+            }
+            return currentMessages;
+        });
+    }, 100);
+};
+
 
     // --- Main Return uses the Render Functions ---
     return (
