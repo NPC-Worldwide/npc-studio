@@ -12,7 +12,7 @@ import CtxEditor from './CtxEditor';
 import MarkdownRenderer from './MarkdownRenderer';
 import DataDash from './DataDash';
 import CodeEditor from './CodeEditor';
-
+import TerminalView from './Terminal';
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const LAST_ACTIVE_PATH_KEY = 'npcStudioLastPath'; // <-- ADD THIS LINE
@@ -28,10 +28,10 @@ const normalizePath = (path) => {
 };
 
 
+
 const LayoutNode = memo(({ node, path, component }) => {
     if (!node) return null;
 
-    // --- RENDER A SPLIT CONTAINER ---
     if (node.type === 'split') {
         const handleResize = (e, index) => {
             e.preventDefault();
@@ -84,9 +84,8 @@ const LayoutNode = memo(({ node, path, component }) => {
         );
     }
 
-    // --- RENDER A CONTENT PANE ---
     if (node.type === 'content') {
-        const { activeContentPaneId, setActiveContentPaneId, draggedItem, setDraggedItem, dropTarget, setDropTarget, contentDataRef, updateContentPane, performSplit, renderChatView, renderFileEditor } = component;
+        const { activeContentPaneId, setActiveContentPaneId, draggedItem, setDraggedItem, dropTarget, setDropTarget, contentDataRef, updateContentPane, performSplit, renderChatView, renderFileEditor, renderTerminalView } = component;
         const isActive = node.id === activeContentPaneId;
         const isTargeted = dropTarget?.nodePath.join('') === path.join('');
 
@@ -94,7 +93,14 @@ const LayoutNode = memo(({ node, path, component }) => {
             e.preventDefault();
             e.stopPropagation();
             if (!draggedItem) return;
-            const contentType = draggedItem.type === 'conversation' ? 'chat' : 'editor';
+            
+            let contentType;
+            switch (draggedItem.type) {
+                case 'conversation': contentType = 'chat'; break;
+                case 'file': contentType = 'editor'; break;
+                default: return;
+            }
+
             if (side === 'center') {
                 updateContentPane(node.id, contentType, draggedItem.id);
             } else {
@@ -102,6 +108,20 @@ const LayoutNode = memo(({ node, path, component }) => {
             }
             setDraggedItem(null);
             setDropTarget(null);
+        };
+
+        const renderContent = () => {
+            const contentType = contentDataRef.current[node.id]?.contentType;
+            switch (contentType) {
+                case 'chat':
+                    return renderChatView({ nodeId: node.id });
+                case 'editor':
+                    return renderFileEditor({ nodeId: node.id });
+                case 'terminal': // <-- ADD THIS CASE
+                    return renderTerminalView({ nodeId: node.id });
+                default:
+                    return <div className="p-4 theme-text-muted">Empty pane.</div>;
+            }
         };
 
         return (
@@ -120,13 +140,12 @@ const LayoutNode = memo(({ node, path, component }) => {
                         <div className={`absolute left-0 bottom-0 right-0 h-1/4 z-10 ${isTargeted && dropTarget.side === 'bottom' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'bottom' }); }} onDrop={(e) => onDrop(e, 'bottom')} />
                     </>
                 )}
-                {contentDataRef.current[node.id]?.contentType === 'chat' ? renderChatView({ nodeId: node.id }) : renderFileEditor({ nodeId: node.id })}
+                {renderContent()}
             </div>
         );
     }
     return null;
 });
-
 
 const getFileIcon = (filename) => {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
@@ -1115,7 +1134,6 @@ const loadAvailableNPCs = async () => {
             const response = await window.api.readFileContent(newContentId);
             paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
             paneData.fileChanged = false;
-            paneData.chatStats = null; // Clear stats when switching to an editor
         } catch (err) {
             paneData.fileContent = `Error loading file: ${err.message}`;
         }
@@ -1125,12 +1143,10 @@ const loadAvailableNPCs = async () => {
         }
         
         if (skipMessageLoad) {
-            // This is for a new, empty conversation. Reset everything.
             paneData.chatMessages.messages = [];
             paneData.chatMessages.allMessages = [];
-            paneData.chatStats = getConversationStats([]); // Calculate stats for an empty array
+            paneData.chatStats = getConversationStats([]);
         } else {
-            // This is for an existing conversation. Load messages and calculate stats.
             try {
                 const msgs = await window.api.getConversationMessages(newContentId);
                 const formatted = (msgs && Array.isArray(msgs)) 
@@ -1140,16 +1156,21 @@ const loadAvailableNPCs = async () => {
                 paneData.chatMessages.allMessages = formatted;
                 const count = paneData.chatMessages.displayedMessageCount || 20;
                 paneData.chatMessages.messages = formatted.slice(-count);
-                paneData.chatStats = getConversationStats(formatted); // Calculate stats on new data
+                paneData.chatStats = getConversationStats(formatted);
             } catch (err) {
                 console.error(`Error loading messages for convo ${newContentId}:`, err);
                 paneData.chatMessages.messages = [];
                 paneData.chatMessages.allMessages = [];
-                paneData.chatStats = getConversationStats([]); // Reset stats on error
+                paneData.chatStats = getConversationStats([]);
             }
         }
-        }
-    }, []);    
+    } else if (newContentType === 'terminal') { // <-- ADD THIS ELSE IF BLOCK
+        // Clear other content types' data
+        paneData.chatMessages = null;
+        paneData.fileContent = null;
+    }
+}, []);
+
     const renderMessageContextMenu = () => (
     messageContextMenuPos && (
         <div
@@ -1179,6 +1200,7 @@ const loadAvailableNPCs = async () => {
                 <Terminal size={14} />
                 <span>Analyze in New Convo ({selectedMessages.size})</span>
             </button>
+            
             <button
                 onClick={() => handleApplyPromptToCurrentConversation('analyze')}
                 className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
@@ -1379,7 +1401,52 @@ const handleFileClick = async (filePath) => {
     }
 };
     
+    const createNewTerminal = async () => {
+        let targetPaneId = activeContentPaneId;
+        const newTerminalId = `term_${generateId()}`;
 
+        if (!rootLayoutNode || !targetPaneId) {
+            const newPaneId = generateId();
+            const newLayout = { id: newPaneId, type: 'content' };
+            contentDataRef.current[newPaneId] = {};
+            setRootLayoutNode(newLayout);
+            setActiveContentPaneId(newPaneId);
+            targetPaneId = newPaneId;
+        }
+
+        await updateContentPane(targetPaneId, 'terminal', newTerminalId);
+        setActiveConversationId(null);
+        setCurrentFile(null);
+        setRootLayoutNode(p => ({ ...p }));
+    };
+
+    const renderTerminalView = ({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData) return null;
+
+        const { contentId: terminalId } = paneData;
+
+        return (
+            <div className="flex-1 flex flex-col theme-bg-secondary relative">
+                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+                    <div className="flex items-center gap-2 truncate">
+                        <Terminal size={14} />
+                        <span className="truncate" title={terminalId}>Terminal</span>
+                    </div>
+                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full">
+                        <X size={14} />
+                    </button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                    <TerminalView
+                        terminalId={terminalId}
+                        currentPath={currentPath}
+                        isActive={activeContentPaneId === nodeId}
+                    />
+                </div>
+            </div>
+        );
+    };
 const createNewConversation = async () => {
     try {
         const conversation = await window.api.createConversation({ directory_path: currentPath });
@@ -2547,6 +2614,14 @@ const handleSummarizeAndPrompt = async () => {
                                 <FileText size={12} />
                                 <span>New Text File</span>
                             </button>
+                            <button // <-- ADD THIS BUTTON
+                                onClick={createNewTerminal} 
+                                className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
+                            >
+                                <Terminal size={12} />
+                                <span>New Terminal</span>
+                            </button>
+
                         </div>
                     </div>
                     
@@ -3479,7 +3554,7 @@ const renderChatView = ({ nodeId }) => {
             activeContentPaneId, setActiveContentPaneId,
             draggedItem, setDraggedItem, dropTarget, setDropTarget,
             contentDataRef, updateContentPane, performSplit,
-            renderChatView, renderFileEditor
+            renderChatView, renderFileEditor, renderTerminalView
         };
 
         if (!rootLayoutNode) {

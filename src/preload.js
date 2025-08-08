@@ -47,8 +47,23 @@ contextBridge.exposeInMainWorld('api', {
     kg_triggerProcess: (args) => ipcRenderer.invoke('kg:triggerProcess', args),
     kg_rollback: (args) => ipcRenderer.invoke('kg:rollback', args),
 
+resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
 
-    
+        createTerminalSession: (args) => ipcRenderer.invoke('createTerminalSession', args),
+    writeToTerminal: (args) => ipcRenderer.invoke('writeToTerminal', args),
+    closeTerminalSession: (id) => ipcRenderer.invoke('closeTerminalSession', id),
+    onTerminalData: (callback) => {
+        const handler = (_, data) => callback(_, data);
+        ipcRenderer.on('terminal-data', handler);
+        return () => ipcRenderer.removeListener('terminal-data', handler);
+    },
+onTerminalClosed: (callback) => {
+    const handler = (_, data) => callback(_, data);
+    ipcRenderer.on('terminal-closed', handler);
+    return () => ipcRenderer.removeListener('terminal-closed', handler);
+},
+    executeShellCommand: (args) => ipcRenderer.invoke('executeShellCommand', args),
+
     // Command operations
     executeCommand: (data) => ipcRenderer.invoke('executeCommand', {
         commandstr: data.commandstr,

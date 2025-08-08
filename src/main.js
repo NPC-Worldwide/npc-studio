@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs/promises');
 const os = require('os');
+const pty = require('node-pty'); // <-- ADD THIS
+
 const sqlite3 = require('sqlite3');
 const dbPath = path.join(os.homedir(), 'npcsh_history.db');
 const fetch = require('node-fetch');
@@ -24,7 +26,8 @@ const log = (...messages) => {
 };
 // Use Option+Space on macOS, Command/Control+Space elsewhere
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
-
+const ptySessions = new Map(); // <-- ADD THIS
+const ptyKillTimers = new Map();
 
 // In main.js
 const dbQuery = (query, params = []) => {
@@ -1030,6 +1033,155 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
 });
 
 
+ipcMain.handle('resizeTerminal', (event, { id, cols, rows }) => {
+  const ptyProcess = ptySessions.get(id);
+  if (ptyProcess) {
+    try {
+      ptyProcess.resize(cols, rows);
+      return { success: true };
+    } catch (error) {
+      console.error(`Failed to resize terminal ${id}:`, error);
+      return { success: false, error: error.message };
+    }
+  } else {
+    return { success: false, error: 'Session not found' };
+  }
+});
+
+ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
+  // --- THIS IS THE KEY ---
+  // If there's a pending kill timer for this ID, cancel it.
+  // This means the component has re-rendered quickly, and we should not kill the session.
+  if (ptyKillTimers.has(id)) {
+    console.log(`[PTY] INFO: Re-creation request for ${id} received. Cancelling pending kill timer.`);
+    clearTimeout(ptyKillTimers.get(id));
+    ptyKillTimers.delete(id);
+    
+    // If the session still exists, we don't need to do anything else. It's ready.
+    if (ptySessions.has(id)) {
+        console.log(`[PTY] INFO: Session ${id} already exists and is active. Re-attaching.`);
+        return { success: true };
+    }
+  }
+
+  console.log(`[Main Process] INFO: Received request to create session ID=${id}`);
+  const shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
+  const args = os.platform() === 'win32' ? [] : ['-l'];
+  
+  try {
+    const ptyProcess = pty.spawn(shell, args, {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd: cwd || os.homedir(),
+      env: process.env
+    });
+
+    ptySessions.set(id, ptyProcess);
+
+    ptyProcess.onData(data => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('terminal-data', { id, data });
+      }
+    });
+
+    ptyProcess.onExit(({ exitCode, signal }) => {
+      console.log(`[Main Process] INFO: PTY process ${id} has exited. Code: ${exitCode}, Signal: ${signal}.`);
+      ptySessions.delete(id); // Clean up the session from the map
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('terminal-closed', { id });
+      }
+    });
+
+    console.log(`[Main Process] SUCCESS: Session ${id} created.`);
+    return { success: true };
+    
+  } catch (error) {
+    console.error(`[Main Process] FATAL: Failed to spawn PTY for session ${id}. Error: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('closeTerminalSession', (event, id) => {
+  // --- THIS IS THE OTHER KEY ---
+  // Instead of killing immediately, we set a timer.
+  // This gives the app a brief moment (100ms) to cancel the kill if it was just a re-render.
+  if (ptySessions.has(id)) {
+    console.log(`[PTY] INFO: Received request to close session ${id}. Setting a 100ms delayed kill timer.`);
+    
+    // If there's already a timer, do nothing.
+    if (ptyKillTimers.has(id)) return { success: true };
+
+    const timer = setTimeout(() => {
+      if (ptySessions.has(id)) {
+        console.log(`[PTY] INFO: Executing delayed kill for session ${id}.`);
+        ptySessions.get(id).kill();
+        // The onExit handler will clean up the ptySessions map.
+      }
+      ptyKillTimers.delete(id); // Clean up the timer itself
+    }, 100);
+
+    ptyKillTimers.set(id, timer);
+  } else {
+    console.log(`[PTY] WARN: Close request for non-existent session ${id}.`);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('writeToTerminal', (event, { id, data }) => {
+  const ptyProcess = ptySessions.get(id);
+
+
+  console.log(`[Frontend -> PTY] Writing to session ${id}: ${JSON.stringify(data)}`);
+
+  if (ptyProcess) {
+    ptyProcess.write(data);
+    return { success: true };
+  } else {
+
+    console.error(`[PTY] ERROR: Write failed. No session found for ID: ${id}`);
+    console.error(`[PTY] DEBUG: Available sessions are: [${Array.from(ptySessions.keys()).join(', ')}]`);
+    return { success: false, error: 'Session not found in backend' };
+  }
+});
+
+
+
+ipcMain.handle('executeShellCommand', async (event, { command, currentPath }) => {
+    console.log(`[TERMINAL DEBUG] Executing command: "${command}"`);
+    console.log(`[TERMINAL DEBUG] Current Path: "${currentPath}"`);
+
+    return new Promise((resolve, reject) => {
+        const { exec } = require('child_process');
+
+        exec(command, { 
+            cwd: currentPath || process.env.HOME,
+            shell: '/bin/bash'
+        }, (error, stdout, stderr) => {
+            console.log(`[TERMINAL DEBUG] Command Execution Result:`);
+            console.log(`[TERMINAL DEBUG] STDOUT: "${stdout}"`);
+            console.log(`[TERMINAL DEBUG] STDERR: "${stderr}"`);
+            console.log(`[TERMINAL DEBUG] ERROR: ${error}`);
+
+            // Convert Unix line endings to terminal-friendly format
+            const normalizedStdout = stdout.replace(/\n/g, '\r\n');
+            const normalizedStderr = stderr.replace(/\n/g, '\r\n');
+
+            if (error) {
+                console.error(`[TERMINAL DEBUG] Execution Error:`, error);
+                resolve({ 
+                    error: normalizedStderr || normalizedStdout || error.message,
+                    output: normalizedStdout
+                });
+            } else {
+                resolve({ 
+                    output: normalizedStdout, 
+                    error: normalizedStderr 
+                });
+            }
+        });
+    });
+});
 ipcMain.handle('get-attachment', async (event, attachmentId) => {
   const response = await fetch(`http://127.0.0.1:5337/api/attachment/${attachmentId}`);
   return response.json();
