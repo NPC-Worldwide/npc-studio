@@ -12,6 +12,8 @@ import CtxEditor from './CtxEditor';
 import MarkdownRenderer from './MarkdownRenderer';
 import DataDash from './DataDash';
 import CodeEditor from './CodeEditor';
+import TerminalView from './Terminal';
+import PdfViewer from './PdfViewer';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -28,10 +30,10 @@ const normalizePath = (path) => {
 };
 
 
+
 const LayoutNode = memo(({ node, path, component }) => {
     if (!node) return null;
 
-    // --- RENDER A SPLIT CONTAINER ---
     if (node.type === 'split') {
         const handleResize = (e, index) => {
             e.preventDefault();
@@ -84,9 +86,8 @@ const LayoutNode = memo(({ node, path, component }) => {
         );
     }
 
-    // --- RENDER A CONTENT PANE ---
     if (node.type === 'content') {
-        const { activeContentPaneId, setActiveContentPaneId, draggedItem, setDraggedItem, dropTarget, setDropTarget, contentDataRef, updateContentPane, performSplit, renderChatView, renderFileEditor } = component;
+        const { activeContentPaneId, setActiveContentPaneId, draggedItem, setDraggedItem, dropTarget, setDropTarget, contentDataRef, updateContentPane, performSplit, renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer } = component;
         const isActive = node.id === activeContentPaneId;
         const isTargeted = dropTarget?.nodePath.join('') === path.join('');
 
@@ -94,7 +95,22 @@ const LayoutNode = memo(({ node, path, component }) => {
             e.preventDefault();
             e.stopPropagation();
             if (!draggedItem) return;
-            const contentType = draggedItem.type === 'conversation' ? 'chat' : 'editor';
+            
+            let contentType;
+            if (draggedItem.type === 'conversation') {
+                contentType = 'chat';
+            } else if (draggedItem.type === 'file') {
+                // --- THIS IS THE KEY CHANGE for drag-and-drop ---
+                const extension = draggedItem.id.split('.').pop()?.toLowerCase();
+                if (extension === 'pdf') {
+                    contentType = 'pdf';
+                } else {
+                    contentType = 'editor';
+                }
+            } else {
+                return;
+            }
+
             if (side === 'center') {
                 updateContentPane(node.id, contentType, draggedItem.id);
             } else {
@@ -103,6 +119,23 @@ const LayoutNode = memo(({ node, path, component }) => {
             setDraggedItem(null);
             setDropTarget(null);
         };
+
+        const renderContent = () => {
+            const contentType = contentDataRef.current[node.id]?.contentType;
+            switch (contentType) {
+                case 'chat':
+                    return renderChatView({ nodeId: node.id });
+                case 'editor':
+                    return renderFileEditor({ nodeId: node.id });
+                case 'terminal':
+                    return renderTerminalView({ nodeId: node.id });
+                case 'pdf': // <-- ADD THIS CASE
+                    return renderPdfViewer({ nodeId: node.id });
+                default:
+                    return <div className="p-4 theme-text-muted">Empty pane.</div>;
+            }
+        };
+
 
         return (
             <div
@@ -120,13 +153,12 @@ const LayoutNode = memo(({ node, path, component }) => {
                         <div className={`absolute left-0 bottom-0 right-0 h-1/4 z-10 ${isTargeted && dropTarget.side === 'bottom' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'bottom' }); }} onDrop={(e) => onDrop(e, 'bottom')} />
                     </>
                 )}
-                {contentDataRef.current[node.id]?.contentType === 'chat' ? renderChatView({ nodeId: node.id }) : renderFileEditor({ nodeId: node.id })}
+                {renderContent()}
             </div>
         );
     }
     return null;
 });
-
 
 const getFileIcon = (filename) => {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
@@ -140,6 +172,8 @@ const getFileIcon = (filename) => {
         case 'css': return <Code2 {...iconProps} className={`${iconProps.className} text-blue-300`} />;
         case 'txt': case 'yaml': case 'yml': case 'npc': case 'jinx':
              return <File {...iconProps} className={`${iconProps.className} text-gray-400`} />;
+        case 'pdf': return <FileText {...iconProps} className={`${iconProps.className} text-purple-400`} />; // <-- ADD THIS LINE
+
         default: return <File {...iconProps} className={`${iconProps.className} text-gray-400`} />;
     }
 };
@@ -349,6 +383,7 @@ const ChatInterface = () => {
     const [isStreaming, setIsStreaming] = useState(false);
     const streamIdRef = useRef(null);
     const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false); // State for the new menu
+    const [analysisContext, setAnalysisContext] = useState(null); 
 
     const [aiEditModal, setAiEditModal] = useState({
         isOpen: false,
@@ -412,8 +447,7 @@ const ChatInterface = () => {
     // A ref to hold bulky data for each pane, preventing state updates on every keypress
     const contentDataRef = useRef({});
     const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
-
-
+    
     const [resendModal, setResendModal] = useState({
         isOpen: false,
         message: null,
@@ -630,6 +664,17 @@ const handleEditorContextMenu = (e) => {
 };
 
 
+
+const handleAnalyzeInDashboard = () => {
+    const selectedIds = Array.from(selectedConvos);
+    if (selectedIds.length === 0) return;
+
+    log(`Analyzing ${selectedIds.length} conversations in dashboard.`);
+    setAnalysisContext({ type: 'conversations', ids: selectedIds });
+    setDashboardMenuOpen(true);
+    setContextMenuPos(null); // Close the context menu
+};
+
 const handleAIEdit = async (action, customPrompt = null) => {
     // Hide the right-click context menu immediately
     setEditorContextMenuPos(null);
@@ -770,6 +815,7 @@ const applyAIEdit = () => {
     // Close the AI Edit modal
     setAiEditModal({ isOpen: false, type: '', selectedText: '', selectionStart: 0, selectionEnd: 0, aiResponse: '', showDiff: false, isLoading: false });
 };
+
 
 
 const handleApplyPromptToMessages = async (operationType, customPrompt = '') => {
@@ -1088,7 +1134,11 @@ const loadAvailableNPCs = async () => {
     }, [isDarkMode]);
 
 
-const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+
+    const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+
+    console.log(`[updateContentPane] Updating pane "${paneId}" to type "${newContentType}" with ID "${newContentId}"`);
+    
     if (!contentDataRef.current[paneId]) {
         contentDataRef.current[paneId] = {};
     }
@@ -1096,6 +1146,7 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
     
     paneData.contentType = newContentType;
     paneData.contentId = newContentId;
+
 
     if (newContentType === 'editor') {
         try {
@@ -1110,32 +1161,42 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
             paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
         
-        // **THE FIX**: Only load messages if skipMessageLoad is false
-        if (!skipMessageLoad) {
+        if (skipMessageLoad) {
+            paneData.chatMessages.messages = [];
+            paneData.chatMessages.allMessages = [];
+            paneData.chatStats = getConversationStats([]);
+        } else {
             try {
                 const msgs = await window.api.getConversationMessages(newContentId);
-                if (msgs && Array.isArray(msgs)) {
-                    const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
-                    paneData.chatMessages.allMessages = formatted;
-                    const count = paneData.chatMessages.displayedMessageCount || 20;
-                    paneData.chatMessages.messages = formatted.slice(-count);
-                } else {
-                     paneData.chatMessages.messages = [];
-                     paneData.chatMessages.allMessages = [];
-                }
+                const formatted = (msgs && Array.isArray(msgs)) 
+                    ? msgs.map(m => ({ ...m, id: m.id || generateId() })) 
+                    : [];
+
+                paneData.chatMessages.allMessages = formatted;
+                const count = paneData.chatMessages.displayedMessageCount || 20;
+                paneData.chatMessages.messages = formatted.slice(-count);
+                paneData.chatStats = getConversationStats(formatted);
             } catch (err) {
                 console.error(`Error loading messages for convo ${newContentId}:`, err);
                 paneData.chatMessages.messages = [];
                 paneData.chatMessages.allMessages = [];
+                paneData.chatStats = getConversationStats([]);
             }
         }
-        // If skipMessageLoad is true, we keep the existing empty arrays
+    } else if (newContentType === 'terminal') { // <-- ADD THIS ELSE IF BLOCK
+        // Clear other content types' data
+        paneData.chatMessages = null;
+        paneData.fileContent = null;
     }
+       else if (newContentType === 'pdf') {
+        // LOG E: Confirm we hit the PDF logic block.
+        console.log(`[updateContentPane] Setting up pane "${paneId}" for PDF viewer.`);
+        paneData.chatMessages = null;
+        paneData.fileContent = null;
+        }
 
-    
-    // This function now ONLY updates data. The calling function is responsible for triggering re-renders.
+
 }, []);
-
 
     const renderMessageContextMenu = () => (
     messageContextMenuPos && (
@@ -1166,6 +1227,7 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
                 <Terminal size={14} />
                 <span>Analyze in New Convo ({selectedMessages.size})</span>
             </button>
+            
             <button
                 onClick={() => handleApplyPromptToCurrentConversation('analyze')}
                 className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
@@ -1342,58 +1404,154 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     }
     return paneIdToUpdate;
 };
+    const renderPdfViewer = ({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData) return null;
 
-// REPLACE your entire handleFileClick function with this:
-const handleFileClick = async (filePath) => {
-    setCurrentFile(filePath);
-    setActiveConversationId(null);
+        const { contentId: filePath } = paneData;
+        const fileName = filePath?.split('/').pop() || 'Untitled.pdf';
 
-    // If no layout exists, create the first pane.
-    if (!rootLayoutNode) {
-        const newPaneId = generateId();
-        const newLayout = { id: newPaneId, type: 'content' };
-        
-        contentDataRef.current[newPaneId] = {};
-        await updateContentPane(newPaneId, 'editor', filePath);
-        
-        setRootLayoutNode(newLayout);
-        setActiveContentPaneId(newPaneId);
-    } 
-    // If a layout exists, update the data and trigger a re-render.
-    else {
-        await updateContentPane(activeContentPaneId, 'editor', filePath);
-        setRootLayoutNode(prev => ({...prev}));
-    }
-};
+        return (
+            <div className="flex-1 flex flex-col theme-bg-secondary relative">
+                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+                    <div className="flex items-center gap-2 truncate">
+                        {getFileIcon(fileName)}
+                        <span className="truncate" title={filePath}>{fileName}</span>
+                    </div>
+                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full">
+                        <X size={14} />
+                    </button>
+                </div>
+                <div className="flex-1 overflow-hidden bg-gray-500"> {/* Added a bg color for loading */}
+                    <PdfViewer filePath={filePath} />
+                </div>
+            </div>
+        );
+    };
+
+
+    const handleFileClick = async (filePath) => {
+        setCurrentFile(filePath);
+        setActiveConversationId(null);
     
+        const extension = filePath.split('.').pop()?.toLowerCase();
+        const contentType = extension === 'pdf' ? 'pdf' : 'editor'; // <-- KEY CHANGE
+    
+        // If no layout exists, create the first pane.
+        if (!rootLayoutNode) {
+            const newPaneId = generateId();
+            const newLayout = { id: newPaneId, type: 'content' };
+            
+            contentDataRef.current[newPaneId] = {};
+            await updateContentPane(newPaneId, contentType, filePath); // Use determined contentType
+            
+            setRootLayoutNode(newLayout);
+            setActiveContentPaneId(newPaneId);
+        } 
+        // If a layout exists, update the data and trigger a re-render.
+    else {
+        const targetPaneId = activeContentPaneId || Object.keys(contentDataRef.current)[0];
+        if (targetPaneId) {
+            // LOG C: Confirm we are about to update the pane.
+            console.log(`[handleFileClick] Updating pane "${targetPaneId}" with new content.`);
+            await updateContentPane(targetPaneId, contentType, filePath);
+            setRootLayoutNode(prev => ({...prev}));
+        }
+    }
 
 
-// In ChatInterface component
+    };
 
-const createNewConversation = async (skipMessageLoad = false) => {
+
+
+
+
+    const createNewTerminal = async () => {
+        let targetPaneId = activeContentPaneId;
+        const newTerminalId = `term_${generateId()}`;
+
+        if (!rootLayoutNode || !targetPaneId) {
+            const newPaneId = generateId();
+            const newLayout = { id: newPaneId, type: 'content' };
+            contentDataRef.current[newPaneId] = {};
+            setRootLayoutNode(newLayout);
+            setActiveContentPaneId(newPaneId);
+            targetPaneId = newPaneId;
+        }
+
+        await updateContentPane(targetPaneId, 'terminal', newTerminalId);
+        setActiveConversationId(null);
+        setCurrentFile(null);
+        setRootLayoutNode(p => ({ ...p }));
+    };
+
+    const renderTerminalView = ({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData) return null;
+
+        const { contentId: terminalId } = paneData;
+
+        return (
+            <div className="flex-1 flex flex-col theme-bg-secondary relative">
+                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+                    <div className="flex items-center gap-2 truncate">
+                        <Terminal size={14} />
+                        <span className="truncate" title={terminalId}>Terminal</span>
+                    </div>
+                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full">
+                        <X size={14} />
+                    </button>
+                </div>
+            <div className="flex-1 overflow-hidden min-h-0"> {/* Add min-h-0 */}
+                <TerminalView
+                    terminalId={terminalId}
+                    currentPath={currentPath}
+                    isActive={activeContentPaneId === nodeId}
+                />
+            </div>
+
+
+            </div>
+        );
+    };
+const createNewConversation = async () => {
     try {
         const conversation = await window.api.createConversation({ directory_path: currentPath });
-
         if (!conversation || !conversation.id) {
-            throw new Error("Failed to create conversation or received invalid data from backend.");
+            throw new Error("Failed to create conversation or received invalid data.");
         }
 
         const formattedNewConversation = {
             id: conversation.id,
-            title: conversation.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
-            preview: conversation.preview || 'No content',
+            title: 'New Conversation',
+            preview: 'No content',
             timestamp: conversation.timestamp || new Date().toISOString()
         };
         
+        setActiveConversationId(conversation.id);
+        setCurrentFile(null);
         setDirectoryConversations(prev => [formattedNewConversation, ...prev]);
         
-        // **THE FIX**: Pass the skipMessageLoad flag down
-        const paneId = await handleConversationSelect(conversation.id, skipMessageLoad);
-        
-        return { conversation, paneId };
+        let targetPaneId = activeContentPaneId;
+        if (!rootLayoutNode || !targetPaneId) {
+            const newPaneId = generateId();
+            const newLayout = { id: newPaneId, type: 'content' };
+            contentDataRef.current[newPaneId] = {};
+            setRootLayoutNode(newLayout);
+            setActiveContentPaneId(newPaneId);
+            targetPaneId = newPaneId;
+        }
+
+        await updateContentPane(targetPaneId, 'chat', conversation.id, true);
+
+        setRootLayoutNode(p => ({ ...p }));
+
+        return { conversation, paneId: targetPaneId };
+
     } catch (err) {
         console.error("Error creating new conversation:", err);
         setError(err.message);
+        return { conversation: null, paneId: null };
     }
 };
 
@@ -2523,6 +2681,14 @@ const handleSummarizeAndPrompt = async () => {
                                 <FileText size={12} />
                                 <span>New Text File</span>
                             </button>
+                            <button // <-- ADD THIS BUTTON
+                                onClick={createNewTerminal} 
+                                className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
+                            >
+                                <Terminal size={12} />
+                                <span>New Terminal</span>
+                            </button>
+
                         </div>
                     </div>
                     
@@ -2978,8 +3144,18 @@ const handleSummarizeAndPrompt = async () => {
                     <MessageSquare size={16} />
                     <span>Summarize & Prompt ({selectedConvos?.size || 0})</span>
                 </button>
-            </div>
-        )
+                
+            <div className="border-t theme-border my-1"></div>
+            <button
+                onClick={handleAnalyzeInDashboard}
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+            >
+                <BarChart3 size={16} />
+                <span>Analyze in Dashboard ({selectedConvos?.size || 0})</span>
+            </button>
+        </div>
+
+)
     );
 
     const renderFileContextMenu = () => (
@@ -3051,87 +3227,97 @@ const handleResendMessage = (messageToResend) => {
 };
 
 const handleResendWithSettings = async (messageToResend, selectedModel, selectedNPC) => {
-    if (isStreaming || !activeConversationId) {
-        console.warn('Cannot resend while streaming or no active conversation');
+    // 1. Get the currently active chat pane.
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData || activePaneData.contentType !== 'chat' || !activePaneData.contentId) {
+        setError("Cannot resend: The active pane is not a valid chat window.");
         return;
     }
+    if (isStreaming) {
+        console.warn('Cannot resend while another operation is in progress.');
+        return;
+    }
+    const conversationId = activePaneData.contentId;
+    let newStreamId = null; // Declare here to be available in catch block
 
     try {
-        const newStreamId = generateId();
-        streamIdRef.current = newStreamId;
+        // 2. Prepare for the new streaming response.
+        newStreamId = generateId();
+        streamToPaneRef.current[newStreamId] = activeContentPaneId; // Link stream to the active pane
         setIsStreaming(true);
 
         const selectedNpc = availableNPCs.find(npc => npc.value === selectedNPC);
 
+        // 3. Create a copy of the user message and a placeholder for the AI response.
         const resentUserMessage = {
             id: generateId(),
             role: 'user',
             content: messageToResend.content,
             timestamp: new Date().toISOString(),
             attachments: messageToResend.attachments || [],
-            originalModel: messageToResend.model || null,
-            originalNPC: messageToResend.npc || null,
-            isResent: true
         };
 
         const assistantPlaceholderMessage = {
             id: newStreamId,
             role: 'assistant',
             content: '',
-            reasoningContent: '',
-            toolCalls: [],
+            isStreaming: true,
             timestamp: new Date().toISOString(),
             streamId: newStreamId,
             model: selectedModel,
-            npc: selectedNPC
+            npc: selectedNPC,
         };
 
-        setMessages(prev => [...prev, resentUserMessage, assistantPlaceholderMessage]);
-        setAllMessages(prev => [...prev, resentUserMessage, assistantPlaceholderMessage]);
+        // 4. Add these messages to the *active pane's* data store.
+        if (!activePaneData.chatMessages) {
+             activePaneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+        }
+        activePaneData.chatMessages.allMessages.push(resentUserMessage, assistantPlaceholderMessage);
+        activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(-activePaneData.chatMessages.displayedMessageCount);
 
-        console.log(`Resending message with model: ${selectedModel}, NPC: ${selectedNPC}`);
+        // 5. Trigger a re-render of the layout to show the changes.
+        setRootLayoutNode(prev => ({ ...prev }));
 
-        // Find the provider for the selected model
         const selectedModelObj = availableModels.find(m => m.value === selectedModel);
         const providerToUse = selectedModelObj ? selectedModelObj.provider : currentProvider;
 
-        const result = await window.api.executeCommandStream({
+        // 6. Execute the command.
+        await window.api.executeCommandStream({
             commandstr: messageToResend.content,
             currentPath,
-            conversationId: activeConversationId,
+            conversationId: conversationId, // Use the pane-specific ID
             model: selectedModel,
             provider: providerToUse,
             npc: selectedNpc ? selectedNpc.name : selectedNPC,
             npcSource: selectedNpc ? selectedNpc.source : 'global',
             attachments: messageToResend.attachments?.map(att => ({
-                name: att.name, 
-                path: att.path, 
-                size: att.size, 
-                type: att.type
+                name: att.name, path: att.path, size: att.size, type: att.type
             })) || [],
-            streamId: newStreamId
+            streamId: newStreamId,
         });
-
-        if (result && result.error) {
-            throw new Error(result.error);
-        }
-
-        console.log(`Message resent successfully with streamId: ${newStreamId}`);
 
     } catch (err) {
         console.error('Error resending message:', err);
         setError(err.message);
         
-        setIsStreaming(false);
-        streamIdRef.current = null;
+        // Update the placeholder in the correct pane to show the error
+        if (activePaneData.chatMessages) {
+            const msgIndex = activePaneData.chatMessages.allMessages.findIndex(m => m.id === newStreamId);
+            if (msgIndex !== -1) {
+                const message = activePaneData.chatMessages.allMessages[msgIndex];
+                message.content = `[Error resending message: ${err.message}]`;
+                message.type = 'error';
+                message.isStreaming = false;
+            }
+        }
+
+        // Clean up streaming state if the API call itself failed
+        if (newStreamId) delete streamToPaneRef.current[newStreamId];
+        if (Object.keys(streamToPaneRef.current).length === 0) {
+            setIsStreaming(false);
+        }
         
-        setMessages(prev => [...prev, {
-            id: generateId(),
-            role: 'assistant',
-            content: `[Error resending message: ${err.message}]`,
-            timestamp: new Date().toISOString(),
-            type: 'error'
-        }]);
+        setRootLayoutNode(prev => ({ ...prev }));
     }
 };
 
@@ -3181,14 +3367,14 @@ const renderFileEditor = ({ nodeId }) => {
                     <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
                 </div>
             </div>
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 overflow-hidden min-h-0"> {/* Add min-h-0 */}
                 <CodeEditor
                     value={fileContent || ''}
                     onChange={onContentChange}
                     onSave={onSave}
                     filePath={filePath}
-                    onSelect={handleTextSelection}      // <-- ADD THIS
-                    onContextMenu={onEditorContextMenu} // <-- ADD THIS
+                    onSelect={handleTextSelection}
+                    onContextMenu={onEditorContextMenu}
                 />
             </div>
 
@@ -3222,6 +3408,7 @@ const renderFileEditor = ({ nodeId }) => {
     );
 };
 
+
 const renderChatView = ({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
     if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
@@ -3229,43 +3416,7 @@ const renderChatView = ({ nodeId }) => {
     const { contentId: conversationId } = paneData;
     const scrollRef = useRef(null);
 
-    // This effect loads messages and calculates stats when the conversation ID changes
-    useEffect(() => {
-        if (!conversationId) return;
-        
-        const load = async () => {
-            const currentPane = contentDataRef.current[nodeId];
-            if (!currentPane) return;
-            
-            // **THE FIX**: Only load messages if the pane doesn't already have messages
-            // This prevents overwriting messages that were just added manually
-            if (!currentPane.chatMessages || currentPane.chatMessages.allMessages.length === 0) {
-                const msgs = await window.api.getConversationMessages(conversationId);
-                
-                if (msgs && Array.isArray(msgs)) {
-                    const formatted = msgs.map(m => ({ ...m, id: m.id || generateId() }));
-                    
-                    if (!currentPane.chatMessages) {
-                         currentPane.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-                    }
-
-                    currentPane.chatMessages.allMessages = formatted;
-                    const count = currentPane.chatMessages.displayedMessageCount || 20;
-                    currentPane.chatMessages.messages = formatted.slice(-count);
-                    
-                    currentPane.chatStats = getConversationStats(formatted);
-                    
-                    setRootLayoutNode(p => ({ ...p }));
-                }
-            } else {
-                // If messages already exist, just calculate stats
-                currentPane.chatStats = getConversationStats(currentPane.chatMessages.allMessages);
-                setRootLayoutNode(p => ({ ...p }));
-            }
-        };
-        load();
-    }, [conversationId, nodeId]);
-
+    // This effect now ONLY handles auto-scrolling to the bottom on new messages.
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -3283,19 +3434,17 @@ const renderChatView = ({ nodeId }) => {
 
     const messagesToDisplay = paneData.chatMessages?.messages || [];
     const totalMessages = paneData.chatMessages?.allMessages?.length || 0;
-    const stats = paneData.chatStats || {};
+    const stats = paneData.chatStats || {}; // Directly use the stats from paneData
     const path = findNodePath(rootLayoutNode, nodeId);
 
     return (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-
             <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary">
                 <div className="flex justify-between items-center">
                     <span className="truncate min-w-0 font-semibold" title={conversationId}>
                         Conversation: {conversationId?.slice(-8) || 'None'}
                     </span>
                     <div className="flex items-center gap-2">
-
                         <button
                             onClick={toggleMessageSelectionMode}
                             className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
@@ -3318,7 +3467,6 @@ const renderChatView = ({ nodeId }) => {
                     <span><Users size={12} className="inline mr-1"/>{stats.agents?.size || 0} Agents</span>
                 </div>
             </div>
-            {/* --- END HEADER --- */}
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
                 {totalMessages > messagesToDisplay.length && (
@@ -3343,7 +3491,6 @@ const renderChatView = ({ nodeId }) => {
         </div>
     );
 };
-    
     const renderInputArea = () => (
         <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
             <div
@@ -3474,7 +3621,7 @@ const renderChatView = ({ nodeId }) => {
             activeContentPaneId, setActiveContentPaneId,
             draggedItem, setDraggedItem, dropTarget, setDropTarget,
             contentDataRef, updateContentPane, performSplit,
-            renderChatView, renderFileEditor
+            renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer
         };
 
         if (!rootLayoutNode) {
@@ -3536,7 +3683,19 @@ const renderChatView = ({ nodeId }) => {
         <>
             <NPCTeamMenu isOpen={npcTeamMenuOpen} onClose={handleCloseNpcTeamMenu} currentPath={currentPath} startNewConversation={startNewConversationWithNpc}/>
             <JinxMenu isOpen={jinxMenuOpen} onClose={() => setJinxMenuOpen(false)} currentPath={currentPath}/>
-            <DataDash isOpen={dashboardMenuOpen} onClose={() => setDashboardMenuOpen(false)} />
+        <DataDash 
+            isOpen={dashboardMenuOpen} 
+            onClose={() => {
+                setDashboardMenuOpen(false);
+                setAnalysisContext(null); // Reset context on close
+            }}
+            initialAnalysisContext={analysisContext} // Pass the context
+            // Add these props:
+            currentModel={currentModel}
+            currentProvider={currentProvider}
+            currentNPC={currentNPC}
+        />
+
 
             <SettingsMenu isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} currentPath={currentPath} onPathChange={(newPath) => { setCurrentPath(newPath); }}/>
         {resendModal.isOpen && (
@@ -3775,44 +3934,41 @@ const renderChatView = ({ nodeId }) => {
         setNpcTeamMenuOpen(false);
     };
 
-    const handleSearchResultSelect = async (conversationId, searchTerm) => {
-        // First, select the conversation. This will load its messages.
-        await handleConversationSelect(conversationId);
-        
-        // After messages are loaded (handleConversationSelect is async),
-        // we need to wait for the state to update. We use a short timeout
-        // to allow React to re-render with the new messages.
-        setTimeout(() => {
-            // Access the latest messages from the state `allMessages`
-            setAllMessages(currentMessages => {
-                const results = [];
-                currentMessages.forEach((msg, index) => {
-                    if (msg.content && msg.content.toLowerCase().includes(searchTerm.toLowerCase())) {
-                        results.push({
-                            messageId: msg.id || msg.timestamp,
-                            index: index,
-                            content: msg.content
-                        });
-                    }
-                });
+const handleSearchResultSelect = async (conversationId, searchTerm) => {
+    // Select the conversation.
+    await handleConversationSelect(conversationId);
 
-                setMessageSearchResults(results);
-                if (results.length > 0) {
-                    const firstResultId = results[0].messageId;
-                    setActiveSearchResult(firstResultId);
-                    
-                    // Scroll to the first result
-                    setTimeout(() => {
-                        const messageElement = document.getElementById(`message-${firstResultId}`);
-                        if (messageElement) {
-                            messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                    }, 100);
+    setTimeout(() => {
+        // Update state with search results
+        setAllMessages(currentMessages => {
+            const results = [];
+            currentMessages.forEach((msg, index) => {
+                if (msg.content && msg.content.toLowerCase().includes(searchTerm.toLowerCase())) {
+                    results.push({
+                        messageId: msg.id || msg.timestamp,
+                        index: index,
+                        content: msg.content
+                    });
                 }
-                return currentMessages; // Return original messages, no change needed here
             });
-        }, 100); // Small delay to ensure messages are in state
-    };
+            setMessageSearchResults(results);
+            if (results.length > 0) {
+                const firstResultId = results[0].messageId;
+                setActiveSearchResult(firstResultId);
+
+                // Scroll to the first result
+                setTimeout(() => {
+                    const messageElement = document.getElementById(`message-${firstResultId}`);
+                    if (messageElement) {
+                        messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 100);
+            }
+            return currentMessages;
+        });
+    }, 100);
+};
+
 
     // --- Main Return uses the Render Functions ---
     return (

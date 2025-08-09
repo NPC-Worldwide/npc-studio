@@ -1,8 +1,7 @@
 const { contextBridge, ipcRenderer, shell } = require('electron');
 
-// Expose all API functions through contextBridge
 contextBridge.exposeInMainWorld('api', {
-    // Directory operations
+
     getDefaultConfig: () => ipcRenderer.invoke('getDefaultConfig'),
     readDirectoryStructure: (dirPath) => ipcRenderer.invoke('readDirectoryStructure', dirPath),
     goUpDirectory: (currentPath) => ipcRenderer.invoke('goUpDirectory', currentPath),
@@ -30,11 +29,39 @@ contextBridge.exposeInMainWorld('api', {
     saveGlobalContext: (contextData) => ipcRenderer.invoke('save-global-context', contextData),
     getProjectContext: (path) => ipcRenderer.invoke('get-project-context', path),
     saveProjectContext: (data) => ipcRenderer.invoke('save-project-context', data),
+    getUsageStats: () => ipcRenderer.invoke('get-usage-stats'),
+    getActivityData: (options) => ipcRenderer.invoke('getActivityData', options),
+    getHistogramData: () => ipcRenderer.invoke('getHistogramData'),
+    executeSQL: (options) => ipcRenderer.invoke('executeSQL', options),
 
+    listTables: () => ipcRenderer.invoke('db:listTables'),
+    getTableSchema: (args) => ipcRenderer.invoke('db:getTableSchema', args),
+    exportToCSV: (data) => ipcRenderer.invoke('db:exportCSV', data),
 
     getLastUsedInDirectory: (path) => ipcRenderer.invoke('get-last-used-in-directory', path),
     getLastUsedInConversation: (conversationId) => ipcRenderer.invoke('get-last-used-in-conversation', conversationId),
 
+    kg_getGraphData: (args) => ipcRenderer.invoke('kg:getGraphData', args),
+    kg_listGenerations: () => ipcRenderer.invoke('kg:listGenerations'),
+    kg_triggerProcess: (args) => ipcRenderer.invoke('kg:triggerProcess', args),
+    kg_rollback: (args) => ipcRenderer.invoke('kg:rollback', args),
+
+    resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
+
+        createTerminalSession: (args) => ipcRenderer.invoke('createTerminalSession', args),
+    writeToTerminal: (args) => ipcRenderer.invoke('writeToTerminal', args),
+    closeTerminalSession: (id) => ipcRenderer.invoke('closeTerminalSession', id),
+    onTerminalData: (callback) => {
+        const handler = (_, data) => callback(_, data);
+        ipcRenderer.on('terminal-data', handler);
+        return () => ipcRenderer.removeListener('terminal-data', handler);
+    },
+onTerminalClosed: (callback) => {
+    const handler = (_, data) => callback(_, data);
+    ipcRenderer.on('terminal-closed', handler);
+    return () => ipcRenderer.removeListener('terminal-closed', handler);
+},
+    executeShellCommand: (args) => ipcRenderer.invoke('executeShellCommand', args),
 
     // Command operations
     executeCommand: (data) => ipcRenderer.invoke('executeCommand', {
@@ -134,10 +161,6 @@ contextBridge.exposeInMainWorld('api', {
         return () => ipcRenderer.removeListener('screenshot-captured', wrappedCallback);
     },
 
-    // Dashboard / Stats
-    getUsageStats: () => ipcRenderer.invoke('get-usage-stats'),
-
-    // Utility
     showPromptDialog: (options) => ipcRenderer.invoke('showPromptDialog', options),
     checkServerConnection: () => ipcRenderer.invoke('checkServerConnection'),
     openExternal: (url) => ipcRenderer.invoke('openExternal', url),
