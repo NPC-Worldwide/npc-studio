@@ -13,6 +13,12 @@ redis
 pyyaml
 pillow
 npcpy
+anthropic
+google-genai
+ollama
+openai
+docstring_parser
+litellm
 EOF
 
 # Use PyInstaller with optimization flags to reduce size
