@@ -13,6 +13,8 @@ import MarkdownRenderer from './MarkdownRenderer';
 import DataDash from './DataDash';
 import CodeEditor from './CodeEditor';
 import TerminalView from './Terminal';
+import PdfViewer from './PdfViewer';
+
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const LAST_ACTIVE_PATH_KEY = 'npcStudioLastPath'; // <-- ADD THIS LINE
@@ -85,7 +87,7 @@ const LayoutNode = memo(({ node, path, component }) => {
     }
 
     if (node.type === 'content') {
-        const { activeContentPaneId, setActiveContentPaneId, draggedItem, setDraggedItem, dropTarget, setDropTarget, contentDataRef, updateContentPane, performSplit, renderChatView, renderFileEditor, renderTerminalView } = component;
+        const { activeContentPaneId, setActiveContentPaneId, draggedItem, setDraggedItem, dropTarget, setDropTarget, contentDataRef, updateContentPane, performSplit, renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer } = component;
         const isActive = node.id === activeContentPaneId;
         const isTargeted = dropTarget?.nodePath.join('') === path.join('');
 
@@ -95,10 +97,18 @@ const LayoutNode = memo(({ node, path, component }) => {
             if (!draggedItem) return;
             
             let contentType;
-            switch (draggedItem.type) {
-                case 'conversation': contentType = 'chat'; break;
-                case 'file': contentType = 'editor'; break;
-                default: return;
+            if (draggedItem.type === 'conversation') {
+                contentType = 'chat';
+            } else if (draggedItem.type === 'file') {
+                // --- THIS IS THE KEY CHANGE for drag-and-drop ---
+                const extension = draggedItem.id.split('.').pop()?.toLowerCase();
+                if (extension === 'pdf') {
+                    contentType = 'pdf';
+                } else {
+                    contentType = 'editor';
+                }
+            } else {
+                return;
             }
 
             if (side === 'center') {
@@ -117,12 +127,15 @@ const LayoutNode = memo(({ node, path, component }) => {
                     return renderChatView({ nodeId: node.id });
                 case 'editor':
                     return renderFileEditor({ nodeId: node.id });
-                case 'terminal': // <-- ADD THIS CASE
+                case 'terminal':
                     return renderTerminalView({ nodeId: node.id });
+                case 'pdf': // <-- ADD THIS CASE
+                    return renderPdfViewer({ nodeId: node.id });
                 default:
                     return <div className="p-4 theme-text-muted">Empty pane.</div>;
             }
         };
+
 
         return (
             <div
@@ -159,6 +172,8 @@ const getFileIcon = (filename) => {
         case 'css': return <Code2 {...iconProps} className={`${iconProps.className} text-blue-300`} />;
         case 'txt': case 'yaml': case 'yml': case 'npc': case 'jinx':
              return <File {...iconProps} className={`${iconProps.className} text-gray-400`} />;
+        case 'pdf': return <FileText {...iconProps} className={`${iconProps.className} text-purple-400`} />; // <-- ADD THIS LINE
+
         default: return <File {...iconProps} className={`${iconProps.className} text-gray-400`} />;
     }
 };
@@ -1121,6 +1136,9 @@ const loadAvailableNPCs = async () => {
 
 
     const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+
+    console.log(`[updateContentPane] Updating pane "${paneId}" to type "${newContentType}" with ID "${newContentId}"`);
+    
     if (!contentDataRef.current[paneId]) {
         contentDataRef.current[paneId] = {};
     }
@@ -1128,6 +1146,7 @@ const loadAvailableNPCs = async () => {
     
     paneData.contentType = newContentType;
     paneData.contentId = newContentId;
+
 
     if (newContentType === 'editor') {
         try {
@@ -1169,6 +1188,14 @@ const loadAvailableNPCs = async () => {
         paneData.chatMessages = null;
         paneData.fileContent = null;
     }
+       else if (newContentType === 'pdf') {
+        // LOG E: Confirm we hit the PDF logic block.
+        console.log(`[updateContentPane] Setting up pane "${paneId}" for PDF viewer.`);
+        paneData.chatMessages = null;
+        paneData.fileContent = null;
+        }
+
+
 }, []);
 
     const renderMessageContextMenu = () => (
@@ -1377,30 +1404,68 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     }
     return paneIdToUpdate;
 };
+    const renderPdfViewer = ({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData) return null;
 
-// REPLACE your entire handleFileClick function with this:
-const handleFileClick = async (filePath) => {
-    setCurrentFile(filePath);
-    setActiveConversationId(null);
+        const { contentId: filePath } = paneData;
+        const fileName = filePath?.split('/').pop() || 'Untitled.pdf';
 
-    // If no layout exists, create the first pane.
-    if (!rootLayoutNode) {
-        const newPaneId = generateId();
-        const newLayout = { id: newPaneId, type: 'content' };
-        
-        contentDataRef.current[newPaneId] = {};
-        await updateContentPane(newPaneId, 'editor', filePath);
-        
-        setRootLayoutNode(newLayout);
-        setActiveContentPaneId(newPaneId);
-    } 
-    // If a layout exists, update the data and trigger a re-render.
-    else {
-        await updateContentPane(activeContentPaneId, 'editor', filePath);
-        setRootLayoutNode(prev => ({...prev}));
-    }
-};
+        return (
+            <div className="flex-1 flex flex-col theme-bg-secondary relative">
+                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+                    <div className="flex items-center gap-2 truncate">
+                        {getFileIcon(fileName)}
+                        <span className="truncate" title={filePath}>{fileName}</span>
+                    </div>
+                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full">
+                        <X size={14} />
+                    </button>
+                </div>
+                <div className="flex-1 overflow-hidden bg-gray-500"> {/* Added a bg color for loading */}
+                    <PdfViewer filePath={filePath} />
+                </div>
+            </div>
+        );
+    };
+
+
+    const handleFileClick = async (filePath) => {
+        setCurrentFile(filePath);
+        setActiveConversationId(null);
     
+        const extension = filePath.split('.').pop()?.toLowerCase();
+        const contentType = extension === 'pdf' ? 'pdf' : 'editor'; // <-- KEY CHANGE
+    
+        // If no layout exists, create the first pane.
+        if (!rootLayoutNode) {
+            const newPaneId = generateId();
+            const newLayout = { id: newPaneId, type: 'content' };
+            
+            contentDataRef.current[newPaneId] = {};
+            await updateContentPane(newPaneId, contentType, filePath); // Use determined contentType
+            
+            setRootLayoutNode(newLayout);
+            setActiveContentPaneId(newPaneId);
+        } 
+        // If a layout exists, update the data and trigger a re-render.
+    else {
+        const targetPaneId = activeContentPaneId || Object.keys(contentDataRef.current)[0];
+        if (targetPaneId) {
+            // LOG C: Confirm we are about to update the pane.
+            console.log(`[handleFileClick] Updating pane "${targetPaneId}" with new content.`);
+            await updateContentPane(targetPaneId, contentType, filePath);
+            setRootLayoutNode(prev => ({...prev}));
+        }
+    }
+
+
+    };
+
+
+
+
+
     const createNewTerminal = async () => {
         let targetPaneId = activeContentPaneId;
         const newTerminalId = `term_${generateId()}`;
@@ -1437,13 +1502,15 @@ const handleFileClick = async (filePath) => {
                         <X size={14} />
                     </button>
                 </div>
-                <div className="flex-1 overflow-hidden">
-                    <TerminalView
-                        terminalId={terminalId}
-                        currentPath={currentPath}
-                        isActive={activeContentPaneId === nodeId}
-                    />
-                </div>
+            <div className="flex-1 overflow-hidden min-h-0"> {/* Add min-h-0 */}
+                <TerminalView
+                    terminalId={terminalId}
+                    currentPath={currentPath}
+                    isActive={activeContentPaneId === nodeId}
+                />
+            </div>
+
+
             </div>
         );
     };
@@ -3300,14 +3367,14 @@ const renderFileEditor = ({ nodeId }) => {
                     <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
                 </div>
             </div>
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 overflow-hidden min-h-0"> {/* Add min-h-0 */}
                 <CodeEditor
                     value={fileContent || ''}
                     onChange={onContentChange}
                     onSave={onSave}
                     filePath={filePath}
-                    onSelect={handleTextSelection}      // <-- ADD THIS
-                    onContextMenu={onEditorContextMenu} // <-- ADD THIS
+                    onSelect={handleTextSelection}
+                    onContextMenu={onEditorContextMenu}
                 />
             </div>
 
@@ -3554,7 +3621,7 @@ const renderChatView = ({ nodeId }) => {
             activeContentPaneId, setActiveContentPaneId,
             draggedItem, setDraggedItem, dropTarget, setDropTarget,
             contentDataRef, updateContentPane, performSplit,
-            renderChatView, renderFileEditor, renderTerminalView
+            renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer
         };
 
         if (!rootLayoutNode) {

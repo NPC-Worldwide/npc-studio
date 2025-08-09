@@ -1,8 +1,7 @@
 const { contextBridge, ipcRenderer, shell } = require('electron');
 
-// Expose all API functions through contextBridge
 contextBridge.exposeInMainWorld('api', {
-    // Directory operations
+
     getDefaultConfig: () => ipcRenderer.invoke('getDefaultConfig'),
     readDirectoryStructure: (dirPath) => ipcRenderer.invoke('readDirectoryStructure', dirPath),
     goUpDirectory: (currentPath) => ipcRenderer.invoke('goUpDirectory', currentPath),
@@ -47,7 +46,7 @@ contextBridge.exposeInMainWorld('api', {
     kg_triggerProcess: (args) => ipcRenderer.invoke('kg:triggerProcess', args),
     kg_rollback: (args) => ipcRenderer.invoke('kg:rollback', args),
 
-resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
+    resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
 
         createTerminalSession: (args) => ipcRenderer.invoke('createTerminalSession', args),
     writeToTerminal: (args) => ipcRenderer.invoke('writeToTerminal', args),
@@ -162,8 +161,6 @@ onTerminalClosed: (callback) => {
         return () => ipcRenderer.removeListener('screenshot-captured', wrappedCallback);
     },
 
-
-    // Utility
     showPromptDialog: (options) => ipcRenderer.invoke('showPromptDialog', options),
     checkServerConnection: () => ipcRenderer.invoke('checkServerConnection'),
     openExternal: (url) => ipcRenderer.invoke('openExternal', url),

@@ -438,13 +438,14 @@ if (!gotTheLock) {
     mainWindow.webContents.send('show-macro-input');
   }
 
-  function createWindow() {
+
+function createWindow() {
 
     const iconPath = path.resolve(__dirname, '..', 'build', 'icons', '512x512.png');
     console.log(`[ICON DEBUG] Using direct path: ${iconPath}`);
   
     console.log('Creating window');
-    mainWindow = new BrowserWindow({ // Remove the 'const' keyword here
+    mainWindow = new BrowserWindow({
       width: 1200,
       height: 800,
       icon: iconPath,
@@ -454,7 +455,12 @@ if (!gotTheLock) {
         nodeIntegration: true,
         contextIsolation: true,
         webSecurity: false,
-        sandbox: true,
+        webviewTag: true,
+        
+        // --- THE DEFINITIVE FIX ---
+        plugins: true, // Allows the PDF plugin to be used.
+        nodeIntegrationInSubFrames: true, // Allows <webview> to initialize properly.
+
         preload: path.join(__dirname, 'preload.js')
       }
     });
@@ -470,60 +476,42 @@ if (!gotTheLock) {
   
     registerGlobalShortcut(mainWindow);
 
-
-
     mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
           'Content-Security-Policy': [
-            "default-src 'self' 'unsafe-inline' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "connect-src 'self' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 https://web.squarecdn.com https://*.squarecdn.com https://*.square.site https://license-verification-120419531021.us-central1.run.app;" +
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "font-src 'self' data: https://cdn.jsdelivr.net https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "img-src 'self' media: data: file: http: https: blob:; " +
-            "frame-src 'self' https://web.squarecdn.com https://*.squarecdn.com https://*.square.site;"+
+            "default-src 'self' 'unsafe-inline' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337; " +
+            "connect-src 'self' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337;" +
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net ; " +
+            "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+            "font-src 'self' data: https://cdn.jsdelivr.net; " +
+            "frame-src 'self' file: ;"+
             "img-src 'self' file: data: media: http: https: blob:; "
-
           ]
         }
       });
     });
     
-    // Check if we're in development mode
     const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
     
     if (isDev) {
-      // Load from Vite dev server
       mainWindow.loadURL('http://localhost:5173');
-      console.log('Loading from Vite dev server: http://localhost:5173');
     } else {
-      // Load from built files
       const htmlPath = path.join(app.getAppPath(), 'dist', 'index.html');
       mainWindow.loadFile(htmlPath);
-      console.log(`Loading from packaged app path: ${htmlPath}`);
     }
   
-    //mainWindow.webContents.openDevTools();
-
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
       console.error('Failed to load:', errorCode, errorDescription);
     });
-
-
-  }
-
+}
+  
 
 
   ipcMain.on('submit-macro', (event, command) => {
-    // Hide the window after macro submission
     mainWindow.hide();
-
-    // Here you would handle the command, e.g., send it to your npcsh process
-    // For example:
-    // executeNpcshCommand(command);
   });
 
 
@@ -1549,7 +1537,9 @@ ipcMain.handle('getConversations', async (_, path) => {
 
   ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
     const structure = {};
-    const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', '.json', '.txt', '.yaml', '.yml', '.html', '.css', '.npc', '.jinx'];
+    const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', 
+                               '.json', '.txt', '.yaml', '.yml', '.html', '.css', 
+                               '.npc', '.jinx', '.pdf', '.csv', '.sh',];
     //console.log(`[Main Process] readDirectoryStructure called for: ${dirPath}`); // LOG 1
 
     try {
