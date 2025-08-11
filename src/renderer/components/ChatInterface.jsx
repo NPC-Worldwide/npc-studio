@@ -3320,7 +3320,6 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
         setRootLayoutNode(prev => ({ ...prev }));
     }
 };
-
 const renderFileEditor = ({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
     if (!paneData) return null;
@@ -3356,7 +3355,7 @@ const renderFileEditor = ({ nodeId }) => {
     };
 
     return (
-        <div className="flex-1 flex flex-col theme-bg-secondary relative">
+        <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
             <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
                 <div className="flex items-center gap-2 truncate">
                     {getFileIcon(fileName)}
@@ -3367,7 +3366,8 @@ const renderFileEditor = ({ nodeId }) => {
                     <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
                 </div>
             </div>
-            <div className="flex-1 overflow-hidden min-h-0"> {/* Add min-h-0 */}
+            {/* THIS IS THE CORRECTED LINE: */}
+            <div className="flex-1 overflow-scroll min-h-0">
                 <CodeEditor
                     value={fileContent || ''}
                     onChange={onContentChange}
@@ -3407,7 +3407,6 @@ const renderFileEditor = ({ nodeId }) => {
         </div>
     );
 };
-
 
 const renderChatView = ({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
