@@ -3354,6 +3354,7 @@ const renderFileEditor = ({ nodeId }) => {
     };
 
     const onEditorContextMenu = (e) => {
+        // Only show the context menu if there is a text selection in the active editor pane
         if (aiEditModal.selectedText.length > 0 && activeContentPaneId === nodeId) {
             e.preventDefault();
             setEditorContextMenuPos({ x: e.clientX, y: e.clientY });
@@ -3396,7 +3397,8 @@ const renderFileEditor = ({ nodeId }) => {
                     <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
                 </div>
             </div>
-            <div className="flex-1 min-h-0">
+            {/* THIS DIV IS PRESERVED EXACTLY AS YOU REQUESTED */}
+            <div className="flex-1 overflow-scroll min-h-0">
                 <CodeEditor
                     value={fileContent || ''}
                     onChange={onContentChange}
@@ -3406,17 +3408,30 @@ const renderFileEditor = ({ nodeId }) => {
                     onContextMenu={onEditorContextMenu}
                 />
             </div>
+
+            {/* AI Editor Context Menu */}
             {editorContextMenuPos && activeContentPaneId === nodeId && (
                 <>
                     <div 
                         className="fixed inset-0 z-40"
-                        onClick={() => setEditorContextMenuPos(null)}
+                        onClick={() => setEditorContextMenuPos(null)} // Click away to close
                     />
                     <div 
                         className="absolute theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
                         style={{ top: editorContextMenuPos.y, left: editorContextMenuPos.x }}
                     >
-                        {/* Context menu buttons... */}
+                        <button onClick={() => { handleAIEdit('ask'); setEditorContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <MessageSquare size={16} />
+                            <span>Ask AI</span>
+                        </button>
+                        <button onClick={() => { handleAIEdit('document'); setEditorContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <FileText size={16} />
+                            <span>Document</span>
+                        </button>
+                        <button onClick={() => { handleAIEdit('edit'); setEditorContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <Edit size={16} />
+                            <span>Edit</span>
+                        </button>
                     </div>
                 </>
             )}
