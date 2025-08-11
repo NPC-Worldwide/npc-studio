@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut,ipcMain, protocol, shell} = require('electron');
+const { app, BrowserWindow, globalShortcut,ipcMain, protocol, shell, BrowserView} = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -16,6 +16,8 @@ const crypto = require('crypto');
 const logFilePath = path.join(os.homedir(), '.npc_studio', 'app.log');
 const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 let mainWindow = null;
+let pdfView = null; 
+
 app.setAppUserModelId('com.npc_studio.chat');
 app.name = 'npc-studio';
 app.setName('npc-studio');
@@ -455,16 +457,23 @@ function createWindow() {
         nodeIntegration: true,
         contextIsolation: true,
         webSecurity: false,
-        webviewTag: true,
-        
-        // --- THE DEFINITIVE FIX ---
-        plugins: true, // Allows the PDF plugin to be used.
-        nodeIntegrationInSubFrames: true, // Allows <webview> to initialize properly.
-
+        webviewTag: true, 
+        plugins: true, 
+        enableRemoteModule: true,
+        nodeIntegrationInSubFrames: true,
+        allowRunningInsecureContent: true,
+        experimentalFeatures: true,
         preload: path.join(__dirname, 'preload.js')
       }
+          });
+    mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+      callback(true);
     });
     
+    mainWindow.webContents.session.protocol.registerFileProtocol('file', (request, callback) => {
+      const pathname = decodeURI(request.url.replace('file:///', ''));
+      callback(pathname);
+    });    
     setTimeout(() => {
       const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
       if (fs.existsSync(iconPath)) {
@@ -480,17 +489,19 @@ function createWindow() {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-          'Content-Security-Policy': [
-            "default-src 'self' 'unsafe-inline' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337; " +
-            "connect-src 'self' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337;" +
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net ; " +
-            "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
-            "font-src 'self' data: https://cdn.jsdelivr.net; " +
-            "frame-src 'self' file: ;"+
-            "img-src 'self' file: data: media: http: https: blob:; "
-          ]
-        }
+  'Content-Security-Policy': [
+      "default-src 'self' 'unsafe-inline' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 file: data: blob:; " +
+      "connect-src 'self' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 blob:; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; " +
+      "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net ; " +
+      "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+      "font-src 'self' data: https://cdn.jsdelivr.net; " +
+      "frame-src 'self' file: data: blob: media: chrome-extension: ;"+
+      "img-src 'self' file: data: media: http: https: blob:; " +
+      "object-src 'self' file: data: blob: media: chrome-extension: 'unsafe-inline'; " +
+      "worker-src 'self' blob: data:; "
+  ]
+        },
       });
     });
     
@@ -929,7 +940,6 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
 
 
 
-
 ipcMain.handle('executeCommandStream', async (event, data) => {
   // Your React code is already generating a streamId, which is perfect.
   const currentStreamId = data.streamId || generateId(); 
@@ -1036,10 +1046,18 @@ ipcMain.handle('resizeTerminal', (event, { id, cols, rows }) => {
   }
 });
 
+ipcMain.handle('read-file-buffer', async (event, filePath) => {
+  try {
+    console.log(`[Main Process] Reading file buffer for: ${filePath}`);
+    const buffer = await fsPromises.readFile(filePath);
+    return buffer;
+  } catch (error) {
+    throw error;
+  }
+});
+
+
 ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
-  // --- THIS IS THE KEY ---
-  // If there's a pending kill timer for this ID, cancel it.
-  // This means the component has re-rendered quickly, and we should not kill the session.
   if (ptyKillTimers.has(id)) {
     console.log(`[PTY] INFO: Re-creation request for ${id} received. Cancelling pending kill timer.`);
     clearTimeout(ptyKillTimers.get(id));
@@ -1763,8 +1781,52 @@ ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
   });
 });
 
-// Add file rename functionality
-  ipcMain.handle('renameFile', async (_, oldPath, newPath) => {
+ipcMain.handle('create-directory', async (_, directoryPath) => {
+  try {
+    // fs.promises.mkdir will create the directory. It will throw an error if it already exists.
+    await fsPromises.mkdir(directoryPath);
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('Error creating directory:', err);
+    // Return the specific error message to the frontend
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('delete-directory', async (_, directoryPath) => {
+  try {
+    await fsPromises.rm(directoryPath, { recursive: true, force: true });
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('Error deleting directory:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Add this handler to get all file paths inside a folder for AI overview
+ipcMain.handle('get-directory-contents-recursive', async (_, directoryPath) => {
+    const allFiles = [];
+    async function readDir(currentDir) {
+        const entries = await fsPromises.readdir(currentDir, { withFileTypes: true });
+        for (const entry of entries) {
+            const fullPath = path.join(currentDir, entry.name);
+            if (entry.isDirectory()) {
+                await readDir(fullPath); // Recurse into subdirectories
+            } else if (entry.isFile()) {
+                allFiles.push(fullPath);
+            }
+        }
+    }
+    try {
+        await readDir(directoryPath);
+        return { files: allFiles, error: null };
+    } catch (err) {
+        console.error('Error getting directory contents:', err);
+        return { files: [], error: err.message };
+    }
+});
+
+ipcMain.handle('renameFile', async (_, oldPath, newPath) => {
     try {
       await fsPromises.rename(oldPath, newPath);
       return { success: true, error: null };
@@ -1773,3 +1835,5 @@ ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
       return { success: false, error: err.message };
     }
   });
+  let currentPdfPath = null; // <<< THIS IS THE FIX. DECLARE THE VARIABLE HERE.
+

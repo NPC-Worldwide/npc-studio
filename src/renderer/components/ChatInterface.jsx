@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
 import {
     Folder, File, ChevronRight, Settings, Edit, Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare, ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, Send, BarChart3
 } from 'lucide-react';
@@ -386,7 +386,12 @@ const ChatInterface = () => {
     const [analysisContext, setAnalysisContext] = useState(null); 
     const [renamingPaneId, setRenamingPaneId] = useState(null);
     const [editedFileName, setEditedFileName] = useState('');
-    // Add this state to track the last focused chat, even when an editor is active.
+    const [sidebarItemContextMenuPos, setSidebarItemContextMenuPos] = useState(null); // ADD THIS
+
+    // Add state for renaming items directly in the sidebar
+    const [renamingPath, setRenamingPath] = useState(null);
+    const [editedSidebarItemName, setEditedSidebarItemName] = useState('');
+    
     const [lastActiveChatPaneId, setLastActiveChatPaneId] = useState(null);    
     const [aiEditModal, setAiEditModal] = useState({
         isOpen: false,
@@ -449,7 +454,11 @@ const ChatInterface = () => {
     // A ref to hold bulky data for each pane, preventing state updates on every keypress
     const contentDataRef = useRef({});
     const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
-    
+    const rootLayoutNodeRef = useRef(rootLayoutNode);
+    useEffect(() => {
+        rootLayoutNodeRef.current = rootLayoutNode;
+    }, [rootLayoutNode]);
+
     const [resendModal, setResendModal] = useState({
         isOpen: false,
         message: null,
@@ -490,7 +499,7 @@ const ChatInterface = () => {
         return currentNode;
     }, []);
 
-        const findNodePath = (node, id, currentPath = []) => {
+    const findNodePath = useCallback((node, id, currentPath = []) => {
         if (!node) return null;
         if (node.id === id) return currentPath;
         if (node.type === 'split') {
@@ -500,7 +509,8 @@ const ChatInterface = () => {
             }
         }
         return null;
-    };
+    }, []); // No dependencies, so it's created only once.
+
     const handleEditorCopy = () => {
         const selectedText = aiEditModal.selectedText;
         if (selectedText) {
@@ -1117,6 +1127,123 @@ const handleFileContextMenu = (e, filePath) => {
     }
     setFileContextMenuPos({ x: e.clientX, y: e.clientY, filePath });
 };
+
+
+const handleSidebarItemContextMenu = (e, path, type) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (type === 'file' && !selectedFiles.has(path)) {
+        setSelectedFiles(new Set([path]));
+    }
+    setSidebarItemContextMenuPos({ x: e.clientX, y: e.clientY, path, type });
+};
+
+
+const handleSidebarItemDelete = async () => {
+    if (!sidebarItemContextMenuPos) return;
+    const { path, type } = sidebarItemContextMenuPos;
+    
+    // Simple confirmation dialog
+    const confirmation = window.confirm(`Are you sure you want to delete this ${type}? This action cannot be undone.`);
+    if (!confirmation) {
+        setSidebarItemContextMenuPos(null);
+        return;
+    }
+
+    try {
+        let response;
+        if (type === 'file') {
+            response = await window.api.deleteFile(path);
+        } else if (type === 'directory') {
+            response = await window.api.deleteDirectory(path);
+        }
+
+        if (response?.error) throw new Error(response.error);
+        
+        await loadDirectoryStructure(currentPath); // Refresh sidebar
+
+    } catch (err) {
+        setError(`Failed to delete: ${err.message}`);
+    } finally {
+        setSidebarItemContextMenuPos(null);
+    }
+};
+
+const handleSidebarRenameStart = () => {
+    if (!sidebarItemContextMenuPos) return;
+    const { path } = sidebarItemContextMenuPos;
+    const currentName = path.split('/').pop();
+    
+    setRenamingPath(path);
+    setEditedSidebarItemName(currentName);
+    setSidebarItemContextMenuPos(null);
+};
+
+const handleSidebarRenameSubmit = async () => {
+    if (!renamingPath || !editedSidebarItemName.trim()) {
+        setRenamingPath(null);
+        return;
+    }
+    
+    const dir = renamingPath.substring(0, renamingPath.lastIndexOf('/'));
+    const newPath = `${dir}/${editedSidebarItemName}`;
+
+    if (newPath === renamingPath) { // No change
+        setRenamingPath(null);
+        return;
+    }
+
+    try {
+        const response = await window.api.renameFile(renamingPath, newPath); // renameFile works on directories too
+        if (response?.error) throw new Error(response.error);
+
+        await loadDirectoryStructure(currentPath);
+
+    } catch (err) {
+        setError(`Failed to rename: ${err.message}`);
+    } finally {
+        setRenamingPath(null);
+    }
+};
+
+const handleFolderOverview = async () => {
+    if (!sidebarItemContextMenuPos || sidebarItemContextMenuPos.type !== 'directory') return;
+    const { path } = sidebarItemContextMenuPos;
+    setSidebarItemContextMenuPos(null);
+
+    try {
+        // 1. Get all file paths from the backend
+        const response = await window.api.getDirectoryContentsRecursive(path);
+        if (response.error) throw new Error(response.error);
+        if (response.files.length === 0) {
+            setError("This folder contains no files to analyze.");
+            return;
+        }
+
+        // 2. Reuse logic from handleApplyPromptToFiles to build the prompt and send
+        const filesContentPromises = response.files.map(async (filePath) => {
+            const fileResponse = await window.api.readFileContent(filePath);
+            const fileName = filePath.split('/').pop();
+            return fileResponse.error 
+                ? `File (${fileName}): [Error reading content]`
+                : `File (${fileName}):\n---\n${fileResponse.content}\n---`;
+        });
+        const filesContent = await Promise.all(filesContentPromises);
+        
+        const fullPrompt = `Provide a high-level overview of the following ${response.files.length} file(s) from the '${path.split('/').pop()}' folder:\n\n` + filesContent.join('\n\n');
+
+        const { conversation, paneId } = await createNewConversation();
+        if (!conversation) throw new Error("Failed to create conversation for overview.");
+
+        // This directly sends the message to the newly created conversation pane
+        handleInputSubmit(new Event('submit'), fullPrompt, paneId, conversation.id);
+
+    } catch (err) {
+        setError(`Failed to get folder overview: ${err.message}`);
+    }
+};
+
+
 const loadAvailableNPCs = async () => {
     if (!currentPath) return []; // Return empty array if no path
     setNpcsLoading(true);
@@ -1475,30 +1602,6 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     }
     return paneIdToUpdate;
 };
-    const renderPdfViewer = ({ nodeId }) => {
-        const paneData = contentDataRef.current[nodeId];
-        if (!paneData) return null;
-
-        const { contentId: filePath } = paneData;
-        const fileName = filePath?.split('/').pop() || 'Untitled.pdf';
-
-        return (
-            <div className="flex-1 flex flex-col theme-bg-secondary relative">
-                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
-                    <div className="flex items-center gap-2 truncate">
-                        {getFileIcon(fileName)}
-                        <span className="truncate" title={filePath}>{fileName}</span>
-                    </div>
-                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full">
-                        <X size={14} />
-                    </button>
-                </div>
-                <div className="flex-1 overflow-hidden bg-gray-500"> {/* Added a bg color for loading */}
-                    <PdfViewer filePath={filePath} />
-                </div>
-            </div>
-        );
-    };
 
 
     const handleFileClick = async (filePath) => {
@@ -1534,8 +1637,34 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     };
 
 
-
-
+    const handleCreateNewFolder = () => {
+        setPromptModal({
+            isOpen: true,
+            title: 'Create New Folder',
+            message: 'Enter the name for the new folder.',
+            defaultValue: 'new-folder',
+            onConfirm: async (folderName) => {
+                if (!folderName || !folderName.trim()) return;
+    
+                const newFolderPath = normalizePath(`${currentPath}/${folderName}`);
+                
+                try {
+                    const response = await window.api.createDirectory(newFolderPath);
+                    
+                    if (response?.error) {
+                        throw new Error(response.error);
+                    }
+    
+                    // Refresh the sidebar to show the new folder
+                    await loadDirectoryStructure(currentPath);
+    
+                } catch (err) {
+                    console.error('Error creating new folder:', err);
+                    setError(`Failed to create folder: ${err.message}`);
+                }
+            },
+        });
+    };
 
     const createNewTerminal = async () => {
         let targetPaneId = activeContentPaneId;
@@ -1556,12 +1685,30 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         setRootLayoutNode(p => ({ ...p }));
     };
 
-    const renderTerminalView = ({ nodeId }) => {
+// In ChatInterface.jsx
+const renderPdfViewer = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData?.contentId) return null;
+
+    return (
+        <div className="flex-1 flex flex-col theme-bg-secondary relative">
+            <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0">
+                <span>PDF: {paneData.contentId.split('/').pop()}</span>
+            </div>
+            {/* This container gets sized by flexbox. overflow-auto is correct. */}
+            <div className="flex-1 overflow-auto min-h-0">
+                <PdfViewer filePath={paneData.contentId} />
+            </div>
+        </div>
+    );
+}, []);
+            
+    const renderTerminalView = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
         if (!paneData) return null;
-
+    
         const { contentId: terminalId } = paneData;
-
+    
         return (
             <div className="flex-1 flex flex-col theme-bg-secondary relative">
                 <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
@@ -1573,18 +1720,198 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                         <X size={14} />
                     </button>
                 </div>
-            <div className="flex-1 overflow-hidden min-h-0"> {/* Add min-h-0 */}
-                <TerminalView
-                    terminalId={terminalId}
-                    currentPath={currentPath}
-                    isActive={activeContentPaneId === nodeId}
-                />
-            </div>
-
-
+                <div className="flex-1 overflow-hidden min-h-0">
+                    <TerminalView
+                        terminalId={terminalId}
+                        currentPath={currentPath}
+                        isActive={activeContentPaneId === nodeId}
+                    />
+                </div>
             </div>
         );
-    };
+    }, [rootLayoutNode, currentPath, activeContentPaneId]);
+    
+    const renderFileEditor = useCallback(({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData) return null;
+    
+        const { contentId: filePath, fileContent, fileChanged } = paneData;
+        const fileName = filePath?.split('/').pop() || 'Untitled';
+        const isRenaming = renamingPaneId === nodeId;
+    
+        const onContentChange = (value) => {
+            if (contentDataRef.current[nodeId]) {
+                contentDataRef.current[nodeId].fileContent = value;
+                if (!contentDataRef.current[nodeId].fileChanged) {
+                    contentDataRef.current[nodeId].fileChanged = true;
+                    setRootLayoutNode(p => ({ ...p }));
+                }
+            }
+        };
+    
+        const onSave = async () => {
+            const currentPaneData = contentDataRef.current[nodeId];
+            if (currentPaneData?.contentId && currentPaneData.fileChanged) {
+                await window.api.writeFileContent(currentPaneData.contentId, currentPaneData.fileContent);
+                currentPaneData.fileChanged = false;
+                setRootLayoutNode(p => ({ ...p }));
+            }
+        };
+        
+        const onEditorContextMenu = (e) => {
+            if (activeContentPaneId === nodeId) {
+                e.preventDefault();
+                setEditorContextMenuPos({ x: e.clientX, y: e.clientY });
+            }
+        };
+    
+        return (
+            <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
+                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+                    <div className="flex items-center gap-2 truncate">
+                        {getFileIcon(fileName)}
+                        {isRenaming ? (
+                            <input
+                                type="text"
+                                value={editedFileName}
+                                onChange={(e) => setEditedFileName(e.target.value)}
+                                onBlur={() => handleRenameFile(nodeId, filePath)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleRenameFile(nodeId, filePath);
+                                    if (e.key === 'Escape') setRenamingPaneId(null);
+                                }}
+                                className="theme-input text-xs rounded px-2 py-1 border focus:outline-none"
+                                autoFocus
+                            />
+                        ) : (
+                            <span
+                                className="truncate cursor-pointer"
+                                title={filePath}
+                                onDoubleClick={() => {
+                                    setRenamingPaneId(nodeId);
+                                    setEditedFileName(fileName);
+                                }}
+                            >
+                                {fileName}{fileChanged ? '*' : ''}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
+                        <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
+                    </div>
+                </div>
+                <div className="flex-1 overflow-scroll min-h-0">
+                    <CodeEditor
+                        value={fileContent || ''}
+                        onChange={onContentChange}
+                        onSave={onSave}
+                        filePath={filePath}
+                        onSelect={handleTextSelection}
+                        onContextMenu={onEditorContextMenu}
+                    />
+                </div>
+    
+                {editorContextMenuPos && activeContentPaneId === nodeId && (
+                    <>
+                        <div 
+                            className="fixed inset-0 z-40"
+                            onClick={() => setEditorContextMenuPos(null)}
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                setEditorContextMenuPos(null);
+                            }}
+                        />
+                        <div 
+                            className="absolute theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                            style={{ top: editorContextMenuPos.y, left: editorContextMenuPos.x }}
+                        >
+                            <button onClick={handleEditorCopy} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">Copy</button>
+                            <button onClick={handleEditorPaste} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">Paste</button>
+                            <div className="border-t theme-border my-1"></div>
+                            <button onClick={handleAddToChat} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">Add to Chat</button>
+                            <div className="border-t theme-border my-1"></div>
+                            <button onClick={() => { handleAIEdit('ask'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50"><MessageSquare size={16} /><span>Ask AI</span></button>
+                            <button onClick={() => { handleAIEdit('document'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50"><FileText size={16} /><span>Document</span></button>
+                            <button onClick={() => { handleAIEdit('edit'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50"><Edit size={16} /><span>Edit</span></button>
+                        </div>
+                    </>
+                )}
+            </div>
+        );
+    }, [rootLayoutNode, activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName]);
+    
+    const renderChatView = useCallback(({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
+    
+        const { contentId: conversationId } = paneData;
+        const scrollRef = useRef(null);
+    
+        useEffect(() => {
+            if (scrollRef.current) {
+                scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            }
+        }, [paneData?.chatMessages?.messages]);
+    
+        const loadPreviousMessages = () => {
+            const currentPane = contentDataRef.current[nodeId];
+            if (currentPane && currentPane.chatMessages) {
+                currentPane.chatMessages.displayedMessageCount += 20;
+                currentPane.chatMessages.messages = currentPane.chatMessages.allMessages.slice(-currentPane.chatMessages.displayedMessageCount);
+                setRootLayoutNode(p => ({ ...p }));
+            }
+        };
+    
+        const messagesToDisplay = paneData.chatMessages?.messages || [];
+        const totalMessages = paneData.chatMessages?.allMessages?.length || 0;
+        const stats = paneData.chatStats || {};
+        const path = findNodePath(rootLayoutNode, nodeId);
+    
+        return (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary">
+                    <div className="flex justify-between items-center">
+                        <span className="truncate min-w-0 font-semibold" title={conversationId}>Conversation: {conversationId?.slice(-8) || 'None'}</span>
+                        <div className="flex items-center gap-2">
+                            <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`} title={messageSelectionMode ? 'Exit selection mode' : 'Enter selection mode'}>
+                                <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
+                            </button>
+                            <button onClick={() => closeContentPane(nodeId, path)} className="p-1 theme-hover rounded-full flex-shrink-0"><X size={14} /></button>
+                        </div>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-gray-400">
+                        <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
+                        <span><Terminal size={12} className="inline mr-1"/>~{stats.tokenCount || 0} Tokens</span>
+                        <span><Code2 size={12} className="inline mr-1"/>{stats.models?.size || 0} Models</span>
+                        <span><Users size={12} className="inline mr-1"/>{stats.agents?.size || 0} Agents</span>
+                    </div>
+                </div>
+                <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
+                    {totalMessages > messagesToDisplay.length && (
+                        <div className="text-center">
+                            <button onClick={loadPreviousMessages} className="theme-button theme-hover px-3 py-1 text-xs rounded">Load More</button>
+                        </div>
+                    )}
+                    {messagesToDisplay.map(msg => 
+                        <ChatMessage 
+                            key={msg.id || msg.timestamp}
+                            message={msg}
+                            isSelected={selectedMessages.has(msg.id || msg.timestamp)} 
+                            messageSelectionMode={messageSelectionMode} 
+                            toggleMessageSelection={toggleMessageSelection} 
+                            handleMessageContextMenu={handleMessageContextMenu} 
+                            searchTerm={searchTerm} 
+                            activeSearchResult={activeSearchResult} 
+                            onResendMessage={handleResendMessage}
+                        />
+                    )}
+                </div>
+            </div>
+        );
+    }, [rootLayoutNode, messageSelectionMode, selectedMessages, searchTerm, activeSearchResult]);
+    
+    
 const createNewConversation = async () => {
     try {
         const conversation = await window.api.createConversation({ directory_path: currentPath });
@@ -2730,13 +3057,96 @@ const handleSummarizeAndPrompt = async () => {
         }
     });
 };
+// In ChatInterface.jsx
+
+const renderSidebarItemContextMenu = () => {
+    if (!sidebarItemContextMenuPos) return null;
+
+    const { x, y, path, type } = sidebarItemContextMenuPos;
+    const isFile = type === 'file';
+    const isFolder = type === 'directory';
+
+    return (
+        <>
+            <div
+                className="fixed inset-0 z-40"
+                onClick={() => setSidebarItemContextMenuPos(null)}
+                onContextMenu={(e) => { e.preventDefault(); setSidebarItemContextMenuPos(null); }}
+            />
+            <div
+                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
+                style={{ top: y, left: x }}
+            >
+                {/* --- COMMON ACTIONS --- */}
+                <button
+                    onClick={handleSidebarRenameStart}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                >
+                    <Edit size={16} />
+                    <span>Rename</span>
+                </button>
+                <button
+                    onClick={handleSidebarItemDelete}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400"
+                >
+                    <Trash size={16} />
+                    <span>Delete</span>
+                </button>
+                
+                {/* --- FILE-SPECIFIC AI ACTIONS --- */}
+                {isFile && (
+                    <>
+                        <div className="border-t theme-border my-1"></div>
+                        <button
+                            onClick={() => { handleApplyPromptToFiles('summarize'); setSidebarItemContextMenuPos(null); }}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <MessageSquare size={16} />
+                            <span>Summarize File(s) ({selectedFiles.size})</span>
+                        </button>
+                         <button
+                            onClick={() => { handleApplyPromptToFilesInInput('summarize'); setSidebarItemContextMenuPos(null); }}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <Edit size={16} />
+                            <span>Summarize in Input</span>
+                        </button>
+                        <div className="border-t theme-border my-1"></div>
+                         <button
+                            onClick={() => { handleApplyPromptToFiles('refactor'); setSidebarItemContextMenuPos(null); }}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <Code2 size={16} />
+                            <span>Refactor Code</span>
+                        </button>
+                    </>
+                )}
+                
+                {/* --- FOLDER-SPECIFIC AI ACTIONS --- */}
+                {isFolder && (
+                    <>
+                        <div className="border-t theme-border my-1"></div>
+                        <button
+                            onClick={handleFolderOverview}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <MessageSquare size={16} />
+                            <span>AI Overview</span>
+                        </button>
+                    </>
+                )}
+            </div>
+        </>
+    );
+};
 
     // --- Internal Render Functions ---
     const renderSidebar = () => (
         <div className="w-64 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
-            <div className="p-4 border-b theme-border flex items-center justify-between flex-shrink-0">
+            <div className="p-4 border-b theme-border flex items-center justify-between flex-shrink-0" 
+                  style={{ WebkitAppRegion: 'drag' }}>
                 <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
-                <div className="flex gap-2">
+                <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
                     <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
                     <button onClick={deleteSelectedConversations} className="p-2 theme-hover rounded-full transition-all" aria-label="Delete Selected Items"><Trash size={14} /></button>
                     
@@ -2751,6 +3161,14 @@ const handleSummarizeAndPrompt = async () => {
                         
                         {/* Dropdown menu - with hover persistence */}
                         <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
+                            <button 
+                                onClick={handleCreateNewFolder} 
+                                className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
+                            >
+                                <Folder size={12} />
+                                <span>New Folder</span>
+                            </button>
+
                             <button 
                                 onClick={createNewConversation} 
                                 className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
@@ -2851,6 +3269,8 @@ const handleSummarizeAndPrompt = async () => {
                 )}
                 {/* The context menu can live outside the conditional rendering if needed */}
                 {contextMenuPos && renderContextMenu()}
+
+                {sidebarItemContextMenuPos && renderSidebarItemContextMenu()}
                 {fileContextMenuPos && renderFileContextMenu()}
             </div>
             
@@ -2946,9 +3366,32 @@ const handleSummarizeAndPrompt = async () => {
             const isFolder = content?.type === 'directory'; 
             const isFile = content?.type === 'file'; 
             if (!fullPath) return;
+
+
+        const isRenamingThisItem = renamingPath === fullPath;
+
+        if (isRenamingThisItem) {
+            entries.push(
+                <div key={`renaming-${fullPath}`} className="px-2 py-1">
+                    <input
+                        type="text"
+                        value={editedSidebarItemName}
+                        onChange={(e) => setEditedSidebarItemName(e.target.value)}
+                        onBlur={handleSidebarRenameSubmit}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSidebarRenameSubmit();
+                            if (e.key === 'Escape') setRenamingPath(null);
+                        }}
+                        className="theme-input text-sm w-full rounded px-2 py-1 border"
+                        autoFocus
+                    />
+                </div>
+            );
+        } else {
+
             if (isFolder) { entries.push(
                 <div key={`folder-${fullPath}`}>
-                    <button onDoubleClick={() => setCurrentPath(fullPath)} className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded" title={`Double-click to open ${name}`}>
+                    <button onDoubleClick={() => setCurrentPath(fullPath)} onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')} className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded" title={`Double-click to open ${name}`}>
                         <Folder size={16} className="text-blue-400 flex-shrink-0" />
                         <span className="truncate">{name}</span>
                     </button>
@@ -3001,7 +3444,7 @@ const handleSummarizeAndPrompt = async () => {
                                     setLastClickedFileIndex(currentFileIndex);
                                 }
                             }}
-                            onContextMenu={(e) => handleFileContextMenu(e, fullPath)}
+                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'file')} // <-- MODIFIED
                             className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all duration-200
                                 ${isActiveFile ? 'conversation-selected border-l-2 border-blue-500' : 
                                   isSelected ? 'conversation-selected' : 'hover:bg-gray-800'}`} 
@@ -3012,6 +3455,8 @@ const handleSummarizeAndPrompt = async () => {
                         </button>
                     </div>
                 ); }
+            }
+
         });
         
         return (
@@ -3415,221 +3860,11 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
         setRootLayoutNode(prev => ({ ...prev }));
     }
 };
-const renderFileEditor = ({ nodeId }) => {
-    const paneData = contentDataRef.current[nodeId];
-    if (!paneData) return null;
-
-    const { contentId: filePath, fileContent, fileChanged } = paneData;
-    const fileName = filePath?.split('/').pop() || 'Untitled';
-    const isRenaming = renamingPaneId === nodeId;
-
-    const onContentChange = (value) => {
-        if (contentDataRef.current[nodeId]) {
-            contentDataRef.current[nodeId].fileContent = value;
-            if (!contentDataRef.current[nodeId].fileChanged) {
-                contentDataRef.current[nodeId].fileChanged = true;
-                setRootLayoutNode(p => ({ ...p }));
-            }
-        }
-    };
-
-    const onSave = async () => {
-        const currentPaneData = contentDataRef.current[nodeId];
-        if (currentPaneData?.contentId && currentPaneData.fileChanged) {
-            await window.api.writeFileContent(currentPaneData.contentId, currentPaneData.fileContent);
-            currentPaneData.fileChanged = false;
-            setRootLayoutNode(p => ({ ...p }));
-        }
-    };
-
-    const onEditorContextMenu = (e) => {
-        if (activeContentPaneId === nodeId) {
-            e.preventDefault();
-            setEditorContextMenuPos({ x: e.clientX, y: e.clientY });
-        }
-    };
-
-    return (
-        <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
-            <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
-                <div className="flex items-center gap-2 truncate">
-                    {getFileIcon(fileName)}
-                    {isRenaming ? (
-                        <input
-                            type="text"
-                            value={editedFileName}
-                            onChange={(e) => setEditedFileName(e.target.value)}
-                            onBlur={() => handleRenameFile(nodeId, filePath)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleRenameFile(nodeId, filePath);
-                                if (e.key === 'Escape') setRenamingPaneId(null);
-                            }}
-                            className="theme-input text-xs rounded px-2 py-1 border focus:outline-none"
-                            autoFocus
-                        />
-                    ) : (
-                        <span
-                            className="truncate cursor-pointer"
-                            title={filePath}
-                            onDoubleClick={() => {
-                                setRenamingPaneId(nodeId);
-                                setEditedFileName(fileName);
-                            }}
-                        >
-                            {fileName}{fileChanged ? '*' : ''}
-                        </span>
-                    )}
-                </div>
-                <div className="flex items-center gap-2">
-                    <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
-                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
-                </div>
-            </div>
-            <div className="flex-1 overflow-scroll min-h-0">
-                <CodeEditor
-                    value={fileContent || ''}
-                    onChange={onContentChange}
-                    onSave={onSave}
-                    filePath={filePath}
-                    onSelect={handleTextSelection}
-                    onContextMenu={onEditorContextMenu}
-                />
-            </div>
-
-            {/* AI Editor Context Menu - NOW WITH NEW OPTIONS */}
-            {editorContextMenuPos && activeContentPaneId === nodeId && (
-                <>
-                            <div 
-            className="fixed inset-0 z-40"
-            onClick={() => setEditorContextMenuPos(null)} // This already handles left-click outside
-            onContextMenu={(e) => { // This now handles right-click outside
-                e.preventDefault();
-                setEditorContextMenuPos(null);
-            }}
-        />
-        <div 
-            className="absolute theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
-            style={{ top: editorContextMenuPos.y, left: editorContextMenuPos.x }}
-        >
 
 
-                        {/* --- NEW STANDARD ACTIONS --- */}
-                        <button onClick={handleEditorCopy} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
-                            Copy
-                        </button>
-                        <button onClick={handleEditorPaste} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
-                            Paste
-                        </button>
-                        <div className="border-t theme-border my-1"></div>
 
-                        {/* --- NEW CHAT ACTION --- */}
-                        <button onClick={handleAddToChat} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
-                            Add to Chat
-                        </button>
-                        <div className="border-t theme-border my-1"></div>
 
-                        {/* --- EXISTING AI ACTIONS --- */}
-                        <button onClick={() => { handleAIEdit('ask'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
-                            <MessageSquare size={16} />
-                            <span>Ask AI</span>
-                        </button>
-                        <button onClick={() => { handleAIEdit('document'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
-                            <FileText size={16} />
-                            <span>Document</span>
-                        </button>
-                        <button onClick={() => { handleAIEdit('edit'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
-                            <Edit size={16} />
-                            <span>Edit</span>
-                        </button>
-                    </div>
-                </>
-            )}
-        </div>
-    );
-};
-const renderChatView = ({ nodeId }) => {
-    const paneData = contentDataRef.current[nodeId];
-    if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
-
-    const { contentId: conversationId } = paneData;
-    const scrollRef = useRef(null);
-
-    // This effect now ONLY handles auto-scrolling to the bottom on new messages.
-    useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-    }, [paneData?.chatMessages?.messages]); // Trigger on the visible messages array
-
-    const loadPreviousMessages = () => {
-        const currentPane = contentDataRef.current[nodeId];
-        if (currentPane && currentPane.chatMessages) {
-            currentPane.chatMessages.displayedMessageCount += 20;
-            currentPane.chatMessages.messages = currentPane.chatMessages.allMessages.slice(-currentPane.chatMessages.displayedMessageCount);
-            setRootLayoutNode(p => ({ ...p }));
-        }
-    };
-
-    const messagesToDisplay = paneData.chatMessages?.messages || [];
-    const totalMessages = paneData.chatMessages?.allMessages?.length || 0;
-    const stats = paneData.chatStats || {}; // Directly use the stats from paneData
-    const path = findNodePath(rootLayoutNode, nodeId);
-
-    return (
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary">
-                <div className="flex justify-between items-center">
-                    <span className="truncate min-w-0 font-semibold" title={conversationId}>
-                        Conversation: {conversationId?.slice(-8) || 'None'}
-                    </span>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={toggleMessageSelectionMode}
-                            className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
-                                messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'
-                            }`}
-                            title={messageSelectionMode ? 'Exit selection mode' : 'Enter selection mode'}
-                        >
-                            <ListFilter size={14} />
-                            {messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
-                        </button>
-                        <button onClick={() => closeContentPane(nodeId, path)} className="p-1 theme-hover rounded-full flex-shrink-0">
-                            <X size={14} />
-                        </button>
-                    </div>
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-gray-400">
-                    <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
-                    <span><Terminal size={12} className="inline mr-1"/>~{stats.tokenCount || 0} Tokens</span>
-                    <span><Code2 size={12} className="inline mr-1"/>{stats.models?.size || 0} Models</span>
-                    <span><Users size={12} className="inline mr-1"/>{stats.agents?.size || 0} Agents</span>
-                </div>
-            </div>
-
-            <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
-                {totalMessages > messagesToDisplay.length && (
-                    <div className="text-center">
-                        <button onClick={loadPreviousMessages} className="theme-button theme-hover px-3 py-1 text-xs rounded">Load More</button>
-                    </div>
-                )}
-                {messagesToDisplay.map(msg => 
-                    <ChatMessage 
-                        key={msg.id || msg.timestamp}
-                        message={msg}
-                        isSelected={selectedMessages.has(msg.id || msg.timestamp)} 
-                        messageSelectionMode={messageSelectionMode} 
-                        toggleMessageSelection={toggleMessageSelection} 
-                        handleMessageContextMenu={handleMessageContextMenu} 
-                        searchTerm={searchTerm} 
-                        activeSearchResult={activeSearchResult} 
-                        onResendMessage={handleResendMessage}
-                    />
-                )}
-            </div>
-        </div>
-    );
-};
-    const renderInputArea = () => (
+const renderInputArea = () => (
         <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
             <div
                 className="relative theme-bg-primary theme-border border rounded-lg group"
@@ -3751,72 +3986,12 @@ const renderChatView = ({ nodeId }) => {
         </div>
     );
 
-    const renderMainContent = () => {
-        // This object passes all necessary functions and state to the recursive renderer
-        // without needing to pass them all as individual props.
-        const layoutComponentApi = {
-            rootLayoutNode, setRootLayoutNode, findNodeByPath,
-            activeContentPaneId, setActiveContentPaneId,
-            draggedItem, setDraggedItem, dropTarget, setDropTarget,
-            contentDataRef, updateContentPane, performSplit,
-            renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer
-        };
-
-        if (!rootLayoutNode) {
-            return (
-                <div 
-                    className="flex-1 flex items-center justify-center border-2 border-dashed border-gray-400 m-4"
-                    onDragOver={(e) => { 
-                        e.preventDefault(); 
-                        e.stopPropagation(); 
-                    }}
-                    onDrop={async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        
-                        if (!draggedItem) return;
-                        
-                        const newPaneId = generateId();
-                        const newLayout = { id: newPaneId, type: 'content' };
-                        const contentType = draggedItem.type === 'conversation' ? 'chat' : 'editor';
-                        
-                        contentDataRef.current[newPaneId] = {};
-                        await updateContentPane(newPaneId, contentType, draggedItem.id);
-                        
-                        setRootLayoutNode(newLayout);
-                        setActiveContentPaneId(newPaneId);
-                        setDraggedItem(null);
-                    }}
-                >
-                    <div className="text-center text-gray-500">
-                        <div className="text-xl mb-2">No panes open</div>
-                        <div>Drag a conversation or file here to create a new pane</div>
-                    </div>
-                </div>
-            );
-        }
 
 
-        return (
-            <main className={`flex-1 flex flex-col bg-gray-900 ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
-                <div className="flex-1 flex overflow-hidden">
+        
 
-                    {
-                    rootLayoutNode ? (
-                        <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentApi} />
-                    ) : (
-                        <div className="flex-1 flex items-center justify-center theme-text-muted">
-                            {loading ? "Loading..." : "Drag a conversation or file to start."}
-                        </div>
-                    )}
-                </div>
-                {/* Global Input Area */}
-                <div className="flex-shrink-0">
-                    {renderInputArea()}
-                </div>
-            </main>
-        );
-    };
+
+    
     const renderModals = () => (
         <>
             <NPCTeamMenu isOpen={npcTeamMenuOpen} onClose={handleCloseNpcTeamMenu} currentPath={currentPath} startNewConversation={startNewConversationWithNpc}/>
@@ -4063,6 +4238,7 @@ const renderChatView = ({ nodeId }) => {
         </>
     );
 
+
     // --- NEW: Missing handler functions ---
     const handleOpenNpcTeamMenu = () => {
         setNpcTeamMenuOpen(true);
@@ -4106,9 +4282,77 @@ const handleSearchResultSelect = async (conversationId, searchTerm) => {
         });
     }, 100);
 };
+const layoutComponentApi = useMemo(() => ({
+    // DO NOT INCLUDE rootLayoutNode or setRootLayoutNode here
+    findNodeByPath,
+    activeContentPaneId, setActiveContentPaneId,
+    draggedItem, setDraggedItem, dropTarget, setDropTarget,
+    contentDataRef, updateContentPane, performSplit,
+    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer
+}), [
+    // List ONLY the stable functions and state setters it depends on
+    findNodeByPath,
+    activeContentPaneId, setActiveContentPaneId,
+    draggedItem, setDraggedItem, dropTarget, setDropTarget,
+    updateContentPane, performSplit,
+    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer
+]);
 
 
-    // --- Main Return uses the Render Functions ---
+
+const renderMainContent = () => {
+    // This object is now correctly memoized. It will NOT be recreated when rootLayoutNode changes.
+    // This is the definitive fix that breaks the re-render loop.
+    if (!rootLayoutNode) {
+        return (
+            <div 
+                className="flex-1 flex items-center justify-center border-2 border-dashed border-gray-400 m-4"
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!draggedItem) return;
+                    
+                    const newPaneId = generateId();
+                    const newLayout = { id: newPaneId, type: 'content' };
+                    const extension = draggedItem.id.split('.').pop()?.toLowerCase();
+                    const contentType = draggedItem.type === 'conversation' ? 'chat' : (extension === 'pdf' ? 'pdf' : 'editor');
+                    
+                    contentDataRef.current[newPaneId] = {};
+                    await updateContentPane(newPaneId, contentType, draggedItem.id);
+                    
+                    setRootLayoutNode(newLayout);
+                    setActiveContentPaneId(newPaneId);
+                    setDraggedItem(null);
+                }}
+            >
+                <div className="text-center text-gray-500">
+                    <div className="text-xl mb-2">No panes open</div>
+                    <div>Drag a conversation or file here to create a new pane</div>
+                </div>
+            </div> // <-- Closing div added here
+        );
+    }
+
+    return (
+        <main className={`flex-1 flex flex-col bg-gray-900 ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
+            <div className="flex-1 flex overflow-hidden">
+                {rootLayoutNode ? (
+                    <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentApi} />
+                ) : (
+                    <div className="flex-1 flex items-center justify-center theme-text-muted">
+                        {loading ? "Loading..." : "Drag a conversation or file to start."}
+                    </div>
+                )}
+            </div>
+            <div className="flex-shrink-0">
+                {renderInputArea()}
+            </div>
+        </main>
+    );
+};
+
+
     return (
         <div className={`chat-container ${isDarkMode ? 'dark-mode' : 'light-mode'} h-screen flex flex-col bg-gray-900 text-gray-100 font-mono`}>
             <div className="flex flex-1 overflow-hidden">

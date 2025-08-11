@@ -20,9 +20,18 @@ contextBridge.exposeInMainWorld('api', {
     waitForScreenshot: (path) => ipcRenderer.invoke('wait-for-screenshot', path),
     saveNPC: (data) => ipcRenderer.invoke('save-npc', data),
 
+    readFile: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
     // File operations
     readFileContent: (filePath) => ipcRenderer.invoke('read-file-content', filePath),
     writeFileContent: (filePath, content) => ipcRenderer.invoke('write-file-content', filePath, content),
+    createDirectory: (path) => ipcRenderer.invoke('create-directory', path), // <-- ADD THIS LINE
+    deleteDirectory: (path) => ipcRenderer.invoke('delete-directory', path), // <-- ADD THIS LINE
+    getDirectoryContentsRecursive: (path) => ipcRenderer.invoke('get-directory-contents-recursive', path), // <-- ADD THIS LINE
+    showPdf: (args) => ipcRenderer.send('show-pdf', args),
+    updatePdfBounds: (bounds) => ipcRenderer.send('update-pdf-bounds', bounds),
+    hidePdf: (filePath) => ipcRenderer.send('hide-pdf', filePath),
+  
+      
     deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
     renameFile: (oldPath, newPath) => ipcRenderer.invoke('renameFile', oldPath, newPath),
     getGlobalContext: () => ipcRenderer.invoke('get-global-context'),

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, memo, useCallback, useRef } from 'react';
 import {
     BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart,
@@ -35,7 +35,7 @@ const StatCard = ({ icon, title, value, children }) => (
     </div>
 );
 
-const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, currentProvider, currentNPC }) => {
+const DataDash = memo(({ isOpen, onClose, initialAnalysisContext, currentModel, currentProvider, currentNPC }) => {
     log('Component rendering. isOpen:', isOpen);
 
     const [stats, setStats] = useState(null);
@@ -845,6 +845,6 @@ useEffect(() => {
             </div>
         </div>
     );
-};
+});
 
 export default DataDash;
