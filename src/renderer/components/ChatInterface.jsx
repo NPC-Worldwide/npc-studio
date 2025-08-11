@@ -386,7 +386,8 @@ const ChatInterface = () => {
     const [analysisContext, setAnalysisContext] = useState(null); 
     const [renamingPaneId, setRenamingPaneId] = useState(null);
     const [editedFileName, setEditedFileName] = useState('');
-    
+    // Add this state to track the last focused chat, even when an editor is active.
+    const [lastActiveChatPaneId, setLastActiveChatPaneId] = useState(null);    
     const [aiEditModal, setAiEditModal] = useState({
         isOpen: false,
         type: '',
@@ -402,8 +403,7 @@ const ChatInterface = () => {
         npcForEdit: null,
         customEditPrompt: ''
     });    
-
-    
+ 
     const [availableNPCs, setAvailableNPCs] = useState([]);
     const [npcsLoading, setNpcsLoading] = useState(false);
     const [npcsError, setNpcsError] = useState(null);
@@ -501,7 +501,55 @@ const ChatInterface = () => {
         }
         return null;
     };
+    const handleEditorCopy = () => {
+        const selectedText = aiEditModal.selectedText;
+        if (selectedText) {
+            navigator.clipboard.writeText(selectedText);
+        }
+        setEditorContextMenuPos(null); // Close menu after action
+    };
     
+    const handleEditorPaste = async () => {
+        const paneId = activeContentPaneId;
+        const paneData = contentDataRef.current[paneId];
+        if (!paneId || !paneData || paneData.contentType !== 'editor') return;
+    
+        try {
+            const textToPaste = await navigator.clipboard.readText();
+            if (!textToPaste) return;
+    
+            const originalContent = paneData.fileContent || '';
+            const { selectionStart, selectionEnd } = aiEditModal;
+    
+            // Replace selection or insert at cursor
+            const newContent = originalContent.substring(0, selectionStart) +
+                               textToPaste +
+                               originalContent.substring(selectionEnd);
+            
+            // Update the pane's data and mark as changed
+            paneData.fileContent = newContent;
+            paneData.fileChanged = true;
+    
+            setRootLayoutNode(p => ({ ...p })); // Trigger re-render
+        } catch (err) {
+            console.error("Failed to read from clipboard:", err);
+            setError("Clipboard paste failed. Please grant permission if prompted.");
+        } finally {
+            setEditorContextMenuPos(null); // Close menu
+        }
+    };
+    
+    const handleAddToChat = () => {
+        const selectedText = aiEditModal.selectedText;
+        if (selectedText) {
+            // Appends the selected code to the main input field, wrapped in markdown for clarity.
+            setInput(prevInput => {
+                const separator = prevInput.trim() ? '\n\n' : ''; // Add space if input isn't empty
+                return `${prevInput}${separator}\`\`\`\n${selectedText}\n\`\`\``;
+            });
+        }
+        setEditorContextMenuPos(null); // Close menu
+    };    
     const handleSearchSubmit = async () => {
         if (!searchTerm.trim()) {
             setIsSearching(false);
@@ -1119,7 +1167,22 @@ const loadAvailableNPCs = async () => {
             loadAvailableNPCs();
         }
     }, [currentPath]);
-
+    useEffect(() => {
+        const handleGlobalDismiss = (e) => {
+            if (e.key === 'Escape') {
+                setContextMenuPos(null);
+                setFileContextMenuPos(null);
+                setMessageContextMenuPos(null);
+                setEditorContextMenuPos(null);
+            }
+        };
+    
+        window.addEventListener('keydown', handleGlobalDismiss);
+        return () => {
+            window.removeEventListener('keydown', handleGlobalDismiss);
+        };
+    }, []); // Empty array ensures this runs only once.
+    
 
     const directoryConversationsRef = useRef(directoryConversations);
     useEffect(() => {
@@ -1200,64 +1263,70 @@ const loadAvailableNPCs = async () => {
 
 }, []);
 
-    const renderMessageContextMenu = () => (
+const renderMessageContextMenu = () => (
     messageContextMenuPos && (
-        <div
-            className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
-            style={{ top: messageContextMenuPos.y, left: messageContextMenuPos.x }}
-            onMouseLeave={() => setMessageContextMenuPos(null)}
-        >
-            <button
-                onClick={() => handleApplyPromptToMessages('summarize')}
-                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+        <>
+            {/* Backdrop to catch outside clicks */}
+            <div
+                className="fixed inset-0 z-40"
+                onClick={() => setMessageContextMenuPos(null)}
+            />
+            <div
+                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                style={{ top: messageContextMenuPos.y, left: messageContextMenuPos.x }}
+                onMouseLeave={() => setMessageContextMenuPos(null)}
             >
-                <MessageSquare size={14} />
-                <span>Summarize in New Convo ({selectedMessages.size})</span>
-            </button>
-            <button
-                onClick={() => handleApplyPromptToCurrentConversation('summarize')}
-                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-            >
-                <Edit size={14} />
-                <span>Summarize in Input Field ({selectedMessages.size})</span>
-            </button>
-            <div className="border-t theme-border my-1"></div>
-            <button
-                onClick={() => handleApplyPromptToMessages('analyze')}
-                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-            >
-                <Terminal size={14} />
-                <span>Analyze in New Convo ({selectedMessages.size})</span>
-            </button>
-            
-            <button
-                onClick={() => handleApplyPromptToCurrentConversation('analyze')}
-                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-            >
-                <Edit size={14} />
-                <span>Analyze in Input Field ({selectedMessages.size})</span>
-            </button>
-            <div className="border-t theme-border my-1"></div>
-            <button
-                onClick={() => handleApplyPromptToMessages('extract')}
-                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-            >
-                <FileText size={14} />
-                <span>Extract in New Convo ({selectedMessages.size})</span>
-            </button>
-            <button
-                onClick={() => handleApplyPromptToCurrentConversation('extract')}
-                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-            >
-                <Edit size={14} />
-                <span>Extract in Input Field ({selectedMessages.size})</span>
-            </button>
-        </div>
+                <button
+                    onClick={() => handleApplyPromptToMessages('summarize')}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+                >
+                    <MessageSquare size={14} />
+                    <span>Summarize in New Convo ({selectedMessages.size})</span>
+                </button>
+                <button
+                    onClick={() => handleApplyPromptToCurrentConversation('summarize')}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+                >
+                    <Edit size={14} />
+                    <span>Summarize in Input Field ({selectedMessages.size})</span>
+                </button>
+                <div className="border-t theme-border my-1"></div>
+                <button
+                    onClick={() => handleApplyPromptToMessages('analyze')}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+                >
+                    <Terminal size={14} />
+                    <span>Analyze in New Convo ({selectedMessages.size})</span>
+                </button>
+                <button
+                    onClick={() => handleApplyPromptToCurrentConversation('analyze')}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+                >
+                    <Edit size={14} />
+                    <span>Analyze in Input Field ({selectedMessages.size})</span>
+                </button>
+                <div className="border-t theme-border my-1"></div>
+                <button
+                    onClick={() => handleApplyPromptToMessages('extract')}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+                >
+                    <FileText size={14} />
+                    <span>Extract in New Convo ({selectedMessages.size})</span>
+                </button>
+                <button
+                    onClick={() => handleApplyPromptToCurrentConversation('extract')}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+                >
+                    <Edit size={14} />
+                    <span>Extract in Input Field ({selectedMessages.size})</span>
+                </button>
+            </div>
+        </>
     )
 );
 
-    // Splits a pane to create a new one
-    const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
+
+const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
         setRootLayoutNode(oldRoot => {
             if (!oldRoot) return oldRoot;
 
@@ -2394,6 +2463,15 @@ useEffect(() => {
 
 
 
+    // This effect ensures we always know which chat pane was last active.
+    useEffect(() => {
+        if (activeContentPaneId) {
+            const paneData = contentDataRef.current[activeContentPaneId];
+            if (paneData && paneData.contentType === 'chat') {
+                setLastActiveChatPaneId(activeContentPaneId);
+            }
+        }
+    }, [activeContentPaneId]);
 const handleInterruptStream = async () => {
     // Find the stream ID that belongs to the currently active chat pane.
     const activePaneData = contentDataRef.current[activeContentPaneId];
@@ -3124,101 +3202,112 @@ const handleSummarizeAndPrompt = async () => {
 
     const renderContextMenu = () => (
         contextMenuPos && (
-            <div
-                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
-                style={{ top: contextMenuPos.y, left: contextMenuPos.x }}
-                onMouseLeave={() => setContextMenuPos(null)}
-            >
-                <button
-                    onClick={() => handleSummarizeAndStart()}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+            <>
+                {/* Backdrop to catch outside clicks */}
+                <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setContextMenuPos(null)}
+                />
+                <div
+                    className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                    style={{ top: contextMenuPos.y, left: contextMenuPos.x }}
+                    onMouseLeave={() => setContextMenuPos(null)}
                 >
-                    <MessageSquare size={16} />
-                    <span>Summarize & Start ({selectedConvos?.size || 0})</span>
-                </button>
-                <button
-                    onClick={() => handleSummarizeAndDraft()}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                >
-                    <Edit size={16} />
-                    <span>Summarize & Draft ({selectedConvos?.size || 0})</span>
-                </button>
-                <button
-                    onClick={() => handleSummarizeAndPrompt()}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                >
-                    <MessageSquare size={16} />
-                    <span>Summarize & Prompt ({selectedConvos?.size || 0})</span>
-                </button>
-                
-            <div className="border-t theme-border my-1"></div>
-            <button
-                onClick={handleAnalyzeInDashboard}
-                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-            >
-                <BarChart3 size={16} />
-                <span>Analyze in Dashboard ({selectedConvos?.size || 0})</span>
-            </button>
-        </div>
-
-)
-    );
-
-    const renderFileContextMenu = () => (
-        fileContextMenuPos && (
-            <div
-                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
-                style={{ top: fileContextMenuPos.y, left: fileContextMenuPos.x }}
-                onMouseLeave={() => setFileContextMenuPos(null)}
-            >
-                <button
-                    onClick={() => handleApplyPromptToFiles('summarize')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                >
-                    <MessageSquare size={16} />
-                    <span>Summarize Files ({selectedFiles.size})</span>
-                </button>
-                <button
-                    onClick={() => handleApplyPromptToFilesInInput('summarize')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                >
-                    <MessageSquare size={16} />
-                    <span>Summarize in Input Field ({selectedFiles.size})</span>
-                </button>
+                    <button
+                        onClick={() => handleSummarizeAndStart()}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <MessageSquare size={16} />
+                        <span>Summarize & Start ({selectedConvos?.size || 0})</span>
+                    </button>
+                    <button
+                        onClick={() => handleSummarizeAndDraft()}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <Edit size={16} />
+                        <span>Summarize & Draft ({selectedConvos?.size || 0})</span>
+                    </button>
+                    <button
+                        onClick={() => handleSummarizeAndPrompt()}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <MessageSquare size={16} />
+                        <span>Summarize & Prompt ({selectedConvos?.size || 0})</span>
+                    </button>
                 <div className="border-t theme-border my-1"></div>
                 <button
-                    onClick={() => handleApplyPromptToFiles('analyze')}
+                    onClick={handleAnalyzeInDashboard}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
                 >
-                    <Edit size={16} />
-                    <span>Analyze Files ({selectedFiles.size})</span>
+                    <BarChart3 size={16} />
+                    <span>Analyze in Dashboard ({selectedConvos?.size || 0})</span>
                 </button>
-                <button
-                    onClick={() => handleApplyPromptToFilesInInput('analyze')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                >
-                    <Edit size={16} />
-                    <span>Analyze in Input Field ({selectedFiles.size})</span>
-                </button>
-                <div className="border-t theme-border my-1"></div>
-                <button
-                    onClick={() => handleApplyPromptToFiles('refactor')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                >
-                    <Code2 size={16} />
-                    <span>Refactor Code ({selectedFiles.size})</span>
-                </button>
-                <button
-                    onClick={() => handleApplyPromptToFiles('document')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                >
-                    <FileText size={16} />
-                    <span>Document Code ({selectedFiles.size})</span>
-                </button>
-            </div>
+                </div>
+            </>
         )
     );
-const handleResendMessage = (messageToResend) => {
+    const renderFileContextMenu = () => (
+        fileContextMenuPos && (
+            <>
+                {/* Backdrop to catch outside clicks */}
+                <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setFileContextMenuPos(null)}
+                />
+                <div
+                    className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                    style={{ top: fileContextMenuPos.y, left: fileContextMenuPos.x }}
+                    onMouseLeave={() => setFileContextMenuPos(null)}
+                >
+                    <button
+                        onClick={() => handleApplyPromptToFiles('summarize')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <MessageSquare size={16} />
+                        <span>Summarize Files ({selectedFiles.size})</span>
+                    </button>
+                    <button
+                        onClick={() => handleApplyPromptToFilesInInput('summarize')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <MessageSquare size={16} />
+                        <span>Summarize in Input Field ({selectedFiles.size})</span>
+                    </button>
+                    <div className="border-t theme-border my-1"></div>
+                    <button
+                        onClick={() => handleApplyPromptToFiles('analyze')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <Edit size={16} />
+                        <span>Analyze Files ({selectedFiles.size})</span>
+                    </button>
+                    <button
+                        onClick={() => handleApplyPromptToFilesInInput('analyze')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <Edit size={16} />
+                        <span>Analyze in Input Field ({selectedFiles.size})</span>
+                    </button>
+                    <div className="border-t theme-border my-1"></div>
+                    <button
+                        onClick={() => handleApplyPromptToFiles('refactor')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <Code2 size={16} />
+                        <span>Refactor Code ({selectedFiles.size})</span>
+                    </button>
+                    <button
+                        onClick={() => handleApplyPromptToFiles('document')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <FileText size={16} />
+                        <span>Document Code ({selectedFiles.size})</span>
+                    </button>
+                </div>
+            </>
+        )
+    );
+    const handleResendMessage = (messageToResend) => {
     if (isStreaming) {
         console.warn('Cannot resend while streaming');
         return;
@@ -3354,8 +3443,7 @@ const renderFileEditor = ({ nodeId }) => {
     };
 
     const onEditorContextMenu = (e) => {
-        // Only show the context menu if there is a text selection in the active editor pane
-        if (aiEditModal.selectedText.length > 0 && activeContentPaneId === nodeId) {
+        if (activeContentPaneId === nodeId) {
             e.preventDefault();
             setEditorContextMenuPos({ x: e.clientX, y: e.clientY });
         }
@@ -3397,7 +3485,6 @@ const renderFileEditor = ({ nodeId }) => {
                     <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
                 </div>
             </div>
-            {/* THIS DIV IS PRESERVED EXACTLY AS YOU REQUESTED */}
             <div className="flex-1 overflow-scroll min-h-0">
                 <CodeEditor
                     value={fileContent || ''}
@@ -3409,26 +3496,48 @@ const renderFileEditor = ({ nodeId }) => {
                 />
             </div>
 
-            {/* AI Editor Context Menu */}
+            {/* AI Editor Context Menu - NOW WITH NEW OPTIONS */}
             {editorContextMenuPos && activeContentPaneId === nodeId && (
                 <>
-                    <div 
-                        className="fixed inset-0 z-40"
-                        onClick={() => setEditorContextMenuPos(null)} // Click away to close
-                    />
-                    <div 
-                        className="absolute theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
-                        style={{ top: editorContextMenuPos.y, left: editorContextMenuPos.x }}
-                    >
-                        <button onClick={() => { handleAIEdit('ask'); setEditorContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            <div 
+            className="fixed inset-0 z-40"
+            onClick={() => setEditorContextMenuPos(null)} // This already handles left-click outside
+            onContextMenu={(e) => { // This now handles right-click outside
+                e.preventDefault();
+                setEditorContextMenuPos(null);
+            }}
+        />
+        <div 
+            className="absolute theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+            style={{ top: editorContextMenuPos.y, left: editorContextMenuPos.x }}
+        >
+
+
+                        {/* --- NEW STANDARD ACTIONS --- */}
+                        <button onClick={handleEditorCopy} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
+                            Copy
+                        </button>
+                        <button onClick={handleEditorPaste} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                            Paste
+                        </button>
+                        <div className="border-t theme-border my-1"></div>
+
+                        {/* --- NEW CHAT ACTION --- */}
+                        <button onClick={handleAddToChat} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
+                            Add to Chat
+                        </button>
+                        <div className="border-t theme-border my-1"></div>
+
+                        {/* --- EXISTING AI ACTIONS --- */}
+                        <button onClick={() => { handleAIEdit('ask'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
                             <MessageSquare size={16} />
                             <span>Ask AI</span>
                         </button>
-                        <button onClick={() => { handleAIEdit('document'); setEditorContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                        <button onClick={() => { handleAIEdit('document'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
                             <FileText size={16} />
                             <span>Document</span>
                         </button>
-                        <button onClick={() => { handleAIEdit('edit'); setEditorContextMenuPos(null); }} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                        <button onClick={() => { handleAIEdit('edit'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
                             <Edit size={16} />
                             <span>Edit</span>
                         </button>
