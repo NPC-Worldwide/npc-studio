@@ -86,28 +86,42 @@ const ptyKillTimers = new Map();
 
 // In main.js
 const dbQuery = (query, params = []) => {
+  // CORRECTED: Also treat PRAGMA as a read query
+  const isReadQuery = query.trim().toUpperCase().startsWith('SELECT') || query.trim().toUpperCase().startsWith('PRAGMA');
   console.log(`[DB] EXECUTING: ${query.substring(0, 100).replace(/\s+/g, ' ')}...`, params);
-  return new Promise((resolve, reject) => {
-    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
-      if (err) {
-        console.error('[DB] CONNECTION ERROR:', err.message);
-        return reject(err);
-      }
-    });
 
-    db.all(query, params, (err, rows) => {
-      db.close((closeErr) => {
-        if (closeErr) console.error('[DB] CLOSE ERROR:', closeErr.message);
+  return new Promise((resolve, reject) => {
+      const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+          if (err) {
+              console.error('[DB] CONNECTION ERROR:', err.message);
+              return reject(err);
+          }
       });
-      if (err) {
-        console.error(`[DB] QUERY FAILED: ${err.message}`);
-        return reject(err);
+
+      if (isReadQuery) { // Use the corrected check
+          // Use .all for SELECT and PRAGMA queries to get rows back
+          db.all(query, params, (err, rows) => {
+              db.close();
+              if (err) {
+                  console.error(`[DB] READ FAILED: ${err.message}`);
+                  return reject(err);
+              }
+              resolve(rows);
+          });
+      } else {
+          // Use .run for INSERT, UPDATE, DELETE to get info like lastID
+          db.run(query, params, function(err) {
+              db.close();
+              if (err) {
+                  console.error(`[DB] COMMAND FAILED: ${err.message}`);
+                  return reject(err);
+              }
+              resolve({ lastID: this.lastID, changes: this.changes });
+          });
       }
-      console.log(`[DB] SUCCESS, Rows: ${rows.length}`);
-      resolve(rows);
-    });
   });
 };
+
 
 const DEFAULT_CONFIG = {
   baseDir: path.resolve(os.homedir(), '.npcsh'),
@@ -929,7 +943,40 @@ function createWindow() {
 
 
   
-
+  ipcMain.handle('show-open-dialog', async (event, options) => {
+    const result = await dialog.showOpenDialog(options);
+    
+    if (!result.canceled && result.filePaths.length > 0) {
+      // Return file info with real paths
+      return result.filePaths.map(filePath => {
+        const stats = fs.statSync(filePath);
+        return {
+          name: path.basename(filePath),
+          path: filePath,
+          size: stats.size,
+          type: getFileType(filePath)
+        };
+      });
+    }
+    
+    return [];
+  });
+  
+  // Helper function to get MIME type - add this near the top of your main.js
+  function getFileType(filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.pdf': 'application/pdf',
+      '.txt': 'text/plain',
+      '.md': 'text/markdown',
+      '.json': 'application/json'
+    };
+    return mimeTypes[ext] || 'application/octet-stream';
+  }
 
 
 

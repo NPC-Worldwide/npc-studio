@@ -149,6 +149,8 @@ onTerminalClosed: (callback) => {
         ipcRenderer.on('stream-error', handler);
         return () => ipcRenderer.removeListener('stream-error', handler);
     },
+    showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
+
     // Jinx operations
     getJinxsGlobal: async () => {
         try {

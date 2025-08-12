@@ -504,7 +504,6 @@ const ChatInterface = () => {
     const [conversationsCollapsed, setConversationsCollapsed] = useState(true); // Set to true by default
     const chatContainerRef = useRef(null); // Ref for the chat messages container
 
-    // --- NEW/ADJUSTED SEARCH STATE ---
     const [searchTerm, setSearchTerm] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [isGlobalSearch, setIsGlobalSearch] = useState(false); // Checkbox state
@@ -528,7 +527,7 @@ const ChatInterface = () => {
     useEffect(() => {
         rootLayoutNodeRef.current = rootLayoutNode;
     }, [rootLayoutNode]);
-
+    const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
     const [resendModal, setResendModal] = useState({
         isOpen: false,
         message: null,
@@ -1931,8 +1930,8 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                         <X size={14} />
                     </button>
                 </div>
-                <div className="flex-1 overflow-auto min-h-0">
-                    <PdfViewer 
+                <div className="flex-1 min-h-0">
+                <PdfViewer
                         filePath={paneData.contentId}
                         highlights={pdfHighlights}
                         onTextSelect={handlePdfTextSelect}
@@ -2099,18 +2098,18 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     
     
     const renderPdfContextMenu = () => {
-        console.log('[PDF_MENU] renderPdfContextMenu called with:', {
-            hasPdfContextMenuPos: !!pdfContextMenuPos,
-            menuPosition: pdfContextMenuPos,
-            hasSelectedText: !!selectedPdfText,
-            textPreview: selectedPdfText?.text?.substring(0, 30) || 'none'
-        });
+        //console.log('[PDF_MENU] renderPdfContextMenu called with:', {
+        //    hasPdfContextMenuPos: !!pdfContextMenuPos,
+        //   menuPosition: pdfContextMenuPos,
+        //    hasSelectedText: !!selectedPdfText,
+        //    textPreview: selectedPdfText?.text?.substring(0, 30) || 'none'
+        //});
     
         return pdfContextMenuPos && (
             <>
-                {console.log('[PDF_MENU] Rendering context menu')}
+
                 <div className="fixed inset-0 z-40" onClick={() => {
-                    console.log('[PDF_MENU] Backdrop clicked - closing menu');
+                //    console.log('[PDF_MENU] Backdrop clicked - closing menu');
                     setPdfContextMenuPos(null);
                 }} />
                 <div
@@ -2288,10 +2287,12 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         const scrollRef = useRef(null);
     
         useEffect(() => {
-            if (scrollRef.current) {
+            // Only auto-scroll if enabled
+            if (autoScrollEnabled && scrollRef.current) {
                 scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
             }
-        }, [paneData?.chatMessages?.messages]);
+        }, [paneData?.chatMessages?.messages, autoScrollEnabled]); // Added autoScrollEnabled as dependency
+    
     
         const loadPreviousMessages = () => {
             const currentPane = contentDataRef.current[nodeId];
@@ -2309,31 +2310,38 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     
         return (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <div 
-    className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
-    draggable="true"
-    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'conversation', id: conversationId }); }}
-    onDragEnd={handleGlobalDragEnd}
-
->
-
+                <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move">
                     <div className="flex justify-between items-center">
                         <span className="truncate min-w-0 font-semibold" title={conversationId}>Conversation: {conversationId?.slice(-8) || 'None'}</span>
                         <div className="flex items-center gap-2">
+                            <button 
+                                onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
+                                className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
+                                    autoScrollEnabled ? 'theme-button-success' : 'theme-button'
+                                } theme-hover`}
+                                title={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M12 5v14M19 12l-7 7-7-7"/>
+                                </svg>
+                                {autoScrollEnabled ? 'Auto' : 'Manual'}
+                            </button>
                             <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`} title={messageSelectionMode ? 'Exit selection mode' : 'Enter selection mode'}>
                                 <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
                             </button>
                             <button 
                                 onClick={() => closeContentPane(nodeId, path)} 
                                 className="p-1 theme-hover rounded-full flex-shrink-0"
-                                onMouseDown={(e) => e.stopPropagation()} // <-- ADD THIS LINE
+                                onMouseDown={(e) => e.stopPropagation()}
                             >
                                 <X size={14} />
                             </button>
                         </div>
-
-
                     </div>
+
+
+
+
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-gray-400">
                         <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
                         <span><Terminal size={12} className="inline mr-1"/>~{stats.tokenCount || 0} Tokens</span>
@@ -2363,7 +2371,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                 </div>
             </div>
         );
-    }, [rootLayoutNode, messageSelectionMode, selectedMessages, searchTerm, activeSearchResult,setDraggedItem]);
+    }, [rootLayoutNode, messageSelectionMode, selectedMessages, searchTerm, activeSearchResult,setDraggedItem, autoScrollEnabled]);
     
     
 const createNewConversation = async () => {
@@ -2419,84 +2427,68 @@ const createNewTextFile = async () => {
         }
     };
 
-const handleInputSubmit = async (e) => {
-    e.preventDefault();
-    if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
-        return;
-    }
-    
-    const paneData = contentDataRef.current[activeContentPaneId];
-    if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) {
-        console.error("No active chat pane to send message to.");
-        return;
-    }
 
-    const conversationId = paneData.contentId;
-    const newStreamId = generateId();
-    
-    streamToPaneRef.current[newStreamId] = activeContentPaneId;
-    setIsStreaming(true);
+    const handleInputSubmit = async (e) => {
+        e.preventDefault();
+        if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
+            return;
+        }
+        
+        const paneData = contentDataRef.current[activeContentPaneId];
+        if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) {
+            console.error("No active chat pane to send message to.");
+            return;
+        }
 
-    const userMessage = { 
-        id: generateId(), 
-        role: 'user', 
-        content: input, 
-        timestamp: new Date().toISOString(), 
-        attachments: uploadedFiles.map(f => ({ name: f.name })) 
+        const conversationId = paneData.contentId;
+        const newStreamId = generateId();
+        
+        streamToPaneRef.current[newStreamId] = activeContentPaneId;
+        setIsStreaming(true);
+
+        const userMessage = { 
+            id: generateId(), 
+            role: 'user', 
+            content: input, 
+            timestamp: new Date().toISOString(), 
+            attachments: uploadedFiles.map(f => ({ name: f.name })) 
+        };
+
+        const assistantPlaceholder = { 
+            id: newStreamId, role: 'assistant', content: '', timestamp: new Date().toISOString(), 
+            isStreaming: true, streamId: newStreamId, npc: currentNPC, model: currentModel
+        };
+
+        if (!paneData.chatMessages) {
+            paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+        }
+        paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
+        paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+        setRootLayoutNode(prev => ({ ...prev }));
+        setInput('');
+        setUploadedFiles([]);
+
+        try {
+            const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
+            await window.api.executeCommandStream({
+                commandstr: input, currentPath, conversationId, model: currentModel, provider: currentProvider,
+                npc: selectedNpc ? selectedNpc.name : currentNPC,
+                npcSource: selectedNpc ? selectedNpc.source : 'global',
+                attachments: uploadedFiles.map(f => {
+                    if (f.path) { // File from showOpenDialog (full path available)
+                        return { name: f.name, path: f.path, size: f.size, type: f.type };
+                    } else if (f.data) { // File from drag-and-drop (Base64 data available)
+                        return { name: f.name, data: f.data, size: f.size, type: f.type };
+                    }
+                    return { name: f.name, type: f.type }; // Fallback
+                }),
+                streamId: newStreamId
+            });
+        } catch (err) {
+            setError(err.message); setIsStreaming(false); delete streamToPaneRef.current[newStreamId];
+        }
     };
 
-    // --- THIS IS THE KEY CHANGE ---
-    // Pre-populate the placeholder with the correct NPC and Model
-    const assistantPlaceholder = { 
-        id: newStreamId, 
-        role: 'assistant', 
-        content: '', 
-        timestamp: new Date().toISOString(), 
-        isStreaming: true, 
-        streamId: newStreamId,
-        npc: currentNPC,      // <-- ADD THIS
-        model: currentModel   // <-- ADD THIS
-    };
-    // --- END CHANGE ---
-
-    if (!paneData.chatMessages) {
-        paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-    }
-
-    paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
-    paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
-
-    setRootLayoutNode(prev => ({ ...prev }));
-    setInput('');
-    setUploadedFiles([]);
-
-    try {
-        const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
-        await window.api.executeCommandStream({
-            commandstr: input, 
-            currentPath, 
-            conversationId, 
-            model: currentModel, 
-            provider: currentProvider,
-            npc: selectedNpc ? selectedNpc.name : currentNPC,
-            npcSource: selectedNpc ? selectedNpc.source : 'global',
-            attachments: uploadedFiles.map(f => ({ name: f.name, path: f.path, size: f.size, type: f.type })),
-            streamId: newStreamId
-        });
-    } catch (err) {
-        setError(err.message);
-        setIsStreaming(false);
-        delete streamToPaneRef.current[newStreamId];
-    }
-};
-
-
-    // A separate, memoized component for recursively rendering the layout.
-
-
-    
-    
-    // Add isSaving state
     const [isSaving, setIsSaving] = useState(false);
 
     const handleFileSave = async () => {
@@ -3081,42 +3073,87 @@ useEffect(() => {
 
 
 
-
-    
-
     const handleDrop = (e) => {
         e.preventDefault();
         setIsHovering(false);
         const files = e.dataTransfer.files;
+        // Pass FileList directly to handleFileUpload
         handleFileUpload(files);
     };
 
-    const handleFileUpload = async (files) => {
+    // Add this logging to your handleFileUpload function
+    const handleFileUpload = async (files) => { // This is triggered by handleDrop
         const existingFileNames = new Set(uploadedFiles.map(f => f.name));
         const newFiles = Array.from(files).filter(file => !existingFileNames.has(file.name));
+        
         const attachmentData = [];
+        
         for (const file of newFiles) {
-            try {
-                const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
-                attachmentData.push({
-                    id: generateId(), name: file.name, type: file.type, path: file.path, size: file.size, preview
+            // CRITICAL FIX: Directly use file.path for dropped files.
+            // This property is available in Electron's renderer process.
+            const filePath = file.path; 
+            
+            if (filePath) {
+                 attachmentData.push({
+                    id: generateId(), 
+                    name: file.name, 
+                    type: file.type, 
+                    path: filePath, // This is the absolute path!
+                    size: file.size, 
+                    preview: file.type.startsWith('image/') ? `file://${filePath}` : null
                 });
-            } catch (err) {
-                console.error("Error processing file:", file.name, err);
+            } else {
+                // Fallback for non-standard File APIs if file.path is ever missing (e.g., web-only context)
+                console.warn(`Dropped file '${file.name}' has no 'path' property. Cannot send to backend.`);
+                // You might want to show a user error here or just skip it.
             }
         }
+        
         if (attachmentData.length > 0) {
             setUploadedFiles(prev => [...prev, ...attachmentData]);
         }
     };
 
-    const handleFileInput = (event) => {
-        if (event.target.files.length) {
-            handleFileUpload(event.target.files);
+
+    const handleFileInput = async (event) => {
+        try {
+            const fileData = await window.api.showOpenDialog({
+                properties: ['openFile', 'multiSelections'],
+                filters: [
+                    { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif'] },
+                    { name: 'Documents', extensions: ['pdf', 'txt', 'md'] },
+                    { name: 'All Files', extensions: ['*'] }
+                ]
+            });
+            
+            if (fileData && fileData.length > 0) {
+                const existingFileNames = new Set(uploadedFiles.map(f => f.name));
+                const newFiles = fileData.filter(file => !existingFileNames.has(file.name));
+                
+                const attachmentData = newFiles.map(file => ({
+                    id: generateId(),
+                    name: file.name,
+                    type: file.type,
+                    path: file.path,  // This will now have the full filesystem path!
+                    size: file.size,
+                    preview: file.type.startsWith('image/') ? `file://${file.path}` : null
+                }));
+                
+                if (attachmentData.length > 0) {
+                    setUploadedFiles(prev => [...prev, ...attachmentData]);
+                }
+            }
+        } catch (error) {
+            console.error('Error selecting files:', error);
+        }
+        
+        // Clear the file input
+        if (event && event.target) {
             event.target.value = null;
         }
     };
 
+    
 useEffect(() => {
     // We only attach listeners if streaming is enabled in the config.
     if (!config?.stream || listenersAttached.current) return;
@@ -3930,6 +3967,40 @@ const renderSidebarItemContextMenu = () => {
             </div>
         );
     };
+    const handleAttachFileClick = async () => {
+        try {
+            // This directly calls the main process handler that correctly gets full file paths.
+            const fileData = await window.api.showOpenDialog({
+                properties: ['openFile', 'multiSelections'],
+                filters: [
+                    { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] },
+                    { name: 'Documents', extensions: ['pdf', 'txt', 'md', 'json'] },
+                    { name: 'All Files', extensions: ['*'] }
+                ]
+            });
+
+            if (fileData && fileData.length > 0) {
+                const existingFileNames = new Set(uploadedFiles.map(f => f.name));
+                const newFiles = fileData.filter(file => !existingFileNames.has(file.name));
+
+                const attachmentData = newFiles.map(file => ({
+                    id: generateId(),
+                    name: file.name,
+                    type: file.type,
+                    path: file.path,  // This will have the full, absolute filesystem path.
+                    size: file.size,
+                    preview: file.type.startsWith('image/') ? `file://${file.path}` : null
+                }));
+
+                if (attachmentData.length > 0) {
+                    setUploadedFiles(prev => [...prev, ...attachmentData]);
+                }
+            }
+        } catch (error) {
+            console.error('Error selecting files:', error);
+        }
+    };
+
     const renderSearchResults = () => {
         if (searchLoading) {
            
@@ -4328,130 +4399,92 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
 
 
 
-
 const renderInputArea = () => (
-        <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
-            <div
-                className="relative theme-bg-primary theme-border border rounded-lg group"
-                onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
-                onDragEnter={() => setIsHovering(true)}
-                onDragLeave={() => setIsHovering(false)}
-                onDrop={(e) => {
-                    e.preventDefault();
-                    setIsHovering(false);
-                    handleDrop(e);
-                }}
-            >
-                {isHovering && (
-                    <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center z-10 pointer-events-none">
-                        <span className="text-blue-300 font-semibold">Drop files here</span>
-                    </div>
-                )}
+    <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
+        <div
+            className="relative theme-bg-primary theme-border border rounded-lg group"
+            onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
+            onDragEnter={() => setIsHovering(true)}
+            onDragLeave={() => setIsHovering(false)}
+            onDrop={handleDrop}
+        >
+            {isHovering && (
+                <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center z-10 pointer-events-none">
+                    <span className="text-blue-300 font-semibold">Drop files here</span>
+                </div>
+            )}
 
-                {/* Form is still used for structure, but submit button is conditional */}
-                <div className="flex items-end p-2 gap-2 relative z-0"> {/* Changed from form to div to avoid accidental submission while streaming */}
-                    <input
-                        ref={fileInputRef}
-                        type="file"
-                        onChange={handleFileInput}
-                        style={{ display: 'none' }}
-                        multiple
-                        accept="image/*, text/*, application/pdf, .py, .js, .jsx, .ts, .tsx, .html, .css, .json, .md"
-                    />
-                    <textarea
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleInputSubmit(e); // Use form handler logic
-                            }
-                        }}
-                        placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
-                        className={`flex-grow theme-input text-sm rounded-lg px-4 py-3 focus:outline-none border-0 min-h-[56px] max-h-[200px] resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
-                        rows={1}
-                        style={{ overflowY: 'auto' }}
-                        disabled={isStreaming} // Disable input while streaming
-                    />
-                    <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        aria-label="Attach file"
-                        disabled={isStreaming} // Disable attach while streaming
-                    >
-                        <Paperclip size={20} />
+            <div className="flex items-end p-2 gap-2 relative z-0">
+                <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
+                    placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
+                    className={`flex-grow theme-input text-sm rounded-lg px-4 py-3 focus:outline-none border-0 min-h-[56px] max-h-[200px] resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    rows={1}
+                    style={{ overflowY: 'auto' }}
+                    disabled={isStreaming}
+                />
+                <button
+                    type="button"
+                    onClick={handleAttachFileClick} // This correctly uses showOpenDialog
+                    className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    aria-label="Attach file"
+                    disabled={isStreaming}
+                >
+                    <Paperclip size={20} />
+                </button>
+
+                {isStreaming ? (
+                    <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 w-[76px] h-[40px]" aria-label="Stop generating" title="Stop generating" >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
                     </button>
+                ) : (
+                    <button type="button" onClick={handleInputSubmit} disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px]" >
+                        <Send size={16}/>
+                    </button>
+                )}
+            </div>
 
-                    {/* Conditional Stop/Send Button */}
-                    {isStreaming ? (
-                        <button
-                            type="button"
-                            onClick={handleInterruptStream} // Call the interrupt handler
-                            className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 w-[76px] h-[40px]" // Fixed width/height for consistency
-                            aria-label="Stop generating"
-                            title="Stop generating"
-                        >
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
-                                <path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/>
-                            </svg>
-                        </button>
-                    ) : (
-                        <button
-                            type="button" // Changed from submit since we handle via handleInputSubmit on Enter/Click
-                            onClick={handleInputSubmit} // Call submit handler on click too
-                            disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId}
-                            className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px]" // Fixed width/height
-                        >
-                            <Send size={16}/>
-                        </button>
+            <div className={`flex items-center gap-2 px-2 pb-2 ${isStreaming ? 'opacity-50' : ''}`}>
+                <select
+                    value={currentModel || ''}
+                    onChange={(e) => {
+                        const selectedModel = availableModels.find(m => m.value === e.target.value);
+                        setCurrentModel(e.target.value);
+                        if (selectedModel?.provider) {
+                            setCurrentProvider(selectedModel.provider);
+                        }
+                    }}
+                    className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
+                    disabled={modelsLoading || !!modelsError || isStreaming}
+                >
+                    {modelsLoading && <option value="">Loading...</option>}
+                    {modelsError && <option value="">Error</option>}
+                    {!modelsLoading && !modelsError && availableModels.length === 0 && (<option value="">No models</option> )}
+                    {!modelsLoading && !modelsError && availableModels.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
+                </select>
+                <select
+                    value={currentNPC || ''}
+                    onChange={e => setCurrentNPC(e.target.value)}
+                    className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
+                    disabled={npcsLoading || !!npcsError || isStreaming}
+                >
+                    {npcsLoading && <option value="">Loading NPCs...</option>}
+                    {npcsError && <option value="">Error loading NPCs</option>}
+                    {!npcsLoading && !npcsError && availableNPCs.length === 0 && (
+                        <option value="">No NPCs available</option>
                     )}
-                </div>
-
-                {/* Model/NPC Selectors */}
-                <div className={`flex items-center gap-2 px-2 pb-2 ${isStreaming ? 'opacity-50' : ''}`}>
-                    <select
-                        value={currentModel || ''}
-                        onChange={(e) => {
-                            const selectedModel = availableModels.find(m => m.value === e.target.value);
-                            setCurrentModel(e.target.value);
-                            if (selectedModel?.provider) {
-                                setCurrentProvider(selectedModel.provider);
-                            }
-                        }}
-
-
-                        className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                        disabled={modelsLoading || !!modelsError || isStreaming} // Disable while streaming
-                    >
-                        {modelsLoading && <option value="">Loading...</option>}
-                        {modelsError && <option value="">Error</option>}
-                        {!modelsLoading && !modelsError && availableModels.length === 0 && (<option value="">No models</option> )}
-                        {!modelsLoading && !modelsError && availableModels.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
-                    </select>
-                    <select
-                        value={currentNPC || ''}
-                        onChange={e => setCurrentNPC(e.target.value)}
-                        className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                        disabled={npcsLoading || !!npcsError || isStreaming} // Disable while streaming
-                    >
-                        {npcsLoading && <option value="">Loading NPCs...</option>}
-                        {npcsError && <option value="">Error loading NPCs</option>}
-                        {!npcsLoading && !npcsError && availableNPCs.length === 0 && (
-                            <option value="">No NPCs available</option>
-                        )}
-                        {!npcsLoading && !npcsError && availableNPCs.map(npc => (
-                            <option key={`${npc.source}-${npc.value}`} value={npc.value}>
-                                {npc.display_name}
-                            </option>
-                        ))}
-                    </select>
-                </div>
+                    {!npcsLoading && !npcsError && availableNPCs.map(npc => (
+                        <option key={`${npc.source}-${npc.value}`} value={npc.value}>
+                            {npc.display_name}
+                        </option>
+                    ))}
+                </select>
             </div>
         </div>
-    );
-
-
+    </div>
+);
 
         
 
@@ -4759,20 +4792,22 @@ const handleSearchResultSelect = async (conversationId, searchTerm) => {
     }, 100);
 };
 const layoutComponentApi = useMemo(() => ({
+    rootLayoutNode, 
+    setRootLayoutNode,
     findNodeByPath,
+    findNodePath,
     activeContentPaneId, setActiveContentPaneId,
     draggedItem, setDraggedItem, dropTarget, setDropTarget,
     contentDataRef, updateContentPane, performSplit,
+    closeContentPane,    
     renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer, 
 }), [
-    findNodeByPath,
-    activeContentPaneId, setActiveContentPaneId,
-    draggedItem, setDraggedItem, dropTarget, setDropTarget,
-    updateContentPane, performSplit,
+    rootLayoutNode, 
+    findNodeByPath, findNodePath, activeContentPaneId, 
+    draggedItem, dropTarget, updateContentPane, performSplit, closeContentPane,
     renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer, 
+    setActiveContentPaneId, setDraggedItem, setDropTarget
 ]);
-
-
 
 const renderMainContent = () => {
 
