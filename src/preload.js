@@ -30,8 +30,48 @@ contextBridge.exposeInMainWorld('api', {
     showPdf: (args) => ipcRenderer.send('show-pdf', args),
     updatePdfBounds: (bounds) => ipcRenderer.send('update-pdf-bounds', bounds),
     hidePdf: (filePath) => ipcRenderer.send('hide-pdf', filePath),
-  
-      
+    showBrowser: (args) => ipcRenderer.invoke('show-browser', args),
+    updateBrowserBounds: (args) => ipcRenderer.invoke('update-browser-bounds', args),
+    hideBrowser: (args) => ipcRenderer.invoke('hide-browser', args),
+    browserNavigate: (args) => ipcRenderer.invoke('browser-navigate', args),
+    browserBack: (args) => ipcRenderer.invoke('browser-back', args),
+    browserForward: (args) => ipcRenderer.invoke('browser-forward', args),
+    browserRefresh: (args) => ipcRenderer.invoke('browser-refresh', args),
+    browserGetSelectedText: (args) => ipcRenderer.invoke('browser-get-selected-text', args),
+    browserAddToHistory: (args) => ipcRenderer.invoke('browser:addToHistory', args),
+    browserGetHistory: (args) => ipcRenderer.invoke('browser:getHistory', args),
+    browserAddBookmark: (args) => ipcRenderer.invoke('browser:addBookmark', args),
+    browserGetBookmarks: (args) => ipcRenderer.invoke('browser:getBookmarks', args),
+    browserDeleteBookmark: (args) => ipcRenderer.invoke('browser:deleteBookmark', args),
+    browserClearHistory: (args) => ipcRenderer.invoke('browser:clearHistory', args),
+    browserSetVisibility: (args) => ipcRenderer.invoke('browser:set-visibility', args),
+
+    // Browser event listeners
+    onBrowserLoaded: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-loaded', handler);
+        return () => ipcRenderer.removeListener('browser-loaded', handler);
+    },
+    onBrowserLoading: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-loading', handler);
+        return () => ipcRenderer.removeListener('browser-loading', handler);
+    },
+    onBrowserTitleUpdated: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-title-updated', handler);
+        return () => ipcRenderer.removeListener('browser-title-updated', handler);
+    },
+    onBrowserLoadError: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-load-error', handler);
+        return () => ipcRenderer.removeListener('browser-load-error', handler);
+    },
+    
+    
+    getHighlightsForFile: (filePath) => ipcRenderer.invoke('db:getHighlightsForFile', { filePath }),
+    addPdfHighlight: (data) => ipcRenderer.invoke('db:addPdfHighlight', data),
+
     deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
     renameFile: (oldPath, newPath) => ipcRenderer.invoke('renameFile', oldPath, newPath),
     getGlobalContext: () => ipcRenderer.invoke('get-global-context'),
@@ -146,6 +186,11 @@ onTerminalClosed: (callback) => {
         return await ipcRenderer.invoke('getNPCTeamProject', currentPath);
     },
     getNPCTeamGlobal: () => ipcRenderer.invoke('getNPCTeamGlobal'),
+    onBrowserShowContextMenu: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-show-context-menu', handler);
+        return () => ipcRenderer.removeListener('browser-show-context-menu', handler);
+    },
     
     // Attachment operations
     getMessageAttachments: (messageId) => ipcRenderer.invoke('get-message-attachments', messageId),

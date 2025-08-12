@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
+ import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
 import {
-    Folder, File, ChevronRight, Settings, Edit, Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare, ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, Send, BarChart3
+    Folder, File, Globe, ChevronRight, Settings, Edit, Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare, ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, Send, BarChart3
 } from 'lucide-react';
+
 import MacroInput from './MacroInput';
 import SettingsMenu from './SettingsMenu';
 import NPCTeamMenu from './NPCTeamMenu';
@@ -14,6 +15,8 @@ import DataDash from './DataDash';
 import CodeEditor from './CodeEditor';
 import TerminalView from './Terminal';
 import PdfViewer from './PdfViewer';
+import WebBrowserViewer from './WebBrowserViewer';
+import BrowserUrlDialog from './BrowserUrlDialog';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -87,7 +90,11 @@ const LayoutNode = memo(({ node, path, component }) => {
     }
 
     if (node.type === 'content') {
-        const { activeContentPaneId, setActiveContentPaneId, draggedItem, setDraggedItem, dropTarget, setDropTarget, contentDataRef, updateContentPane, performSplit, renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer } = component;
+        const { activeContentPaneId, setActiveContentPaneId, draggedItem, 
+            setDraggedItem, dropTarget, setDropTarget, contentDataRef,
+             updateContentPane, performSplit, renderChatView, 
+             renderFileEditor, renderTerminalView, 
+             renderPdfViewer, renderBrowserViewer } = component;
         const isActive = node.id === activeContentPaneId;
         const isTargeted = dropTarget?.nodePath.join('') === path.join('');
 
@@ -100,17 +107,20 @@ const LayoutNode = memo(({ node, path, component }) => {
             if (draggedItem.type === 'conversation') {
                 contentType = 'chat';
             } else if (draggedItem.type === 'file') {
-                // --- THIS IS THE KEY CHANGE for drag-and-drop ---
                 const extension = draggedItem.id.split('.').pop()?.toLowerCase();
                 if (extension === 'pdf') {
                     contentType = 'pdf';
                 } else {
                     contentType = 'editor';
                 }
+            } else if (draggedItem.type === 'browser') {
+                contentType = 'browser';
+            } else if (draggedItem.type === 'terminal') { // <-- ADD THIS
+                contentType = 'terminal';
             } else {
                 return;
             }
-
+        
             if (side === 'center') {
                 updateContentPane(node.id, contentType, draggedItem.id);
             } else {
@@ -118,8 +128,8 @@ const LayoutNode = memo(({ node, path, component }) => {
             }
             setDraggedItem(null);
             setDropTarget(null);
-        };
-
+        };        
+        
         const renderContent = () => {
             const contentType = contentDataRef.current[node.id]?.contentType;
             switch (contentType) {
@@ -129,13 +139,14 @@ const LayoutNode = memo(({ node, path, component }) => {
                     return renderFileEditor({ nodeId: node.id });
                 case 'terminal':
                     return renderTerminalView({ nodeId: node.id });
-                case 'pdf': // <-- ADD THIS CASE
+                case 'pdf':
                     return renderPdfViewer({ nodeId: node.id });
+                case 'browser':
+                    return renderBrowserViewer({ nodeId: node.id });
                 default:
                     return <div className="p-4 theme-text-muted">Empty pane.</div>;
             }
         };
-
 
         return (
             <div
@@ -388,6 +399,13 @@ const ChatInterface = () => {
     const [editedFileName, setEditedFileName] = useState('');
     const [sidebarItemContextMenuPos, setSidebarItemContextMenuPos] = useState(null); // ADD THIS
 
+    const [pdfContextMenuPos, setPdfContextMenuPos] = useState(null);
+    const [selectedPdfText, setSelectedPdfText] = useState(null);
+    const [pdfHighlights, setPdfHighlights] = useState([]);
+    const [browserUrlDialogOpen, setBrowserUrlDialogOpen] = useState(false);
+    
+    
+
     // Add state for renaming items directly in the sidebar
     const [renamingPath, setRenamingPath] = useState(null);
     const [editedSidebarItemName, setEditedSidebarItemName] = useState('');
@@ -427,6 +445,58 @@ const ChatInterface = () => {
         defaultPrompt: '',
         onConfirm: null
     });
+    const [browserContextMenu, setBrowserContextMenu] = useState({
+        isOpen: false,
+        x: 0,
+        y: 0,
+        selectedText: '',
+        viewId: null,
+    });
+    
+
+    const [browserContextMenuPos, setBrowserContextMenuPos] = useState(null);
+
+
+        
+    const handleBrowserCopyText = () => {
+        if (browserContextMenu.selectedText) {
+            navigator.clipboard.writeText(browserContextMenu.selectedText);
+        }
+        // Restore visibility
+        window.api.browserSetVisibility({ viewId: browserContextMenu.viewId, visible: true });
+        setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
+    };
+    
+    const handleBrowserAddToChat = () => {
+        if (browserContextMenu.selectedText) {
+            setInput(prev => `${prev}${prev ? '\n\n' : ''}"${browserContextMenu.selectedText}"`);
+        }
+        // Restore visibility
+        window.api.browserSetVisibility({ viewId: browserContextMenu.viewId, visible: true });
+        setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
+    };
+    
+    const handleBrowserAiAction = (action) => {
+        const { selectedText, viewId } = browserContextMenu;
+        if (!selectedText) return;
+    
+        let prompt = '';
+        switch(action) {
+            case 'summarize':
+                prompt = `Please summarize the following text from a website:\n\n---\n${selectedText}\n---`;
+                break;
+            case 'explain':
+                prompt = `Please explain the key points of the following text from a website:\n\n---\n${selectedText}\n---`;
+                break;
+        }
+        setInput(prompt);
+        // Restore visibility
+        window.api.browserSetVisibility({ viewId, visible: true });
+        setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
+    };
+    
+    
+
     const [ctxEditorOpen, setCtxEditorOpen] = useState(false);
 
     // --- NEW: Collapsible section states ---
@@ -472,13 +542,29 @@ const ChatInterface = () => {
                 e.preventDefault();
                 searchInputRef.current?.focus();
             }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                e.preventDefault();
+                setBrowserUrlDialogOpen(true);
+            }
+    
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
         };
     }, []);
-
+    useEffect(() => {
+        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText }) => {
+            console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText });
+            // Set the state to show the menu at the correct position with the selected text
+            setBrowserContextMenuPos({ x, y, selectedText });
+        });
+    
+        return () => {
+            cleanup();
+        };
+    }, []); // Empty dependency array ensures this runs only once
+    
     useEffect(() => {
         if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
@@ -696,6 +782,110 @@ const handleMessageContextMenu = useCallback((e, messageId) => {
     setMessageContextMenuPos({ x: e.clientX, y: e.clientY, messageId });
 }, [messageSelectionMode]);
 
+const handlePdfTextSelect = (selectionEvent) => {
+    console.log('[PDF_SELECT] handlePdfTextSelect called with:', selectionEvent);
+    
+    if (selectionEvent && selectionEvent.selectedText && selectionEvent.selectedText.trim()) {
+        console.log('[PDF_SELECT] Setting selectedPdfText:', {
+            text: selectionEvent.selectedText.substring(0, 50) + '...',
+            textLength: selectionEvent.selectedText.length,
+            pageIndex: selectionEvent.pageIndex,
+            hasQuads: !!selectionEvent.quads
+        });
+        
+        setSelectedPdfText({
+            text: selectionEvent.selectedText,
+            position: {
+                pageIndex: selectionEvent.pageIndex,
+                quads: selectionEvent.quads
+            }
+        });
+    } else {
+        console.log('[PDF_SELECT] No valid selection event or empty text:', {
+            hasEvent: !!selectionEvent,
+            hasSelectedText: !!(selectionEvent?.selectedText),
+            textLength: selectionEvent?.selectedText?.length || 0,
+            trimmedLength: selectionEvent?.selectedText?.trim()?.length || 0
+        });
+    }
+};
+
+const handleCopyPdfText = () => {
+    if (selectedPdfText?.text) {
+        navigator.clipboard.writeText(selectedPdfText.text);
+    }
+    setPdfContextMenuPos(null);
+};
+const handleHighlightPdfSelection = async () => {
+    if (!selectedPdfText) return;
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'pdf') return;
+
+    const filePath = paneData.contentId;
+    
+    // Use the complete selection data
+    const highlightData = {
+        filePath: filePath,
+        text: selectedPdfText.text,
+        position: selectedPdfText.position 
+    };
+
+    await window.api.addPdfHighlight(highlightData);
+    const response = await window.api.getHighlightsForFile(filePath);
+    if (response.highlights) {
+        setPdfHighlights(response.highlights);
+    }
+    setPdfContextMenuPos(null);
+};
+
+const handleApplyPromptToPdfText = (promptType) => {
+    if (!selectedPdfText?.text) return;
+    const text = selectedPdfText.text;
+    let prompt = '';
+    switch(promptType) {
+        case 'summarize':
+            prompt = `Please summarize the following text:\n\n---\n${text}\n---`;
+            break;
+        case 'explain':
+            prompt = `Please explain the following text in simple terms:\n\n---\n${text}\n---`;
+            break;
+    }
+    setInput(prompt);
+    setPdfContextMenuPos(null);
+};
+
+
+useEffect(() => {
+    const loadHighlights = async () => {
+        if (activeContentPaneId) {
+            const paneData = contentDataRef.current[activeContentPaneId];
+            if (paneData && paneData.contentType === 'pdf') {
+                const response = await window.api.getHighlightsForFile(paneData.contentId);
+                if (response.highlights) {
+                    // --- THIS IS THE FIX ---
+                    // Transform the data from our DB format to the plugin's required format.
+                    const transformedHighlights = response.highlights.map(h => ({
+                        id: h.id,
+                        position: {
+                            pageIndex: h.position.pageIndex, // Use the pageIndex from the DB
+                            rects: h.position.quads,         // Map our 'quads' to the plugin's 'rects'
+                        },
+                        content: {
+                            text: h.highlighted_text, // Add content for potential future features
+                        }
+                    }));
+                    setPdfHighlights(transformedHighlights);
+                    // --- END FIX ---
+                } else {
+                    setPdfHighlights([]);
+                }
+            } else {
+                setPdfHighlights([]);
+            }
+        }
+    };
+    loadHighlights();
+}, [activeContentPaneId, contentDataRef.current[activeContentPaneId]?.contentId]);
 
 const handleEditorContextMenu = (e) => {
     const textarea = e.target;
@@ -1301,6 +1491,8 @@ const loadAvailableNPCs = async () => {
                 setFileContextMenuPos(null);
                 setMessageContextMenuPos(null);
                 setEditorContextMenuPos(null);
+                setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '' }); // <-- ADD THIS
+
             }
         };
     
@@ -1329,63 +1521,69 @@ const loadAvailableNPCs = async () => {
 
     const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
 
-    console.log(`[updateContentPane] Updating pane "${paneId}" to type "${newContentType}" with ID "${newContentId}"`);
-    
-    if (!contentDataRef.current[paneId]) {
-        contentDataRef.current[paneId] = {};
-    }
-    const paneData = contentDataRef.current[paneId];
-    
-    paneData.contentType = newContentType;
-    paneData.contentId = newContentId;
-
-
-    if (newContentType === 'editor') {
-        try {
-            const response = await window.api.readFileContent(newContentId);
-            paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
-            paneData.fileChanged = false;
-        } catch (err) {
-            paneData.fileContent = `Error loading file: ${err.message}`;
-        }
-    } else if (newContentType === 'chat') {
-        if (!paneData.chatMessages) {
-            paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-        }
+        console.log(`[updateContentPane] Updating pane "${paneId}" to type "${newContentType}" with ID "${newContentId}"`);
         
-        if (skipMessageLoad) {
-            paneData.chatMessages.messages = [];
-            paneData.chatMessages.allMessages = [];
-            paneData.chatStats = getConversationStats([]);
-        } else {
-            try {
-                const msgs = await window.api.getConversationMessages(newContentId);
-                const formatted = (msgs && Array.isArray(msgs)) 
-                    ? msgs.map(m => ({ ...m, id: m.id || generateId() })) 
-                    : [];
+        if (!contentDataRef.current[paneId]) {
+            contentDataRef.current[paneId] = {};
+        }
+        const paneData = contentDataRef.current[paneId];
+        
+        paneData.contentType = newContentType;
+        paneData.contentId = newContentId;
 
-                paneData.chatMessages.allMessages = formatted;
-                const count = paneData.chatMessages.displayedMessageCount || 20;
-                paneData.chatMessages.messages = formatted.slice(-count);
-                paneData.chatStats = getConversationStats(formatted);
+
+        if (newContentType === 'editor') {
+            try {
+                const response = await window.api.readFileContent(newContentId);
+                paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
+                paneData.fileChanged = false;
             } catch (err) {
-                console.error(`Error loading messages for convo ${newContentId}:`, err);
+                paneData.fileContent = `Error loading file: ${err.message}`;
+            }
+        }
+        else if (newContentType === 'browser') {
+            paneData.chatMessages = null;
+            paneData.fileContent = null;
+            paneData.browserUrl = newContentId; // Store the URL or browser ID
+        }
+        else if (newContentType === 'chat') {
+            if (!paneData.chatMessages) {
+                paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+            }
+            
+            if (skipMessageLoad) {
                 paneData.chatMessages.messages = [];
                 paneData.chatMessages.allMessages = [];
                 paneData.chatStats = getConversationStats([]);
+            } else {
+                try {
+                    const msgs = await window.api.getConversationMessages(newContentId);
+                    const formatted = (msgs && Array.isArray(msgs)) 
+                        ? msgs.map(m => ({ ...m, id: m.id || generateId() })) 
+                        : [];
+
+                    paneData.chatMessages.allMessages = formatted;
+                    const count = paneData.chatMessages.displayedMessageCount || 20;
+                    paneData.chatMessages.messages = formatted.slice(-count);
+                    paneData.chatStats = getConversationStats(formatted);
+                } catch (err) {
+                    console.error(`Error loading messages for convo ${newContentId}:`, err);
+                    paneData.chatMessages.messages = [];
+                    paneData.chatMessages.allMessages = [];
+                    paneData.chatStats = getConversationStats([]);
+                }
             }
+        } else if (newContentType === 'terminal') { // <-- ADD THIS ELSE IF BLOCK
+            // Clear other content types' data
+            paneData.chatMessages = null;
+            paneData.fileContent = null;
         }
-    } else if (newContentType === 'terminal') { // <-- ADD THIS ELSE IF BLOCK
-        // Clear other content types' data
-        paneData.chatMessages = null;
-        paneData.fileContent = null;
-    }
-       else if (newContentType === 'pdf') {
-        // LOG E: Confirm we hit the PDF logic block.
-        console.log(`[updateContentPane] Setting up pane "${paneId}" for PDF viewer.`);
-        paneData.chatMessages = null;
-        paneData.fileContent = null;
-        }
+        else if (newContentType === 'pdf') {
+            // LOG E: Confirm we hit the PDF logic block.
+            console.log(`[updateContentPane] Setting up pane "${paneId}" for PDF viewer.`);
+            paneData.chatMessages = null;
+            paneData.fileContent = null;
+            }
 
 
 }, []);
@@ -1684,25 +1882,253 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         setCurrentFile(null);
         setRootLayoutNode(p => ({ ...p }));
     };
-
-// In ChatInterface.jsx
-const renderPdfViewer = useCallback(({ nodeId }) => {
-    const paneData = contentDataRef.current[nodeId];
-    if (!paneData?.contentId) return null;
-
-    return (
-        <div className="flex-1 flex flex-col theme-bg-secondary relative">
-            <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0">
-                <span>PDF: {paneData.contentId.split('/').pop()}</span>
-            </div>
-            {/* This container gets sized by flexbox. overflow-auto is correct. */}
-            <div className="flex-1 overflow-auto min-h-0">
-                <PdfViewer filePath={paneData.contentId} />
-            </div>
-        </div>
-    );
-}, []);
+    const renderPdfViewer = useCallback(({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData?.contentId) return null;
+        const path = findNodePath(rootLayoutNode, nodeId);
+    
+        console.log('[PDF_RENDER] Rendering PDF viewer for pane:', nodeId, 'with selectedPdfText:', {
+            hasSelection: !!selectedPdfText,
+            textPreview: selectedPdfText?.text?.substring(0, 30) + '...' || 'none'
+        });
+    
+        const handlePdfContextMenu = (e) => {
+            console.log('[PDF_CONTEXT] Context menu handler called from PdfViewer');
+            console.log('[PDF_CONTEXT] Event details:', {
+                clientX: e.clientX,
+                clientY: e.clientY,
+                hasSelectedPdfText: !!selectedPdfText,
+                selectedTextPreview: selectedPdfText?.text?.substring(0, 50) || 'none'
+            });
             
+            // Show context menu if we have selected text stored
+            if (selectedPdfText && selectedPdfText.text) {
+                console.log('[PDF_CONTEXT] Showing context menu at:', { x: e.clientX, y: e.clientY });
+                setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
+            } else {
+                console.log('[PDF_CONTEXT] Not showing context menu - no selected text');
+            }
+        };
+    
+        return (
+            <div className="flex-1 flex flex-col theme-bg-secondary relative">
+                <div
+                    className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+                    draggable="true"
+                    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: paneData.contentId }); }}
+                    onDragEnd={handleGlobalDragEnd}
+                >
+                <div className="flex items-center gap-2 truncate">
+                        {getFileIcon(paneData.contentId)}
+                        <span className="truncate" title={paneData.contentId}>
+                            {paneData.contentId.split('/').pop()}
+                        </span>
+                    </div>
+                    <button 
+                        onClick={() => closeContentPane(nodeId, path)} 
+                        className="p-1 theme-hover rounded-full flex-shrink-0"
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+                <div className="flex-1 overflow-auto min-h-0">
+                    <PdfViewer 
+                        filePath={paneData.contentId}
+                        highlights={pdfHighlights}
+                        onTextSelect={handlePdfTextSelect}
+                        onContextMenu={handlePdfContextMenu}
+                    />
+                </div>
+            </div>
+        );
+    }, [rootLayoutNode, selectedPdfText, pdfHighlights,setDraggedItem]);
+    const handleGlobalDragStart = (e, item) => {
+        setDraggedItem(item);
+        // Hide all active browser views
+        Object.values(contentDataRef.current).forEach(paneData => {
+            if (paneData.contentType === 'browser' && paneData.contentId) {
+                window.api.browserSetVisibility({ viewId: paneData.contentId, visible: false });
+            }
+        });
+    };
+    
+    const handleGlobalDragEnd = () => {
+        setDraggedItem(null);
+        setDropTarget(null);
+        // Show all active browser views again
+        Object.values(contentDataRef.current).forEach(paneData => {
+            if (paneData.contentType === 'browser' && paneData.contentId) {
+                window.api.browserSetVisibility({ viewId: paneData.contentId, visible: true });
+            }
+        });
+    };
+    
+    const createNewBrowser = async (url = null) => {
+        // If no URL provided, open the dialog
+        if (!url) {
+            setBrowserUrlDialogOpen(true);
+            return;
+        }
+        
+        let targetPaneId = activeContentPaneId;
+        const newBrowserId = `browser_${generateId()}`;
+    
+        if (!rootLayoutNode || !targetPaneId) {
+            const newPaneId = generateId();
+            const newLayout = { id: newPaneId, type: 'content' };
+            contentDataRef.current[newPaneId] = {};
+            setRootLayoutNode(newLayout);
+            setActiveContentPaneId(newPaneId);
+            targetPaneId = newPaneId;
+        }
+    
+        await updateContentPane(targetPaneId, 'browser', newBrowserId);
+        
+        // Store the initial URL in the pane data
+        contentDataRef.current[targetPaneId].browserUrl = url;
+        
+        setActiveConversationId(null);
+        setCurrentFile(null);
+        setRootLayoutNode(p => ({ ...p }));
+    };
+    const handleBrowserDialogNavigate = (url) => {
+        createNewBrowser(url);
+        setBrowserUrlDialogOpen(false);
+    };
+    const renderBrowserViewer = useCallback(({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData) return null;
+    
+        const { contentId: browserId, browserUrl } = paneData;
+        
+        return (
+            <div className="flex-1 flex flex-col theme-bg-secondary relative">
+                <div 
+    className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+    draggable="true"
+    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'browser', id: browserId }); }}
+    onDragEnd={handleGlobalDragEnd}
+
+>
+                    <div className="flex items-center gap-2 truncate">
+                        <Globe size={14} />
+                        <span className="truncate">Browser</span>
+                    </div>
+                    <button 
+                        onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNodeRef.current, nodeId))} 
+                        className="p-1 theme-hover rounded-full"
+                        onMouseDown={(e) => e.stopPropagation()} // <-- Prevent drag when clicking close
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+                <div className="flex-1 overflow-hidden min-h-0">
+                    {browserId && (
+                        <WebBrowserViewer 
+                            key={`browser-${nodeId}-${browserId}`} 
+                            initialUrl={browserUrl}
+                            viewId={browserId}
+                            currentPath={currentPath}
+                        />
+                    )}
+                </div>
+            </div>
+        );
+    }, [closeContentPane, findNodePath, setDraggedItem]);
+
+    useEffect(() => {
+        // This function now receives the viewId
+        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText, viewId }) => {
+            console.log(`[REACT BROWSER CONTEXT] Received event for viewId: ${viewId}`);
+            setBrowserContextMenu({ isOpen: true, x, y, selectedText, viewId });
+        });
+    
+        const handleClickOutside = () => {
+            setBrowserContextMenu(currentState => {
+                // Only act if the menu is open
+                if (currentState.isOpen) {
+                    console.log(`[REACT BROWSER CONTEXT] Closing menu, restoring viewId: ${currentState.viewId}`);
+                    // Tell main process to make the BrowserView visible again
+                    window.api.browserSetVisibility({ viewId: currentState.viewId, visible: true });
+                    // Return the new "closed" state
+                    return { isOpen: false, x: 0, y: 0, selectedText: '', viewId: null };
+                }
+                return currentState; // Return unchanged state if it wasn't open
+            });
+        };
+    
+        // Use 'mousedown' to catch all clicks (left and right) to dismiss the menu
+        window.addEventListener('mousedown', handleClickOutside);
+    
+        return () => {
+            cleanup();
+            window.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []); // Keep dependency array empty
+    
+    
+    const renderBrowserContextMenu = () => {
+        if (!browserContextMenu.isOpen) return null;
+    
+        return (
+            // stopPropagation prevents the click-outside handler from firing on the menu itself
+            <div
+                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
+                style={{ top: browserContextMenu.y, left: browserContextMenu.x }}
+                onMouseDown={(e) => e.stopPropagation()}
+            >
+                <div className="px-4 py-2 text-xs theme-text-muted border-b theme-border truncate max-w-xs italic">
+                    "{browserContextMenu.selectedText.substring(0, 50)}..."
+                </div>
+                <button onClick={handleBrowserCopyText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left">
+                    <Edit size={14} /> Copy
+                </button>
+                <div className="border-t theme-border my-1"></div>
+                <button onClick={handleBrowserAddToChat} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left">
+                    <MessageSquare size={14} /> Add to Chat
+                </button>
+                <button onClick={() => handleBrowserAiAction('summarize')} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left">
+                    <FileText size={14} /> Summarize with AI
+                </button>
+                <button onClick={() => handleBrowserAiAction('explain')} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left">
+                    <Wrench size={14} /> Explain with AI
+                </button>
+            </div>
+        );
+    };
+    
+    
+    const renderPdfContextMenu = () => {
+        console.log('[PDF_MENU] renderPdfContextMenu called with:', {
+            hasPdfContextMenuPos: !!pdfContextMenuPos,
+            menuPosition: pdfContextMenuPos,
+            hasSelectedText: !!selectedPdfText,
+            textPreview: selectedPdfText?.text?.substring(0, 30) || 'none'
+        });
+    
+        return pdfContextMenuPos && (
+            <>
+                {console.log('[PDF_MENU] Rendering context menu')}
+                <div className="fixed inset-0 z-40" onClick={() => {
+                    console.log('[PDF_MENU] Backdrop clicked - closing menu');
+                    setPdfContextMenuPos(null);
+                }} />
+                <div
+                    className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
+                    style={{ top: pdfContextMenuPos.y, left: pdfContextMenuPos.x }}
+                >
+                    <button onClick={handleCopyPdfText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left">Copy</button>
+                    <button onClick={handleHighlightPdfSelection} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left">Highlight</button>
+                    <div className="border-t theme-border my-1"></div>
+                    <button onClick={() => handleApplyPromptToPdfText('summarize')} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left">Summarize Text</button>
+                    <button onClick={() => handleApplyPromptToPdfText('explain')} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left">Explain Text</button>
+                </div>
+            </>
+        );
+    };
+    
+    
+
     const renderTerminalView = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
         if (!paneData) return null;
@@ -1729,7 +2155,7 @@ const renderPdfViewer = useCallback(({ nodeId }) => {
                 </div>
             </div>
         );
-    }, [rootLayoutNode, currentPath, activeContentPaneId]);
+    }, [rootLayoutNode, currentPath, activeContentPaneId,setDraggedItem]);
     
     const renderFileEditor = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
@@ -1767,7 +2193,13 @@ const renderPdfViewer = useCallback(({ nodeId }) => {
     
         return (
             <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
-                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+<div 
+    className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+    draggable="true"
+    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: filePath }); }}
+    onDragEnd={handleGlobalDragEnd}
+>
+
                     <div className="flex items-center gap-2 truncate">
                         {getFileIcon(fileName)}
                         {isRenaming ? (
@@ -1798,7 +2230,14 @@ const renderPdfViewer = useCallback(({ nodeId }) => {
                     </div>
                     <div className="flex items-center gap-2">
                         <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
-                        <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full"><X size={14} /></button>
+                        <button 
+                        onClick={() => closeContentPane(nodeId, path)} 
+                        className="p-1 theme-hover rounded-full flex-shrink-0"
+                        onMouseDown={(e) => e.stopPropagation()} // <-- ADD THIS LINE
+                    >
+                        <X size={14} />
+                    </button>
+
                     </div>
                 </div>
                 <div className="flex-1 overflow-scroll min-h-0">
@@ -1839,7 +2278,7 @@ const renderPdfViewer = useCallback(({ nodeId }) => {
                 )}
             </div>
         );
-    }, [rootLayoutNode, activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName]);
+    }, [rootLayoutNode, activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setDraggedItem]);
     
     const renderChatView = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
@@ -1870,15 +2309,30 @@ const renderPdfViewer = useCallback(({ nodeId }) => {
     
         return (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary">
+            <div 
+    className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+    draggable="true"
+    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'conversation', id: conversationId }); }}
+    onDragEnd={handleGlobalDragEnd}
+
+>
+
                     <div className="flex justify-between items-center">
                         <span className="truncate min-w-0 font-semibold" title={conversationId}>Conversation: {conversationId?.slice(-8) || 'None'}</span>
                         <div className="flex items-center gap-2">
                             <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`} title={messageSelectionMode ? 'Exit selection mode' : 'Enter selection mode'}>
                                 <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
                             </button>
-                            <button onClick={() => closeContentPane(nodeId, path)} className="p-1 theme-hover rounded-full flex-shrink-0"><X size={14} /></button>
+                            <button 
+                                onClick={() => closeContentPane(nodeId, path)} 
+                                className="p-1 theme-hover rounded-full flex-shrink-0"
+                                onMouseDown={(e) => e.stopPropagation()} // <-- ADD THIS LINE
+                            >
+                                <X size={14} />
+                            </button>
                         </div>
+
+
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-gray-400">
                         <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
@@ -1909,7 +2363,7 @@ const renderPdfViewer = useCallback(({ nodeId }) => {
                 </div>
             </div>
         );
-    }, [rootLayoutNode, messageSelectionMode, selectedMessages, searchTerm, activeSearchResult]);
+    }, [rootLayoutNode, messageSelectionMode, selectedMessages, searchTerm, activeSearchResult,setDraggedItem]);
     
     
 const createNewConversation = async () => {
@@ -3162,6 +3616,14 @@ const renderSidebarItemContextMenu = () => {
                         {/* Dropdown menu - with hover persistence */}
                         <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
                             <button 
+                                onClick={createNewConversation} 
+                                className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
+                            >
+                                <MessageSquare size={12} />
+                                <span>New Conversation</span>
+                            </button>
+
+                            <button 
                                 onClick={handleCreateNewFolder} 
                                 className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
                             >
@@ -3170,12 +3632,13 @@ const renderSidebarItemContextMenu = () => {
                             </button>
 
                             <button 
-                                onClick={createNewConversation} 
+                                onClick={() => setBrowserUrlDialogOpen(true)} 
                                 className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
                             >
-                                <MessageSquare size={12} />
-                                <span>New Conversation</span>
+                                <Globe size={12} />
+                                <span>New Browser</span>
                             </button>
+
                             <button 
                                 onClick={createNewTextFile} 
                                 className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
@@ -3272,6 +3735,7 @@ const renderSidebarItemContextMenu = () => {
 
                 {sidebarItemContextMenuPos && renderSidebarItemContextMenu()}
                 {fileContextMenuPos && renderFileContextMenu()}
+
             </div>
             
             <div className="p-4 border-t theme-border flex-shrink-0">
@@ -3411,8 +3875,8 @@ const renderSidebarItemContextMenu = () => {
                     <div key={`file-${fullPath}`}>
                         <button 
                             draggable="true"
-                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; setDraggedItem({ type: 'file', id: fullPath }); }}
-                            onDragEnd={() => setDraggedItem(null)}
+                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: fullPath }); }}
+                            onDragEnd={handleGlobalDragEnd}
                             onClick={(e) => {
                                 if (e.ctrlKey || e.metaKey) {
                                     // Ctrl+Click for multi-select
@@ -3592,9 +4056,10 @@ const renderSidebarItemContextMenu = () => {
                             <button
                             key={conv.id}
                             draggable="true"
-                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; setDraggedItem({ type: 'conversation', id: conv.id }); }}
-                            onDragEnd={() => setDraggedItem(null)}
-                                onClick={(e) => { 
+                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'conversation', id: conv.id }); }}
+                            onDragEnd={handleGlobalDragEnd}
+
+                            onClick={(e) => { 
                                     if (e.ctrlKey || e.metaKey) { 
                                         const newSelected = new Set(selectedConvos || new Set()); 
                                         if (newSelected.has(conv.id)) { 
@@ -4008,6 +4473,13 @@ const renderInputArea = () => (
             currentProvider={currentProvider}
             currentNPC={currentNPC}
         />
+                <BrowserUrlDialog
+            isOpen={browserUrlDialogOpen}
+            onClose={() => setBrowserUrlDialogOpen(false)}
+            onNavigate={handleBrowserDialogNavigate}
+            currentPath={currentPath}
+        />
+
 
 
             <SettingsMenu isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} currentPath={currentPath} onPathChange={(newPath) => { setCurrentPath(newPath); }}/>
@@ -4226,6 +4698,10 @@ const renderInputArea = () => (
         </div>
     </div>
 )}
+        {renderPdfContextMenu()}
+        {renderBrowserContextMenu()}
+        
+
         {renderMessageContextMenu()}
 
             {isMacroInputOpen && (<MacroInput isOpen={isMacroInputOpen} currentPath={currentPath} onClose={() => { setIsMacroInputOpen(false); window.api?.hideMacro?.(); }} onSubmit={({ macro, conversationId, result }) => { setActiveConversationId(conversationId); setCurrentConversation({ id: conversationId, title: macro.trim().slice(0, 50) }); if (!result) { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: 'Processing...', timestamp: new Date().toISOString(), type: 'message' }]); } else { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: result?.output || 'No response', timestamp: new Date().toISOString(), type: 'message' }]); } refreshConversations(); }}/> )}
@@ -4283,26 +4759,23 @@ const handleSearchResultSelect = async (conversationId, searchTerm) => {
     }, 100);
 };
 const layoutComponentApi = useMemo(() => ({
-    // DO NOT INCLUDE rootLayoutNode or setRootLayoutNode here
     findNodeByPath,
     activeContentPaneId, setActiveContentPaneId,
     draggedItem, setDraggedItem, dropTarget, setDropTarget,
     contentDataRef, updateContentPane, performSplit,
-    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer
+    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer, 
 }), [
-    // List ONLY the stable functions and state setters it depends on
     findNodeByPath,
     activeContentPaneId, setActiveContentPaneId,
     draggedItem, setDraggedItem, dropTarget, setDropTarget,
     updateContentPane, performSplit,
-    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer
+    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer, 
 ]);
 
 
 
 const renderMainContent = () => {
-    // This object is now correctly memoized. It will NOT be recreated when rootLayoutNode changes.
-    // This is the definitive fix that breaks the re-render loop.
+
     if (!rootLayoutNode) {
         return (
             <div 
@@ -4315,8 +4788,20 @@ const renderMainContent = () => {
                     
                     const newPaneId = generateId();
                     const newLayout = { id: newPaneId, type: 'content' };
-                    const extension = draggedItem.id.split('.').pop()?.toLowerCase();
-                    const contentType = draggedItem.type === 'conversation' ? 'chat' : (extension === 'pdf' ? 'pdf' : 'editor');
+                    
+                    let contentType;
+                    if (draggedItem.type === 'conversation') {
+                        contentType = 'chat';
+                    } else if (draggedItem.type === 'browser') {
+                        contentType = 'browser';
+                    } else if (draggedItem.type === 'terminal') { // <-- ADD THIS
+                        contentType = 'terminal';
+                    } else if (draggedItem.type === 'file') {
+                        const extension = draggedItem.id.split('.').pop()?.toLowerCase();
+                        contentType = extension === 'pdf' ? 'pdf' : 'editor';
+                    } else {
+                        contentType = 'editor'; // fallback
+                    }
                     
                     contentDataRef.current[newPaneId] = {};
                     await updateContentPane(newPaneId, contentType, draggedItem.id);
@@ -4324,8 +4809,7 @@ const renderMainContent = () => {
                     setRootLayoutNode(newLayout);
                     setActiveContentPaneId(newPaneId);
                     setDraggedItem(null);
-                }}
-            >
+                }}  >
                 <div className="text-center text-gray-500">
                     <div className="text-xl mb-2">No panes open</div>
                     <div>Drag a conversation or file here to create a new pane</div>

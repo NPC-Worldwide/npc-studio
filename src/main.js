@@ -17,7 +17,60 @@ const logFilePath = path.join(os.homedir(), '.npc_studio', 'app.log');
 const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 let mainWindow = null;
 let pdfView = null; 
+// Update your ensureTablesExist function:
+const ensureTablesExist = async () => {
+  console.log('[DB] Ensuring all tables exist...');
+  
+  const createHighlightsTable = `
+      CREATE TABLE IF NOT EXISTS pdf_highlights (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_path TEXT NOT NULL,
+          highlighted_text TEXT NOT NULL,
+          position_json TEXT NOT NULL,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+  `;
+  
+  const createBookmarksTable = `
+      CREATE TABLE IF NOT EXISTS bookmarks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          url TEXT NOT NULL,
+          folder_path TEXT,
+          is_global BOOLEAN DEFAULT 0,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+  `;
+  
+  const createBrowserHistoryTable = `
+      CREATE TABLE IF NOT EXISTS browser_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT,
+          url TEXT NOT NULL,
+          folder_path TEXT,
+          visit_count INTEGER DEFAULT 1,
+          last_visited DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+  `;
 
+  const createIndexes = `
+      CREATE INDEX IF NOT EXISTS idx_file_path ON pdf_highlights(file_path);
+      CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder_path);
+      CREATE INDEX IF NOT EXISTS idx_bookmarks_global ON bookmarks(is_global);
+      CREATE INDEX IF NOT EXISTS idx_history_folder ON browser_history(folder_path);
+      CREATE INDEX IF NOT EXISTS idx_history_url ON browser_history(url);
+  `;
+
+  try {
+      await dbQuery(createHighlightsTable);
+      await dbQuery(createBookmarksTable);
+      await dbQuery(createBrowserHistoryTable);
+      await dbQuery(createIndexes);
+      console.log('[DB] All tables are ready.');
+  } catch (error) {
+      console.error('[DB] FATAL: Could not create tables.', error);
+  }
+};
 app.setAppUserModelId('com.npc_studio.chat');
 app.name = 'npc-studio';
 app.setName('npc-studio');
@@ -118,6 +171,7 @@ async function ensureBaseDir() {
 app.whenReady().then(async () => {
   // Ensure user data directory exists
   const dataPath = ensureUserDataDirectory();
+  await ensureTablesExist(); // <<< ADD THIS LINE. IT MUST BE CALLED.
 
   protocol.registerFileProtocol('file', (request, callback) => {
     const filepath = request.url.replace('file://', '');
@@ -439,7 +493,258 @@ if (!gotTheLock) {
     // Tell renderer to show macro input
     mainWindow.webContents.send('show-macro-input');
   }
+  const browserViews = new Map(); // Stores state: { view, bounds, visible }
 
+  // --- 2. Update 'show-browser' handler ---
+  ipcMain.handle('show-browser', (event, { url, bounds, viewId }) => {
+      log(`[BROWSER VIEW] Received 'show-browser' for URL: ${url}, viewId: ${viewId}`);
+      if (!mainWindow) return { success: false, error: 'Main window not found' };
+  
+      if (browserViews.has(viewId)) {
+          const existing = browserViews.get(viewId);
+          mainWindow.removeBrowserView(existing.view);
+          existing.view.webContents.destroy();
+      }
+  
+      const newBrowserView = new BrowserView({
+          webPreferences: {
+              nodeIntegration: false,
+              contextIsolation: true,
+              webSecurity: true,
+          },
+      });
+  
+      mainWindow.addBrowserView(newBrowserView);
+      newBrowserView.setBounds(bounds);
+      
+      // Store the complete state
+      browserViews.set(viewId, { view: newBrowserView, bounds, visible: true });
+  
+
+      newBrowserView.webContents.on('context-menu', (e, params) => {
+        const { x, y, selectionText } = params;
+
+        if (selectionText && selectionText.trim().length > 0) {
+            log(`[BROWSER CONTEXT] Selected text found, hiding view for menu.`);
+          
+            // --- THIS IS THE FIX ---
+            // 1. Find the view's state from our map
+            if (browserViews.has(viewId)) {
+                const browserState = browserViews.get(viewId);
+                
+                // 2. Temporarily hide the BrowserView by moving it off-screen
+                browserState.view.setBounds({ x: -2000, y: -2000, width: 0, height: 0 });
+                // We DON'T set `visible: false` because this is a temporary hide
+                
+                // 3. Tell React to show the HTML menu, passing the viewId
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('browser-show-context-menu', {
+                        x,
+                        y,
+                        selectedText: selectionText.trim(),
+                        viewId // Pass the viewId so React knows which view to restore
+                    });
+                }
+            }
+        }
+    });
+      
+      const finalURL = url.startsWith('http') ? url : `https://${url}`;
+      newBrowserView.webContents.loadURL(finalURL);
+      return { success: true, viewId };
+  });
+  
+  // --- 3. Add NEW 'browser:set-visibility' handler ---
+  ipcMain.handle('browser:set-visibility', (event, { viewId, visible }) => {
+      if (browserViews.has(viewId)) {
+          const browserState = browserViews.get(viewId);
+          if (visible) {
+              log(`[BROWSER VIEW] Setting visibility to TRUE for ${viewId}`);
+              browserState.view.setBounds(browserState.bounds);
+              browserState.visible = true;
+          } else {
+              log(`[BROWSER VIEW] Setting visibility to FALSE for ${viewId}`);
+              // Hide by moving it off-screen with zero size
+              browserState.view.setBounds({ x: -2000, y: -2000, width: 0, height: 0 });
+              browserState.visible = false;
+          }
+          return { success: true };
+      }
+      return { success: false, error: 'View not found' };
+  });
+  
+  // --- 4. Update 'update-browser-bounds' handler ---
+  ipcMain.handle('update-browser-bounds', (event, { viewId, bounds }) => {
+      if (browserViews.has(viewId)) {
+          const browserState = browserViews.get(viewId);
+          browserState.bounds = bounds; // Always update stored bounds
+          
+          // Only set bounds if the view is supposed to be visible
+          if (browserState.visible) {
+              browserState.view.setBounds(bounds);
+          }
+          return { success: true };
+      }
+      return { success: false, error: 'Browser view not found' };
+  });
+  
+  // --- 5. Update 'hide-browser' handler ---
+  ipcMain.handle('hide-browser', (event, { viewId }) => {
+      log(`[BROWSER VIEW] Received 'hide-browser' for viewId: ${viewId}`);
+      if (browserViews.has(viewId) && mainWindow && !mainWindow.isDestroyed()) {
+          log(`[BROWSER VIEW] Removing and destroying BrowserView for ${viewId}`);
+          const browserState = browserViews.get(viewId);
+          mainWindow.removeBrowserView(browserState.view);
+          browserState.view.webContents.destroy();
+          browserViews.delete(viewId); // Clean up the map
+          return { success: true };
+      }
+      return { success: false, error: 'Browser view not found' };
+  });
+  
+
+  
+  ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath }) => {
+    try {
+      // Check if URL already exists in this folder
+      const existing = await dbQuery(
+        'SELECT id, visit_count FROM browser_history WHERE url = ? AND folder_path = ?', 
+        [url, folderPath]
+      );
+      
+      if (existing.length > 0) {
+        // Update existing record
+        await dbQuery(
+          'UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ? WHERE id = ?',
+          [title, existing[0].id]
+        );
+      } else {
+        // Insert new record
+        await dbQuery(
+          'INSERT INTO browser_history (url, title, folder_path) VALUES (?, ?, ?)',
+          [url, title, folderPath]
+        );
+      }
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:getHistory', async (event, { folderPath, limit = 50 }) => {
+    try {
+      const history = await dbQuery(
+        'SELECT * FROM browser_history WHERE folder_path = ? ORDER BY last_visited DESC LIMIT ?',
+        [folderPath, limit]
+      );
+      return { success: true, history };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:addBookmark', async (event, { url, title, folderPath, isGlobal = false }) => {
+    try {
+      await dbQuery(
+        'INSERT INTO bookmarks (url, title, folder_path, is_global) VALUES (?, ?, ?, ?)',
+        [url, title, isGlobal ? null : folderPath, isGlobal ? 1 : 0]
+      );
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:getBookmarks', async (event, { folderPath }) => {
+    try {
+      // Get both local and global bookmarks
+      const bookmarks = await dbQuery(
+        'SELECT * FROM bookmarks WHERE (folder_path = ? OR is_global = 1) ORDER BY is_global ASC, timestamp DESC',
+        [folderPath]
+      );
+      return { success: true, bookmarks };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:deleteBookmark', async (event, { bookmarkId }) => {
+    try {
+      await dbQuery('DELETE FROM bookmarks WHERE id = ?', [bookmarkId]);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:clearHistory', async (event, { folderPath }) => {
+    try {
+      await dbQuery('DELETE FROM browser_history WHERE folder_path = ?', [folderPath]);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  
+  ipcMain.handle('browser-navigate', (event, { viewId, url }) => {
+    if (browserViews.has(viewId)) {
+      const finalURL = url.startsWith('http') ? url : `https://${url}`;
+      log(`[BROWSER VIEW] Navigating ${viewId} to: ${finalURL}`);
+      browserViews.get(viewId).webContents.loadURL(finalURL);
+      return { success: true };
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  ipcMain.handle('browser-back', (event, { viewId }) => {
+    if (browserViews.has(viewId)) {
+      const webContents = browserViews.get(viewId).webContents;
+      if (webContents.canGoBack()) {
+        webContents.goBack();
+        return { success: true };
+      }
+      return { success: false, error: 'Cannot go back' };
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  ipcMain.handle('browser-forward', (event, { viewId }) => {
+    if (browserViews.has(viewId)) {
+      const webContents = browserViews.get(viewId).webContents;
+      if (webContents.canGoForward()) {
+        webContents.goForward();
+        return { success: true };
+      }
+      return { success: false, error: 'Cannot go forward' };
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  ipcMain.handle('browser-refresh', (event, { viewId }) => {
+    if (browserViews.has(viewId)) {
+      browserViews.get(viewId).webContents.reload();
+      return { success: true };
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  ipcMain.handle('browser-get-selected-text', (event, { viewId }) => {
+    if (browserViews.has(viewId)) {
+      return new Promise((resolve) => {
+        browserViews.get(viewId).webContents.executeJavaScript(`
+          window.getSelection().toString();
+        `).then(selectedText => {
+          resolve({ success: true, selectedText });
+        }).catch(error => {
+          resolve({ success: false, error: error.message });
+        });
+      });
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  
 
 function createWindow() {
 
@@ -491,7 +796,7 @@ function createWindow() {
           ...details.responseHeaders,
   'Content-Security-Policy': [
       "default-src 'self' 'unsafe-inline' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 file: data: blob:; " +
-      "connect-src 'self' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 blob:; " +
+      "connect-src 'self' file: media: http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 blob:; " +
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; " +
       "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net ; " +
       "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
@@ -556,7 +861,30 @@ function createWindow() {
       }
   });
 
-
+  ipcMain.handle('db:getHighlightsForFile', async (event, { filePath }) => {
+    try {
+      ensureTablesExist(); // Ensure tables exist before querying
+      const rows = await dbQuery('SELECT * FROM pdf_highlights WHERE file_path = ? ORDER BY id ASC', [filePath]);
+      // We need to parse the position data back into an object
+      return { highlights: rows.map(r => ({ ...r, position: JSON.parse(r.position_json) })) };
+    } catch (error) {
+      return { error: error.message };
+    }
+  });
+  
+  ipcMain.handle('db:addPdfHighlight', async (event, { filePath, text, position }) => {
+    try {
+      const positionJson = JSON.stringify(position);
+      await dbQuery(
+        'INSERT INTO pdf_highlights (file_path, highlighted_text, position_json) VALUES (?, ?, ?)',
+        [filePath, text, positionJson]
+      );
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
   ipcMain.handle('open_directory_picker', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory']
@@ -696,6 +1024,7 @@ app.on('will-quit', () => {
     }
   
   });
+
   ipcMain.handle('getNPCTeamGlobal', async () => {
     try {
       const response = await fetch('http://127.0.0.1:5337/api/npc_team_global', {
