@@ -113,12 +113,22 @@ The long-awaited for activity dashboard: now with composable widgets, a setup fo
 
 ![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/dark_room.png)
 
+
+## Analyze and highlight in pdfs 
+![PDF Analysis](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/pdf_highlight.png)
+
+## Browse the web with AI at your fingertips
+![AI powered web browser](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/ai_web_browsing.png)
+
 ## Generate images
 
+## Adjust Metadata
+
+## Label images
 
 
 ## Planned Components
-- Knowledge Graph: view the knowledge graph built up over time through your actions
+- Knowledge Graph: view the knowledge graph built up over time through your actions. basic knowledge graph implementation was finished in npcpy in July 2025, andd the implementation in npc studio is actively ongoing. The knowledge graph viewer and manager will be part of the data dash
 - Run simple mixture of agent scenarios
 
 
