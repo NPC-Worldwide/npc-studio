@@ -59,9 +59,17 @@ See thinking traces from agents:
 
 ![npc studio interface for editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/code_editor.png)
 
+
 ## Analyze text files with AI
 ![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/fill_analyze.png)
 
+## Use tiles to have a conversation while editing
+
+![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_chat_ai.png)
+
+## Or while browsing
+
+![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_pdf_broswer.png)
 
 ## Edit settings 
 
@@ -83,17 +91,36 @@ See thinking traces from agents:
 
 ## Activity Dashboard
 
-The activity dashboard will soon feature a query input that can be toggled between SQL and natural
-language. 
+The long-awaited for activity dashboard: now with composable widgets, a setup for running queries, exporting data, plotting data, and with natural language to sql!
+
+
 ![Data Dash](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/data_dash.png)
+
+![Database Schema](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/db_viewer.png)
+
+![Database Querying](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/db_query.png)
+
+## Collapse Sidebar, Delete convos, access team menu, jinx menu, photo studio, data dash
+
+
+![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/collapse_delete.png)
+
+## Use AI on photos
+
+![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/photo_editor.png)
+
+## Edit photos in DarkRoom
+
+![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/dark_room.png)
+
+## Generate images
 
 
 
 ## Planned Components
 - Knowledge Graph: view the knowledge graph built up over time through your actions
 - Run simple mixture of agent scenarios
-- Exploratory data analysis through `guac` integration
-- Users will be able to toggle different views of their usage in the data dash and to modify the dashboard itself with specific desired graphs.
+
 
 ## Getting Started with Development
 
