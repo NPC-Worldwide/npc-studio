@@ -12,6 +12,7 @@ const dbPath = path.join(os.homedir(), 'npcsh_history.db');
 const fetch = require('node-fetch');
 const { dialog } = require('electron');
 const crypto = require('crypto');
+const sharp = require('sharp');
 
 const logFilePath = path.join(os.homedir(), '.npc_studio', 'app.log');
 const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
@@ -809,12 +810,12 @@ function createWindow() {
         responseHeaders: {
           ...details.responseHeaders,
   'Content-Security-Policy': [
-      "default-src 'self' 'unsafe-inline' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 file: data: blob:; " +
+      "default-src 'self' 'unsafe-inline' media: http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 file: data: blob:; " +
       "connect-src 'self' file: media: http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 blob:; " +
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; " +
-      "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net ; " +
-      "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
-      "font-src 'self' data: https://cdn.jsdelivr.net; " +
+      "script-src 'self' 'unsafe-inline' media: 'unsafe-eval' https://cdnjs.cloudflare.com; " +
+      "style-src 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net ; " +
+      "style-src-elem 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net; " +
+      "font-src 'self' data: media: https://cdn.jsdelivr.net; " +
       "frame-src 'self' file: data: blob: media: chrome-extension: ;"+
       "img-src 'self' file: data: media: http: https: blob:; " +
       "object-src 'self' file: data: blob: media: chrome-extension: 'unsafe-inline'; " +

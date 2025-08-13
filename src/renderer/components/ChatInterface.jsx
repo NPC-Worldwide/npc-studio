@@ -1,6 +1,6 @@
  import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
 import {
-    Folder, File, Globe, ChevronRight, Settings, Edit, Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare, ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, Send, BarChart3
+    Folder, File, Globe, ChevronRight, ChevronLeft, Settings, Edit, Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare, ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, Send, BarChart3
 } from 'lucide-react';
 
 import MacroInput from './MacroInput';
@@ -403,6 +403,7 @@ const ChatInterface = () => {
     const [selectedPdfText, setSelectedPdfText] = useState(null);
     const [pdfHighlights, setPdfHighlights] = useState([]);
     const [browserUrlDialogOpen, setBrowserUrlDialogOpen] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     
     
 
@@ -644,6 +645,29 @@ const ChatInterface = () => {
             });
         }
         setEditorContextMenuPos(null); // Close menu
+    };    
+    const handleStartConversationFromViewer = async (images) => {
+        if (!images || images.length === 0) return;
+    
+        // A helper to create the attachment structure your input expects
+        const createAttachmentFromFilePath = (filePath) => {
+            return {
+                id: `file_${Date.now()}_${Math.random()}`,
+                name: filePath.split('/').pop(),
+                path: filePath,
+                size: 0, // You might need to fetch this from the backend if needed
+                type: 'image/jpeg', // And this
+                preview: `file://${filePath}`
+            };
+        };
+        
+        const attachments = images.map(img => createAttachmentFromFilePath(img.path));
+    
+        // Add files to the input attachment tray
+        setUploadedFiles(prev => [...prev, ...attachments]);
+    
+        // Optional: Pre-fill the input field
+        setInput(prev => `${prev}${prev ? '\n\n' : ''}Tell me about these ${images.length} image(s):`);
     };    
     const handleSearchSubmit = async () => {
         if (!searchTerm.trim()) {
@@ -2464,6 +2488,8 @@ const createNewTextFile = async () => {
         }
         paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
         paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+        paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
+
         setRootLayoutNode(prev => ({ ...prev }));
         setInput('');
         setUploadedFiles([]);
@@ -3225,18 +3251,19 @@ useEffect(() => {
                     paneData.chatMessages.allMessages[msgIndex].isStreaming = false;
                     paneData.chatMessages.allMessages[msgIndex].streamId = null;
                 }
+                
+                // UPDATE STATS AFTER COMPLETION
+                paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
             }
-            // Clean up the tracking ref.
             delete streamToPaneRef.current[completedStreamId];
         }
-
-        // If no more streams are running anywhere, update the global UI.
+    
         if (Object.keys(streamToPaneRef.current).length === 0) {
             setIsStreaming(false);
         }
-
-        setRootLayoutNode(prev => ({ ...prev })); // Final re-render.
-        await refreshConversations(); // Refresh sidebar to show new preview.
+    
+        setRootLayoutNode(prev => ({ ...prev }));
+        await refreshConversations();
     };
     
     // --- PANE-AWARE STREAM ERROR HANDLER ---
@@ -3343,14 +3370,20 @@ const handleInterruptStream = async () => {
         setRootLayoutNode(prev => ({ ...prev }));
     }
 };
-    const getConversationStats = (messages) => {
+const getConversationStats = (messages) => {
     if (!messages || messages.length === 0) {
         return { messageCount: 0, tokenCount: 0, models: new Set(), agents: new Set(), providers: new Set() };
     }
 
     const stats = messages.reduce((acc, msg) => {
-        // Simple token estimation: average 4 chars per token
-        acc.tokenCount += Math.ceil((msg.content || '').length / 4);
+        // Improved token estimation: ~4 chars per token for English text
+        if (msg.content) {
+            acc.tokenCount += Math.ceil(msg.content.length / 4);
+        }
+        // Also count reasoning content if present
+        if (msg.reasoningContent) {
+            acc.tokenCount += Math.ceil(msg.reasoningContent.length / 4);
+        }
         
         if (msg.role !== 'user') {
             if (msg.model) acc.models.add(msg.model);
@@ -3365,7 +3398,9 @@ const handleInterruptStream = async () => {
         ...stats
     };
 };
-    const handleSummarizeAndStart = async () => {
+
+
+const handleSummarizeAndStart = async () => {
         const selectedIds = Array.from(selectedConvos);
         if (selectedIds.length === 0) return;
         setContextMenuPos(null); // Close context menu
@@ -3632,166 +3667,175 @@ const renderSidebarItemContextMenu = () => {
 };
 
     // --- Internal Render Functions ---
-    const renderSidebar = () => (
-        <div className="w-64 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
-            <div className="p-4 border-b theme-border flex items-center justify-between flex-shrink-0" 
-                  style={{ WebkitAppRegion: 'drag' }}>
-                <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
-                <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
-                    <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
-                    <button onClick={deleteSelectedConversations} className="p-2 theme-hover rounded-full transition-all" aria-label="Delete Selected Items"><Trash size={14} /></button>
-                    
-                    {/* New dropdown for creating various file types - matching the screenshot design */}
-                    <div className="relative group">
-                        <div className="flex">
-                            <button onClick={createNewConversation} className="p-2 theme-button-primary rounded-full flex items-center gap-1 transition-all" aria-label="New Conversation">
-                                <Plus size={14} />
-                                <ChevronRight size={10} className="transform rotate-90 opacity-60" />
-                            </button>
+    const renderSidebar = () => {
+        // When collapsed, show only the expand button
+        if (sidebarCollapsed) {
+            return (
+                <div className="w-8 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
+                    <div className="flex-1 flex items-start justify-center pt-4" style={{height: '70%',}}>
+                    </div>
+                <div className="p-2 border-b theme-border ">
+                    <button 
+                            onClick={() => setSidebarCollapsed(false)} 
+                            className="p-2 theme-button theme-hover rounded-full transition-all group" 
+                            title="Open sidebar"
+                        >
+                            <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
+                                <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                                <ChevronLeft size={14} className="transform rotate-180 group-hover:scale-75 transition-all duration-200" />
+                                <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+    
+        // When expanded, show full sidebar with collapse button
+        return (
+            <div className="w-64 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
+                <div className="p-4 border-b theme-border flex items-center justify-between flex-shrink-0" 
+                      style={{ WebkitAppRegion: 'drag' }}>
+                    <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
+                    <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
+                        {/* Add collapse button first */}
+                        <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
+                        <button onClick={deleteSelectedConversations} className="p-2 theme-hover rounded-full transition-all" aria-label="Delete Selected Items"><Trash size={14} /></button>
+                        
+                        {/* Rest of existing buttons */}
+                        <div className="relative group">
+                            <div className="flex">
+                                <button onClick={createNewConversation} className="p-2 theme-button-primary rounded-full flex items-center gap-1 transition-all" aria-label="New Conversation">
+                                    <Plus size={14} />
+                                    <ChevronRight size={10} className="transform rotate-90 opacity-60" />
+                                </button>
+                            </div>
+                            
+                            {/* Existing dropdown menu */}
+                            <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
+                                {/* All existing dropdown items */}
+                                <button onClick={createNewConversation} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                    <MessageSquare size={12} />
+                                    <span>New Conversation</span>
+                                </button>
+                                <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                    <Folder size={12} />
+                                    <span>New Folder</span>
+                                </button>
+                                <button onClick={() => setBrowserUrlDialogOpen(true)} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                    <Globe size={12} />
+                                    <span>New Browser</span>
+                                </button>
+                                <button onClick={createNewTextFile} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                    <FileText size={12} />
+                                    <span>New Text File</span>
+                                </button>
+                                <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                    <Terminal size={12} />
+                                    <span>New Terminal</span>
+                                </button>
+                            </div>
                         </div>
                         
-                        {/* Dropdown menu - with hover persistence */}
-                        <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
-                            <button 
-                                onClick={createNewConversation} 
-                                className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
-                            >
-                                <MessageSquare size={12} />
-                                <span>New Conversation</span>
-                            </button>
-
-                            <button 
-                                onClick={handleCreateNewFolder} 
-                                className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
-                            >
-                                <Folder size={12} />
-                                <span>New Folder</span>
-                            </button>
-
-                            <button 
-                                onClick={() => setBrowserUrlDialogOpen(true)} 
-                                className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
-                            >
-                                <Globe size={12} />
-                                <span>New Browser</span>
-                            </button>
-
-                            <button 
-                                onClick={createNewTextFile} 
-                                className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
-                            >
-                                <FileText size={12} />
-                                <span>New Text File</span>
-                            </button>
-                            <button // <-- ADD THIS BUTTON
-                                onClick={createNewTerminal} 
-                                className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
-                            >
-                                <Terminal size={12} />
-                                <span>New Terminal</span>
-                            </button>
-
+                        <button className="theme-toggle-btn p-1" onClick={toggleTheme}>{isDarkMode ? '🌙' : '☀️'}</button>
+                    </div>
+                </div>
+    
+                {/* Rest of existing sidebar content */}
+                <div className="p-2 border-b theme-border flex items-center gap-2 flex-shrink-0">
+                    {/* Existing path navigation */}
+                    <button onClick={goUpDirectory} className="p-2 theme-hover rounded-full transition-all" title="Go Up" aria-label="Go Up Directory"><ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/></button>
+                    {/* Rest of path editing logic */}
+                    {isEditingPath ? (
+                        <input type="text" value={editedPath} onChange={(e) => setEditedPath(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { setIsEditingPath(false); setCurrentPath(editedPath); loadDirectoryStructure(editedPath); } else if (e.key === 'Escape') { setIsEditingPath(false); } }} onBlur={() => setIsEditingPath(false)} autoFocus className="text-xs theme-text-muted theme-input border rounded px-2 py-1 flex-1"/>
+                     ) : (
+                        <div onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }} className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-1 rounded flex-1" title={currentPath}>
+                            {currentPath || '...'}
                         </div>
+                    )}
+                </div>
+                
+                {/* Rest of existing sidebar content - search, files, conversations, bottom buttons */}
+                <div className="p-2 border-b theme-border flex flex-col gap-2 flex-shrink-0">
+                    {/* Existing search area */}
+                    <div className="flex items-center gap-2">
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            value={searchTerm}
+                            onChange={handleSearchChange}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSearchSubmit();
+                                }
+                            }}
+                            placeholder="Search messages (Ctrl+F)..."
+                            className="flex-grow theme-input text-xs rounded px-2 py-1 border focus:outline-none"
+                        />
+                        <button
+                            onClick={() => {
+                                setSearchTerm('');
+                                setIsSearching(false);
+                                setDeepSearchResults([]);
+                                setMessageSearchResults([]);
+                            }}
+                            className="p-2 theme-hover rounded-full transition-all"
+                            aria-label="Clear Search"
+                        >
+                            <X size={14} className="text-gray-400" />
+                        </button>
                     </div>
-                    
-                    <button className="theme-toggle-btn p-1" onClick={toggleTheme}>{isDarkMode ? '🌙' : '☀️'}</button>
                 </div>
-            </div>
-            <div className="p-2 border-b theme-border flex items-center gap-2 flex-shrink-0">
-                <button onClick={goUpDirectory} className="p-2 theme-hover rounded-full transition-all" title="Go Up" aria-label="Go Up Directory"><ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/></button>
-                {isEditingPath ? (
-                    <input type="text" value={editedPath} onChange={(e) => setEditedPath(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { setIsEditingPath(false); setCurrentPath(editedPath); loadDirectoryStructure(editedPath); } else if (e.key === 'Escape') { setIsEditingPath(false); } }} onBlur={() => setIsEditingPath(false)} autoFocus className="text-xs theme-text-muted theme-input border rounded px-2 py-1 flex-1"/>
-                 ) : (
-                    <div onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }} className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-1 rounded flex-1" title={currentPath}>
-                        {currentPath || '...'}
+    
+                {/* Existing content area and bottom buttons */}
+                <div className="flex-1 overflow-y-auto px-2 py-2">
+                    {loading ? (
+                        <div className="p-4 theme-text-muted">Loading...</div>
+                    ) : isSearching ? (
+                        renderSearchResults()
+                    ) : (
+                        <>
+                            {renderFolderList(folderStructure)}
+                            {renderConversationList(directoryConversations)}
+                        </>
+                    )}
+                    {contextMenuPos && renderContextMenu()}
+                    {sidebarItemContextMenuPos && renderSidebarItemContextMenu()}
+                    {fileContextMenuPos && renderFileContextMenu()}
+                
+                </div>
+
+                
+                <div className="p-4 border-t theme-border flex-shrink-0">
+                    <div className="flex gap-2 justify-center">
+                    <button onClick={() => setPhotoViewerOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Photo Viewer">
+                    <Image size={16} />
+    
+                        </button>
+                        <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
+                        <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
+                        <button onClick={() => setCtxEditorOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Context Editor">
+                            <FileJson size={16} />
+                        </button>
+                        <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
+                        <button 
+                            onClick={() => setSidebarCollapsed(true)} 
+                            className="p-2 theme-button theme-hover rounded-full transition-all group" 
+                            title="Collapse sidebar"
+                        >
+                            <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
+                                <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                                <ChevronRight size={14} className="transform rotate-180 group-hover:scale-75 transition-all duration-200" />
+                                <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                            </div>
+                        </button>
+
                     </div>
-                )}
-            </div>
-            
-            {/* --- UPDATED SEARCH AREA --- */}
-            <div className="p-2 border-b theme-border flex flex-col gap-2 flex-shrink-0">
-                <div className="flex items-center gap-2">
-                    <input
-                        ref={searchInputRef}
-                        type="text"
-                        value={searchTerm}
-                        onChange={handleSearchChange}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleSearchSubmit();
-                            }
-                        }}
-                        placeholder="Search messages (Ctrl+F)..."
-                        className="flex-grow theme-input text-xs rounded px-2 py-1 border focus:outline-none"
-                    />
-                    <button
-                        onClick={() => {
-                            setSearchTerm('');
-                            setIsSearching(false);
-                            setDeepSearchResults([]);
-                            setMessageSearchResults([]);
-                        }}
-                        className="p-2 theme-hover rounded-full transition-all"
-                        aria-label="Clear Search"
-                    >
-                        <X size={14} className="text-gray-400" />
-                    </button>
-                </div>
-                {/*
-                <div className="flex items-center gap-2 px-1">
-                    <input
-                        type="checkbox"
-                        id="global-search-checkbox"
-                        checked={isGlobalSearch}
-                        onChange={(e) => setIsGlobalSearch(e.target.checked)}
-                        className="w-4 h-4 theme-checkbox"
-                    />
-                <label htmlFor="global-search-checkbox" className="text-xs theme-text-muted cursor-pointer select-none">
-                        Search globally
-                    </label>
-                    
-                </div>*/}
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-2 py-2">
-                {loading ? (
-                    <div className="p-4 theme-text-muted">Loading...</div>
-                ) : isSearching ? (
-                    // In search mode, ONLY show search results or the "no results" message
-                    renderSearchResults()
-                ) : (
-                    // In normal mode, show the files and conversations
-                    <>
-                        {renderFolderList(folderStructure)}
-                        {renderConversationList(directoryConversations)}
-                    </>
-                )}
-                {/* The context menu can live outside the conditional rendering if needed */}
-                {contextMenuPos && renderContextMenu()}
-
-                {sidebarItemContextMenuPos && renderSidebarItemContextMenu()}
-                {fileContextMenuPos && renderFileContextMenu()}
-
-            </div>
-            
-            <div className="p-4 border-t theme-border flex-shrink-0">
-                <div className="flex gap-2 justify-center">
-                    <button onClick={handleImagesClick} className="p-2 theme-hover rounded-full transition-all" aria-label="View Images"><Image size={16} /></button>
-                    <button onClick={handleScreenshotsClick} className="p-2 theme-hover rounded-full transition-all" aria-label="View Screenshots"><Camera size={16} /></button>
-                    <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
-
-                    <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
-                    <button onClick={() => setCtxEditorOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Context Editor">
-                        <FileJson size={16} />
-                    </button>
-
-                    <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
                 </div>
             </div>
-        </div>
-    );
-
+        );
+    };
     const renderFolderList = (structure) => {
         if (!structure || typeof structure !== 'object' || structure.error) { return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>; }
         if (Object.keys(structure).length === 0) { return <div className="p-2 text-xs text-gray-500">Empty directory</div>; }
@@ -4738,7 +4782,13 @@ const renderInputArea = () => (
         {renderMessageContextMenu()}
 
             {isMacroInputOpen && (<MacroInput isOpen={isMacroInputOpen} currentPath={currentPath} onClose={() => { setIsMacroInputOpen(false); window.api?.hideMacro?.(); }} onSubmit={({ macro, conversationId, result }) => { setActiveConversationId(conversationId); setCurrentConversation({ id: conversationId, title: macro.trim().slice(0, 50) }); if (!result) { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: 'Processing...', timestamp: new Date().toISOString(), type: 'message' }]); } else { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: result?.output || 'No response', timestamp: new Date().toISOString(), type: 'message' }]); } refreshConversations(); }}/> )}
-            <PhotoViewer isOpen={photoViewerOpen} onClose={() => setPhotoViewerOpen(false)} type={photoViewerType}/>
+            <PhotoViewer 
+    isOpen={photoViewerOpen}
+    onClose={() => setPhotoViewerOpen(false)}
+    currentPath={currentPath}
+    onStartConversation={handleStartConversationFromViewer}
+/>
+
             <CtxEditor 
                 isOpen={ctxEditorOpen} 
                 onClose={() => setCtxEditorOpen(false)} 
@@ -4874,10 +4924,10 @@ const renderMainContent = () => {
 
     return (
         <div className={`chat-container ${isDarkMode ? 'dark-mode' : 'light-mode'} h-screen flex flex-col bg-gray-900 text-gray-100 font-mono`}>
-            <div className="flex flex-1 overflow-hidden">
-                {renderSidebar()}
-                {renderMainContent()}
-            </div>
+<div className="flex flex-1 overflow-hidden">
+    {renderSidebar()}
+    {renderMainContent()}
+</div>
             {renderModals()}
         </div>
     );

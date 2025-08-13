@@ -68,6 +68,22 @@ contextBridge.exposeInMainWorld('api', {
         return () => ipcRenderer.removeListener('browser-load-error', handler);
     },
     
+    onThumbnailCreated: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('thumbnail-created', handler);
+        return () => ipcRenderer.removeListener('thumbnail-created', handler);
+    },
+    onThumbnailError: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('thumbnail-error', handler);
+        return () => ipcRenderer.removeListener('thumbnail-error', handler);
+    },
+    onThumbnailComplete: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('thumbnail-complete', handler);
+        return () => ipcRenderer.removeListener('thumbnail-complete', handler);
+    },
+    
     
     getHighlightsForFile: (filePath) => ipcRenderer.invoke('db:getHighlightsForFile', { filePath }),
     addPdfHighlight: (data) => ipcRenderer.invoke('db:addPdfHighlight', data),
