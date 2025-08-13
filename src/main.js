@@ -1,19 +1,77 @@
-const { app, BrowserWindow, globalShortcut,ipcMain, protocol, shell} = require('electron');
+const { app, BrowserWindow, globalShortcut,ipcMain, protocol, shell, BrowserView} = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs/promises');
 const os = require('os');
+const pty = require('node-pty'); // <-- ADD THIS
+
 const sqlite3 = require('sqlite3');
 const dbPath = path.join(os.homedir(), 'npcsh_history.db');
 const fetch = require('node-fetch');
 const { dialog } = require('electron');
 const crypto = require('crypto');
+const sharp = require('sharp');
 
 const logFilePath = path.join(os.homedir(), '.npc_studio', 'app.log');
 const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 let mainWindow = null;
+let pdfView = null; 
+// Update your ensureTablesExist function:
+const ensureTablesExist = async () => {
+  console.log('[DB] Ensuring all tables exist...');
+  
+  const createHighlightsTable = `
+      CREATE TABLE IF NOT EXISTS pdf_highlights (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_path TEXT NOT NULL,
+          highlighted_text TEXT NOT NULL,
+          position_json TEXT NOT NULL,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+  `;
+  
+  const createBookmarksTable = `
+      CREATE TABLE IF NOT EXISTS bookmarks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          url TEXT NOT NULL,
+          folder_path TEXT,
+          is_global BOOLEAN DEFAULT 0,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+  `;
+  
+  const createBrowserHistoryTable = `
+      CREATE TABLE IF NOT EXISTS browser_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT,
+          url TEXT NOT NULL,
+          folder_path TEXT,
+          visit_count INTEGER DEFAULT 1,
+          last_visited DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+  `;
+
+  const createIndexes = `
+      CREATE INDEX IF NOT EXISTS idx_file_path ON pdf_highlights(file_path);
+      CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder_path);
+      CREATE INDEX IF NOT EXISTS idx_bookmarks_global ON bookmarks(is_global);
+      CREATE INDEX IF NOT EXISTS idx_history_folder ON browser_history(folder_path);
+      CREATE INDEX IF NOT EXISTS idx_history_url ON browser_history(url);
+  `;
+
+  try {
+      await dbQuery(createHighlightsTable);
+      await dbQuery(createBookmarksTable);
+      await dbQuery(createBrowserHistoryTable);
+      await dbQuery(createIndexes);
+      console.log('[DB] All tables are ready.');
+  } catch (error) {
+      console.error('[DB] FATAL: Could not create tables.', error);
+  }
+};
 app.setAppUserModelId('com.npc_studio.chat');
 app.name = 'npc-studio';
 app.setName('npc-studio');
@@ -24,21 +82,47 @@ const log = (...messages) => {
 };
 // Use Option+Space on macOS, Command/Control+Space elsewhere
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
+const ptySessions = new Map(); // <-- ADD THIS
+const ptyKillTimers = new Map();
 
-
+// In main.js
 const dbQuery = (query, params = []) => {
+  // CORRECTED: Also treat PRAGMA as a read query
+  const isReadQuery = query.trim().toUpperCase().startsWith('SELECT') || query.trim().toUpperCase().startsWith('PRAGMA');
+  console.log(`[DB] EXECUTING: ${query.substring(0, 100).replace(/\s+/g, ' ')}...`, params);
+
   return new Promise((resolve, reject) => {
-    // Use OPEN_READONLY to prevent accidental writes
-    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
-      if (err) return reject(err);
-    });
-    db.all(query, params, (err, rows) => {
-      db.close();
-      if (err) return reject(err);
-      resolve(rows);
-    });
+      const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+          if (err) {
+              console.error('[DB] CONNECTION ERROR:', err.message);
+              return reject(err);
+          }
+      });
+
+      if (isReadQuery) { // Use the corrected check
+          // Use .all for SELECT and PRAGMA queries to get rows back
+          db.all(query, params, (err, rows) => {
+              db.close();
+              if (err) {
+                  console.error(`[DB] READ FAILED: ${err.message}`);
+                  return reject(err);
+              }
+              resolve(rows);
+          });
+      } else {
+          // Use .run for INSERT, UPDATE, DELETE to get info like lastID
+          db.run(query, params, function(err) {
+              db.close();
+              if (err) {
+                  console.error(`[DB] COMMAND FAILED: ${err.message}`);
+                  return reject(err);
+              }
+              resolve({ lastID: this.lastID, changes: this.changes });
+          });
+      }
   });
 };
+
 
 const DEFAULT_CONFIG = {
   baseDir: path.resolve(os.homedir(), '.npcsh'),
@@ -102,6 +186,7 @@ async function ensureBaseDir() {
 app.whenReady().then(async () => {
   // Ensure user data directory exists
   const dataPath = ensureUserDataDirectory();
+  await ensureTablesExist(); // <<< ADD THIS LINE. IT MUST BE CALLED.
 
   protocol.registerFileProtocol('file', (request, callback) => {
     const filepath = request.url.replace('file://', '');
@@ -423,14 +508,266 @@ if (!gotTheLock) {
     // Tell renderer to show macro input
     mainWindow.webContents.send('show-macro-input');
   }
+  const browserViews = new Map(); // Stores state: { view, bounds, visible }
 
-  function createWindow() {
+  // --- 2. Update 'show-browser' handler ---
+  ipcMain.handle('show-browser', (event, { url, bounds, viewId }) => {
+      log(`[BROWSER VIEW] Received 'show-browser' for URL: ${url}, viewId: ${viewId}`);
+      if (!mainWindow) return { success: false, error: 'Main window not found' };
+  
+      if (browserViews.has(viewId)) {
+          const existing = browserViews.get(viewId);
+          mainWindow.removeBrowserView(existing.view);
+          existing.view.webContents.destroy();
+      }
+  
+      const newBrowserView = new BrowserView({
+          webPreferences: {
+              nodeIntegration: false,
+              contextIsolation: true,
+              webSecurity: true,
+          },
+      });
+  
+      mainWindow.addBrowserView(newBrowserView);
+      newBrowserView.setBounds(bounds);
+      
+      // Store the complete state
+      browserViews.set(viewId, { view: newBrowserView, bounds, visible: true });
+  
+
+      newBrowserView.webContents.on('context-menu', (e, params) => {
+        const { x, y, selectionText } = params;
+
+        if (selectionText && selectionText.trim().length > 0) {
+            log(`[BROWSER CONTEXT] Selected text found, hiding view for menu.`);
+          
+            // --- THIS IS THE FIX ---
+            // 1. Find the view's state from our map
+            if (browserViews.has(viewId)) {
+                const browserState = browserViews.get(viewId);
+                
+                // 2. Temporarily hide the BrowserView by moving it off-screen
+                browserState.view.setBounds({ x: -2000, y: -2000, width: 0, height: 0 });
+                // We DON'T set `visible: false` because this is a temporary hide
+                
+                // 3. Tell React to show the HTML menu, passing the viewId
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('browser-show-context-menu', {
+                        x,
+                        y,
+                        selectedText: selectionText.trim(),
+                        viewId // Pass the viewId so React knows which view to restore
+                    });
+                }
+            }
+        }
+    });
+      
+      const finalURL = url.startsWith('http') ? url : `https://${url}`;
+      newBrowserView.webContents.loadURL(finalURL);
+      return { success: true, viewId };
+  });
+  
+  // --- 3. Add NEW 'browser:set-visibility' handler ---
+  ipcMain.handle('browser:set-visibility', (event, { viewId, visible }) => {
+      if (browserViews.has(viewId)) {
+          const browserState = browserViews.get(viewId);
+          if (visible) {
+              log(`[BROWSER VIEW] Setting visibility to TRUE for ${viewId}`);
+              browserState.view.setBounds(browserState.bounds);
+              browserState.visible = true;
+          } else {
+              log(`[BROWSER VIEW] Setting visibility to FALSE for ${viewId}`);
+              // Hide by moving it off-screen with zero size
+              browserState.view.setBounds({ x: -2000, y: -2000, width: 0, height: 0 });
+              browserState.visible = false;
+          }
+          return { success: true };
+      }
+      return { success: false, error: 'View not found' };
+  });
+  
+  // --- 4. Update 'update-browser-bounds' handler ---
+  ipcMain.handle('update-browser-bounds', (event, { viewId, bounds }) => {
+      if (browserViews.has(viewId)) {
+          const browserState = browserViews.get(viewId);
+          browserState.bounds = bounds; // Always update stored bounds
+          
+          // Only set bounds if the view is supposed to be visible
+          if (browserState.visible) {
+              browserState.view.setBounds(bounds);
+          }
+          return { success: true };
+      }
+      return { success: false, error: 'Browser view not found' };
+  });
+  
+  // --- 5. Update 'hide-browser' handler ---
+  ipcMain.handle('hide-browser', (event, { viewId }) => {
+      log(`[BROWSER VIEW] Received 'hide-browser' for viewId: ${viewId}`);
+      if (browserViews.has(viewId) && mainWindow && !mainWindow.isDestroyed()) {
+          log(`[BROWSER VIEW] Removing and destroying BrowserView for ${viewId}`);
+          const browserState = browserViews.get(viewId);
+          mainWindow.removeBrowserView(browserState.view);
+          browserState.view.webContents.destroy();
+          browserViews.delete(viewId); // Clean up the map
+          return { success: true };
+      }
+      return { success: false, error: 'Browser view not found' };
+  });
+  
+
+  
+  ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath }) => {
+    try {
+      // Check if URL already exists in this folder
+      const existing = await dbQuery(
+        'SELECT id, visit_count FROM browser_history WHERE url = ? AND folder_path = ?', 
+        [url, folderPath]
+      );
+      
+      if (existing.length > 0) {
+        // Update existing record
+        await dbQuery(
+          'UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ? WHERE id = ?',
+          [title, existing[0].id]
+        );
+      } else {
+        // Insert new record
+        await dbQuery(
+          'INSERT INTO browser_history (url, title, folder_path) VALUES (?, ?, ?)',
+          [url, title, folderPath]
+        );
+      }
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:getHistory', async (event, { folderPath, limit = 50 }) => {
+    try {
+      const history = await dbQuery(
+        'SELECT * FROM browser_history WHERE folder_path = ? ORDER BY last_visited DESC LIMIT ?',
+        [folderPath, limit]
+      );
+      return { success: true, history };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:addBookmark', async (event, { url, title, folderPath, isGlobal = false }) => {
+    try {
+      await dbQuery(
+        'INSERT INTO bookmarks (url, title, folder_path, is_global) VALUES (?, ?, ?, ?)',
+        [url, title, isGlobal ? null : folderPath, isGlobal ? 1 : 0]
+      );
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:getBookmarks', async (event, { folderPath }) => {
+    try {
+      // Get both local and global bookmarks
+      const bookmarks = await dbQuery(
+        'SELECT * FROM bookmarks WHERE (folder_path = ? OR is_global = 1) ORDER BY is_global ASC, timestamp DESC',
+        [folderPath]
+      );
+      return { success: true, bookmarks };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:deleteBookmark', async (event, { bookmarkId }) => {
+    try {
+      await dbQuery('DELETE FROM bookmarks WHERE id = ?', [bookmarkId]);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('browser:clearHistory', async (event, { folderPath }) => {
+    try {
+      await dbQuery('DELETE FROM browser_history WHERE folder_path = ?', [folderPath]);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  
+  ipcMain.handle('browser-navigate', (event, { viewId, url }) => {
+    if (browserViews.has(viewId)) {
+      const finalURL = url.startsWith('http') ? url : `https://${url}`;
+      log(`[BROWSER VIEW] Navigating ${viewId} to: ${finalURL}`);
+      browserViews.get(viewId).webContents.loadURL(finalURL);
+      return { success: true };
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  ipcMain.handle('browser-back', (event, { viewId }) => {
+    if (browserViews.has(viewId)) {
+      const webContents = browserViews.get(viewId).webContents;
+      if (webContents.canGoBack()) {
+        webContents.goBack();
+        return { success: true };
+      }
+      return { success: false, error: 'Cannot go back' };
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  ipcMain.handle('browser-forward', (event, { viewId }) => {
+    if (browserViews.has(viewId)) {
+      const webContents = browserViews.get(viewId).webContents;
+      if (webContents.canGoForward()) {
+        webContents.goForward();
+        return { success: true };
+      }
+      return { success: false, error: 'Cannot go forward' };
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  ipcMain.handle('browser-refresh', (event, { viewId }) => {
+    if (browserViews.has(viewId)) {
+      browserViews.get(viewId).webContents.reload();
+      return { success: true };
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  ipcMain.handle('browser-get-selected-text', (event, { viewId }) => {
+    if (browserViews.has(viewId)) {
+      return new Promise((resolve) => {
+        browserViews.get(viewId).webContents.executeJavaScript(`
+          window.getSelection().toString();
+        `).then(selectedText => {
+          resolve({ success: true, selectedText });
+        }).catch(error => {
+          resolve({ success: false, error: error.message });
+        });
+      });
+    }
+    return { success: false, error: 'Browser view not found' };
+  });
+  
+  
+
+function createWindow() {
 
     const iconPath = path.resolve(__dirname, '..', 'build', 'icons', '512x512.png');
     console.log(`[ICON DEBUG] Using direct path: ${iconPath}`);
   
     console.log('Creating window');
-    mainWindow = new BrowserWindow({ // Remove the 'const' keyword here
+    mainWindow = new BrowserWindow({
       width: 1200,
       height: 800,
       icon: iconPath,
@@ -440,11 +777,23 @@ if (!gotTheLock) {
         nodeIntegration: true,
         contextIsolation: true,
         webSecurity: false,
-        sandbox: true,
+        webviewTag: true, 
+        plugins: true, 
+        enableRemoteModule: true,
+        nodeIntegrationInSubFrames: true,
+        allowRunningInsecureContent: true,
+        experimentalFeatures: true,
         preload: path.join(__dirname, 'preload.js')
       }
+          });
+    mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+      callback(true);
     });
     
+    mainWindow.webContents.session.protocol.registerFileProtocol('file', (request, callback) => {
+      const pathname = decodeURI(request.url.replace('file:///', ''));
+      callback(pathname);
+    });    
     setTimeout(() => {
       const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
       if (fs.existsSync(iconPath)) {
@@ -456,60 +805,44 @@ if (!gotTheLock) {
   
     registerGlobalShortcut(mainWindow);
 
-
-
     mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-          'Content-Security-Policy': [
-            "default-src 'self' 'unsafe-inline' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "connect-src 'self' http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 https://web.squarecdn.com https://*.squarecdn.com https://*.square.site https://license-verification-120419531021.us-central1.run.app;" +
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "font-src 'self' data: https://cdn.jsdelivr.net https://web.squarecdn.com https://*.squarecdn.com https://*.square.site; " +
-            "img-src 'self' media: data: file: http: https: blob:; " +
-            "frame-src 'self' https://web.squarecdn.com https://*.squarecdn.com https://*.square.site;"+
-            "img-src 'self' file: data: media: http: https: blob:; "
-
-          ]
-        }
+  'Content-Security-Policy': [
+      "default-src 'self' 'unsafe-inline' media: http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 file: data: blob:; " +
+      "connect-src 'self' file: media: http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 blob:; " +
+      "script-src 'self' 'unsafe-inline' media: 'unsafe-eval' https://cdnjs.cloudflare.com; " +
+      "style-src 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net ; " +
+      "style-src-elem 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net; " +
+      "font-src 'self' data: media: https://cdn.jsdelivr.net; " +
+      "frame-src 'self' file: data: blob: media: chrome-extension: ;"+
+      "img-src 'self' file: data: media: http: https: blob:; " +
+      "object-src 'self' file: data: blob: media: chrome-extension: 'unsafe-inline'; " +
+      "worker-src 'self' blob: data:; "
+  ]
+        },
       });
     });
     
-    // Check if we're in development mode
     const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
     
     if (isDev) {
-      // Load from Vite dev server
       mainWindow.loadURL('http://localhost:5173');
-      console.log('Loading from Vite dev server: http://localhost:5173');
     } else {
-      // Load from built files
       const htmlPath = path.join(app.getAppPath(), 'dist', 'index.html');
       mainWindow.loadFile(htmlPath);
-      console.log(`Loading from packaged app path: ${htmlPath}`);
     }
   
-    //mainWindow.webContents.openDevTools();
-
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
       console.error('Failed to load:', errorCode, errorDescription);
     });
-
-
-  }
-
+}
+  
 
 
   ipcMain.on('submit-macro', (event, command) => {
-    // Hide the window after macro submission
     mainWindow.hide();
-
-    // Here you would handle the command, e.g., send it to your npcsh process
-    // For example:
-    // executeNpcshCommand(command);
   });
 
 
@@ -543,7 +876,30 @@ if (!gotTheLock) {
       }
   });
 
-
+  ipcMain.handle('db:getHighlightsForFile', async (event, { filePath }) => {
+    try {
+      ensureTablesExist(); // Ensure tables exist before querying
+      const rows = await dbQuery('SELECT * FROM pdf_highlights WHERE file_path = ? ORDER BY id ASC', [filePath]);
+      // We need to parse the position data back into an object
+      return { highlights: rows.map(r => ({ ...r, position: JSON.parse(r.position_json) })) };
+    } catch (error) {
+      return { error: error.message };
+    }
+  });
+  
+  ipcMain.handle('db:addPdfHighlight', async (event, { filePath, text, position }) => {
+    try {
+      const positionJson = JSON.stringify(position);
+      await dbQuery(
+        'INSERT INTO pdf_highlights (file_path, highlighted_text, position_json) VALUES (?, ?, ?)',
+        [filePath, text, positionJson]
+      );
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
   ipcMain.handle('open_directory_picker', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory']
@@ -588,7 +944,69 @@ if (!gotTheLock) {
 
 
   
+  ipcMain.handle('show-open-dialog', async (event, options) => {
+    const result = await dialog.showOpenDialog(options);
+    
+    if (!result.canceled && result.filePaths.length > 0) {
+      // Return file info with real paths
+      return result.filePaths.map(filePath => {
+        const stats = fs.statSync(filePath);
+        return {
+          name: path.basename(filePath),
+          path: filePath,
+          size: stats.size,
+          type: getFileType(filePath)
+        };
+      });
+    }
+    
+    return [];
+  });
+  
+  // Helper function to get MIME type - add this near the top of your main.js
+  function getFileType(filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.pdf': 'application/pdf',
+      '.txt': 'text/plain',
+      '.md': 'text/markdown',
+      '.json': 'application/json'
+    };
+    return mimeTypes[ext] || 'application/octet-stream';
+  }
 
+
+
+
+// --- Knowledge Graph Handlers ---
+ipcMain.handle('kg:getGraphData', async (event, { generation }) => {
+  const params = generation !== null ? `?generation=${generation}` : '';
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/graph${params}`);
+});
+
+ipcMain.handle('kg:listGenerations', async () => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/generations');
+});
+
+ipcMain.handle('kg:triggerProcess', async (event, { type }) => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/trigger', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ process_type: type }),
+  });
+});
+
+ipcMain.handle('kg:rollback', async (event, { generation }) => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/rollback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ generation }),
+  });
+});
 ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
   log(`[Main Process] Received request to interrupt stream: ${streamIdToInterrupt}`);
   
@@ -654,6 +1072,7 @@ app.on('will-quit', () => {
     }
   
   });
+
   ipcMain.handle('getNPCTeamGlobal', async () => {
     try {
       const response = await fetch('http://127.0.0.1:5337/api/npc_team_global', {
@@ -785,6 +1204,62 @@ app.on('will-quit', () => {
         return { jinxs: [], error: err.message };
     }
 });
+ipcMain.handle('db:listTables', async () => {
+  try {
+    const rows = await dbQuery("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
+    return { tables: rows.map(r => r.name) };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('db:getTableSchema', async (event, { tableName }) => {
+  // Basic validation to prevent obvious SQL injection
+  if (!/^[a-zA-Z0-9_]+$/.test(tableName)) {
+      return { error: 'Invalid table name provided.' };
+  }
+  try {
+    const rows = await dbQuery(`PRAGMA table_info(${tableName});`);
+    return { schema: rows.map(r => ({ name: r.name, type: r.type })) };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('db:exportCSV', async (event, data) => {
+    if (!data || data.length === 0) {
+        return { success: false, error: 'No data to export.'};
+    }
+
+    const { filePath } = await dialog.showSaveDialog({
+        title: 'Export Query Results to CSV',
+        defaultPath: `query-export-${Date.now()}.csv`,
+        filters: [{ name: 'CSV Files', extensions: ['csv'] }]
+    });
+
+    if (!filePath) {
+        return { success: false, message: 'Export cancelled.' };
+    }
+
+    try {
+        const headers = Object.keys(data[0]).join(',');
+        const rows = data.map(row => {
+            return Object.values(row).map(value => {
+                const strValue = String(value ?? '');
+                // Handle commas, quotes, and newlines in values
+                if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+                    return `"${strValue.replace(/"/g, '""')}"`;
+                }
+                return strValue;
+            }).join(',');
+        });
+        const csvContent = `${headers}\n${rows.join('\n')}`;
+        fs.writeFileSync(filePath, csvContent, 'utf-8');
+        return { success: true, path: filePath };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
 
 ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
   try {
@@ -840,35 +1315,6 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
     }
 });
 
-
-
-ipcMain.handle('get-usage-stats', async () => {
-  try {
-    const conversationQuery = `SELECT COUNT(DISTINCT conversation_id) as total FROM conversation_history;`;
-    const messagesQuery = `SELECT COUNT(*) as total FROM conversation_history WHERE role = 'user' OR role = 'assistant';`;
-    const modelsQuery = `SELECT model, COUNT(*) as count FROM conversation_history WHERE model IS NOT NULL AND model != '' GROUP BY model ORDER BY count DESC LIMIT 5;`;
-    const npcsQuery = `SELECT npc, COUNT(*) as count FROM conversation_history WHERE npc IS NOT NULL AND npc != '' GROUP BY npc ORDER BY count DESC LIMIT 5;`;
-
-    const [convResult] = await dbQuery(conversationQuery);
-    const [msgResult] = await dbQuery(messagesQuery);
-    const topModels = await dbQuery(modelsQuery);
-    const topNPCs = await dbQuery(npcsQuery);
-
-    return {
-      stats: {
-        totalConversations: convResult?.total || 0,
-        totalMessages: msgResult?.total || 0,
-        topModels: topModels,
-        topNPCs: topNPCs
-      },
-      error: null
-    };
-
-  } catch (err) {
-    console.error('Error fetching usage stats:', err);
-    return { stats: null, error: err.message };
-  }
-});
 
 
 ipcMain.handle('executeCommandStream', async (event, data) => {
@@ -962,6 +1408,163 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
 });
 
 
+ipcMain.handle('resizeTerminal', (event, { id, cols, rows }) => {
+  const ptyProcess = ptySessions.get(id);
+  if (ptyProcess) {
+    try {
+      ptyProcess.resize(cols, rows);
+      return { success: true };
+    } catch (error) {
+      console.error(`Failed to resize terminal ${id}:`, error);
+      return { success: false, error: error.message };
+    }
+  } else {
+    return { success: false, error: 'Session not found' };
+  }
+});
+
+ipcMain.handle('read-file-buffer', async (event, filePath) => {
+  try {
+    console.log(`[Main Process] Reading file buffer for: ${filePath}`);
+    const buffer = await fsPromises.readFile(filePath);
+    return buffer;
+  } catch (error) {
+    throw error;
+  }
+});
+
+
+ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
+  if (ptyKillTimers.has(id)) {
+    console.log(`[PTY] INFO: Re-creation request for ${id} received. Cancelling pending kill timer.`);
+    clearTimeout(ptyKillTimers.get(id));
+    ptyKillTimers.delete(id);
+    
+    // If the session still exists, we don't need to do anything else. It's ready.
+    if (ptySessions.has(id)) {
+        console.log(`[PTY] INFO: Session ${id} already exists and is active. Re-attaching.`);
+        return { success: true };
+    }
+  }
+
+  console.log(`[Main Process] INFO: Received request to create session ID=${id}`);
+  const shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
+  const args = os.platform() === 'win32' ? [] : ['-l'];
+  
+  try {
+    const ptyProcess = pty.spawn(shell, args, {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd: cwd || os.homedir(),
+      env: process.env
+    });
+
+    ptySessions.set(id, ptyProcess);
+
+    ptyProcess.onData(data => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('terminal-data', { id, data });
+      }
+    });
+
+    ptyProcess.onExit(({ exitCode, signal }) => {
+      console.log(`[Main Process] INFO: PTY process ${id} has exited. Code: ${exitCode}, Signal: ${signal}.`);
+      ptySessions.delete(id); // Clean up the session from the map
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('terminal-closed', { id });
+      }
+    });
+
+    console.log(`[Main Process] SUCCESS: Session ${id} created.`);
+    return { success: true };
+    
+  } catch (error) {
+    console.error(`[Main Process] FATAL: Failed to spawn PTY for session ${id}. Error: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('closeTerminalSession', (event, id) => {
+  // --- THIS IS THE OTHER KEY ---
+  // Instead of killing immediately, we set a timer.
+  // This gives the app a brief moment (100ms) to cancel the kill if it was just a re-render.
+  if (ptySessions.has(id)) {
+    console.log(`[PTY] INFO: Received request to close session ${id}. Setting a 100ms delayed kill timer.`);
+    
+    // If there's already a timer, do nothing.
+    if (ptyKillTimers.has(id)) return { success: true };
+
+    const timer = setTimeout(() => {
+      if (ptySessions.has(id)) {
+        console.log(`[PTY] INFO: Executing delayed kill for session ${id}.`);
+        ptySessions.get(id).kill();
+        // The onExit handler will clean up the ptySessions map.
+      }
+      ptyKillTimers.delete(id); // Clean up the timer itself
+    }, 100);
+
+    ptyKillTimers.set(id, timer);
+  } else {
+    console.log(`[PTY] WARN: Close request for non-existent session ${id}.`);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('writeToTerminal', (event, { id, data }) => {
+  const ptyProcess = ptySessions.get(id);
+
+
+  console.log(`[Frontend -> PTY] Writing to session ${id}: ${JSON.stringify(data)}`);
+
+  if (ptyProcess) {
+    ptyProcess.write(data);
+    return { success: true };
+  } else {
+
+    console.error(`[PTY] ERROR: Write failed. No session found for ID: ${id}`);
+    console.error(`[PTY] DEBUG: Available sessions are: [${Array.from(ptySessions.keys()).join(', ')}]`);
+    return { success: false, error: 'Session not found in backend' };
+  }
+});
+
+
+
+ipcMain.handle('executeShellCommand', async (event, { command, currentPath }) => {
+    console.log(`[TERMINAL DEBUG] Executing command: "${command}"`);
+    console.log(`[TERMINAL DEBUG] Current Path: "${currentPath}"`);
+
+    return new Promise((resolve, reject) => {
+        const { exec } = require('child_process');
+
+        exec(command, { 
+            cwd: currentPath || process.env.HOME,
+            shell: '/bin/bash'
+        }, (error, stdout, stderr) => {
+            console.log(`[TERMINAL DEBUG] Command Execution Result:`);
+            console.log(`[TERMINAL DEBUG] STDOUT: "${stdout}"`);
+            console.log(`[TERMINAL DEBUG] STDERR: "${stderr}"`);
+            console.log(`[TERMINAL DEBUG] ERROR: ${error}`);
+
+            // Convert Unix line endings to terminal-friendly format
+            const normalizedStdout = stdout.replace(/\n/g, '\r\n');
+            const normalizedStderr = stderr.replace(/\n/g, '\r\n');
+
+            if (error) {
+                console.error(`[TERMINAL DEBUG] Execution Error:`, error);
+                resolve({ 
+                    error: normalizedStderr || normalizedStdout || error.message,
+                    output: normalizedStdout
+                });
+            } else {
+                resolve({ 
+                    output: normalizedStdout, 
+                    error: normalizedStderr 
+                });
+            }
+        });
+    });
+});
 ipcMain.handle('get-attachment', async (event, attachmentId) => {
   const response = await fetch(`http://127.0.0.1:5337/api/attachment/${attachmentId}`);
   return response.json();
@@ -972,6 +1575,96 @@ ipcMain.handle('get-message-attachments', async (event, messageId) => {
   return response.json();
 });
 
+
+ipcMain.handle('get-usage-stats', async () => {
+  console.log('[IPC] get-usage-stats handler STARTED');
+  try {
+    const conversationQuery = `SELECT COUNT(DISTINCT conversation_id) as total FROM conversation_history;`;
+    const messagesQuery = `SELECT COUNT(*) as total FROM conversation_history WHERE role = 'user' OR role = 'assistant';`;
+    const modelsQuery = `SELECT model, COUNT(*) as count FROM conversation_history WHERE model IS NOT NULL AND model != '' GROUP BY model ORDER BY count DESC LIMIT 5;`;
+    const npcsQuery = `SELECT npc, COUNT(*) as count FROM conversation_history WHERE npc IS NOT NULL AND npc != '' GROUP BY npc ORDER BY count DESC LIMIT 5;`;
+
+    const [convResult] = await dbQuery(conversationQuery);
+    const [msgResult] = await dbQuery(messagesQuery);
+    const topModels = await dbQuery(modelsQuery);
+    const topNPCs = await dbQuery(npcsQuery);
+
+    console.log('[IPC] get-usage-stats returning:', {
+      totalConversations: convResult?.total || 0,
+      totalMessages: msgResult?.total || 0,
+      topModels,
+      topNPCs
+    });
+
+    return {
+      stats: {
+        totalConversations: convResult?.total || 0,
+        totalMessages: msgResult?.total || 0,
+        topModels,
+        topNPCs
+      },
+      error: null
+    };
+  } catch (err) {
+    console.error('[IPC] get-usage-stats ERROR:', err);
+    return { stats: null, error: err.message };
+  }
+});
+ipcMain.handle('getActivityData', async (event, { period }) => {
+  try {
+    let dateModifier = '-30 days';
+    if (period === '7d') dateModifier = '-7 days';
+    if (period === '90d') dateModifier = '-90 days';
+
+    const query = `
+      SELECT 
+        strftime('%Y-%m-%d', timestamp) as date, 
+        COUNT(*) as count
+      FROM conversation_history
+      WHERE timestamp >= strftime('%Y-%m-%d %H:%M:%S', 'now', ?)
+      GROUP BY date
+      ORDER BY date ASC;
+    `;
+    
+    const rows = await dbQuery(query, [dateModifier]);
+    return { data: rows, error: null };
+  } catch (err) {
+    return { data: null, error: err.message };
+  }
+});
+
+ipcMain.handle('getHistogramData', async () => {
+  try {
+    const query = `
+      SELECT 
+        CASE
+          WHEN LENGTH(content) BETWEEN 0 AND 50 THEN '0-50'
+          WHEN LENGTH(content) BETWEEN 51 AND 200 THEN '51-200'
+          WHEN LENGTH(content) BETWEEN 201 AND 500 THEN '201-500'
+          WHEN LENGTH(content) BETWEEN 501 AND 1000 THEN '501-1000'
+          ELSE '1000+'
+        END as bin,
+        COUNT(*) as count
+      FROM conversation_history
+      WHERE role = 'user' OR role = 'assistant'
+      GROUP BY bin
+      ORDER BY MIN(LENGTH(content));
+    `;
+    const rows = await dbQuery(query);
+    return { data: rows, error: null };
+  } catch (err) {
+    return { data: null, error: err.message };
+  }
+});
+
+ipcMain.handle('executeSQL', async (event, { query }) => {
+  try {
+    const rows = await dbQuery(query);
+    return { result: rows, error: null };
+  } catch (err) {
+    return { result: null, error: err.message };
+  }
+});
 ipcMain.handle('executeCommand', async (event, data) => {
     const currentStreamId = generateId();
     log(`[Main Process] executeCommand: Starting. streamId: ${currentStreamId}`);
@@ -1239,7 +1932,9 @@ ipcMain.handle('getConversations', async (_, path) => {
 
   ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
     const structure = {};
-    const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', '.json', '.txt', '.yaml', '.yml', '.html', '.css', '.npc', '.jinx'];
+    const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', 
+                               '.json', '.txt', '.yaml', '.yml', '.html', '.css', 
+                               '.npc', '.jinx', '.pdf', '.csv', '.sh',];
     //console.log(`[Main Process] readDirectoryStructure called for: ${dirPath}`); // LOG 1
 
     try {
@@ -1317,6 +2012,9 @@ ipcMain.handle('getConversations', async (_, path) => {
       throw err;
     }
   });
+
+  
+
 
   ipcMain.handle('createConversation', async (_, { title, model, provider, directory }) => {
     try {
@@ -1460,8 +2158,52 @@ ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
   });
 });
 
-// Add file rename functionality
-  ipcMain.handle('renameFile', async (_, oldPath, newPath) => {
+ipcMain.handle('create-directory', async (_, directoryPath) => {
+  try {
+    // fs.promises.mkdir will create the directory. It will throw an error if it already exists.
+    await fsPromises.mkdir(directoryPath);
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('Error creating directory:', err);
+    // Return the specific error message to the frontend
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('delete-directory', async (_, directoryPath) => {
+  try {
+    await fsPromises.rm(directoryPath, { recursive: true, force: true });
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('Error deleting directory:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Add this handler to get all file paths inside a folder for AI overview
+ipcMain.handle('get-directory-contents-recursive', async (_, directoryPath) => {
+    const allFiles = [];
+    async function readDir(currentDir) {
+        const entries = await fsPromises.readdir(currentDir, { withFileTypes: true });
+        for (const entry of entries) {
+            const fullPath = path.join(currentDir, entry.name);
+            if (entry.isDirectory()) {
+                await readDir(fullPath); // Recurse into subdirectories
+            } else if (entry.isFile()) {
+                allFiles.push(fullPath);
+            }
+        }
+    }
+    try {
+        await readDir(directoryPath);
+        return { files: allFiles, error: null };
+    } catch (err) {
+        console.error('Error getting directory contents:', err);
+        return { files: [], error: err.message };
+    }
+});
+
+ipcMain.handle('renameFile', async (_, oldPath, newPath) => {
     try {
       await fsPromises.rename(oldPath, newPath);
       return { success: true, error: null };
@@ -1470,3 +2212,5 @@ ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
       return { success: false, error: err.message };
     }
   });
+  let currentPdfPath = null; // <<< THIS IS THE FIX. DECLARE THE VARIABLE HERE.
+

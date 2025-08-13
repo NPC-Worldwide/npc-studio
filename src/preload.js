@@ -1,8 +1,7 @@
 const { contextBridge, ipcRenderer, shell } = require('electron');
 
-// Expose all API functions through contextBridge
 contextBridge.exposeInMainWorld('api', {
-    // Directory operations
+
     getDefaultConfig: () => ipcRenderer.invoke('getDefaultConfig'),
     readDirectoryStructure: (dirPath) => ipcRenderer.invoke('readDirectoryStructure', dirPath),
     goUpDirectory: (currentPath) => ipcRenderer.invoke('goUpDirectory', currentPath),
@@ -21,20 +20,113 @@ contextBridge.exposeInMainWorld('api', {
     waitForScreenshot: (path) => ipcRenderer.invoke('wait-for-screenshot', path),
     saveNPC: (data) => ipcRenderer.invoke('save-npc', data),
 
+    readFile: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
     // File operations
     readFileContent: (filePath) => ipcRenderer.invoke('read-file-content', filePath),
     writeFileContent: (filePath, content) => ipcRenderer.invoke('write-file-content', filePath, content),
+    createDirectory: (path) => ipcRenderer.invoke('create-directory', path), // <-- ADD THIS LINE
+    deleteDirectory: (path) => ipcRenderer.invoke('delete-directory', path), // <-- ADD THIS LINE
+    getDirectoryContentsRecursive: (path) => ipcRenderer.invoke('get-directory-contents-recursive', path), // <-- ADD THIS LINE
+    showPdf: (args) => ipcRenderer.send('show-pdf', args),
+    updatePdfBounds: (bounds) => ipcRenderer.send('update-pdf-bounds', bounds),
+    hidePdf: (filePath) => ipcRenderer.send('hide-pdf', filePath),
+    showBrowser: (args) => ipcRenderer.invoke('show-browser', args),
+    updateBrowserBounds: (args) => ipcRenderer.invoke('update-browser-bounds', args),
+    hideBrowser: (args) => ipcRenderer.invoke('hide-browser', args),
+    browserNavigate: (args) => ipcRenderer.invoke('browser-navigate', args),
+    browserBack: (args) => ipcRenderer.invoke('browser-back', args),
+    browserForward: (args) => ipcRenderer.invoke('browser-forward', args),
+    browserRefresh: (args) => ipcRenderer.invoke('browser-refresh', args),
+    browserGetSelectedText: (args) => ipcRenderer.invoke('browser-get-selected-text', args),
+    browserAddToHistory: (args) => ipcRenderer.invoke('browser:addToHistory', args),
+    browserGetHistory: (args) => ipcRenderer.invoke('browser:getHistory', args),
+    browserAddBookmark: (args) => ipcRenderer.invoke('browser:addBookmark', args),
+    browserGetBookmarks: (args) => ipcRenderer.invoke('browser:getBookmarks', args),
+    browserDeleteBookmark: (args) => ipcRenderer.invoke('browser:deleteBookmark', args),
+    browserClearHistory: (args) => ipcRenderer.invoke('browser:clearHistory', args),
+    browserSetVisibility: (args) => ipcRenderer.invoke('browser:set-visibility', args),
+
+    // Browser event listeners
+    onBrowserLoaded: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-loaded', handler);
+        return () => ipcRenderer.removeListener('browser-loaded', handler);
+    },
+    onBrowserLoading: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-loading', handler);
+        return () => ipcRenderer.removeListener('browser-loading', handler);
+    },
+    onBrowserTitleUpdated: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-title-updated', handler);
+        return () => ipcRenderer.removeListener('browser-title-updated', handler);
+    },
+    onBrowserLoadError: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-load-error', handler);
+        return () => ipcRenderer.removeListener('browser-load-error', handler);
+    },
+    
+    onThumbnailCreated: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('thumbnail-created', handler);
+        return () => ipcRenderer.removeListener('thumbnail-created', handler);
+    },
+    onThumbnailError: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('thumbnail-error', handler);
+        return () => ipcRenderer.removeListener('thumbnail-error', handler);
+    },
+    onThumbnailComplete: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('thumbnail-complete', handler);
+        return () => ipcRenderer.removeListener('thumbnail-complete', handler);
+    },
+    
+    
+    getHighlightsForFile: (filePath) => ipcRenderer.invoke('db:getHighlightsForFile', { filePath }),
+    addPdfHighlight: (data) => ipcRenderer.invoke('db:addPdfHighlight', data),
+
     deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
     renameFile: (oldPath, newPath) => ipcRenderer.invoke('renameFile', oldPath, newPath),
     getGlobalContext: () => ipcRenderer.invoke('get-global-context'),
     saveGlobalContext: (contextData) => ipcRenderer.invoke('save-global-context', contextData),
     getProjectContext: (path) => ipcRenderer.invoke('get-project-context', path),
     saveProjectContext: (data) => ipcRenderer.invoke('save-project-context', data),
+    getUsageStats: () => ipcRenderer.invoke('get-usage-stats'),
+    getActivityData: (options) => ipcRenderer.invoke('getActivityData', options),
+    getHistogramData: () => ipcRenderer.invoke('getHistogramData'),
+    executeSQL: (options) => ipcRenderer.invoke('executeSQL', options),
 
+    listTables: () => ipcRenderer.invoke('db:listTables'),
+    getTableSchema: (args) => ipcRenderer.invoke('db:getTableSchema', args),
+    exportToCSV: (data) => ipcRenderer.invoke('db:exportCSV', data),
 
     getLastUsedInDirectory: (path) => ipcRenderer.invoke('get-last-used-in-directory', path),
     getLastUsedInConversation: (conversationId) => ipcRenderer.invoke('get-last-used-in-conversation', conversationId),
 
+    kg_getGraphData: (args) => ipcRenderer.invoke('kg:getGraphData', args),
+    kg_listGenerations: () => ipcRenderer.invoke('kg:listGenerations'),
+    kg_triggerProcess: (args) => ipcRenderer.invoke('kg:triggerProcess', args),
+    kg_rollback: (args) => ipcRenderer.invoke('kg:rollback', args),
+
+    resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
+
+        createTerminalSession: (args) => ipcRenderer.invoke('createTerminalSession', args),
+    writeToTerminal: (args) => ipcRenderer.invoke('writeToTerminal', args),
+    closeTerminalSession: (id) => ipcRenderer.invoke('closeTerminalSession', id),
+    onTerminalData: (callback) => {
+        const handler = (_, data) => callback(_, data);
+        ipcRenderer.on('terminal-data', handler);
+        return () => ipcRenderer.removeListener('terminal-data', handler);
+    },
+onTerminalClosed: (callback) => {
+    const handler = (_, data) => callback(_, data);
+    ipcRenderer.on('terminal-closed', handler);
+    return () => ipcRenderer.removeListener('terminal-closed', handler);
+},
+    executeShellCommand: (args) => ipcRenderer.invoke('executeShellCommand', args),
 
     // Command operations
     executeCommand: (data) => ipcRenderer.invoke('executeCommand', {
@@ -73,6 +165,8 @@ contextBridge.exposeInMainWorld('api', {
         ipcRenderer.on('stream-error', handler);
         return () => ipcRenderer.removeListener('stream-error', handler);
     },
+    showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
+
     // Jinx operations
     getJinxsGlobal: async () => {
         try {
@@ -110,6 +204,11 @@ contextBridge.exposeInMainWorld('api', {
         return await ipcRenderer.invoke('getNPCTeamProject', currentPath);
     },
     getNPCTeamGlobal: () => ipcRenderer.invoke('getNPCTeamGlobal'),
+    onBrowserShowContextMenu: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-show-context-menu', handler);
+        return () => ipcRenderer.removeListener('browser-show-context-menu', handler);
+    },
     
     // Attachment operations
     getMessageAttachments: (messageId) => ipcRenderer.invoke('get-message-attachments', messageId),
@@ -134,10 +233,6 @@ contextBridge.exposeInMainWorld('api', {
         return () => ipcRenderer.removeListener('screenshot-captured', wrappedCallback);
     },
 
-    // Dashboard / Stats
-    getUsageStats: () => ipcRenderer.invoke('get-usage-stats'),
-
-    // Utility
     showPromptDialog: (options) => ipcRenderer.invoke('showPromptDialog', options),
     checkServerConnection: () => ipcRenderer.invoke('checkServerConnection'),
     openExternal: (url) => ipcRenderer.invoke('openExternal', url),
