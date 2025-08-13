@@ -3611,13 +3611,6 @@ const renderSidebarItemContextMenu = () => {
                     <Edit size={16} />
                     <span>Rename</span>
                 </button>
-                <button
-                    onClick={handleSidebarItemDelete}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400"
-                >
-                    <Trash size={16} />
-                    <span>Delete</span>
-                </button>
                 
                 {/* --- FILE-SPECIFIC AI ACTIONS --- */}
                 {isFile && (
@@ -3700,7 +3693,7 @@ const renderSidebarItemContextMenu = () => {
                     <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
                         {/* Add collapse button first */}
                         <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
-                        <button onClick={deleteSelectedConversations} className="p-2 theme-hover rounded-full transition-all" aria-label="Delete Selected Items"><Trash size={14} /></button>
+
                         
                         {/* Rest of existing buttons */}
                         <div className="relative group">
@@ -3805,6 +3798,16 @@ const renderSidebarItemContextMenu = () => {
                     {fileContextMenuPos && renderFileContextMenu()}
                 
                 </div>
+                <div className="flex justify-center"> {/* Use flexbox to center the button */}
+                    <button
+                        onClick={deleteSelectedConversations}
+                        className="p-2 theme-hover rounded-full text-red-400 transition-all" /* Simplified classes for an icon button */
+                        title="Delete selected items"
+                    >
+                        <Trash size={24} />
+                    </button>
+                </div>
+
 
                 
                 <div className="p-4 border-t theme-border flex-shrink-0">
@@ -3836,27 +3839,44 @@ const renderSidebarItemContextMenu = () => {
             </div>
         );
     };
+
     const renderFolderList = (structure) => {
         if (!structure || typeof structure !== 'object' || structure.error) { return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>; }
         if (Object.keys(structure).length === 0) { return <div className="p-2 text-xs text-gray-500">Empty directory</div>; }
         
-        // Section header with collapse toggle
+        // Section header with collapse toggle and a new refresh button
         const header = (
             <div className="flex items-center justify-between px-4 py-2 mt-4">
                 <div className="text-xs text-gray-500 font-medium">Files and Folders</div>
-                <button 
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setFilesCollapsed(!filesCollapsed);
-                    }}
-                    className="p-1 theme-hover rounded-full transition-all"
-                    title={filesCollapsed ? "Expand files" : "Collapse files"}
-                >
-                    <ChevronRight
-                        size={16}
-                        className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`}
-                    />
-                </button>
+                <div className="flex items-center gap-1">
+                    {/* --- ADD THIS NEW BUTTON --- */}
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleRefreshFilesAndFolders();
+                        }}
+                        className="p-1 theme-hover rounded-full transition-all"
+                        title="Refresh file and folder list"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
+                        </svg>
+                    </button>
+                    {/* --- END NEW BUTTON --- */}
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setFilesCollapsed(!filesCollapsed);
+                        }}
+                        className="p-1 theme-hover rounded-full transition-all"
+                        title={filesCollapsed ? "Expand files" : "Collapse files"}
+                    >
+                        <ChevronRight
+                            size={16}
+                            className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`}
+                        />
+                    </button>
+                </div>
             </div>
         );
         
@@ -4091,6 +4111,11 @@ const renderSidebarItemContextMenu = () => {
         );
     };
 
+    const handleRefreshFilesAndFolders = () => {
+        if (currentPath) {
+            loadDirectoryStructure(currentPath);
+        }
+    }
 
     const renderConversationList = (conversations) => {
         if (!conversations?.length) return null;
@@ -4100,6 +4125,7 @@ const renderSidebarItemContextMenu = () => {
             <div className="flex items-center justify-between px-4 py-2 mt-4">
                 <div className="text-xs text-gray-500 font-medium">Conversations ({conversations.length})</div>
                 <div className="flex items-center gap-1">
+
                     <button 
                         onClick={(e) => {
                             e.stopPropagation();
@@ -4149,14 +4175,19 @@ const renderSidebarItemContextMenu = () => {
                                     <span className="text-xs text-gray-500">{new Date(activeConversation.timestamp).toLocaleString()}</span>
                                 </div>
                             </button>
+                       
+                       
                         </div>
+                    
                     )}
+                    
                 </div>
             );
         }
         
         // Regular full list when not collapsed
         return (
+
             <div className="mt-4">
                 {header}
                 <div className="px-1">
@@ -4217,10 +4248,20 @@ const renderSidebarItemContextMenu = () => {
                                     <span className="text-sm truncate">{conv.title || conv.id}</span>
                                     <span className="text-xs text-gray-500">{new Date(conv.timestamp).toLocaleString()}</span>
                                 </div>
+
                             </button>
+                            
                         );
-                    })}
+
+                
+                })}
+                
+                
                 </div>
+
+
+
+
             </div>
         );
     };
