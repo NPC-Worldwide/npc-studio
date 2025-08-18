@@ -110,6 +110,9 @@ contextBridge.exposeInMainWorld('api', {
     kg_listGenerations: () => ipcRenderer.invoke('kg:listGenerations'),
     kg_triggerProcess: (args) => ipcRenderer.invoke('kg:triggerProcess', args),
     kg_rollback: (args) => ipcRenderer.invoke('kg:rollback', args),
+    kg_getNetworkStats: (args) => ipcRenderer.invoke('kg:getNetworkStats', args),
+    kg_getCooccurrenceNetwork: (args) => ipcRenderer.invoke('kg:getCooccurrenceNetwork', args),
+    kg_getCentralityData: (args) => ipcRenderer.invoke('kg:getCentralityData', args),
 
     resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
 

@@ -980,7 +980,25 @@ function createWindow() {
   }
 
 
+// Add these alongside your existing ipcMain.handle calls
 
+ipcMain.handle('kg:getNetworkStats', async (event, { generation }) => {
+  const params = generation !== null ? `?generation=${generation}` : '';
+  // Note: Ensure callBackendApi can handle GET requests without a body
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/network-stats${params}`);
+});
+
+ipcMain.handle('kg:getCooccurrenceNetwork', async (event, { generation, minCooccurrence = 2 }) => {
+  const params = new URLSearchParams();
+  if (generation !== null) params.append('generation', generation);
+  params.append('min_cooccurrence', minCooccurrence);
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/cooccurrence?${params.toString()}`);
+});
+
+ipcMain.handle('kg:getCentralityData', async (event, { generation }) => {
+  const params = generation !== null ? `?generation=${generation}` : '';
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/centrality${params}`);
+});
 
 // --- Knowledge Graph Handlers ---
 ipcMain.handle('kg:getGraphData', async (event, { generation }) => {
@@ -991,6 +1009,7 @@ ipcMain.handle('kg:getGraphData', async (event, { generation }) => {
 ipcMain.handle('kg:listGenerations', async () => {
   return await callBackendApi('http://127.0.0.1:5337/api/kg/generations');
 });
+
 
 ipcMain.handle('kg:triggerProcess', async (event, { type }) => {
   return await callBackendApi('http://127.0.0.1:5337/api/kg/trigger', {

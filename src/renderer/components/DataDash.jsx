@@ -737,23 +737,24 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
     const [kgError, setKgError] = useState(null);
     const graphRef = useRef();
 
-    // Escape key handler for modal close
+    // --- ADD THESE LINES RIGHT AFTER ---
+    const [kgViewMode, setKgViewMode] = useState('full'); // 'full', 'cooccurrence'
+    const [kgNodeFilter, setKgNodeFilter] = useState('all'); // 'all', 'high-degree'
+    const [networkStats, setNetworkStats] = useState(null);
+    const [cooccurrenceData, setCooccurrenceData] = useState(null);
+    const [centralityData, setCentralityData] = useState(null);
+
+
     useEffect(() => { const handleKeyDown = (event) => { if (event.key === 'Escape') onClose(); }; if (isOpen) document.addEventListener('keydown', handleKeyDown); return () => document.removeEventListener('keydown', handleKeyDown); }, [isOpen, onClose]);
 
-    // Initialize widgets from localStorage or with default widgets on component open
-    useEffect(() => {
-        if (isOpen) {
-            try { 
-                const savedWidgets = localStorage.getItem('dataDashWidgets'); 
-                setWidgets(savedWidgets ? JSON.parse(savedWidgets) : defaultWidgets); 
-            } catch (e) { 
-                console.error("Failed to load dashboard widgets from localStorage, falling back to defaults:", e);
-                setWidgets(defaultWidgets); 
-            }
-            fetchKgData(); // Also load KG data when dashboard opens
-        }
-    }, [isOpen]); // Depend on isOpen to trigger on mount/open
 
+    useEffect(() => {
+
+        if (isOpen) {
+
+            fetchKgData(currentKgGeneration);
+        }
+    }, [isOpen, currentKgGeneration]); // Re-run only when isOpen changes or the generation slider value changes.
     const saveWidgets = (newWidgets) => { setWidgets(newWidgets); localStorage.setItem('dataDashWidgets', JSON.stringify(newWidgets)); };
     const handleAddWidget = (widgetConfig) => saveWidgets([...widgets, widgetConfig]);
     const handleRemoveWidget = (idToRemove) => saveWidgets(widgets.filter(w => w.id !== idToRemove));
@@ -832,17 +833,41 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
     }, [isQueryPanelOpen, dbTables.length]); // Dependencies: panel state, tables array length
 
     // --- ORIGINAL KG FETCH HOOK ---
-    const fetchKgData = useCallback(async () => {
+    const fetchKgData = useCallback(async (generation) => {
         setKgLoading(true); setKgError(null);
+        // Use the passed generation, fallback to current state, finally to null for initial load
+        const genToFetch = generation !== undefined ? generation : (currentKgGeneration !== null ? currentKgGeneration : null);
+        
         try {
-            const [generationsRes, graphDataRes] = await Promise.all([ window.api.kg_listGenerations(), window.api.kg_getGraphData({ generation: currentKgGeneration }) ]);
+            const [generationsRes, graphDataRes, statsRes, cooccurRes, centralityRes] = await Promise.all([
+                window.api.kg_listGenerations(),
+                window.api.kg_getGraphData({ generation: genToFetch }),
+                window.api.kg_getNetworkStats({ generation: genToFetch }),
+                window.api.kg_getCooccurrenceNetwork({ generation: genToFetch }),
+                window.api.kg_getCentralityData({ generation: genToFetch }),
+            ]);
+
             if (generationsRes.error) throw new Error(`Generations Error: ${generationsRes.error}`);
-            if (graphDataRes.error) throw new Error(`Graph Data Error: ${graphDataRes.error}`);
             setKgGenerations(generationsRes.generations || []);
+            const gens = generationsRes.generations || [];
+            // If this is the very first load, set the generation to the latest one
+            if (currentKgGeneration === null && gens.length > 0) {
+                setCurrentKgGeneration(Math.max(...gens));
+            }
+
+            if (graphDataRes.error) throw new Error(`Graph Data Error: ${graphDataRes.error}`);
             setKgData(graphDataRes.graph || { nodes: [], links: [] });
-            if (currentKgGeneration === null && generationsRes.generations?.length > 0) { setCurrentKgGeneration(Math.max(...generationsRes.generations)); }
-        } catch (err) { setKgError(err.message); } finally { setKgLoading(false); }
-    }, [currentKgGeneration]);
+
+            if (statsRes.error) console.warn("Stats Error:", statsRes.error); else setNetworkStats(statsRes.stats);
+            if (cooccurRes.error) console.warn("Co-occurrence Error:", cooccurRes.error); else setCooccurrenceData(cooccurRes.network);
+            if (centralityRes.error) console.warn("Centrality Error:", centralityRes.error); else setCentralityData(centralityRes.centrality);
+
+        } catch (err) {
+            setKgError(err.message);
+        } finally {
+            setKgLoading(false);
+        }
+    }, [currentKgGeneration]); // Depend on currentKgGeneration to have the correct fallback
 
     useEffect(() => { if (isOpen) { fetchKgData(); } }, [isOpen, fetchKgData]);
 
@@ -876,15 +901,70 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
         else if (action === 'delete') updatedHistory.splice(index, 1);
         setQueryHistory(updatedHistory); localStorage.setItem('dataDashQueryHistory', JSON.stringify(updatedHistory));
     };
+        const processedGraphData = React.useMemo(() => {
+        let sourceNodes = [];
+        let sourceLinks = [];
+
+        if (kgViewMode === 'cooccurrence' && cooccurrenceData) {
+            sourceNodes = cooccurrenceData.nodes || [];
+            sourceLinks = cooccurrenceData.links || [];
+        } else if (kgData && kgData.nodes) { // 'full' view
+            sourceNodes = kgData.nodes;
+            sourceLinks = kgData.links;
+        }
+
+        if (kgNodeFilter === 'high-degree' && networkStats?.node_degrees) {
+          const avgDegree = networkStats.avg_degree || 0;
+          const degreeThreshold = avgDegree > 1 ? avgDegree * 1.2 : 2;
+          const highDegreeNodeIds = new Set(Object.keys(networkStats.node_degrees).filter(id => networkStats.node_degrees[id] >= degreeThreshold));
+          const filteredNodes = sourceNodes.filter(n => highDegreeNodeIds.has(n.id));
+          const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+          const filteredLinks = sourceLinks.filter(l => filteredNodeIds.has(l.source?.id || l.source) && filteredNodeIds.has(l.target?.id || l.target));
+          return { nodes: filteredNodes, links: filteredLinks };
+        }
+        
+        return { nodes: sourceNodes, links: sourceLinks };
+    }, [kgData, kgViewMode, kgNodeFilter, networkStats, cooccurrenceData]);
+    
+    const getNodeColor = React.useCallback((node) => {
+        if (kgViewMode === 'cooccurrence') {
+          const community = node.community || 0;
+          const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#84cc16'];
+          return colors[community % colors.length];
+        }
+        return node.type === 'concept' ? '#a855f7' : '#3b82f6';
+    }, [kgViewMode]);
+
+    const getNodeSize = React.useCallback((node) => {
+        if (networkStats?.node_degrees?.[node.id]) {
+          const degree = networkStats.node_degrees[node.id];
+          const maxDegree = Math.max(1, ...Object.values(networkStats.node_degrees));
+          return 4 + (degree / maxDegree) * 12;
+        }
+        return node.type === 'concept' ? 6 : 4;
+    }, [networkStats]);
+
+    const getLinkWidth = React.useCallback((link) => (link.weight ? Math.min(5, link.weight / 2) : 1), []);
+
 
     const handleKgProcessTrigger = async (type) => { setKgLoading(true); setKgError(null); try { await window.api.kg_triggerProcess({ type }); setCurrentKgGeneration(null); } catch (err) { setKgError(err.message); } finally { setKgLoading(false); } };
     const handleKgRollback = async () => {
         if (currentKgGeneration > 0) {
-            setKgLoading(true); setKgError(null);
             const targetGen = currentKgGeneration - 1;
-            try { await window.api.kg_rollback({ generation: targetGen }); setCurrentKgGeneration(targetGen); } catch (err) { setKgError(err.message); } finally { setKgLoading(false); }
+            setKgLoading(true);
+            try {
+                // The actual rollback happens in the main process
+                await window.api.kg_rollback({ generation: targetGen });
+                // We just need to update the state. The useEffect above will automatically
+                // trigger a full data refetch for the new target generation.
+                setCurrentKgGeneration(targetGen); 
+            } catch (err) {
+                setKgError(err.message);
+                setKgLoading(false);
+            }
         }
     };
+
     
     if (!isOpen) return null;
     
@@ -962,20 +1042,98 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
                         </section>
 
                         {/* Original Knowledge Graph Section - Preserved as is */}
-                        <section id="knowledge-graph" className="border theme-border rounded-lg p-4">
-                            <div className="flex justify-between items-center mb-3"><h4 className="text-lg font-semibold flex items-center gap-3"><GitBranch className="text-green-400"/>Knowledge Graph Inspector</h4><div className="flex items-center gap-2"><button onClick={() => handleKgProcessTrigger('sleep')} disabled={kgLoading} className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2"><Zap size={14}/> Sleep</button><button onClick={() => handleKgProcessTrigger('dream')} disabled={kgLoading} className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2"><Brain size={14}/> Dream</button></div></div>
-                            {kgError && <div className="text-red-400 text-center p-4">{kgError}</div>}
-                            {kgLoading ? (<div className="h-80 flex items-center justify-center theme-bg-tertiary rounded-lg"><Loader className="animate-spin text-green-400" size={32} /></div>) : (
-                            <div className="grid grid-cols-4 gap-4">
-                                <div className="col-span-1 flex flex-col gap-4">
-                                    <div className="theme-bg-tertiary p-3 rounded-lg"><h5 className="font-semibold text-sm mb-2">Controls</h5><label className="text-xs theme-text-secondary">Active Generation</label><div className="flex items-center gap-2"><input type="range" min="0" max={kgGenerations.length > 0 ? Math.max(...kgGenerations) : 0} value={currentKgGeneration || 0} onChange={(e) => setCurrentKgGeneration(parseInt(e.target.value))} className="w-full" disabled={kgGenerations.length === 0}/><span className="font-mono text-sm p-1 theme-bg-primary rounded">{currentKgGeneration}</span></div><button onClick={handleKgRollback} disabled={currentKgGeneration === 0} className="w-full mt-3 text-xs py-1 theme-button-danger rounded flex items-center justify-center gap-2 disabled:opacity-50"><Repeat size={14} /> Rollback One Gen</button></div>
-                                    <div className="theme-bg-tertiary p-3 rounded-lg"><h5 className="font-semibold text-sm mb-2">Generation Stats</h5><p className="text-xs theme-text-secondary"><ChevronsRight size={12} className="inline"/> Facts: <span className="font-bold theme-text-primary">{kgData.nodes.filter(n=>n.type==='fact').length}</span></p><p className="text-xs theme-text-secondary"><ChevronsRight size={12} className="inline"/> Concepts: <span className="font-bold theme-text-primary">{kgData.nodes.filter(n=>n.type==='concept').length}</span></p><p className="text-xs theme-text-secondary"><ChevronsRight size={12} className="inline"/> Links: <span className="font-bold theme-text-primary">{kgData.links.length}</span></p></div>
-                                </div>
-                                <div className="col-span-3 h-96 theme-bg-tertiary rounded-lg relative overflow-hidden">
-                                    <ForceGraph2D ref={graphRef} graphData={kgData} nodeLabel="id" nodeVal={node => node.type === 'concept' ? 10 : 3} nodeColor={node => node.type === 'concept' ? '#a855f7' : '#3b82f6'} linkDirectionalParticles={1} linkDirectionalParticleWidth={2} linkColor={() => 'rgba(255,255,255,0.2)'} width={800} height={384} backgroundColor="transparent"/>
-                                </div>
-                            </div>)}
-                        </section>
+<section id="knowledge-graph" className="border theme-border rounded-lg p-4">
+    <div className="flex justify-between items-center mb-3">
+        <h4 className="text-lg font-semibold flex items-center gap-3">
+            <GitBranch className="text-green-400"/>Knowledge Graph Inspector
+        </h4>
+        <div className="flex items-center gap-2">
+            <button onClick={() => handleKgProcessTrigger('sleep')} disabled={kgLoading} className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2"><Zap size={14}/> Sleep</button>
+            <button onClick={() => handleKgProcessTrigger('dream')} disabled={kgLoading} className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2"><Brain size={14}/> Dream</button>
+        </div>
+    </div>
+
+    {/* --- NEW: Enhanced Controls --- */}
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div>
+            <label className="text-xs theme-text-secondary mb-1 block">View Mode</label>
+            <select value={kgViewMode} onChange={(e) => setKgViewMode(e.target.value)} className="w-full px-2 py-1 text-xs theme-input rounded">
+              <option value="full">Full Network</option>
+              <option value="cooccurrence">Concept Co-occurrence</option>
+            </select>
+        </div>
+        <div>
+            <label className="text-xs theme-text-secondary mb-1 block">Node Filter</label>
+            <select value={kgNodeFilter} onChange={(e) => setKgNodeFilter(e.target.value)} className="w-full px-2 py-1 text-xs theme-input rounded">
+              <option value="all">Show All Nodes</option>
+              <option value="high-degree">Show High-Degree Nodes</option>
+            </select>
+        </div>
+    </div>
+    
+    {kgError && <div className="text-red-400 text-center p-4">{kgError}</div>}
+
+    {kgLoading ? (<div className="h-96 flex items-center justify-center theme-bg-tertiary rounded-lg"><Loader className="animate-spin text-green-400" size={32} /></div>) : (
+    <div className="grid grid-cols-4 gap-4">
+        <div className="col-span-1 flex flex-col gap-4">
+            <div className="theme-bg-tertiary p-3 rounded-lg">
+                <h5 className="font-semibold text-sm mb-2">Controls</h5>
+                <label className="text-xs theme-text-secondary">Active Generation</label>
+                <div className="flex items-center gap-2">
+                    <input type="range" min="0" max={kgGenerations.length > 0 ? Math.max(...kgGenerations) : 0} value={currentKgGeneration || 0} onChange={(e) => setCurrentKgGeneration(parseInt(e.target.value))} className="w-full" disabled={kgGenerations.length === 0}/>
+                    <span className="font-mono text-sm p-1 theme-bg-primary rounded">{currentKgGeneration}</span>
+                </div>
+                <button onClick={handleKgRollback} disabled={currentKgGeneration === 0 || kgLoading} className="w-full mt-3 text-xs py-1 theme-button-danger rounded flex items-center justify-center gap-2 disabled:opacity-50"><Repeat size={14} /> Rollback One Gen</button>
+            </div>
+            
+            {/* --- NEW: Enhanced Stats Panel --- */}
+            <div className="theme-bg-tertiary p-3 rounded-lg">
+                <h5 className="font-semibold text-sm mb-2">Current View Stats</h5>
+                <p className="text-xs theme-text-secondary">Nodes: <span className="font-bold theme-text-primary">{processedGraphData.nodes.length}</span></p>
+                <p className="text-xs theme-text-secondary">Links: <span className="font-bold theme-text-primary">{processedGraphData.links.length}</span></p>
+                {networkStats && kgViewMode === 'full' && (
+                    <>
+                    <p className="text-xs theme-text-secondary">Density: <span className="font-bold theme-text-primary">{networkStats.density?.toFixed(4)}</span></p>
+                    <p className="text-xs theme-text-secondary">Avg Degree: <span className="font-bold theme-text-primary">{networkStats.avg_degree?.toFixed(2)}</span></p>
+                    </>
+                )}
+            </div>
+
+            {/* --- NEW: Centrality Panel --- */}
+            {centralityData?.degree && (
+                <div className="theme-bg-tertiary p-3 rounded-lg">
+                    <h5 className="font-semibold text-sm mb-2">Top Central Concepts</h5>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {Object.entries(centralityData.degree).sort(([,a], [,b]) => b - a).slice(0, 10).map(([node, score]) => (
+                            <div key={node} className="text-xs" title={node}>
+                                <div className="truncate font-mono">{node}</div>
+                                <div className="text-green-400 font-semibold">{score.toFixed(3)}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+
+        <div className="col-span-3 h-96 theme-bg-tertiary rounded-lg relative overflow-hidden">
+            <ForceGraph2D 
+                ref={graphRef} 
+                graphData={processedGraphData} 
+                nodeLabel="id" 
+                nodeVal={getNodeSize} 
+                nodeColor={getNodeColor} 
+                linkWidth={getLinkWidth}
+                linkDirectionalParticles={kgViewMode === 'full' ? 1 : 0} 
+                linkDirectionalParticleWidth={2} 
+                linkColor={() => 'rgba(255,255,255,0.2)'} 
+                width={800} 
+                height={384} 
+                backgroundColor="transparent"
+            />
+        </div>
+    </div>)}
+</section>
+
                     </main>
                 </div>
             </div>
