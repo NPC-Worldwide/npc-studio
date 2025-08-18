@@ -8,4 +8,5 @@ if __name__ == "__main__":
         port="5337",   
         cors_origins="localhost:5173", 
         db_path = os.path.expanduser('~/npcsh_history.db'),
+        user_npc_directory = os.path.expanduser('~/.npcsh/npc_team'), 
         debug=False)
