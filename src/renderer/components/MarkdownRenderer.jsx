@@ -3,95 +3,152 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Maximize2, Minimize2 } from 'lucide-react';
+
 
 const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
-    const [copied, setCopied] = useState(false);
-    const [showFloatingButton, setShowFloatingButton] = useState(false);
-    const scrollContainerRef = useRef(null);
+  const [copied, setCopied] = useState(false);
+  const [showFloatingButton, setShowFloatingButton] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const scrollContainerRef = useRef(null);
 
-    const match = /language-(\w+)/.exec(className || '');
-    const codeString = String(children).replace(/\n$/, '');
+  const match = /language-(\w+)/.exec(className || '');
+  const codeString = String(children).replace(/\n$/, '');
 
-    const handleCopy = useCallback(() => {
-        navigator.clipboard.writeText(codeString).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        }).catch(err => console.error('Failed to copy code:', err));
-    }, [codeString]);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(codeString).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(err => console.error('Failed to copy code:', err));
+  }, [codeString]);
 
-    const handleScroll = useCallback(() => {
-        if (scrollContainerRef.current) {
-            const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-            const isScrolled = scrollTop > 0;
-            const hasScrollbar = scrollHeight > clientHeight;
-            setShowFloatingButton(isScrolled && hasScrollbar);
-        }
-    }, []);
-
-    const isDarkMode = document.body.classList.contains('dark-mode');
-
-    const shouldRenderInline = inline || codeString.length <= 60;
-    if (shouldRenderInline) {
-        return (
-            <code className="theme-code-inline px-1 py-0.5 rounded-sm font-mono text-xs" {...props}>
-                {children}
-            </code>
-        );
+  const handleScroll = useCallback(() => {
+    if (scrollContainerRef.current && !isExpanded) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      const isScrolled = scrollTop > 0;
+      const hasScrollbar = scrollHeight > clientHeight;
+      setShowFloatingButton(isScrolled && hasScrollbar);
     }
+  }, [isExpanded]);
 
+  const toggleExpand = useCallback(() => {
+    setIsExpanded(prev => !prev);
+    setShowFloatingButton(false);
+  }, []);
+
+  const isDarkMode = document.body.classList.contains('dark-mode');
+
+  const shouldRenderInline = inline || codeString.length <= 60;
+  if (shouldRenderInline) {
     return (
-        <div className="relative group my-2 theme-bg-tertiary rounded-md overflow-hidden theme-border border">
-            <div className="flex items-center justify-between px-4 py-1 theme-bg-secondary text-xs theme-text-muted">
-                <span>{match?.[1] || 'code'}</span>
-                <button
-                    onClick={handleCopy}
-                    className="p-1 rounded theme-hover theme-text-muted hover:theme-text-primary"
-                    aria-label="Copy code"
-                >
-                    {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                </button>
-            </div>
-
-            <div
-                ref={scrollContainerRef}
-                onScroll={handleScroll}
-                className="overflow-auto"
-                style={{ maxHeight: '400px' }}
-            >
-                <SyntaxHighlighter
-                    style={isDarkMode ? atomDark : oneLight}
-                    language={match?.[1]}
-                    PreTag="div"
-                    showLineNumbers={true}
-                    wrapLines={true}
-                    lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap' } }}
-                    {...props}
-                >
-                    {codeString}
-                </SyntaxHighlighter>
-            </div>
-
-            {showFloatingButton && (
-                <div className="absolute bottom-4 right-4 z-10 transition-opacity opacity-0 group-hover:opacity-100">
-                    <button
-                        onClick={handleCopy}
-                        className="flex items-center gap-2 px-3 py-2 rounded-md shadow-lg theme-bg-secondary theme-border border theme-hover"
-                        aria-label="Copy code"
-                    >
-                        {copied ? (
-                            <Check size={16} className="text-green-500" />
-                        ) : (
-                            <Copy size={16} />
-                        )}
-                        <span className="text-xs font-semibold">Copy</span>
-                    </button>
-                </div>
-            )}
-        </div>
+      <code className="theme-code-inline px-1 py-0.5 rounded-sm font-mono text-xs" {...props}>
+        {children}
+      </code>
     );
-});
+  }
 
+  return (
+    <>
+      {/* Expanded overlay */}
+      {isExpanded && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-6xl h-full max-h-[90vh] theme-bg-tertiary rounded-md overflow-hidden theme-border border">
+            <div className="flex items-center justify-between px-4 py-2 theme-bg-secondary text-sm theme-text-muted">
+              <span>{match?.[1] || 'code'}</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={toggleExpand}
+                  className="p-1 rounded theme-hover theme-text-muted hover:theme-text-primary"
+                  aria-label="Collapse code"
+                >
+                  <Minimize2 size={16} />
+                </button>
+                <button
+                  onClick={handleCopy}
+                  className="p-1 rounded theme-hover theme-text-muted hover:theme-text-primary"
+                  aria-label="Copy code"
+                >
+                  {copied ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
+                </button>
+              </div>
+            </div>
+            <div className="overflow-auto h-[calc(100%-48px)]">
+              <SyntaxHighlighter
+                style={isDarkMode ? atomDark : oneLight}
+                language={match?.[1]}
+                PreTag="div"
+                showLineNumbers={true}
+                wrapLines={true}
+                lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap' } }}
+                {...props}
+              >
+                {codeString}
+              </SyntaxHighlighter>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regular code block */}
+      <div className="relative group my-2 theme-bg-tertiary rounded-md overflow-hidden theme-border border">
+        <div className="flex items-center justify-between px-4 py-1 theme-bg-secondary text-xs theme-text-muted">
+          <span>{match?.[1] || 'code'}</span>
+          <div className="flex gap-2">
+            <button
+              onClick={toggleExpand}
+              className="p-1 rounded theme-hover theme-text-muted hover:theme-text-primary"
+              aria-label="Expand code"
+            >
+              <Maximize2 size={14} />
+            </button>
+            <button
+              onClick={handleCopy}
+              className="p-1 rounded theme-hover theme-text-muted hover:theme-text-primary"
+              aria-label="Copy code"
+            >
+              {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+            </button>
+          </div>
+        </div>
+
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="overflow-auto max-h-[400px]"
+        >
+          <SyntaxHighlighter
+            style={isDarkMode ? atomDark : oneLight}
+            language={match?.[1]}
+            PreTag="div"
+            showLineNumbers={true}
+            wrapLines={true}
+            lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap' } }}
+            {...props}
+          >
+            {codeString}
+          </SyntaxHighlighter>
+        </div>
+
+        {showFloatingButton && (
+          <div className="absolute bottom-4 right-4 z-10 transition-opacity opacity-0 group-hover:opacity-100">
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-2 px-3 py-2 rounded-md shadow-lg theme-bg-secondary theme-border border theme-hover"
+              aria-label="Copy code"
+            >
+              {copied ? (
+                <Check size={16} className="text-green-500" />
+              ) : (
+                <Copy size={16} />
+              )}
+              <span className="text-xs font-semibold">Copy</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+});
 const MarkdownRenderer = ({ content }) => {
     return (
         <ReactMarkdown
