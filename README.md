@@ -126,6 +126,10 @@ The long-awaited for activity dashboard: now with composable widgets, a setup fo
 
 ## Label images
 
+## Explore your knowledge graph
+
+![A knowledge graph showing nodes and edges and facts and concepts](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/kg_inspector.png)
+
 
 ## Planned Components
 - Knowledge Graph: view the knowledge graph built up over time through your actions. basic knowledge graph implementation was finished in npcpy in July 2025, andd the implementation in npc studio is actively ongoing. The knowledge graph viewer and manager will be part of the data dash
