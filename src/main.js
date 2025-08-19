@@ -981,6 +981,146 @@ function createWindow() {
 
 
 // Add these alongside your existing ipcMain.handle calls
+ipcMain.handle('ollama:checkStatus', async () => {
+    log('[Main Process] Checking Ollama status via backend...');
+    return await callBackendApi('http://127.0.0.1:5337/api/ollama/status');
+});
+
+ipcMain.handle('ollama:install', async () => {
+    log('[Main Process] Requesting Ollama installation from backend...');
+    // This could be a long-running process. The backend should handle this asynchronously.
+    // The `callBackendApi` might need a timeout adjustment if it's very long.
+    return await callBackendApi('http://127.0.0.1:5337/api/ollama/install', { method: 'POST' });
+});
+
+ipcMain.handle('ollama:getLocalModels', async () => {
+    log('[Main Process] Fetching local Ollama models from backend...');
+    return await callBackendApi('http://127.0.0.1:5337/api/ollama/models');
+});
+
+ipcMain.handle('ollama:deleteModel', async (event, { model }) => {
+    log(`[Main Process] Requesting deletion of model: ${model}`);
+    return await callBackendApi('http://127.0.0.1:5337/api/ollama/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: model }),
+    });
+});
+
+ipcMain.handle('ollama:pullModel', async (event, { model }) => {
+    log(`[Main Process] Starting pull for model: ${model}`);
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/ollama/pull', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: model }),
+        });
+
+        if (!response.ok || !response.body) {
+            const errorText = await response.text();
+            throw new Error(`Backend error on pull start: ${errorText}`);
+        }
+
+        const stream = response.body;
+        stream.on('data', (chunk) => {
+            try {
+                // The backend should send newline-delimited JSON objects for progress
+                const progressLines = chunk.toString().trim().split('\n');
+                for (const line of progressLines) {
+                    if (line) {
+                      const progress = JSON.parse(line);
+        
+                    if (progress.status && progress.status.toLowerCase() === 'error') {
+                        log(`[Ollama Pull] Received error from backend stream:`, progress.details);
+                        mainWindow?.webContents.send('ollama-pull-error', progress.details || 'An unknown error occurred during download.');
+                        // We can stop processing this stream now if we want, but letting it end naturally is also fine.
+                    } else {
+                        // It's a normal progress update
+                        const frontendProgress = {
+                            status: progress.status,
+                            details: `${progress.digest || ''} - ${progress.total ? (progress.completed / progress.total * 100).toFixed(1) + '%' : ''}`,
+                            percent: progress.total ? (progress.completed / progress.total * 100) : null
+                        };
+                        mainWindow?.webContents.send('ollama-pull-progress', frontendProgress);
+                    }
+
+
+        
+                    }
+                }
+            } catch (e) {
+                console.error('Error parsing pull progress:', e);
+                // Send a generic error if parsing fails
+                mainWindow?.webContents.send('ollama-pull-error', 'Failed to parse progress update.');
+            }
+        });
+
+        stream.on('end', () => {
+            log(`[Main Process] Pull stream for ${model} ended.`);
+            mainWindow?.webContents.send('ollama-pull-complete');
+        });
+
+        stream.on('error', (err) => {
+            log(`[Main Process] Pull stream for ${model} errored:`, err);
+            mainWindow?.webContents.send('ollama-pull-error', err.message);
+        });
+
+        return { success: true, message: 'Pull started.' };
+    } catch (err) {
+        log(`[Main Process] Failed to initiate pull for ${model}:`, err);
+        mainWindow?.webContents.send('ollama-pull-error', err.message);
+        return { success: false, error: err.message };
+    }
+});
+ipcMain.handle('loadProjectSettings', async (event, currentPath) => {
+    try {
+        const url = `http://127.0.0.1:5337/api/settings/project?path=${encodeURIComponent(currentPath)}`;
+        const response = await fetch(url, {
+            method: 'GET',
+            credentials: 'include'
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        return data;
+    } catch (err) {
+        console.error('Error loading project settings in main:', err);
+        return { error: err.message };
+    }
+});
+
+ipcMain.handle('saveProjectSettings', async (event, { path, env_vars }) => {
+    try {
+        const url = `http://127.0.0.1:5337/api/settings/project?path=${encodeURIComponent(path)}`;
+        await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ env_vars: env_vars })
+        });
+        return { success: true };
+    } catch (err) {
+        console.error('Error saving project settings in main:', err);
+        return { error: err.message };
+    }
+});
+
+ipcMain.handle('saveGlobalSettings', async (event, { global_settings, global_vars }) => {
+    try {
+        await fetch('http://127.0.0.1:5337/api/settings/global', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                global_settings: global_settings,
+                global_vars: global_vars,
+            })
+        });
+        return { success: true };
+    } catch (err) {
+        console.error('Error saving global settings in main:', err);
+        return { error: err.message };
+    }
+});
 
 ipcMain.handle('kg:getNetworkStats', async (event, { generation }) => {
   const params = generation !== null ? `?generation=${generation}` : '';

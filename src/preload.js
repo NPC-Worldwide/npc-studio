@@ -221,8 +221,34 @@ onTerminalClosed: (callback) => {
 
     // Settings & Config
     loadGlobalSettings: () => ipcRenderer.invoke('loadGlobalSettings'),
+    saveGlobalSettings: (args) => ipcRenderer.invoke('saveGlobalSettings', args),
+    loadProjectSettings: (path) => ipcRenderer.invoke('loadProjectSettings', path),
+    saveProjectSettings: (args) => ipcRenderer.invoke('saveProjectSettings', args),
+
     getAvailableModels: (currentPath) => ipcRenderer.invoke('getAvailableModels', currentPath),
     updateShortcut: (shortcut) => ipcRenderer.invoke('update-shortcut', shortcut),
+
+        checkOllamaStatus: () => ipcRenderer.invoke('ollama:checkStatus'),
+    installOllama: () => ipcRenderer.invoke('ollama:install'),
+    getLocalOllamaModels: () => ipcRenderer.invoke('ollama:getLocalModels'),
+    pullOllamaModel: (args) => ipcRenderer.invoke('ollama:pullModel', args),
+    deleteOllamaModel: (args) => ipcRenderer.invoke('ollama:deleteModel', args),
+
+    // Listeners for real-time progress updates from the main process
+    onOllamaPullProgress: (callback) => {
+        const handler = (_, progress) => callback(progress);
+        ipcRenderer.on('ollama-pull-progress', handler);
+        return () => ipcRenderer.removeListener('ollama-pull-progress', handler);
+    },
+    onOllamaPullComplete: (callback) => {
+        ipcRenderer.on('ollama-pull-complete', callback);
+        return () => ipcRenderer.removeListener('ollama-pull-complete', callback);
+    },
+    onOllamaPullError: (callback) => {
+        const handler = (_, error) => callback(error);
+        ipcRenderer.on('ollama-pull-error', handler);
+        return () => ipcRenderer.removeListener('ollama-pull-error', handler);
+    },
 
     // Screenshot & Macro
     onShowMacroInput: (callback) => {
