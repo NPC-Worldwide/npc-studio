@@ -35,7 +35,9 @@
       "dist/**/*",
       "src/**/*",
       "package.json",
-      "node_modules/sqlite3/**/*"
+      "node_modules/sqlite3/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/node-pty/**/*"
     ],
     "mac": {
       "icon": "assets/icon.png",
@@ -76,11 +78,13 @@
       }
     ],
     "asarUnpack": [
-      "node_modules/sqlite3/**/*"
+      "node_modules/sqlite3/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/node-pty/**/*"
     ],
     "buildDependenciesFromSource": false,
     "nodeGypRebuild": false,
-    "npmRebuild": false,
+    "npmRebuild": true,
     "forceCodeSigning": false
   },
   "dependencies": {
@@ -115,7 +119,7 @@
     "react-dom": "^18.3.1",
     "react-force-graph-2d": "^1.28.0",
     "react-markdown": "^9.1.0",
-    "react-syntax-highlighter": "^15.5.0",
+    "react-syntax-highlighter": "^5.8.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "sharp": "^0.34.3",

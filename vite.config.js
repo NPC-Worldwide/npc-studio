@@ -33,7 +33,7 @@ export default defineConfig({
       'remark-math',
       'rehype-katex',
       'react-syntax-highlighter',
-      'react-syntax-highlighter/dist/esm/styles/prism'
+      'react-syntax-highlighter/dist/cjs/styles/prism'
     ]
   }
 });
