@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { atomOneDark, atomOneLight } from "react-syntax-highlighter/dist/styles/hljs";
 import { Copy, Check } from 'lucide-react';
 
 const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
