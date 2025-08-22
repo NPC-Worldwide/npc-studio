@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomOneDark, atomOneLight } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import { atomDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check, Maximize2, Minimize2 } from 'lucide-react';
 
 
@@ -74,7 +74,7 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
             </div>
             <div className="overflow-auto h-[calc(100%-48px)]">
               <SyntaxHighlighter
-                style={isDarkMode ? atomOneDark : atomOneLight}
+                style={isDarkMode ? atomDark : atomLight}
                 language={match?.[1]}
                 PreTag="div"
                 showLineNumbers={true}
@@ -117,7 +117,7 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
           className="overflow-auto max-h-[400px]"
         >
           <SyntaxHighlighter
-            style={isDarkMode ? atoOnemDark : onOneLight}
+            style={isDarkMode ? atomDark : atomLight}
             language={match?.[1]}
             PreTag="div"
             showLineNumbers={true}
