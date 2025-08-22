@@ -4,4 +4,10 @@ flask_sse
 redis
 pyyaml
 pillow
-npcpy==1.0.37
+npcpy
+anthropic
+google-genai
+ollama
+openai
+docstring_parser
+litellm
