@@ -45,6 +45,7 @@ See thinking traces from agents:
 
 -![Aggregate messages](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/agg_messages.png) 
 
+
 ## Create and manage agents, tools
 - NPC Studio uses the `npcpy` agent framework to simplify the building and orchestration of AI agents.
 
@@ -60,12 +61,20 @@ See thinking traces from agents:
 ![npc studio interface for editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/code_editor.png)
 
 
+
 ## Analyze text files with AI
 ![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/fill_analyze.png)
 
 ## Use tiles to have a conversation while editing
 
 ![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_chat_ai.png)
+
+## Collapse Sidebar, Delete convos, access team menu, jinx menu, photo studio, data dash
+
+
+![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/collapse_delete.png)
+
+
 
 ## Or while browsing
 
@@ -88,6 +97,8 @@ See thinking traces from agents:
 
 
 
+# Data Dashboard
+
 
 ## Activity Dashboard
 
@@ -100,35 +111,44 @@ The long-awaited for activity dashboard: now with composable widgets, a setup fo
 
 ![Database Querying](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/db_query.png)
 
-## Collapse Sidebar, Delete convos, access team menu, jinx menu, photo studio, data dash
+## Explore your knowledge graph
+
+![A knowledge graph showing nodes and edges and facts and concepts](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/kg_inspector.png)
 
 
-![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/collapse_delete.png)
+
+# Vixynt: Your visual playground and assistant
 
 ## Use AI on photos
 
-![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/photo_editor.png)
+![Photo Editing Tools](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/photo_editor.png)
+
+## Edit and generate Photos with AI
+
+![Vixynt editing](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/vixynt_image_edit.png)
+
 
 ## Edit photos in DarkRoom
 
-![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/dark_room.png)
-
+![Simple photo editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/dark_room.png)
 
 ## Analyze and highlight in pdfs 
 ![PDF Analysis](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/pdf_highlight.png)
 
-## Browse the web with AI at your fingertips
-![AI powered web browser](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/ai_web_browsing.png)
 
-## Generate images
 
 ## Adjust Metadata
 
 ## Label images
 
-## Explore your knowledge graph
 
-![A knowledge graph showing nodes and edges and facts and concepts](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/kg_inspector.png)
+
+
+# Web Browsing
+## Browse the web with AI at your fingertips
+![AI powered web browser](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/ai_web_browsing.png)
+
+
 
 
 ## Planned Components
