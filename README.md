@@ -130,7 +130,7 @@ The long-awaited for activity dashboard: now with composable widgets, a setup fo
 
 ## Edit photos in DarkRoom
 
-![Simple photo editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/dark_room.png)
+![Simple photo editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/darkroom.png)
 
 ## Analyze and highlight in pdfs 
 ![PDF Analysis](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/pdf_highlight.png)
