@@ -6,7 +6,7 @@ import {
     Redo, Search, Sparkles, Info, Tag, Crop, RotateCw, Type,
     Download, PlusCircle, Copy, ExternalLink, ChevronsRight, GitBranch,
     Layers, Eye, EyeOff, GripVertical, FileJson, FolderOpen, 
-    Lasso, 
+    Lasso, Star, 
     RectangleHorizontal, Brush, Eraser, 
   } from 'lucide-react';
   
@@ -62,11 +62,16 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const [error, setError] = useState(null);
   
     // --- File & Directory Management ---
-    const [projectPath, setProjectPath] = useState(currentPath || '~/Pictures/My_Project');
+    console.log(currentPath);
+    const [projectPath, setProjectPath] = useState(currentPath || '~/.npcsh/images'); // This line stays the same initially
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [imageSources, setImageSources] = useState([]);
-    const [activeSourceId, setActiveSourceId] = useState('project-images');
-  
+      const [activeSourceId, setActiveSourceId] = useState('project-images');
+    // Add these state variables near the top of PhotoViewer component
+    const [selectedModel, setSelectedModel] = useState('');
+    const [selectedProvider, setSelectedProvider] = useState('');
+    const [availableModels, setAvailableModels] = useState([]);
+    
     // --- Image Selection & Gallery State ---
     const [selectedImage, setSelectedImage] = useState(null);
     const [selectedImageGroup, setSelectedImageGroup] = useState(new Set());
@@ -122,6 +127,8 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const sourceImages = (activeSource?.images || []);
     const filteredImages = sourceImages.filter(img => img.toLowerCase().includes(searchTerm.toLowerCase()));
     
+    const [numImagesToGenerate, setNumImagesToGenerate] = useState(1); // ADDED: State for number of images
+    const [selectedGeneratedImages, setSelectedGeneratedImages] = useState(new Set()); // NEW: Track selected generated images
 
     
     
@@ -157,6 +164,7 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
             // This is the real implementation that reads from your file system via the Electron API
             await window.api?.ensureDirectory?.(source.path);
             const images = await window.api?.readDirectoryImages?.(source.path) || [];
+            console.log(images);
             return { ...source, images };
           } catch (err) {
             console.error('Source load failed:', source, err);
@@ -171,84 +179,211 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
       setLoading(false);
     }
   }, []);
-  
   useEffect(() => {
-    if (isOpen) {
-      const initialSources = [
-        { id: 'project-images', name: 'Project Images', path: projectPath, icon: Folder },
-        { id: 'global-images', name: 'Global Images', path: '~/.npcsh/images', icon: ImageIcon },
-        { id: 'screenshots', name: 'Screenshots', path: '~/.npcsh/screenshots', icon: Camera },
-      ];
-      loadImagesForAllSources(initialSources);
-    } else {
-      // Reset everything on close
-      setActiveTab('gallery');
-      setSelectedImage(null);
-      setSelectedImageGroup(new Set());
-      setDisplayedImagesCount(IMAGES_PER_PAGE);
-      setLayers([]);
-      setLabels([]);
-      setMetadata(null);
-      setCustomTags([]);
-      setRating(0);
-    }
-  }, [isOpen, projectPath, loadImagesForAllSources]);
+    const loadAllData = async () => {
+        if (!isOpen) {
+            // Reset everything on close
+            setActiveTab('gallery');
+            setSelectedImage(null);
+            setSelectedImageGroup(new Set());
+            setDisplayedImagesCount(IMAGES_PER_PAGE);
+            setLayers([]);
+            setLabels([]);
+            setMetadata(null);
+            setCustomTags([]);
+            setRating(0);
+            setAvailableModels([]);
+            setSelectedModel('');
+            setSelectedProvider('');
+            return;
+        }
 
+        const initialSources = [
+            { id: 'project-images', name: 'Project Images', path: currentPath, icon: Folder },
+            { id: 'global-images', name: 'Global Images', path: '~/.npcsh/images', icon: ImageIcon },
+            { id: 'screenshots', name: 'Screenshots', path: '~/.npcsh/screenshots', icon: Camera },
+        ];
+        
+        // Load images and get the result directly
+        setLoading(true); 
+        setError(null);
+        try {
+            const updatedSources = await Promise.all(
+                initialSources.map(async (source) => {
+                    try {
+                        await window.api?.ensureDirectory?.(source.path);
+                        const images = await window.api?.readDirectoryImages?.(source.path) || [];
+                        return { ...source, images };
+                    } catch (err) {
+                        console.error('Source load failed:', source, err);
+                        return { ...source, images: [] };
+                    }
+                })
+            );
+            setImageSources(updatedSources);
+            
+            // NOW check if project has images using the ACTUAL loaded data
+            const projectSource = updatedSources.find(s => s.id === 'project-images');
+            const projectHasImages = projectSource?.images?.length > 0;
+            
+            if (projectHasImages) {
+                setActiveSourceId('project-images');
+            } else {
+                setActiveSourceId('global-images');
+            }
+            
+        } catch (err) {
+            setError('Failed to load image sources: ' + err.message);
+        } finally {
+            setLoading(false);
+        }
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        if (contextMenu.visible) setContextMenu({ visible: false });
-        else if (renamingImage.path) setRenamingImage({ path: null, newName: '' });
-        else if (isEditingPath) setIsEditingPath(false);
-        else onClose?.();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') handleUndo();
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') handleRedo();
-      if (e.key === 'Enter' && isEditingPath) setIsEditingPath(false);
+        // Load image generation models...
+        if (currentPath) {
+          try {
+            const imageModelsResponse = await window.api.getAvailableImageModels(currentPath);
+            if (imageModelsResponse?.models) {
+              setAvailableModels(imageModelsResponse.models);
+              
+              const stableDiffusionModel = imageModelsResponse.models.find(
+                model => model.value.toLowerCase().includes('stable-diffusion') || 
+                        model.value.toLowerCase().includes('stable_diffusion')
+              );
+              
+              if (stableDiffusionModel) {
+                setSelectedModel(stableDiffusionModel.value);
+                setSelectedProvider('diffusers');
+              } else if (imageModelsResponse.models.length > 0) {
+                setSelectedModel(imageModelsResponse.models[0].value);
+                setSelectedProvider('diffusers');
+              }
+            }
+          } catch (error) {
+            console.error('Error loading image models:', error);
+            setSelectedProvider('diffusers');
+          }
+        }
     };
-    const handleClickOutside = () => contextMenu.visible && setContextMenu({ visible: false });
-    if (isOpen) {
-      window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('click', handleClickOutside);
-    }
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('click', handleClickOutside);
-    };
-  }, [isOpen, onClose, contextMenu.visible, renamingImage.path, isEditingPath]);
-
-  useEffect(() => { setDisplayedImagesCount(IMAGES_PER_PAGE); }, [activeSourceId, searchTerm]);
-
-  useEffect(() => {
-    if (!selectedImage) return;
-    // Reset all editor/data states for the new image
-    setLayers([]); 
-    setSelectedLayerId(null);
-    setEditHistory([]); setRedoStack([]); setCompareMode(false);
     
-    // In a real app, you would load the saved pipeline for this image here.
-    // For now, we start fresh.
+    loadAllData();
+}, [isOpen, currentPath, projectPath]);
 
-    // Mock Metadata/Label loading
-    setMetadata({ iptc: { title: 'A beautiful landscape' }, exif: { camera: 'SONY ILCE-7RM3' } });
-    setCustomTags(['landscape', 'sunset']);
-    setLabels([]);
-  }, [selectedImage]);
+
+const [selectedGeneratedImage, setSelectedGeneratedImage] = useState(null);
+const [isRefreshing, setIsRefreshing] = useState(false);
+
+// Add this function before the render functions
+const handleRefreshImages = async () => {
+  setIsRefreshing(true);
+  try {
+    await loadImagesForAllSources(imageSources);
+  } catch (err) {
+    setError('Failed to refresh images: ' + err.message);
+  } finally {
+    setIsRefreshing(false);
+  }
+};
+// Update the Use button handler
+const handleUseGeneratedImage = async (imageData) => {
+  try {
+    // Convert the base64 image to a file and save it
+    const response = await fetch(imageData);
+    const blob = await response.blob();
+    const timestamp = Date.now();
+    const filename = `generated_${timestamp}.png`;
+    
+    // Save to the active source directory
+    await window.api?.saveGeneratedImage?.(blob, activeSource?.path, filename);
+    
+    // Refresh the images
+    await loadImagesForAllSources(imageSources);
+    
+    // Set as selected image and switch to editor
+    const newImagePath = `media://${activeSource?.path}/${filename}`;
+    setSelectedImage(newImagePath);
+    setActiveTab('editor');
+    
+    // Also prepare it for conversation if needed
+    setSelectedGeneratedImage({
+      path: `${activeSource?.path}/${filename}`,
+      data: imageData
+    });
+    
+  } catch (error) {
+    console.error('Failed to save generated image:', error);
+    setError('Failed to save generated image: ' + error.message);
+  }
+};
+
+// Add these missing functions before the return statement
+const handleUseSelected = () => {
+  // Just switch to editor tab - the images are already saved
+  setActiveTab('editor');
+  // Clear selection
+  setSelectedGeneratedImages(new Set());
+};
+
+// Add this state near the top with other state declarations
+const [generatedFilenames, setGeneratedFilenames] = useState([]);
+
+const [generateFilename, setGenerateFilename] = useState('vixynt_gen');
   // --- Handlers (Most are unchanged from original code) ---
-  const handleImageClick = (e, imgPath, index) => { /* ... (unchanged) ... */ 
-    e.stopPropagation(); setRenamingImage({ path: null, newName: '' });
-    const newSelection = new Set(selectedImageGroup);
-    if (e.shiftKey && lastClickedIndex !== null) {
-      const start = Math.min(lastClickedIndex, index); const end = Math.max(lastClickedIndex, index);
-      for (let i = start; i <= end; i++) newSelection.add(filteredImages[i]);
-    } else if (e.ctrlKey || e.metaKey) {
-      newSelection.has(imgPath) ? newSelection.delete(imgPath) : newSelection.add(imgPath);
+  const handleImageSelect = (index, isSelected) => {
+    const newSelected = new Set(selectedGeneratedImages);
+    if (isSelected) {
+      newSelected.add(index);
     } else {
-      newSelection.clear(); newSelection.add(imgPath);
+      newSelected.delete(index);
     }
-    setSelectedImage(imgPath); setSelectedImageGroup(newSelection); setLastClickedIndex(index);
+    setSelectedGeneratedImages(newSelected);
   };
+
+  
+
+  const handleImageClick = (e, imgPath, index) => {
+    e.stopPropagation(); 
+    setRenamingImage({ path: null, newName: '' });
+    
+    const newSelection = new Set(selectedImageGroup);
+    
+    if (e.shiftKey && lastClickedIndex !== null) {
+        // Shift+click for range selection
+        const start = Math.min(lastClickedIndex, index); 
+        const end = Math.max(lastClickedIndex, index);
+        for (let i = start; i <= end; i++) {
+            newSelection.add(filteredImages[i]);
+        }
+    } else if (e.ctrlKey || e.metaKey) {
+        // Ctrl/Cmd+click for toggle selection
+        if (newSelection.has(imgPath)) {
+            newSelection.delete(imgPath);
+        } else {
+            newSelection.add(imgPath);
+        }
+    } else {
+        // Regular click - toggle if already selected, otherwise select only this one
+        if (selectedImageGroup.has(imgPath) && selectedImageGroup.size === 1) {
+            // If this is the only selected image, deselect it
+            newSelection.clear();
+            setSelectedImage(null);
+        } else {
+            // Otherwise, select only this image
+            newSelection.clear();
+            newSelection.add(imgPath);
+            setSelectedImage(imgPath);
+        }
+    }
+    
+    // Update selection state
+    setSelectedImageGroup(newSelection);
+    setLastClickedIndex(index);
+    
+    // Update selected image if we have a selection
+    if (newSelection.size > 0 && !selectedImage) {
+        setSelectedImage(imgPath);
+    }
+};
+
   const handleContextMenu = (e, imgPath) => { /* ... (unchanged) ... */ 
     e.preventDefault(); e.stopPropagation();
     if (!selectedImageGroup.has(imgPath)) { setSelectedImage(imgPath); setSelectedImageGroup(new Set([imgPath])); }
@@ -257,12 +392,77 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
   const handleRenameStart = () => { /* ... (unchanged) ... */ 
     setRenamingImage({ path: selectedImage, newName: selectedImage.split('/').pop() }); setContextMenu({ visible: false });
   };
-  const handleRenameSubmit = async () => { /* ... (unchanged) ... */ };
-  const handleDeleteSelected = async () => { /* ... (unchanged) ... */ };
-  const handleStartConversation = () => { /* ... (unchanged) ... */ 
+
+  const handleRenameSubmit = async () => {
+    if (!renamingImage.path || !renamingImage.newName.trim()) {
+        setRenamingImage({ path: null, newName: '' });
+        return;
+    }
+
+    try {
+        const oldPath = renamingImage.path.replace('media://', '');
+        const pathParts = oldPath.split('/');
+        const newPath = [...pathParts.slice(0, -1), renamingImage.newName].join('/');
+        
+        await window.api?.renameFile?.(oldPath, newPath);
+        
+        // Refresh images after rename
+        await loadImagesForAllSources(imageSources);
+        
+        // Update selected image if it was the renamed one
+        if (selectedImage === renamingImage.path) {
+            setSelectedImage(`media://${newPath}`);
+        }
+        
+        setRenamingImage({ path: null, newName: '' });
+    } catch (error) {
+        console.error('Rename failed:', error);
+        setError('Failed to rename file: ' + error.message);
+    }
+};
+
+const handleDeleteSelected = async () => {
+    if (selectedImageGroup.size === 0) return;
+    
+    const confirmed = window.confirm(`Delete ${selectedImageGroup.size} image(s)? This cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+        const filesToDelete = Array.from(selectedImageGroup).map(path => path.replace('media://', ''));
+        await Promise.all(filesToDelete.map(path => window.api?.deleteFile?.(path)));
+        
+        // Clear selection and refresh
+        setSelectedImageGroup(new Set());
+        setSelectedImage(null);
+        await loadImagesForAllSources(imageSources);
+    } catch (error) {
+        console.error('Delete failed:', error);
+        setError('Failed to delete files: ' + error.message);
+    }
+};
+
+
+
+  const handleStartConversation = () => { 
       onStartConversation?.(Array.from(selectedImageGroup).map(p => ({ path: p.replace('media://', '') }))); onClose?.();
   };
 
+  const renderHeader = () => (
+    <div className="flex items-center justify-between p-4 border-b theme-border bg-gray-800/50">
+      <div className="flex items-center gap-4">
+        <h2 className="text-xl font-semibold">Vixynt</h2>
+        {renderPathNavigator()}
+      </div>
+      <button 
+        onClick={onClose}
+        className="theme-button p-2 hover:bg-red-600/20 hover:text-red-400 transition-colors"
+        title="Close Vixynt"
+      >
+        <X size={20} />
+      </button>
+    </div>
+  );
+  
   
   // History Management
   const pushHistory = (actionName) => { 
@@ -432,32 +632,6 @@ const applySelectionAsMask = () => {
 };
 
 
-useEffect(() => {
-    const handleKeyDown = (e) => {
-        if (e.key === 'Escape') {
-            if (contextMenu.visible) setContextMenu({ visible: false });
-            else if (renamingImage.path) setRenamingImage({ path: null, newName: '' });
-            else if (isEditingPath) setIsEditingPath(false);
-            else if (selectionPath) setSelectionPath(null);
-            else if (isCropping) setIsCropping(false);
-            else onClose?.();
-        }
-        if ((e.ctrlKey || e.metaKey) && !textEditState.editing) {
-            if (e.key.toLowerCase() === 'z') handleUndo();
-            if (e.key.toLowerCase() === 'y') handleRedo();
-        }
-        if (e.key === 'Enter' && isEditingPath) setIsEditingPath(false);
-    };
-    const handleClickOutside = () => contextMenu.visible && setContextMenu({ visible: false });
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('click', handleClickOutside);
-    return () => {
-        window.removeEventListener('keydown', handleKeyDown);
-        window.removeEventListener('click', handleClickOutside);
-    };
-}, [isOpen, onClose, contextMenu.visible, renamingImage.path, isEditingPath, selectionPath, isCropping, textEditState.editing]);
-
 
 
 useEffect(() => { setDisplayedImagesCount(IMAGES_PER_PAGE); }, [activeSourceId, searchTerm]);
@@ -514,6 +688,100 @@ useEffect(() => {
   
   
 
+  useEffect(() => {
+    if (currentPath && currentPath !== projectPath) {
+        setProjectPath(currentPath); // Update projectPath when currentPath changes
+    }
+  }, [currentPath]);
+  
+  
+  
+    useEffect(() => {
+      if (isOpen) {
+        const initialSources = [
+          { id: 'project-images', name: 'Project Images', path: projectPath, icon: Folder },
+          { id: 'global-images', name: 'Global Images', path: '~/.npcsh/images', icon: ImageIcon },
+          { id: 'screenshots', name: 'Screenshots', path: '~/.npcsh/screenshots', icon: Camera },
+        ];
+        loadImagesForAllSources(initialSources);
+      } else {
+        // Reset everything on close
+        setActiveTab('gallery');
+        setSelectedImage(null);
+        setSelectedImageGroup(new Set());
+        setDisplayedImagesCount(IMAGES_PER_PAGE);
+        setLayers([]);
+        setLabels([]);
+        setMetadata(null);
+        setCustomTags([]);
+        setRating(0);
+      }
+    }, [isOpen, projectPath, loadImagesForAllSources]);
+  
+    useEffect(() => {
+      const handleKeyDown = (e) => {
+          console.log('Key pressed:', e.key); // Add this for debugging
+          if (e.key === 'Escape') {
+              if (contextMenu.visible) {
+                  setContextMenu({ visible: false });
+              } else if (renamingImage.path) {
+                  setRenamingImage({ path: null, newName: '' });
+              } else if (isEditingPath) {
+                  setIsEditingPath(false);
+              } else if (selectionPath) {
+                  setSelectionPath(null);
+              } else if (isCropping) {
+                  setIsCropping(false);
+              } else {
+                  onClose?.();
+              }
+          }
+          if ((e.ctrlKey || e.metaKey) && !textEditState.editing) {
+              if (e.key.toLowerCase() === 'z') handleUndo();
+              if (e.key.toLowerCase() === 'y') handleRedo();
+          }
+          if (e.key === 'Enter' && isEditingPath) {
+              setIsEditingPath(false);
+          }
+      };
+  
+      const handleClickOutside = () => {
+          if (contextMenu.visible) {
+              setContextMenu({ visible: false });
+          }
+      };
+  
+      // Always attach listeners when the modal is open
+      if (isOpen) {
+          document.addEventListener('keydown', handleKeyDown); // Use document instead of window
+          document.addEventListener('click', handleClickOutside);
+          
+          return () => {
+              document.removeEventListener('keydown', handleKeyDown);
+              document.removeEventListener('click', handleClickOutside);
+          };
+      }
+  }, [isOpen, contextMenu.visible, renamingImage.path, isEditingPath, selectionPath, isCropping, textEditState.editing, onClose]);
+
+  
+    useEffect(() => { setDisplayedImagesCount(IMAGES_PER_PAGE); }, [activeSourceId, searchTerm]);
+  
+    useEffect(() => {
+      if (!selectedImage) return;
+      // Reset all editor/data states for the new image
+      setLayers([]); 
+      setSelectedLayerId(null);
+      setEditHistory([]); setRedoStack([]); setCompareMode(false);
+      
+      // In a real app, you would load the saved pipeline for this image here.
+      // For now, we start fresh.
+  
+      // Mock Metadata/Label loading
+      setMetadata({ iptc: { title: 'A beautiful landscape' }, exif: { camera: 'SONY ILCE-7RM3' } });
+      setCustomTags(['landscape', 'sunset']);
+      setLabels([]);
+    }, [selectedImage]);
+  
 
   const startDraw = (e) => {
     if (!selectedImage) return;
@@ -634,16 +902,35 @@ useEffect(() => {
   const renderSidebar = () => (
     <div className="w-64 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
 
-      <div className="p-3 border-b theme-border">
-        <h4 className="text-xs font-semibold theme-text-secondary uppercase tracking-wider mb-2">Sources</h4>
-        {imageSources.map(source => (
-          <button key={source.id} onClick={() => setActiveSourceId(source.id)}
-            className={`w-full text-left p-2 rounded text-sm mb-1 flex items-center gap-2 ${activeSourceId === source.id ? 'theme-button-primary' : 'theme-hover'}`}>
-            <source.icon size={14} /> <span>{source.name}</span>
-            <span className="ml-auto text-xs theme-text-muted">({source.images?.length || 0})</span>
-          </button>
-        ))}
-      </div>
+    <div className="p-3 border-b theme-border">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs font-semibold theme-text-secondary uppercase tracking-wider">Sources</h4>
+            <button 
+              onClick={handleRefreshImages}
+              disabled={isRefreshing}
+              className="p-1 theme-hover rounded-full transition-all disabled:opacity-50"
+              title="Refresh images"
+            >
+              {isRefreshing ? (
+                <Loader size={14} className="animate-spin" />
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
+                </svg>
+              )}
+            </button>
+          </div>
+          {imageSources.map(source => (
+        <button key={source.id} onClick={() => setActiveSourceId(source.id)}
+          className={`w-full text-left p-2 rounded text-sm mb-1 flex items-center gap-2 ${activeSourceId === source.id ? 'theme-button-primary' : 'theme-hover'}`}>
+          <source.icon size={14} /> <span>{source.name}</span>
+          <span className="ml-auto text-xs theme-text-muted">({source.images?.length || 0})</span>
+        </button>
+      ))}
+    </div>
+
+
+
       <div className="p-3 border-b theme-border">
         <h4 className="text-xs font-semibold theme-text-secondary uppercase tracking-wider mb-2">View Options</h4>
         <div className="flex gap-1 mb-2">
@@ -712,14 +999,15 @@ useEffect(() => {
                     onBlur={handleRenameSubmit} className="w-full h-full p-2 theme-input text-xs" autoFocus />
                 </div>
               ) : (
-                <button key={img}
-                  onClick={(e) => handleImageClick(e, img, index)}
-                  onContextMenu={(e) => handleContextMenu(e, img)}
-                  className="group relative block rounded-lg overflow-hidden focus:outline-none aspect-square">
-                  <img src={img} alt="" className="w-full h-full object-cover bg-gray-800" />
-                  <div className={`absolute inset-0 transition-all duration-200 ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : 'group-hover:bg-black/40'}`}></div>
-                  {isSelected && <div className="absolute top-2 right-2 bg-blue-500 rounded-full p-1"><Check size={12} className="text-white" /></div>}
-                </button>
+<button key={img}
+  onClick={(e) => handleImageClick(e, img, index)}
+  onContextMenu={(e) => handleContextMenu(e, img)} 
+  className="group relative block rounded-lg overflow-hidden focus:outline-none aspect-square">
+  <img src={img} alt="" className="w-full h-full object-cover bg-gray-800" />
+  <div className={`absolute inset-0 transition-all duration-200 ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : 'group-hover:bg-black/40'}`}></div>
+  {isSelected && <div className="absolute top-2 right-2 bg-blue-500 rounded-full p-1"><Check size={12} className="text-white" /></div>}
+</button>
+
               );
             })
           ) : (
@@ -737,57 +1025,90 @@ useEffect(() => {
   );
 
   
-  const renderGenerator = () => (
-    <div className="flex-1 flex overflow-hidden">
-      <div className="flex-1 p-4 grid grid-cols-2 lg:grid-cols-4 gap-4 overflow-y-auto relative">
-        {generating && <div className="col-span-full row-span-full absolute inset-0 bg-black/50 flex items-center justify-center z-10"><Loader className="animate-spin text-white" /></div>}
-        {generatedImages.length > 0 ? generatedImages.map(img => (
-          <div key={img} className="relative">
-            <img src={img} className="w-full h-full object-cover rounded-lg shadow-md aspect-square" alt="" />
-            <div className="absolute bottom-2 right-2 flex gap-2">
-              <button className="theme-button px-2 py-1 text-xs rounded" onClick={() => setSelectedImage(img)}>Use</button>
-              <a className="theme-button px-2 py-1 text-xs rounded" href={img} download><Download size={12} /></a>
-            </div>
-          </div>
-        )) : <div className="col-span-full text-center flex items-center justify-center theme-text-muted">Generated images will appear here.</div>}
-      </div>
-      <div className="w-96 border-l theme-border theme-bg-secondary p-4 space-y-4 flex flex-col">
-        <h4 className="text-lg font-semibold">Image Generation</h4>
-        <div className="flex-1 space-y-4">
-          <div>
-            <label className="text-sm font-medium">Prompt</label>
-            <textarea value={generatePrompt} onChange={e => setGeneratePrompt(e.target.value)} rows={6}
-              className="w-full theme-input mt-1 text-sm" placeholder="A photorealistic image of..." />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={async () => {
-                if (!generatePrompt) return;
-                setGenerating(true);
-                try {
-                  const imgs = await window.api?.generateImages?.({ prompt: generatePrompt, n: 4 }) || [];
-                  setGeneratedImages(imgs.map(p => p.startsWith('media://') ? p : `media://${p}`));
-                } catch (e) { setError('Generation failed'); }
-                setGenerating(false);
-              }}
-              className="w-full theme-button-primary py-3 text-base rounded flex items-center justify-center gap-2 disabled:opacity-50"
-              disabled={!generatePrompt}
+
+  const renderImageContextMenu = () => (
+    contextMenu.visible && (
+        <>
+            <div
+                className="fixed inset-0 z-40"
+                onClick={() => setContextMenu({ visible: false })}
+            />
+            <div
+                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                style={{ top: contextMenu.y, left: contextMenu.x }}
             >
-              <Sparkles size={16} />Generate
-            </button>
-            <button onClick={() => setGeneratedImages([])} className="theme-button py-3 text-base rounded">Clear</button>
-          </div>
-        </div>
-        <div className="text-xs theme-text-muted">Wire to your backend via <code>window.api.generateImages</code>.</div>
-      </div>
-    </div>
-  );
+                <button
+                    onClick={handleSendToLLM}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm"
+                >
+                    <MessageSquare size={14} />
+                    <span>Send to LLM</span>
+                </button>
+                <button
+                    onClick={() => { setActiveTab('editor'); setContextMenu({ visible: false }); }}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm"
+                >
+                    <Edit size={14} />
+                    <span>Edit Image</span>
+                </button>
+                <button
+                    onClick={handleUseForGeneration}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm"
+                >
+                    <Sparkles size={14} />
+                    <span>Use for Generation</span>
+                </button>
+                <hr className="my-1 theme-border" />
+                <button
+                    onClick={handleRenameStart}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm"
+                >
+                    <Edit size={14} />
+                    <span>Rename</span>
+                </button>
+                <button
+                    onClick={() => { handleDeleteSelected(); setContextMenu({ visible: false }); }}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400 text-sm hover:bg-red-600/20"
+                >
+                    <Trash2 size={14} />
+                    <span>Delete</span>
+                </button>
+            </div>
+        </>
+    )
+);
 
 
 
 
 
+  const handleSendToLLM = () => {
+  const selectedImages = Array.from(selectedImageGroup);
+  if (selectedImages.length === 0) return;
+  
+  onStartConversation?.(selectedImages.map(path => ({ path: path.replace('media://', '') })));
+  setContextMenu({ visible: false });
+  onClose?.();
+};
 
+const handleUseForGeneration = () => {
+  if (contextMenu.imagePath) {
+      // Switch to generator tab and set the image as a reference
+      setActiveTab('generator');
+      // You might want to add logic here to use the image as a reference for generation
+      setGeneratePrompt(prev => `${prev} ${prev ? '\n\n' : ''}Using reference image: ${contextMenu.imagePath.split('/').pop()}`);
+  }
+  setContextMenu({ visible: false });
+};
+  const handleImageContextMenu = (e, imgPath) => {
+    e.preventDefault(); 
+    e.stopPropagation();
+    if (!selectedImageGroup.has(imgPath)) { 
+        setSelectedImage(imgPath); 
+        setSelectedImageGroup(new Set([imgPath])); 
+    }
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, imagePath: imgPath });
+};
   const renderMetadata = () => (
     <div className="flex-1 flex overflow-hidden">
       <div className="flex-1 flex items-center justify-center bg-gray-900 relative p-4">{selectedImage ? <img src={selectedImage} alt="Metadata" className="max-w-full max-h-full object-contain rounded shadow" /> : <p className="theme-text-muted">Select an image to view metadata</p>}</div>
@@ -827,24 +1148,30 @@ useEffect(() => {
   );
 
 
-  const renderPathNavigator = () => (
-    <div className="flex items-center gap-2 text-sm text-gray-400 p-2 flex-grow min-w-0" onClick={() => setIsEditingPath(true)}>
-        <FolderOpen size={16} className="flex-shrink-0 text-gray-500" />
-        {isEditingPath ? (
-            <input type="text" value={projectPath} onChange={e => setProjectPath(e.target.value)}
-                   className="theme-input bg-transparent text-gray-300 w-full" autoFocus onBlur={() => setIsEditingPath(false)} />
-        ) : (
-            <div className="flex items-center gap-1 truncate">
-                {projectPath.split('/').map((part, i) => (
-                    <React.Fragment key={i}>
-                        {i > 0 && <span className="text-gray-600">/</span>}
-                        <button className="px-1 rounded hover:bg-gray-700">{part || '/'}</button>
-                    </React.Fragment>
-                ))}
-            </div>
-        )}
-    </div>
-  );
+  const renderPathNavigator = () => {
+    const displayPath = currentPath || projectPath; // Show currentPath if available
+    
+    return (
+      <div className="flex items-center gap-2 text-sm text-gray-400 p-2 flex-grow min-w-0" onClick={() => setIsEditingPath(true)}>
+          <FolderOpen size={16} className="flex-shrink-0 text-gray-500" />
+          {isEditingPath ? (
+              <input type="text" value={projectPath} onChange={e => setProjectPath(e.target.value)}
+                     className="theme-input bg-transparent text-gray-300 w-full" autoFocus onBlur={() => setIsEditingPath(false)} />
+          ) : (
+              <div className="flex items-center gap-1 truncate">
+                  {displayPath.split('/').map((part, i) => (
+                      <React.Fragment key={i}>
+                          {i > 0 && <span className="text-gray-600">/</span>}
+                          <button className="px-1 rounded hover:bg-gray-700">{part || '/'}</button>
+                      </React.Fragment>
+                  ))}
+              </div>
+          )}
+      </div>
+    );
+  };
+
+  
   const renderLabeling = () => (
     <div className="flex-1 flex overflow-hidden">
       <div
@@ -915,7 +1242,232 @@ useEffect(() => {
 
   
 
-  const renderDarkRoom = () => {
+  const renderGenerator = useCallback(() => {
+    const getGridCols = (imageCount) => {
+        if (imageCount === 0) return 'grid-cols-1';
+        if (imageCount === 1) return 'grid-cols-1';
+        if (imageCount === 2) return 'grid-cols-2';
+        if (imageCount === 3) return 'grid-cols-3';
+        if (imageCount === 4) return 'grid-cols-2 lg:grid-cols-4';
+        if (imageCount <= 6) return 'grid-cols-2 lg:grid-cols-3';
+        if (imageCount <= 9) return 'grid-cols-3 lg:grid-cols-3';
+        return 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5';
+    };
+
+    const gridColsClass = getGridCols(generatedImages.length);
+
+    return (
+        <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 p-4 overflow-y-auto relative">
+                {generatedImages.length > 0 && (
+                    <div className="flex justify-end mb-4">
+                        <button
+                            onClick={() => setGeneratedImages([])}
+                            className="theme-button px-3 py-1 text-sm rounded flex items-center gap-2"
+                        >
+                            <Trash2 size={14} /> Clear Generated Images
+                        </button>
+                    </div>
+                )}
+                <div className={`grid ${gridColsClass} gap-4 relative`}>
+                    {generating && (
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
+                            <Loader className="animate-spin text-white" />
+                        </div>
+                    )}
+                    {generatedImages.length > 0 ? (
+                        generatedImages.map((imgSrc, index) => (
+                            <div key={index} className="relative">
+                                <img src={imgSrc} className="w-full h-full object-cover rounded-lg shadow-md aspect-square" alt={`Generated image ${index + 1}`} />
+                                <div className="absolute top-2 left-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedGeneratedImages.has(index)}
+                                        onChange={(e) => handleImageSelect(index, e.target.checked)}
+                                        className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                                    />
+                                </div>
+                                <div className="absolute bottom-2 right-2 flex gap-2">
+                                    <a className="theme-button px-2 py-1 text-xs rounded" href={imgSrc} download={`${generateFilename}_${index}.png`}>
+                                        <Download size={12} />
+                                    </a>
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        !generating && (
+                            <div className="col-span-full text-center flex items-center justify-center theme-text-muted min-h-[300px]">
+                                Generated images will appear here.
+                            </div>
+                        )
+                    )}
+                </div>
+            </div>
+            <div className="w-96 border-l theme-border theme-bg-secondary p-4 space-y-4 flex flex-col">
+                <h4 className="text-lg font-semibold">Image Generation</h4>
+                <div className="flex-1 space-y-4">
+                    <div>
+                        <label className="text-sm font-medium">Prompt</label>
+                        <textarea
+                            value={generatePrompt}
+                            onChange={e => setGeneratePrompt(e.target.value)}
+                            rows={6}
+                            className="w-full theme-input mt-1 text-sm"
+                            placeholder="A photorealistic image of..."
+                        />
+                    </div>
+                    <div className="border theme-border rounded-lg p-3 space-y-3">
+                        <h5 className="text-sm font-medium">Output Settings</h5>
+                        <div>
+                            <label className="text-sm font-medium">Save Location</label>
+                            <div className="mt-1 grid grid-cols-2 gap-2">
+                                <button
+                                    onClick={() => setActiveSourceId('project-images')}
+                                    className={`p-2 text-xs rounded border flex items-center justify-center gap-2 ${activeSourceId === 'project-images' ? 'theme-button-primary' : 'theme-button'}`}
+                                >
+                                    <Folder size={12} /> Project
+                                </button>
+                                <button
+                                    onClick={() => setActiveSourceId('global-images')}
+                                    className={`p-2 text-xs rounded border flex items-center justify-center gap-2 ${activeSourceId === 'global-images' ? 'theme-button-primary' : 'theme-button'}`}
+                                >
+                                    <ImageIcon size={12} /> Global
+                                </button>
+                            </div>
+                            <div className="mt-2 p-2 bg-gray-800/30 rounded text-xs text-gray-400 font-mono truncate">
+                                {activeSource?.path || currentPath}
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-sm font-medium">Filename Prefix</label>
+                            <input
+                                type="text"
+                                value={generateFilename}
+                                onChange={e => setGenerateFilename(e.target.value)}
+                                placeholder="vixynt_gen"
+                                className="w-full theme-input mt-1 text-sm"
+                            />
+                            <div className="text-xs text-gray-500 mt-1">
+                                e.g., {generateFilename || 'vixynt_gen'}_...png
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-sm font-medium">Number of Images</label>
+                            <input
+                                type="number"
+                                value={numImagesToGenerate}
+                                onChange={e => setNumImagesToGenerate(Math.max(1, parseInt(e.target.value, 10)))}
+                                min="1"
+                                max="10"
+                                className="w-full theme-input mt-1 text-sm"
+                            />
+                        </div>
+                    </div>
+                    {selectedGeneratedImages.size > 0 && (
+                        <div>
+                            <label className="text-sm font-medium">Selected for Reference ({selectedGeneratedImages.size})</label>
+                            <div className="mt-1 flex flex-wrap gap-2">
+                                {Array.from(selectedGeneratedImages).map(index => (
+                                    <div key={index} className="relative">
+                                        <img src={generatedImages[index]} className="w-12 h-12 object-cover rounded border" alt="" />
+                                        <button onClick={() => handleImageSelect(index, false)} className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5">
+                                            <X size={10} className="text-white" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    <div>
+                        <label className="text-sm font-medium">Reference Images</label>
+                        <div className="mt-1 p-2 border theme-border rounded-md bg-gray-800/30 min-h-[60px]">
+                            {selectedImageGroup.size > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                    {Array.from(selectedImageGroup).slice(0, 3).map((imgPath, idx) => (
+                                        <div key={idx} className="relative">
+                                            <img src={imgPath} alt="" className="w-12 h-12 object-cover rounded border" />
+                                            <button onClick={() => { const newSelection = new Set(selectedImageGroup); newSelection.delete(imgPath); setSelectedImageGroup(newSelection); }} className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5">
+                                                <X size={10} className="text-white" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                    {selectedImageGroup.size > 3 && (<div className="w-12 h-12 bg-gray-700 rounded border flex items-center justify-center text-xs">+{selectedImageGroup.size - 3}</div>)}
+                                </div>
+                            ) : (<div className="text-xs text-gray-500 italic">Select images from gallery to use as references</div>)}
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-sm font-medium">Model</label>
+                        <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="mt-1 w-full theme-input">
+                            {availableModels.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-sm font-medium">Provider</label>
+                        <select value={selectedProvider} onChange={e => setSelectedProvider(e.target.value)} className="mt-1 w-full theme-input">
+                            <option value="diffusers">HF Diffusers</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="gemini">Gemini</option>
+                        </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={async () => {
+                            if (!generatePrompt || !numImagesToGenerate) return;
+                            setGenerating(true);
+                            try {
+                                const baseFilename = generateFilename || 'vixynt_gen';
+                                const attachments = [...Array.from(selectedImageGroup).map(path => ({ path: path.replace('media://', '') }))];
+                                const outputPath = activeSource?.path || currentPath;
+                                const response = await window.api.generateImages(generatePrompt, numImagesToGenerate, selectedModel, selectedProvider, attachments, baseFilename, outputPath);
+
+                                if (response.error) {
+                                    throw new Error(response.error);
+                                }
+
+                                if (response.filenames && response.filenames.length > 0) {
+                                    const imagePaths = response.filenames.map(p => `media://${p}`);
+                                    setGeneratedImages(imagePaths);
+                                    setGeneratedFilenames(response.filenames);
+                                } else if (response.images && response.images.length > 0) {
+                                    setGeneratedImages(response.images);
+                                    setGeneratedFilenames([]);
+                                } else {
+                                    setGeneratedImages([]);
+                                    setGeneratedFilenames([]);
+                                }
+                            } catch (e) {
+                                setError('Generation failed: ' + e.message);
+                            } finally {
+                                setGenerating(false);
+                            }
+                          }}
+                          className="w-full theme-button-primary py-3 text-base rounded flex items-center justify-center gap-2 disabled:opacity-50"
+                          disabled={!generatePrompt}
+                        >
+                            <Sparkles size={16} /> Generate
+                        </button>
+                        {selectedGeneratedImages.size === 1 && (
+                            <button onClick={handleUseSelected} className="theme-button py-3 text-base rounded">
+                                Edit in Darkroom
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}, [
+    generatedImages, selectedGeneratedImages, generatePrompt, selectedImageGroup,
+    numImagesToGenerate, selectedModel, selectedProvider, availableModels, generating,
+    activeSource, currentPath, handleImageSelect, handleUseSelected,
+    setGeneratedImages, setGeneratePrompt, setSelectedImageGroup, setNumImagesToGenerate,
+    setSelectedModel, setSelectedProvider, setGenerating, setGeneratedFilenames,
+    generateFilename, setGenerateFilename, setError
+]);
+
+
+const renderDarkRoom = () => {
     // Add this at the start of renderDarkRoom:
 console.log('Rendering DarkRoom, selectedImage:', selectedImage);
 console.log('Current adjustments:', adjustments);
@@ -1024,26 +1576,40 @@ console.log('Image exists check:', selectedImage ? 'YES' : 'NO');
 if (!isOpen) return null;
 
 return (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-            <div className="theme-bg-secondary rounded-lg shadow-xl w-full h-full flex flex-col">
-                <header> {/* ... */} </header>
-                <div className="flex-1 flex overflow-hidden">
-                    {renderSidebar()}
-                    <main className="flex-1 flex flex-col bg-gray-900 overflow-hidden">
-                        <div className="border-b theme-border flex bg-gray-800/50 flex-shrink-0">
-                            {[{ id: 'gallery', name: 'Gallery', icon: Grid }, { id: 'editor', name: 'DarkRoom', icon: Sliders }, { id: 'metadata', name: 'Metadata', icon: Info }, { id: 'labeling', name: 'Labeling', icon: Tag }].map(tab => (
-                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-3 flex items-center gap-2 text-sm border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent theme-text-muted theme-hover'}`}><tab.icon size={16} />{tab.name}</button>
-                            ))}
-                        </div>
-                        {activeTab === 'gallery' && renderGallery()}
-                        {activeTab === 'editor' && renderDarkRoom()}
-                        {activeTab === 'metadata' && renderMetadata()}
-                        {activeTab === 'labeling' && renderLabeling()}
-                    </main>
-                </div>
-            </div>
-        </div>
-    );
+  <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+    <div className="theme-bg-secondary rounded-lg shadow-xl w-full h-full flex flex-col">
+      {renderHeader()} {/* Add this line */}
+      <div className="flex-1 flex overflow-hidden">
+        {renderSidebar()}
+        <main className="flex-1 flex flex-col bg-gray-900 overflow-hidden">
+          {/* Rest of your existing content */}
+          <div className="border-b theme-border flex bg-gray-800/50 flex-shrink-0">
+            {[
+                { id: 'gallery', name: 'Gallery', icon: Grid }, 
+                { id: 'generator', name: 'Generate', icon: Sparkles },
+                { id: 'editor', name: 'DarkRoom', icon: Sliders }, 
+                { id: 'metadata', name: 'Metadata', icon: Info }, 
+                { id: 'labeling', name: 'Labeling', icon: Tag }
+            ].map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-3 flex items-center gap-2 text-sm border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent theme-text-muted theme-hover'}`}>
+                    <tab.icon size={16} />{tab.name}
+                </button>
+            ))}
+          </div>
+
+          {activeTab === 'gallery' && renderGallery()}
+          {activeTab === 'editor' && renderDarkRoom()}
+          {activeTab === 'generator' && renderGenerator()}
+          {activeTab === 'metadata' && renderMetadata()}
+          {activeTab === 'labeling' && renderLabeling()}
+        </main>
+      </div>
+      {renderImageContextMenu()}
+    </div>
+  </div>
+);
+
+
 };
 
 

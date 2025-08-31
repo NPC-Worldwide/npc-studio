@@ -188,15 +188,21 @@ const getFileIcon = (filename) => {
         default: return <File {...iconProps} className={`${iconProps.className} text-gray-400`} />;
     }
 };
-
 const convertFileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onload = () => {
+            // We return both the full data URL for previews and the raw base64 for the backend
+            resolve({
+                dataUrl: reader.result,
+                base64: reader.result.split(',')[1] 
+            });
+        };
         reader.onerror = (error) => reject(error);
         reader.readAsDataURL(file);
     });
 };
+
 
 // Helper function to highlight search terms in text, returning a string with <mark> tags.
 // Your MarkdownRenderer must be configured to handle raw HTML for this to work.
@@ -3099,43 +3105,97 @@ useEffect(() => {
 
 
 
-    const handleDrop = (e) => {
+    const handleDrop = async (e) => {
         e.preventDefault();
         setIsHovering(false);
-        const files = e.dataTransfer.files;
-        // Pass FileList directly to handleFileUpload
-        handleFileUpload(files);
+        const files = Array.from(e.dataTransfer.files);
+        
+        const existingFileNames = new Set(uploadedFiles.map(f => f.name));
+        const newFiles = files.filter(file => !existingFileNames.has(file.name));
+    
+        const attachmentPromises = newFiles.map(async (file) => {
+            try {
+                const { dataUrl, base64 } = await convertFileToBase64(file);
+                return {
+                    id: generateId(),
+                    name: file.name,
+                    type: file.type,
+                    data: base64, // The raw base64 data for the backend
+                    size: file.size,
+                    preview: file.type.startsWith('image/') ? dataUrl : null // The full data URL for UI preview
+                };
+            } catch (error) {
+                console.error(`Failed to process dropped file ${file.name}:`, error);
+                return null;
+            }
+        });
+    
+        const attachmentData = (await Promise.all(attachmentPromises)).filter(Boolean);
+    
+        if (attachmentData.length > 0) {
+            setUploadedFiles(prev => [...prev, ...attachmentData]);
+        }
     };
 
+    
     // Add this logging to your handleFileUpload function
-    const handleFileUpload = async (files) => { // This is triggered by handleDrop
+    const handleFileUpload = async (files) => {
+        console.log('handleFileUpload called with:', files);
         const existingFileNames = new Set(uploadedFiles.map(f => f.name));
         const newFiles = Array.from(files).filter(file => !existingFileNames.has(file.name));
         
         const attachmentData = [];
         
         for (const file of newFiles) {
-            // CRITICAL FIX: Directly use file.path for dropped files.
-            // This property is available in Electron's renderer process.
-            const filePath = file.path; 
+            console.log(`Processing file: ${file.name}`, {
+                hasPath: !!file.path,
+                path: file.path,
+                type: file.type,
+                size: file.size
+            });
             
-            if (filePath) {
-                 attachmentData.push({
-                    id: generateId(), 
-                    name: file.name, 
-                    type: file.type, 
-                    path: filePath, // This is the absolute path!
-                    size: file.size, 
-                    preview: file.type.startsWith('image/') ? `file://${filePath}` : null
+            try {
+                if (file.path) {
+                    // Electron dropped file - use the path directly
+                    attachmentData.push({
+                        id: generateId(), 
+                        name: file.name, 
+                        type: file.type, 
+                        path: file.path,
+                        size: file.size, 
+                        preview: file.type.startsWith('image/') ? `file://${file.path}` : null
+                    });
+                    console.log(`Added file with path: ${file.path}`);
+                } else {
+                    // Fallback: Convert to base64 data
+                    console.log(`No path property found, converting ${file.name} to base64...`);
+                    const base64Data = await convertFileToBase64(file);
+                    attachmentData.push({
+                        id: generateId(),
+                        name: file.name,
+                        type: file.type,
+                        data: base64Data, // Base64 string without the data:mime;base64, prefix
+                        size: file.size,
+                        preview: file.type.startsWith('image/') ? `data:${file.type};base64,${base64Data}` : null
+                    });
+                    console.log(`Added file with base64 data: ${file.name}`);
+                }
+            } catch (error) {
+                console.error(`Failed to process file ${file.name}:`, error);
+                // Still add the file but mark it as having an error
+                attachmentData.push({
+                    id: generateId(),
+                    name: file.name,
+                    type: file.type,
+                    error: `Failed to process: ${error.message}`,
+                    size: file.size,
+                    preview: null
                 });
-            } else {
-                // Fallback for non-standard File APIs if file.path is ever missing (e.g., web-only context)
-                console.warn(`Dropped file '${file.name}' has no 'path' property. Cannot send to backend.`);
-                // You might want to show a user error here or just skip it.
             }
         }
         
         if (attachmentData.length > 0) {
+            console.log('Adding attachment data:', attachmentData);
             setUploadedFiles(prev => [...prev, ...attachmentData]);
         }
     };
@@ -3587,23 +3647,43 @@ const handleSummarizeAndPrompt = async () => {
 
 const renderSidebarItemContextMenu = () => {
     if (!sidebarItemContextMenuPos) return null;
-
     const { x, y, path, type } = sidebarItemContextMenuPos;
-    const isFile = type === 'file';
-    const isFolder = type === 'directory';
+    if (type !== 'file') return null; // Only show this for files for now
+
+    const selectedFilePaths = Array.from(selectedFiles);
 
     return (
         <>
             <div
                 className="fixed inset-0 z-40"
                 onClick={() => setSidebarItemContextMenuPos(null)}
-                onContextMenu={(e) => { e.preventDefault(); setSidebarItemContextMenuPos(null); }}
             />
             <div
                 className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
                 style={{ top: y, left: x }}
             >
-                {/* --- COMMON ACTIONS --- */}
+                <button
+                    onClick={() => {
+                        handleApplyPromptToFilesInInput('custom', `Here is the content of the file(s):`);
+                        setSidebarItemContextMenuPos(null);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                >
+                    <MessageSquare size={16} />
+                    <span>Add Content to Chat ({selectedFilePaths.length})</span>
+                </button>
+                 <button
+                    onClick={() => {
+                        const fileNames = selectedFilePaths.map(p => p.split('/').pop()).join(', ');
+                        setInput(prev => `${prev}${prev ? ' ' : ''}${fileNames}`);
+                        setSidebarItemContextMenuPos(null);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                >
+                    <File size={16} />
+                    <span>Add Filename(s) to Chat</span>
+                </button>
+                <div className="border-t theme-border my-1"></div>
                 <button
                     onClick={handleSidebarRenameStart}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
@@ -3611,55 +3691,22 @@ const renderSidebarItemContextMenu = () => {
                     <Edit size={16} />
                     <span>Rename</span>
                 </button>
-                
-                {/* --- FILE-SPECIFIC AI ACTIONS --- */}
-                {isFile && (
-                    <>
-                        <div className="border-t theme-border my-1"></div>
-                        <button
-                            onClick={() => { handleApplyPromptToFiles('summarize'); setSidebarItemContextMenuPos(null); }}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                        >
-                            <MessageSquare size={16} />
-                            <span>Summarize File(s) ({selectedFiles.size})</span>
-                        </button>
-                         <button
-                            onClick={() => { handleApplyPromptToFilesInInput('summarize'); setSidebarItemContextMenuPos(null); }}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                        >
-                            <Edit size={16} />
-                            <span>Summarize in Input</span>
-                        </button>
-                        <div className="border-t theme-border my-1"></div>
-                         <button
-                            onClick={() => { handleApplyPromptToFiles('refactor'); setSidebarItemContextMenuPos(null); }}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                        >
-                            <Code2 size={16} />
-                            <span>Refactor Code</span>
-                        </button>
-                    </>
-                )}
-                
-                {/* --- FOLDER-SPECIFIC AI ACTIONS --- */}
-                {isFolder && (
-                    <>
-                        <div className="border-t theme-border my-1"></div>
-                        <button
-                            onClick={handleFolderOverview}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
-                        >
-                            <MessageSquare size={16} />
-                            <span>AI Overview</span>
-                        </button>
-                    </>
-                )}
+                <button
+                    onClick={handleSidebarItemDelete}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400"
+                >
+                    <Trash size={16} />
+                    <span>Delete</span>
+                </button>
             </div>
         </>
     );
 };
 
-    // --- Internal Render Functions ---
+
+
+
+// --- Internal Render Functions ---
     const renderSidebar = () => {
         // When collapsed, show only the expand button
         if (sidebarCollapsed) {
@@ -4033,29 +4080,23 @@ const renderSidebarItemContextMenu = () => {
     };
     const handleAttachFileClick = async () => {
         try {
-            // This directly calls the main process handler that correctly gets full file paths.
             const fileData = await window.api.showOpenDialog({
                 properties: ['openFile', 'multiSelections'],
-                filters: [
-                    { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] },
-                    { name: 'Documents', extensions: ['pdf', 'txt', 'md', 'json'] },
-                    { name: 'All Files', extensions: ['*'] }
-                ]
             });
-
+            
             if (fileData && fileData.length > 0) {
                 const existingFileNames = new Set(uploadedFiles.map(f => f.name));
                 const newFiles = fileData.filter(file => !existingFileNames.has(file.name));
-
+                
                 const attachmentData = newFiles.map(file => ({
                     id: generateId(),
                     name: file.name,
                     type: file.type,
-                    path: file.path,  // This will have the full, absolute filesystem path.
+                    path: file.path,  // The full filesystem path is available here.
                     size: file.size,
                     preview: file.type.startsWith('image/') ? `file://${file.path}` : null
                 }));
-
+                
                 if (attachmentData.length > 0) {
                     setUploadedFiles(prev => [...prev, ...attachmentData]);
                 }
@@ -4064,7 +4105,8 @@ const renderSidebarItemContextMenu = () => {
             console.error('Error selecting files:', error);
         }
     };
-
+    
+    
     const renderSearchResults = () => {
         if (searchLoading) {
            
@@ -4499,6 +4541,9 @@ const renderInputArea = () => (
                 </div>
             )}
 
+            {/* Add thumbnails here - BEFORE the input area */}
+            {renderAttachmentThumbnails()}
+
             <div className="flex items-end p-2 gap-2 relative z-0">
                 <textarea
                     value={input}
@@ -4512,7 +4557,7 @@ const renderInputArea = () => (
                 />
                 <button
                     type="button"
-                    onClick={handleAttachFileClick} // This correctly uses showOpenDialog
+                    onClick={handleAttachFileClick}
                     className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
                     aria-label="Attach file"
                     disabled={isStreaming}
@@ -4532,6 +4577,7 @@ const renderInputArea = () => (
             </div>
 
             <div className={`flex items-center gap-2 px-2 pb-2 ${isStreaming ? 'opacity-50' : ''}`}>
+                {/* Your existing model/NPC selectors */}
                 <select
                     value={currentModel || ''}
                     onChange={(e) => {
@@ -4571,10 +4617,53 @@ const renderInputArea = () => (
     </div>
 );
 
-        
+
+const getThumbnailIcon = (fileName, fileType) => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    const iconProps = { size: 20, className: "flex-shrink-0" };
+    if (fileType?.startsWith('image/')) return null;
+    switch(ext) {
+        case 'pdf': return <FileText {...iconProps} className="text-red-500" />;
+        case 'csv': case 'xlsx': case 'xls': return <BarChart3 {...iconProps} className="text-green-500" />;
+        case 'json': return <FileJson {...iconProps} className="text-orange-400" />;
+        default: return <File {...iconProps} className="text-gray-400" />;
+    }
+};
+
+const renderAttachmentThumbnails = () => {
+    if (uploadedFiles.length === 0) return null;
+    return (
+        <div className="px-2 pb-2">
+            <div className="flex flex-wrap gap-2">
+                {uploadedFiles.map((file, index) => (
+                    <div key={file.id} className="relative group">
+                        <div className="flex items-center gap-2 bg-gray-800 rounded-lg p-2 border border-gray-600 min-w-0">
+                            <div className="w-10 h-10 rounded bg-gray-700 flex items-center justify-center flex-shrink-0">
+                                {file.preview ? 
+                                    <img src={file.preview} alt={file.name} className="w-full h-full object-cover rounded" /> : 
+                                    getThumbnailIcon(file.name, file.type)}
+                            </div>
+                            <div className="flex flex-col min-w-0 flex-1">
+                                <span className="text-xs text-gray-300 truncate font-medium" title={file.name}>{file.name}</span>
+                                <span className="text-xs text-gray-500">{file.size ? `${Math.round(file.size / 1024)} KB` : ''}</span>
+                            </div>
+                            <button
+                                onClick={() => setUploadedFiles(prev => prev.filter((_, i) => i !== index))}
+                                className="flex-shrink-0 p-1 hover:bg-gray-600 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                                title="Remove file"
+                            >
+                                <X size={14} className="text-gray-400" />
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 
 
-    
+
     const renderModals = () => (
         <>
             <NPCTeamMenu isOpen={npcTeamMenuOpen} onClose={handleCloseNpcTeamMenu} currentPath={currentPath} startNewConversation={startNewConversationWithNpc}/>

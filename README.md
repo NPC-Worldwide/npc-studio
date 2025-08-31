@@ -69,7 +69,7 @@ See thinking traces from agents:
 
 ## Or while browsing
 
-![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_pdf_broswer.png)
+![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_pdf_browser.png)
 
 ## Edit settings 
 

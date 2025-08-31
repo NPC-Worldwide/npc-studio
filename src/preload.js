@@ -10,6 +10,13 @@ contextBridge.exposeInMainWorld('api', {
     readDirectoryImages: (dirPath) => ipcRenderer.invoke('readDirectoryImages', dirPath),
     open_directory_picker: () => ipcRenderer.invoke('open_directory_picker'),
 
+    
+    getAvailableImageModels: (currentPath) => ipcRenderer.invoke('getAvailableImageModels', currentPath),
+
+    // Updated: generateImages to accept model and provider
+    generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),
+
+
     // Conversation operations
     deleteConversation: (id) => ipcRenderer.invoke('deleteConversation', id),
     getConversations: (path) => ipcRenderer.invoke('getConversations', path),

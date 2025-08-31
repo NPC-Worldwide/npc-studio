@@ -523,7 +523,7 @@ if (!gotTheLock) {
   
       const newBrowserView = new BrowserView({
           webPreferences: {
-              nodeIntegration: false,
+              nodeIntegration: true,
               contextIsolation: true,
               webSecurity: true,
           },
@@ -1589,6 +1589,81 @@ ipcMain.handle('read-file-buffer', async (event, filePath) => {
     return buffer;
   } catch (error) {
     throw error;
+  }
+});
+
+
+
+ipcMain.handle('getAvailableImageModels', async (event, currentPath) => {
+  log('[Main Process] getAvailableImageModels called for path:', currentPath);
+  if (!currentPath) {
+      log('Error: getAvailableImageModels called without currentPath');
+      return { models: [], error: 'Current path is required to fetch image models.' };
+  }
+  try {
+      const url = `http://127.0.0.1:5337/api/image_models?currentPath=${encodeURIComponent(currentPath)}`;
+      log('Fetching image models from:', url);
+
+      const response = await fetch(url); // No 'body' for GET request
+
+      if (!response.ok) {
+          const errorText = await response.text();
+          log(`Error fetching image models: ${response.status} ${response.statusText} - ${errorText}`);
+          throw new Error(`HTTP error ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      log('Received image models:', data.models?.length);
+      return data;
+  } catch (err) {
+      log('Error in getAvailableImageModels handler:', err);
+      return { models: [], error: err.message || 'Failed to fetch image models from backend' };
+  }
+});
+ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, attachments, baseFilename='vixynt_gen_', currentPath='~/.npcsh/images' }) => {
+  log(`[Main Process] Received request to generate ${n} image(s) with prompt: "${prompt}" using model: "${model}" (${provider})`);
+
+  if (!prompt) {
+      return { error: 'Prompt cannot be empty' };
+  }
+  if (!model || !provider) {
+      return { error: 'Image model and provider must be selected.' };
+  }
+
+  try {
+      const apiUrl = 'http://127.0.0.1:5337/api/generate_images';
+      const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt,
+            n,
+            model,
+            provider,
+            attachments,
+            baseFilename, 
+            currentPath
+            
+          })
+      
+        });
+
+      if (!response.ok) {
+          const errorBody = await response.json();
+          const errorMessage = errorBody.error || `HTTP error! status: ${response.status}`;
+          log('Backend image generation failed:', errorMessage);
+          return { error: errorMessage };
+      }
+
+      const data = await response.json();
+      // The backend now returns { images: [...] } with base64 data URLs
+      if (data.error) {
+          return { error: data.error };
+      }
+      return { images: data.images };
+  } catch (error) {
+      log('Error generating images in main process handler:', error);
+      return { error: error.message || 'Image generation failed in main process' };
   }
 });
 
