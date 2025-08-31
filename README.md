@@ -31,6 +31,8 @@ npc-studio
 - Python 3.8 or higher (for the backend)
 - Ollama (optional, for local models)
 
+# Using NPC Studio
+
 ## Chat with Agents and organize by project path
 - NPC Studio gives users the capability to organize their conversations with AI agents in a natural and convenient way. Users can easily change working directories and separate their conversations by project path.
 
@@ -73,7 +75,6 @@ See thinking traces from agents:
 
 
 ![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/collapse_delete.png)
-
 
 
 ## Or while browsing
@@ -132,21 +133,22 @@ The long-awaited for activity dashboard: now with composable widgets, a setup fo
 
 ![Simple photo editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/darkroom.png)
 
-## Analyze and highlight in pdfs 
-![PDF Analysis](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/pdf_highlight.png)
-
-
-
 ## Adjust Metadata
+Coming Soon...
 
 ## Label images
-
-
+Coming Soon...
 
 
 # Web Browsing
 ## Browse the web with AI at your fingertips
 ![AI powered web browser](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/ai_web_browsing.png)
+
+
+# PDF Analysis
+
+## Analyze and highlight in pdfs 
+![PDF Analysis](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/pdf_highlight.png)
 
 
 
