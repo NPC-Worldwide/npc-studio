@@ -48,6 +48,10 @@ See thinking traces from agents:
 -![Aggregate messages](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/agg_messages.png) 
 
 
+
+## Use agent mode
+Coming soon...
+
 ## Create and manage agents, tools
 - NPC Studio uses the `npcpy` agent framework to simplify the building and orchestration of AI agents.
 
@@ -150,12 +154,6 @@ Coming Soon...
 ## Analyze and highlight in pdfs 
 ![PDF Analysis](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/pdf_highlight.png)
 
-
-
-
-## Planned Components
-- Knowledge Graph: view the knowledge graph built up over time through your actions. basic knowledge graph implementation was finished in npcpy in July 2025, andd the implementation in npc studio is actively ongoing. The knowledge graph viewer and manager will be part of the data dash
-- Run simple mixture of agent scenarios
 
 
 ## Getting Started with Development
