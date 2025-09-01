@@ -2,9 +2,12 @@
 import {
     Folder, File, Globe, ChevronRight, ChevronLeft, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
-    ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip,
-    Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star
+    ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, 
+    Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami,
 } from 'lucide-react';
+
+import { Icon } from 'lucide-react';
+import { avocado } from '@lucide/lab';
 
 import MacroInput from './MacroInput';
 import SettingsMenu from './SettingsMenu';
@@ -565,10 +568,7 @@ const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
     const [executionMode, setExecutionMode] = useState('chat'); // 'chat' or 'agent'
     const [favoriteModels, setFavoriteModels] = useState(new Set());
     const [showAllModels, setShowAllModels] = useState(false);
-    const [availableTools, setAvailableTools] = useState([
-        { id: 'file_reader', name: 'File Reader' },
-        { id: 'web_search', name: 'Web Search' },
-        { id: 'calculator', name: 'Calculator' }
+    const [availableJinxs, setAvailableJinxss] = useState([
     ]);
     const [selectedTools, setSelectedTools] = useState([]);
     
@@ -2693,7 +2693,10 @@ const createNewTextFile = async () => {
                     }
                     return { name: f.name, type: f.type };
                 }),
-                streamId: newStreamId
+                streamId: newStreamId, 
+                executionMode: executionMode, 
+                jinxs: availableJinxs,
+
             });
         } catch (err) {
             setError(err.message); setIsStreaming(false); delete streamToPaneRef.current[newStreamId];
@@ -4850,9 +4853,18 @@ const renderInputArea = () => {
                         <button onClick={() => setExecutionMode('chat')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'chat' ? 'theme-button-primary' : 'theme-hover'}`}>
                             <div className="flex items-center gap-1"><MessageCircle size={12}/> Chat</div>
                         </button>
-                        <button onClick={() => setExecutionMode('agent')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'agent' ? 'theme-button-primary' : 'theme-hover'}`}>
-                            <div className="flex items-center gap-1"><BrainCircuit size={12}/> Agent</div>
+                        <button onClick={() => setExecutionMode('npcsh')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'npcsh' ? 'theme-button-primary' : 'theme-hover'}`}>
+                            <div className="flex items-center gap-1"><BrainCircuit size={12}/> npcsh</div>
                         </button>
+
+                        <button onClick={() => setExecutionMode('corca')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'corca' ? 'theme-button-primary' : 'theme-hover'}`}>
+                            <div className="flex items-center gap-1"><Origami size={12}/> corca</div>
+                        </button>
+
+                        <button onClick={() => setExecutionMode('guac')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'guac' ? 'theme-button-primary' : 'theme-hover'}`}>
+                            <div className="flex items-center gap-1"><Icon iconNode={avocado} size={12}/> guac</div>
+                        </button>
+
                     </div>
                     
                     <div className="flex-grow flex items-center gap-1">
@@ -4891,7 +4903,7 @@ const renderInputArea = () => {
                     </select>
                 </div>
                 
-                {executionMode === 'agent' && (
+                {executionMode === 'npcsh' && (
                     <div className="px-2 pb-2">
                         <select
                             multiple
@@ -4899,9 +4911,9 @@ const renderInputArea = () => {
                             onChange={(e) => setSelectedTools(Array.from(e.target.selectedOptions, option => option.value))}
                             className="w-full theme-input text-xs rounded px-2 py-1 border h-20"
                             disabled={isStreaming}
-                            title="Select tools for the agent (Ctrl+Click for multiple)"
+                            title="Select Jinxs for the NPC (Ctrl+Click for multiple)"
                         >
-                            {availableTools.map(tool => (
+                            {availableJinxs.map(tool => (
                                 <option key={tool.id} value={tool.id}>{tool.name}</option>
                             ))}
                         </select>

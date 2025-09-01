@@ -1494,7 +1494,11 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       provider: data.provider,
       npc: data.npc,
       npcSource: data.npcSource || 'global',
-      attachments: data.attachments || []
+      attachments: data.attachments || [], 
+      executionMode: data.executionMode || 'chat', 
+      jinxs: data.jinxs || [],  
+      tools: data.tools || [],     
+
     };
     
     const response = await fetch(apiUrl, {

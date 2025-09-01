@@ -97,6 +97,8 @@ mkdir -p ./dist/resources/backend
 cp ./pyinstaller_dist/npc_studio_serve ./dist/resources/backend/
 chmod +x ./dist/resources/backend/npc_studio_serve
 
+npm rebuild sharp --platform=linux --arch=x64
+
 npm run electron:build
 
 
