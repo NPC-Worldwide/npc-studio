@@ -228,7 +228,7 @@ const ChatMessage = memo(({
     toggleMessageSelection, 
     handleMessageContextMenu, 
     searchTerm, 
-    activeSearchResult,
+    isCurrentSearchResult,
     onResendMessage
 }) => {
     const showStreamingIndicators = !!message.isStreaming;
@@ -241,7 +241,7 @@ const ChatMessage = memo(({
                 message.role === 'user' ? 'theme-message-user' : 'theme-message-assistant'
             } ${message.type === 'error' ? 'theme-message-error theme-border' : ''} ${
                 isSelected ? 'ring-2 ring-blue-500' : ''
-            } ${activeSearchResult === messageId ? 'ring-2 ring-yellow-500' : ''} ${messageSelectionMode ? 'cursor-pointer' : ''}`}
+            } ${isCurrentSearchResult ? 'ring-2 ring-yellow-500' : ''} ${messageSelectionMode ? 'cursor-pointer' : ''}`}
             onClick={() => messageSelectionMode && toggleMessageSelection(messageId)}
             onContextMenu={(e) => handleMessageContextMenu(e, messageId)}
         >
@@ -333,7 +333,6 @@ const ChatMessage = memo(({
                     <div className="mt-2 flex flex-wrap gap-2 border-t theme-border pt-2">
                         {message.attachments.map((attachment, idx) => {
                             const isImage = attachment.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-                            // Fully qualify imageSrc here by prefixing "media://"
                             const imageSrc = attachment.preview || (attachment.path ? `media://${attachment.path}` : attachment.data); 
                             return (
                                 <div key={idx} className="text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1">
@@ -351,7 +350,6 @@ const ChatMessage = memo(({
         </div>
     );
 });
-
 
 const ChatInterface = () => {
     const [isEditingPath, setIsEditingPath] = useState(false);
@@ -415,6 +413,13 @@ const ChatInterface = () => {
     const [browserUrlDialogOpen, setBrowserUrlDialogOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     
+    const [localSearch, setLocalSearch] = useState({
+        isActive: false,
+        term: '',
+        paneId: null,
+        results: [],
+        currentIndex: -1
+    });
     
 
     // Add state for renaming items directly in the sidebar
@@ -589,23 +594,46 @@ const ChatInterface = () => {
     
     
     // --- NEW: useEffect for Ctrl+F shortcut ---
+
+
     useEffect(() => {
         const handleKeyDown = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
                 e.preventDefault();
+                setIsGlobalSearch(true);
+                setIsSearching(true); 
+                setLocalSearch({ isActive: false, term: '', paneId: null, results: [], currentIndex: -1 });
                 searchInputRef.current?.focus();
+                return; 
             }
+    
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                const activePane = contentDataRef.current[activeContentPaneId];
+                if (activePane?.contentType === 'chat') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsGlobalSearch(false);
+                    setIsSearching(false);
+                    setLocalSearch(prev => ({ ...prev, isActive: true, paneId: activeContentPaneId }));
+                }
+            }
+    
             if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
                 e.preventDefault();
                 setBrowserUrlDialogOpen(true);
             }
-    
         };
+    
         window.addEventListener('keydown', handleKeyDown);
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, []);
+    }, [activeContentPaneId]);
+    
+
+    
+    
+    
     useEffect(() => {
         const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText }) => {
             console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText });
@@ -720,87 +748,40 @@ const ChatInterface = () => {
 
     
     const handleSearchSubmit = async () => {
-        if (!searchTerm.trim()) {
+        if (!isGlobalSearch || !searchTerm.trim()) {
             setIsSearching(false);
             setDeepSearchResults([]);
             return;
         }
-
+    
         setSearchLoading(true);
         setIsSearching(true);
         setDeepSearchResults([]);
         setError(null);
-
-        const lowerCaseQuery = searchTerm.toLowerCase();
-
+    
         try {
-            let results = [];
-
-            if (isGlobalSearch) {
-                // --- GLOBAL SEARCH: Uses the backend to search the filesystem ---
-                console.log("Performing GLOBAL search for:", searchTerm);
-                const backendResults = await window.api.performSearch({
-                    query: searchTerm,
-                    path: currentPath, // The backend can use this to find the root
-                    global: true,
-                });
-                
-                if (backendResults && !backendResults.error) {
-                    results = backendResults;
-                } else {
-                    throw new Error(backendResults?.error || "Global search failed.");
-                }
-
+            console.log("Performing GLOBAL search for:", searchTerm);
+            const backendResults = await window.api.performSearch({
+                query: searchTerm,
+                path: currentPath,
+                global: true,
+            });
+            
+            if (backendResults && !backendResults.error) {
+                const sortedResults = (backendResults || []).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                setDeepSearchResults(sortedResults);
             } else {
-                // --- LOCAL SEARCH: Searches through loaded conversations in the current path ---
-                console.log("Performing LOCAL search for:", searchTerm);
-                
-                // We iterate through the conversations already in the sidebar state.
-                for (const conv of directoryConversations) {
-                    // Fetch the messages for each conversation.
-                    const messages = await window.api.getConversationMessages(conv.id);
-                    if (!Array.isArray(messages)) continue;
-
-                    const matches = [];
-                    for (const message of messages) {
-                        if (message.content && message.content.toLowerCase().includes(lowerCaseQuery)) {
-                            // Create a snippet for the search result display
-                            const index = message.content.toLowerCase().indexOf(lowerCaseQuery);
-                            const start = Math.max(0, index - 25);
-                            const end = Math.min(message.content.length, index + searchTerm.length + 25);
-                            
-                            matches.push({
-                                messageId: message.id || message.timestamp,
-                                snippet: message.content.substring(start, end).trim(),
-                            });
-                        }
-                    }
-
-                    // If we found any matches in this conversation, add it to our results.
-                    if (matches.length > 0) {
-                        results.push({
-                            conversationId: conv.id,
-                            conversationTitle: conv.title,
-                            timestamp: conv.timestamp,
-                            matches: matches,
-                        });
-                    }
-                }
+                throw new Error(backendResults?.error || "Global search failed.");
             }
-
-            // Sort and set the final results, regardless of search type
-            const sortedResults = results.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-            setDeepSearchResults(sortedResults);
-
         } catch (err) {
-            console.error("Error during search:", err);
+            console.error("Error during global search:", err);
             setError(err.message);
             setDeepSearchResults([]);
         } finally {
             setSearchLoading(false);
         }
     };
-
+    
     // --- ADJUSTED: Search input change handler ---
     const handleSearchChange = (e) => {
         const searchValue = e.target.value;
@@ -2269,13 +2250,12 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     
         return (
             <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
-<div 
-    className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-    draggable="true"
-    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: filePath }); }}
-    onDragEnd={handleGlobalDragEnd}
->
-
+                <div 
+                    className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+                    draggable="true"
+                    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: filePath }); }}
+                    onDragEnd={handleGlobalDragEnd}
+                >
                     <div className="flex items-center gap-2 truncate">
                         {getFileIcon(fileName)}
                         {isRenaming ? (
@@ -2307,13 +2287,12 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                     <div className="flex items-center gap-2">
                         <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
                         <button 
-                        onClick={() => closeContentPane(nodeId, path)} 
+                        onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} 
                         className="p-1 theme-hover rounded-full flex-shrink-0"
-                        onMouseDown={(e) => e.stopPropagation()} // <-- ADD THIS LINE
+                        onMouseDown={(e) => e.stopPropagation()}
                     >
                         <X size={14} />
                     </button>
-
                     </div>
                 </div>
                 <div className="flex-1 overflow-scroll min-h-0">
@@ -2326,7 +2305,6 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                         onContextMenu={onEditorContextMenu}
                     />
                 </div>
-    
                 {editorContextMenuPos && activeContentPaneId === nodeId && (
                     <>
                         <div 
@@ -2356,100 +2334,192 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         );
     }, [rootLayoutNode, activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setDraggedItem]);
     
+    
+    const InPaneSearchBar = ({
+        searchTerm,
+        onSearchTermChange,
+        onNext,
+        onPrevious,
+        onClose,
+        resultCount,
+        currentIndex
+    }) => {
+        const inputRef = useRef(null);
+    
+        useEffect(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }, []);
+    
+        const handleKeyDown = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    onPrevious();
+                } else {
+                    onNext();
+                }
+            }
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+    
+        return (
+            <div className="absolute top-2 right-14 bg-gray-800 border border-gray-600 rounded-md shadow-lg z-20 p-1 flex items-center gap-2">
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => onSearchTermChange(e.target.value)}
+                    className="theme-input text-xs rounded px-2 py-1 w-40 border-0 focus:ring-1 focus:ring-blue-500"
+                    placeholder="Search messages..."
+                    onKeyDown={handleKeyDown}
+                />
+                <span className="text-xs text-gray-400 min-w-[50px] text-center">
+                    {resultCount > 0 ? `${currentIndex + 1} of ${resultCount}` : '0/0'}
+                </span>
+                <div className="flex items-center">
+                    <button onClick={onPrevious} className="p-1 theme-hover rounded" title="Previous (Shift+Enter)">
+                        <ChevronRight size={16} className="transform -rotate-90" />
+                    </button>
+                    <button onClick={onNext} className="p-1 theme-hover rounded" title="Next (Enter)">
+                        <ChevronRight size={16} className="transform rotate-90" />
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
+    
     const renderChatView = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
         if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
     
-        const { contentId: conversationId } = paneData;
         const scrollRef = useRef(null);
+        const paneRef = useRef(null);
     
         useEffect(() => {
-            // Only auto-scroll if enabled
+            const paneElement = paneRef.current;
+            const handleKeyDown = (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setLocalSearch(prev => ({ ...prev, isActive: true, paneId: nodeId, term: prev.paneId === nodeId ? prev.term : '' }));
+                }
+            };
+    
+            if (paneElement) {
+                paneElement.addEventListener('keydown', handleKeyDown);
+                return () => paneElement.removeEventListener('keydown', handleKeyDown);
+            }
+        }, [nodeId]);
+    
+        useEffect(() => {
+            if (localSearch.isActive && localSearch.paneId === nodeId && localSearch.term) {
+                const allMessages = paneData.chatMessages?.allMessages || [];
+                const results = [];
+                allMessages.forEach(msg => {
+                    if (msg.content && msg.content.toLowerCase().includes(localSearch.term.toLowerCase())) {
+                        results.push(msg.id || msg.timestamp);
+                    }
+                });
+                setLocalSearch(prev => ({ ...prev, results, currentIndex: results.length > 0 ? 0 : -1 }));
+            } else if (localSearch.paneId === nodeId) {
+                setLocalSearch(prev => ({ ...prev, results: [], currentIndex: -1 }));
+            }
+        }, [localSearch.term, localSearch.isActive, localSearch.paneId, nodeId, paneData.chatMessages?.allMessages]);
+    
+        useEffect(() => {
+            if (localSearch.currentIndex !== -1 && localSearch.results.length > 0) {
+                const messageId = localSearch.results[localSearch.currentIndex];
+                const element = document.getElementById(`message-${messageId}`);
+                element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, [localSearch.currentIndex, localSearch.results]);
+        
+        useEffect(() => {
             if (autoScrollEnabled && scrollRef.current) {
                 scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
             }
-        }, [paneData?.chatMessages?.messages, autoScrollEnabled]); // Added autoScrollEnabled as dependency
+        }, [paneData?.chatMessages?.messages, autoScrollEnabled]);
     
-    
-        const loadPreviousMessages = () => {
-            const currentPane = contentDataRef.current[nodeId];
-            if (currentPane && currentPane.chatMessages) {
-                currentPane.chatMessages.displayedMessageCount += 20;
-                currentPane.chatMessages.messages = currentPane.chatMessages.allMessages.slice(-currentPane.chatMessages.displayedMessageCount);
-                setRootLayoutNode(p => ({ ...p }));
-            }
+        const handleLocalSearchNavigate = (direction) => {
+            if (localSearch.results.length === 0) return;
+            setLocalSearch(prev => {
+                const nextIndex = (prev.currentIndex + direction + prev.results.length) % prev.results.length;
+                return { ...prev, currentIndex: nextIndex };
+            });
         };
-    
+        
         const messagesToDisplay = paneData.chatMessages?.messages || [];
         const totalMessages = paneData.chatMessages?.allMessages?.length || 0;
         const stats = paneData.chatStats || {};
         const path = findNodePath(rootLayoutNode, nodeId);
     
         return (
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <div ref={paneRef} className="flex-1 flex flex-col min-h-0 overflow-hidden relative focus:outline-none" tabIndex={-1}>
                 <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move">
-                    <div className="flex justify-between items-center">
-                        <span className="truncate min-w-0 font-semibold" title={conversationId}>Conversation: {conversationId?.slice(-8) || 'None'}</span>
+                    <div className="flex justify-between items-center h-full">
+                        <span className="truncate min-w-0 font-semibold" title={paneData.contentId}>
+                            Conversation: {paneData.contentId?.slice(-8) || 'None'}
+                        </span>
                         <div className="flex items-center gap-2">
-                            <button 
-                                onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
-                                className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
-                                    autoScrollEnabled ? 'theme-button-success' : 'theme-button'
-                                } theme-hover`}
-                                title={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M12 5v14M19 12l-7 7-7-7"/>
-                                </svg>
-                                {autoScrollEnabled ? 'Auto' : 'Manual'}
-                            </button>
-                            <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`} title={messageSelectionMode ? 'Exit selection mode' : 'Enter selection mode'}>
+                             {localSearch.isActive && localSearch.paneId === nodeId && (
+                                <InPaneSearchBar
+                                    searchTerm={localSearch.term}
+                                    onSearchTermChange={(term) => setLocalSearch(prev => ({ ...prev, term }))}
+                                    onNext={() => handleLocalSearchNavigate(1)}
+                                    onPrevious={() => handleLocalSearchNavigate(-1)}
+                                    onClose={() => setLocalSearch({ isActive: false, term: '', paneId: null, results: [], currentIndex: -1 })}
+                                    resultCount={localSearch.results.length}
+                                    currentIndex={localSearch.currentIndex}
+                                />
+                            )}
+                            <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`}>
                                 <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
                             </button>
-                            <button 
-                                onClick={() => closeContentPane(nodeId, path)} 
-                                className="p-1 theme-hover rounded-full flex-shrink-0"
-                                onMouseDown={(e) => e.stopPropagation()}
-                            >
+                            <button onClick={() => closeContentPane(nodeId, path)} className="p-1 theme-hover rounded-full flex-shrink-0">
                                 <X size={14} />
                             </button>
                         </div>
-                    </div>
-
-
-
-
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-gray-400">
-                        <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
-                        <span><Terminal size={12} className="inline mr-1"/>~{stats.tokenCount || 0} Tokens</span>
-                        <span><Code2 size={12} className="inline mr-1"/>{stats.models?.size || 0} Models</span>
-                        <span><Users size={12} className="inline mr-1"/>{stats.agents?.size || 0} Agents</span>
                     </div>
                 </div>
                 <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
                     {totalMessages > messagesToDisplay.length && (
                         <div className="text-center">
-                            <button onClick={loadPreviousMessages} className="theme-button theme-hover px-3 py-1 text-xs rounded">Load More</button>
+                            <button onClick={() => {
+                                const currentPane = contentDataRef.current[nodeId];
+                                if (currentPane && currentPane.chatMessages) {
+                                    currentPane.chatMessages.displayedMessageCount += 20;
+                                    currentPane.chatMessages.messages = currentPane.chatMessages.allMessages.slice(-currentPane.chatMessages.displayedMessageCount);
+                                    setRootLayoutNode(p => ({ ...p }));
+                                }
+                            }} className="theme-button theme-hover px-3 py-1 text-xs rounded">Load More</button>
                         </div>
                     )}
-                    {messagesToDisplay.map(msg => 
-                        <ChatMessage 
-                            key={msg.id || msg.timestamp}
-                            message={msg}
-                            isSelected={selectedMessages.has(msg.id || msg.timestamp)} 
-                            messageSelectionMode={messageSelectionMode} 
-                            toggleMessageSelection={toggleMessageSelection} 
-                            handleMessageContextMenu={handleMessageContextMenu} 
-                            searchTerm={searchTerm} 
-                            activeSearchResult={activeSearchResult} 
-                            onResendMessage={handleResendMessage}
-                        />
-                    )}
+                    {messagesToDisplay.map(msg => {
+                        const messageId = msg.id || msg.timestamp;
+                        const isCurrentSearchResult = localSearch.isActive && localSearch.paneId === nodeId && localSearch.results[localSearch.currentIndex] === messageId;
+                        return (
+                            <ChatMessage 
+                                key={messageId}
+                                message={msg}
+                                searchTerm={localSearch.isActive && localSearch.paneId === nodeId ? localSearch.term : ''}
+                                isCurrentSearchResult={isCurrentSearchResult}
+                                isSelected={selectedMessages.has(messageId)} 
+                                messageSelectionMode={messageSelectionMode} 
+                                toggleMessageSelection={toggleMessageSelection} 
+                                handleMessageContextMenu={handleMessageContextMenu} 
+                                onResendMessage={handleResendMessage}
+                            />
+                        );
+                    })}
                 </div>
             </div>
         );
-    }, [rootLayoutNode, messageSelectionMode, selectedMessages, searchTerm, activeSearchResult,setDraggedItem, autoScrollEnabled]);
-    
+    }, [rootLayoutNode, messageSelectionMode, selectedMessages, setDraggedItem, autoScrollEnabled, localSearch]);
+
     
 const createNewConversation = async () => {
     try {
@@ -2878,7 +2948,7 @@ useEffect(() => {
         }
     };
 
-     const refreshConversations = async () => {
+    const refreshConversations = async () => {
         if (currentPath) {
             console.log('[REFRESH] Starting conversation refresh for path:', currentPath);
             try {
@@ -2891,11 +2961,14 @@ useEffect(() => {
                         id: conv.id,
                         title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
                         preview: conv.preview || 'No content',
-                        timestamp: conv.timestamp || Date.now()
+                        timestamp: conv.timestamp || Date.now(),
+                        last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
                     }));
                     
-                    // Sort conversations by timestamp, newest first
-                    formattedConversations.sort((a, b) => b.timestamp - a.timestamp);
+                    // Sort conversations by last message timestamp, newest first
+                    formattedConversations.sort((a, b) => 
+                        new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
+                    );
                     
                     console.log('[REFRESH] Setting conversations:', formattedConversations.length);
                     setDirectoryConversations([...formattedConversations]);
@@ -2909,7 +2982,7 @@ useEffect(() => {
             }
         }
     };
-
+    
     const loadConversations = async (dirPath) => {
         let currentActiveId = activeConversationId; // Capture current active ID
         try {
@@ -2920,16 +2993,19 @@ useEffect(() => {
                 id: conv.id,
                 title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
                 preview: conv.preview || 'No content',
-                timestamp: conv.timestamp || Date.now()
+                timestamp: conv.timestamp || Date.now(),
+                last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
             })) || [];
-
-            // Sort conversations by timestamp, newest first
-            formattedConversations.sort((a, b) => b.timestamp - a.timestamp);
+    
+            // Sort conversations by last message timestamp, newest first
+            formattedConversations.sort((a, b) => 
+                new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
+            );
             
             setDirectoryConversations(formattedConversations);
-
+    
             const activeExists = formattedConversations.some(c => c.id === currentActiveId);
-
+    
             if (!activeExists && initialLoadComplete.current) {
                 if (formattedConversations.length > 0) {
                     await handleConversationSelect(formattedConversations[0].id);
@@ -2941,7 +3017,7 @@ useEffect(() => {
             } else if (!currentActiveId && formattedConversations.length === 0 && initialLoadComplete.current) {
                  await createNewConversation();
             }
-
+    
         } catch (err) {
             console.error('Error loading conversations:', err);
             setError(err.message);
@@ -3757,186 +3833,195 @@ const renderSidebarItemContextMenu = () => {
 
 
 // --- Internal Render Functions ---
-    const renderSidebar = () => {
-        // When collapsed, show only the expand button
-        if (sidebarCollapsed) {
-            return (
-                <div className="w-8 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
-                    <div className="flex-1 flex items-start justify-center pt-4" style={{height: '70%',}}>
-                    </div>
-                <div className="p-2 border-b theme-border ">
-                    <button 
-                            onClick={() => setSidebarCollapsed(false)} 
-                            className="p-2 theme-button theme-hover rounded-full transition-all group" 
-                            title="Open sidebar"
-                        >
-                            <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
-                                <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                                <ChevronLeft size={14} className="transform rotate-180 group-hover:scale-75 transition-all duration-200" />
-                                <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                            </div>
-                        </button>
-                    </div>
-                </div>
-            );
-        }
-    
-        // When expanded, show full sidebar with collapse button
+const renderSidebar = () => {
+    if (sidebarCollapsed) {
         return (
-            <div className="w-64 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
-                <div className="p-4 border-b theme-border flex items-center justify-between flex-shrink-0" 
-                      style={{ WebkitAppRegion: 'drag' }}>
-                    <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
-                    <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
-                        {/* Add collapse button first */}
-                        <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
-
-                        
-                        {/* Rest of existing buttons */}
-                        <div className="relative group">
-                            <div className="flex">
-                                <button onClick={createNewConversation} className="p-2 theme-button-primary rounded-full flex items-center gap-1 transition-all" aria-label="New Conversation">
-                                    <Plus size={14} />
-                                    <ChevronRight size={10} className="transform rotate-90 opacity-60" />
-                                </button>
-                            </div>
-                            
-                            {/* Existing dropdown menu */}
-                            <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
-                                {/* All existing dropdown items */}
-                                <button onClick={createNewConversation} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                    <MessageSquare size={12} />
-                                    <span>New Conversation</span>
-                                </button>
-                                <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                    <Folder size={12} />
-                                    <span>New Folder</span>
-                                </button>
-                                <button onClick={() => setBrowserUrlDialogOpen(true)} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                    <Globe size={12} />
-                                    <span>New Browser</span>
-                                </button>
-                                <button onClick={createNewTextFile} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                    <FileText size={12} />
-                                    <span>New Text File</span>
-                                </button>
-                                <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                    <Terminal size={12} />
-                                    <span>New Terminal</span>
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <button className="theme-toggle-btn p-1" onClick={toggleTheme}>{isDarkMode ? '🌙' : '☀️'}</button>
-                    </div>
+            <div className="w-8 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
+                <div className="flex-1 flex items-start justify-center pt-4" style={{height: '70%',}}>
                 </div>
-    
-                {/* Rest of existing sidebar content */}
-                <div className="p-2 border-b theme-border flex items-center gap-2 flex-shrink-0">
-                    {/* Existing path navigation */}
-                    <button onClick={goUpDirectory} className="p-2 theme-hover rounded-full transition-all" title="Go Up" aria-label="Go Up Directory"><ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/></button>
-                    {/* Rest of path editing logic */}
-                    {isEditingPath ? (
-                        <input type="text" value={editedPath} onChange={(e) => setEditedPath(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { setIsEditingPath(false); setCurrentPath(editedPath); loadDirectoryStructure(editedPath); } else if (e.key === 'Escape') { setIsEditingPath(false); } }} onBlur={() => setIsEditingPath(false)} autoFocus className="text-xs theme-text-muted theme-input border rounded px-2 py-1 flex-1"/>
-                     ) : (
-                        <div onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }} className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-1 rounded flex-1" title={currentPath}>
-                            {currentPath || '...'}
-                        </div>
-                    )}
-                </div>
-                
-                {/* Rest of existing sidebar content - search, files, conversations, bottom buttons */}
-                <div className="p-2 border-b theme-border flex flex-col gap-2 flex-shrink-0">
-                    {/* Existing search area */}
-                    <div className="flex items-center gap-2">
-                        <input
-                            ref={searchInputRef}
-                            type="text"
-                            value={searchTerm}
-                            onChange={handleSearchChange}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleSearchSubmit();
-                                }
-                            }}
-                            placeholder="Search messages (Ctrl+F)..."
-                            className="flex-grow theme-input text-xs rounded px-2 py-1 border focus:outline-none"
-                        />
-                        <button
-                            onClick={() => {
-                                setSearchTerm('');
-                                setIsSearching(false);
-                                setDeepSearchResults([]);
-                                setMessageSearchResults([]);
-                            }}
-                            className="p-2 theme-hover rounded-full transition-all"
-                            aria-label="Clear Search"
-                        >
-                            <X size={14} className="text-gray-400" />
-                        </button>
-                    </div>
-                </div>
-    
-                {/* Existing content area and bottom buttons */}
-                <div className="flex-1 overflow-y-auto px-2 py-2">
-                    {loading ? (
-                        <div className="p-4 theme-text-muted">Loading...</div>
-                    ) : isSearching ? (
-                        renderSearchResults()
-                    ) : (
-                        <>
-                            {renderFolderList(folderStructure)}
-                            {renderConversationList(directoryConversations)}
-                        </>
-                    )}
-                    {contextMenuPos && renderContextMenu()}
-                    {sidebarItemContextMenuPos && renderSidebarItemContextMenu()}
-                    {fileContextMenuPos && renderFileContextMenu()}
-                
-                </div>
-                <div className="flex justify-center"> {/* Use flexbox to center the button */}
-                    <button
-                        onClick={deleteSelectedConversations}
-                        className="p-2 theme-hover rounded-full text-red-400 transition-all" /* Simplified classes for an icon button */
-                        title="Delete selected items"
+            <div className="p-2 border-b theme-border ">
+                <button 
+                        onClick={() => setSidebarCollapsed(false)} 
+                        className="p-2 theme-button theme-hover rounded-full transition-all group" 
+                        title="Open sidebar"
                     >
-                        <Trash size={24} />
+                        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
+                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                            <ChevronLeft size={14} className="transform rotate-180 group-hover:scale-75 transition-all duration-200" />
+                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                        </div>
                     </button>
-                </div>
-
-
-                
-                <div className="p-4 border-t theme-border flex-shrink-0">
-                    <div className="flex gap-2 justify-center">
-                    <button onClick={() => setPhotoViewerOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Photo Viewer">
-                    <Image size={16} />
-    
-                        </button>
-                        <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
-                        <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
-                        <button onClick={() => setCtxEditorOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Context Editor">
-                            <FileJson size={16} />
-                        </button>
-                        <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
-                        <button 
-                            onClick={() => setSidebarCollapsed(true)} 
-                            className="p-2 theme-button theme-hover rounded-full transition-all group" 
-                            title="Collapse sidebar"
-                        >
-                            <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
-                                <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                                <ChevronRight size={14} className="transform rotate-180 group-hover:scale-75 transition-all duration-200" />
-                                <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                            </div>
-                        </button>
-
-                    </div>
                 </div>
             </div>
         );
+    }
+
+    const getPlaceholderText = () => {
+        if (isGlobalSearch) {
+            return "Global search (Ctrl+Shift+F)...";
+        }
+        const activePaneData = contentDataRef.current[activeContentPaneId];
+        if (activePaneData) {
+            switch (activePaneData.contentType) {
+                case 'editor':
+                    return "Search in current file (Ctrl+F)...";
+                case 'chat':
+                    return "Search in conversation (Ctrl+F)...";
+                default:
+                    return "Local search (Ctrl+F)...";
+            }
+        }
+        return "Search (Ctrl+F)...";
     };
 
+    return (
+        <div className="w-64 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
+            <div className="p-4 border-b theme-border flex items-center justify-between flex-shrink-0" 
+                  style={{ WebkitAppRegion: 'drag' }}>
+                <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
+                <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
+                    <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
+
+                    
+                    <div className="relative group">
+                        <div className="flex">
+                            <button onClick={createNewConversation} className="p-2 theme-button-primary rounded-full flex items-center gap-1 transition-all" aria-label="New Conversation">
+                                <Plus size={14} />
+                                <ChevronRight size={10} className="transform rotate-90 opacity-60" />
+                            </button>
+                        </div>
+                        
+                        <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
+                            <button onClick={createNewConversation} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                <MessageSquare size={12} />
+                                <span>New Conversation</span>
+                            </button>
+                            <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                <Folder size={12} />
+                                <span>New Folder</span>
+                            </button>
+                            <button onClick={() => setBrowserUrlDialogOpen(true)} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                <Globe size={12} />
+                                <span>New Browser</span>
+                            </button>
+                            <button onClick={createNewTextFile} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                <FileText size={12} />
+                                <span>New Text File</span>
+                            </button>
+                            <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                <Terminal size={12} />
+                                <span>New Terminal</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button className="theme-toggle-btn p-1" onClick={toggleTheme}>{isDarkMode ? '🌙' : '☀️'}</button>
+                </div>
+            </div>
+
+            <div className="p-2 border-b theme-border flex items-center gap-2 flex-shrink-0">
+                <button onClick={goUpDirectory} className="p-2 theme-hover rounded-full transition-all" title="Go Up" aria-label="Go Up Directory"><ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/></button>
+                {isEditingPath ? (
+                    <input type="text" value={editedPath} onChange={(e) => setEditedPath(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { setIsEditingPath(false); setCurrentPath(editedPath); loadDirectoryStructure(editedPath); } else if (e.key === 'Escape') { setIsEditingPath(false); } }} onBlur={() => setIsEditingPath(false)} autoFocus className="text-xs theme-text-muted theme-input border rounded px-2 py-1 flex-1"/>
+                 ) : (
+                    <div onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }} className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-1 rounded flex-1" title={currentPath}>
+                        {currentPath || '...'}
+                    </div>
+                )}
+            </div>
+            
+            <div className="p-2 border-b theme-border flex flex-col gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2">
+
+                <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchTerm}
+                    onChange={handleSearchChange}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (isGlobalSearch) {
+                                handleSearchSubmit();
+                            }
+                        }
+                    }}
+                    placeholder={getPlaceholderText()}
+                    className="flex-grow theme-input text-xs rounded px-2 py-1 border focus:outline-none"
+                />
+
+                    <button
+                        onClick={() => {
+                            setSearchTerm('');
+                            setIsSearching(false);
+                            setDeepSearchResults([]);
+                            setMessageSearchResults([]);
+                        }}
+                        className="p-2 theme-hover rounded-full transition-all"
+                        aria-label="Clear Search"
+                    >
+                        <X size={14} className="text-gray-400" />
+                    </button>
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-2 py-2">
+                {loading ? (
+                    <div className="p-4 theme-text-muted">Loading...</div>
+                ) : isSearching ? (
+                    renderSearchResults()
+                ) : (
+                    <>
+                        {renderFolderList(folderStructure)}
+                        {renderConversationList(directoryConversations)}
+                    </>
+                )}
+                {contextMenuPos && renderContextMenu()}
+                {sidebarItemContextMenuPos && renderSidebarItemContextMenu()}
+                {fileContextMenuPos && renderFileContextMenu()}
+            
+            </div>
+            <div className="flex justify-center">
+                <button
+                    onClick={deleteSelectedConversations}
+                    className="p-2 theme-hover rounded-full text-red-400 transition-all"
+                    title="Delete selected items"
+                >
+                    <Trash size={24} />
+                </button>
+            </div>
+
+
+            
+            <div className="p-4 border-t theme-border flex-shrink-0">
+                <div className="flex gap-2 justify-center">
+                <button onClick={() => setPhotoViewerOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Photo Viewer">
+                <Image size={16} />
+
+                    </button>
+                    <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
+                    <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
+                    <button onClick={() => setCtxEditorOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Context Editor">
+                        <FileJson size={16} />
+                    </button>
+                    <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
+                    <button 
+                        onClick={() => setSidebarCollapsed(true)} 
+                        className="p-2 theme-button theme-hover rounded-full transition-all group" 
+                        title="Collapse sidebar"
+                    >
+                        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
+                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                            <ChevronRight size={14} className="transform rotate-180 group-hover:scale-75 transition-all duration-200" />
+                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                        </div>
+                    </button>
+
+                </div>
+            </div>
+        </div>
+    );
+};
     const renderFolderList = (structure) => {
         if (!structure || typeof structure !== 'object' || structure.error) { return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>; }
         if (Object.keys(structure).length === 0) { return <div className="p-2 text-xs text-gray-500">Empty directory</div>; }
@@ -4212,12 +4297,19 @@ const renderSidebarItemContextMenu = () => {
     const renderConversationList = (conversations) => {
         if (!conversations?.length) return null;
         
+        // Sort conversations by most recent message timestamp
+        const sortedConversations = [...conversations].sort((a, b) => {
+            const aTimestamp = new Date(a.last_message_timestamp || a.timestamp).getTime();
+            const bTimestamp = new Date(b.last_message_timestamp || b.timestamp).getTime();
+            return bTimestamp - aTimestamp;
+        });
+        
         // Section header with collapse toggle and refresh button
         const header = (
             <div className="flex items-center justify-between px-4 py-2 mt-4">
-                <div className="text-xs text-gray-500 font-medium">Conversations ({conversations.length})</div>
+                <div className="text-xs text-gray-500 font-medium">Conversations ({sortedConversations.length})</div>
                 <div className="flex items-center gap-1">
-
+    
                     <button 
                         onClick={(e) => {
                             e.stopPropagation();
@@ -4249,7 +4341,7 @@ const renderSidebarItemContextMenu = () => {
         
         // If collapsed, we still show the active conversation (if any)
         if (conversationsCollapsed) {
-            const activeConversation = activeConversationId ? conversations.find(conv => conv.id === activeConversationId) : null;
+            const activeConversation = activeConversationId ? sortedConversations.find(conv => conv.id === activeConversationId) : null;
             
             return (
                 <div className="mt-4">
@@ -4279,16 +4371,16 @@ const renderSidebarItemContextMenu = () => {
         
         // Regular full list when not collapsed
         return (
-
+    
             <div className="mt-4">
                 {header}
                 <div className="px-1">
-                    {conversations.map((conv, index) => {
-
+                    {sortedConversations.map((conv, index) => {
+    
                         const isSelected = selectedConvos?.has(conv.id);
                         const isActive = conv.id === activeConversationId && !currentFile;
                         const isLastClicked = lastClickedIndex === index;
-
+    
                         
                         return (
                             <button
@@ -4296,7 +4388,7 @@ const renderSidebarItemContextMenu = () => {
                             draggable="true"
                             onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'conversation', id: conv.id }); }}
                             onDragEnd={handleGlobalDragEnd}
-
+    
                             onClick={(e) => { 
                                     if (e.ctrlKey || e.metaKey) { 
                                         const newSelected = new Set(selectedConvos || new Set()); 
@@ -4308,13 +4400,12 @@ const renderSidebarItemContextMenu = () => {
                                         setSelectedConvos(newSelected);
                                         setLastClickedIndex(index);
                                     } else if (e.shiftKey && lastClickedIndex !== null) {
-                                        // Shift + Click range selection
                                         const newSelected = new Set();
                                         const start = Math.min(lastClickedIndex, index);
                                         const end = Math.max(lastClickedIndex, index);
                                         for (let i = start; i <= end; i++) {
-                                            if (conversations[i]) {
-                                                newSelected.add(conversations[i].id);
+                                            if (sortedConversations[i]) {
+                                                newSelected.add(sortedConversations[i].id);
                                             }
                                         }
                                         setSelectedConvos(newSelected);
@@ -4340,20 +4431,20 @@ const renderSidebarItemContextMenu = () => {
                                     <span className="text-sm truncate">{conv.title || conv.id}</span>
                                     <span className="text-xs text-gray-500">{new Date(conv.timestamp).toLocaleString()}</span>
                                 </div>
-
+    
                             </button>
                             
                         );
-
+    
                 
                 })}
                 
                 
                 </div>
-
-
-
-
+    
+    
+    
+    
             </div>
         );
     };
