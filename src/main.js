@@ -2079,46 +2079,90 @@ ipcMain.handle('getConversations', async (_, path) => {
       return { success: false, error: err.message };
     }
   });
+
   ipcMain.handle('getConversationMessages', async (_, conversationId) => {
     return new Promise((resolve, reject) => {
-      const db = new sqlite3.Database(dbPath);
-      const query = `
-        WITH ranked_messages AS (
-          SELECT
-              ch.*,
-              ma.id AS attachment_id,
-              ma.attachment_name,
-              ma.attachment_data,
-              ROW_NUMBER() OVER (
-                  PARTITION BY ch.role, strftime('%s', ch.timestamp)
-                  ORDER BY ch.id DESC
-              ) as rn
-          FROM conversation_history ch
-          LEFT JOIN message_attachments ma
-              ON ch.message_id = ma.message_id
-          WHERE ch.conversation_id = ?
-        )
-        SELECT *
-        FROM ranked_messages
-        WHERE rn = 1
-        ORDER BY timestamp ASC, id ASC
+      const db = new sqlite3.Database(dbPath, (dbErr) => {
+        if (dbErr) {
+          console.error('[DB] Error opening database:', dbErr);
+          return reject(dbErr);
+        }
+  
+        const query = `
+        SELECT
+            ch.id,
+            ch.message_id,
+            ch.timestamp,
+            ch.role,
+            ch.content,
+            ch.conversation_id,
+            ch.directory_path,
+            ch.model,
+            ch.provider,
+            ch.npc,
+            ch.team,
+            json_group_array(
+                json_object(
+                    'id', ma.id,
+                    'name', ma.attachment_name,
+                    'path', ma.file_path,
+                    'type', ma.attachment_type,
+                    'size', ma.attachment_size,
+                    'timestamp', ma.upload_timestamp
+                )
+            ) FILTER (WHERE ma.id IS NOT NULL) AS attachments_json
+        FROM
+            conversation_history ch
+        LEFT JOIN
+            message_attachments ma ON ch.message_id = ma.message_id
+        WHERE
+            ch.conversation_id = ?
+        GROUP BY
+            ch.id
+        ORDER BY
+            ch.timestamp ASC, ch.id ASC;
       `;
+
 
       db.all(query, [conversationId], (err, rows) => {
         db.close();
-        if (err) reject(err);
-        else {
-          resolve(rows.map(row => ({
-            ...row,
-            attachment_data: row.attachment_data ? row.attachment_data.toString('base64') : null, // Convert BLOB to Base64
-          })));
-          //console.log('Handler: getConversationMessages called for:', rows);
+        if (err) {
+            return reject(err);
         }
+
+        const messages = rows.map(row => {
+            let attachments = [];
+            if (row.attachments_json) {
+                try {
+                    const parsedAttachments = JSON.parse(row.attachments_json);
+                    attachments = parsedAttachments.filter(att => att && att.id !== null);
+                } catch (e) {
+                    attachments = [];
+                }
+            }
+
+            let content = row.content;
+            if (typeof content === 'string' && content.startsWith('[')) {
+                try {
+                    content = JSON.parse(content);
+                } catch (e) {
+                    // keep as string if parse fails
+                }
+            }
+            
+            const newRow = { ...row, attachments, content };
+            delete newRow.attachments_json;
+            return newRow;
+        });
+
+        resolve(messages);
       });
     });
-  });
+});
+} );
 
-  ipcMain.handle('getDefaultConfig', () => {
+
+    ipcMain.handle('getDefaultConfig', () => {
     //console.log('Handler: getDefaultConfig called');
     console.log('CONFIG:', DEFAULT_CONFIG);
     return DEFAULT_CONFIG;

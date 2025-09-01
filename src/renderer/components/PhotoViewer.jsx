@@ -443,9 +443,6 @@ const handleDeleteSelected = async () => {
 
 
 
-  const handleStartConversation = () => { 
-      onStartConversation?.(Array.from(selectedImageGroup).map(p => ({ path: p.replace('media://', '') }))); onClose?.();
-  };
 
   const renderHeader = () => (
     <div className="flex items-center justify-between p-4 border-b theme-border bg-gray-800/50">

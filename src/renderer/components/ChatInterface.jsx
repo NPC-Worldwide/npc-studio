@@ -218,8 +218,6 @@ const highlightSearchTerm = (text, term) => {
         return text;
     }
 };
-
-
 const ChatMessage = memo(({ 
     message, 
     isSelected, 
@@ -274,7 +272,6 @@ const ChatMessage = memo(({
                 </div>
             )}
 
-            {/* --- THIS IS THE IMPROVED HEADER --- */}
             <div className="flex justify-between items-center text-xs theme-text-muted mb-1 opacity-80">
                 <span className="font-semibold">{message.role === 'user' ? 'You' : (message.npc || 'Agent')}</span>
                 <div className="flex items-center gap-2">
@@ -291,7 +288,6 @@ const ChatMessage = memo(({
                         (Resent from {message.originalNPC} / {message.originalModel})
                     </span>
                 )}
-            {/* --- END IMPROVED HEADER --- */}
 
             <div className="relative message-content-area">
                 {showStreamingIndicators && (
@@ -332,15 +328,20 @@ const ChatMessage = memo(({
                 )}
                 {message.attachments?.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2 border-t theme-border pt-2">
-                        {message.attachments.map((attachment, idx) => (
-                            <div key={idx} className="text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1">
-                                <Paperclip size={12} className="flex-shrink-0" />
-                                <span className="truncate" title={attachment.name}>{attachment.name}</span>
-                                {attachment.data && attachment.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i) && (
-                                    <img src={attachment.data} alt={attachment.name} className="mt-1 max-w-[100px] max-h-[100px] rounded-md object-cover"/>
-                                )}
-                            </div>
-                        ))}
+                        {message.attachments.map((attachment, idx) => {
+                            const isImage = attachment.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                            // Fully qualify imageSrc here by prefixing "media://"
+                            const imageSrc = attachment.preview || (attachment.path ? `media://${attachment.path}` : attachment.data); 
+                            return (
+                                <div key={idx} className="text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1">
+                                    <Paperclip size={12} className="flex-shrink-0" />
+                                    <span className="truncate" title={attachment.name}>{attachment.name}</span>
+                                    {isImage && imageSrc && (
+                                        <img src={imageSrc} alt={attachment.name} className="mt-1 max-w-[100px] max-h-[100px] rounded-md object-cover"/>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -655,26 +656,23 @@ const ChatInterface = () => {
     const handleStartConversationFromViewer = async (images) => {
         if (!images || images.length === 0) return;
     
-        // A helper to create the attachment structure your input expects
-        const createAttachmentFromFilePath = (filePath) => {
+        const attachmentsToAdd = images.map(img => {
+            const filePath = img.path;
             return {
-                id: `file_${Date.now()}_${Math.random()}`,
+                id: generateId(),
                 name: filePath.split('/').pop(),
                 path: filePath,
-                size: 0, // You might need to fetch this from the backend if needed
-                type: 'image/jpeg', // And this
+                size: 0,
+                type: 'image/jpeg',
                 preview: `file://${filePath}`
             };
-        };
-        
-        const attachments = images.map(img => createAttachmentFromFilePath(img.path));
+        });
     
-        // Add files to the input attachment tray
-        setUploadedFiles(prev => [...prev, ...attachments]);
+        setUploadedFiles(prev => [...prev, ...attachmentsToAdd]);
+        setPhotoViewerOpen(false);
+    };
+
     
-        // Optional: Pre-fill the input field
-        setInput(prev => `${prev}${prev ? '\n\n' : ''}Tell me about these ${images.length} image(s):`);
-    };    
     const handleSearchSubmit = async () => {
         if (!searchTerm.trim()) {
             setIsSearching(false);
@@ -2458,6 +2456,7 @@ const createNewTextFile = async () => {
     };
 
 
+
     const handleInputSubmit = async (e) => {
         e.preventDefault();
         if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
@@ -2469,37 +2468,37 @@ const createNewTextFile = async () => {
             console.error("No active chat pane to send message to.");
             return;
         }
-
+    
         const conversationId = paneData.contentId;
         const newStreamId = generateId();
         
         streamToPaneRef.current[newStreamId] = activeContentPaneId;
         setIsStreaming(true);
-
+    
         const userMessage = { 
             id: generateId(), 
             role: 'user', 
             content: input, 
             timestamp: new Date().toISOString(), 
-            attachments: uploadedFiles.map(f => ({ name: f.name })) 
+            attachments: uploadedFiles 
         };
-
+    
         const assistantPlaceholder = { 
             id: newStreamId, role: 'assistant', content: '', timestamp: new Date().toISOString(), 
             isStreaming: true, streamId: newStreamId, npc: currentNPC, model: currentModel
         };
-
+    
         if (!paneData.chatMessages) {
             paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
         paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
         paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
         paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
-
+    
         setRootLayoutNode(prev => ({ ...prev }));
         setInput('');
         setUploadedFiles([]);
-
+    
         try {
             const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
             await window.api.executeCommandStream({
@@ -2507,12 +2506,12 @@ const createNewTextFile = async () => {
                 npc: selectedNpc ? selectedNpc.name : currentNPC,
                 npcSource: selectedNpc ? selectedNpc.source : 'global',
                 attachments: uploadedFiles.map(f => {
-                    if (f.path) { // File from showOpenDialog (full path available)
+                    if (f.path) {
                         return { name: f.name, path: f.path, size: f.size, type: f.type };
-                    } else if (f.data) { // File from drag-and-drop (Base64 data available)
+                    } else if (f.data) {
                         return { name: f.name, data: f.data, size: f.size, type: f.type };
                     }
-                    return { name: f.name, type: f.type }; // Fallback
+                    return { name: f.name, type: f.type };
                 }),
                 streamId: newStreamId
             });
@@ -2520,6 +2519,8 @@ const createNewTextFile = async () => {
             setError(err.message); setIsStreaming(false); delete streamToPaneRef.current[newStreamId];
         }
     };
+    
+    
 
     const [isSaving, setIsSaving] = useState(false);
 
