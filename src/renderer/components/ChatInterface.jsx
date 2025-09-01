@@ -1,6 +1,9 @@
  import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
 import {
-    Folder, File, Globe, ChevronRight, ChevronLeft, Settings, Edit, Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare, ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, Send, BarChart3
+    Folder, File, Globe, ChevronRight, ChevronLeft, Settings, Edit,
+    Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
+    ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip,
+    Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star
 } from 'lucide-react';
 
 import MacroInput from './MacroInput';
@@ -542,6 +545,49 @@ const ChatInterface = () => {
         selectedModel: '',
         selectedNPC: ''
     });
+
+
+    const [isInputExpanded, setIsInputExpanded] = useState(false);
+    const [executionMode, setExecutionMode] = useState('chat'); // 'chat' or 'agent'
+    const [favoriteModels, setFavoriteModels] = useState(new Set());
+    const [showAllModels, setShowAllModels] = useState(false);
+    const [availableTools, setAvailableTools] = useState([
+        { id: 'file_reader', name: 'File Reader' },
+        { id: 'web_search', name: 'Web Search' },
+        { id: 'calculator', name: 'Calculator' }
+    ]);
+    const [selectedTools, setSelectedTools] = useState([]);
+    
+    // Add this useEffect to load/save favorite models
+    useEffect(() => {
+        const savedFavorites = localStorage.getItem('npcStudioFavoriteModels');
+        if (savedFavorites) {
+            setFavoriteModels(new Set(JSON.parse(savedFavorites)));
+        }
+    }, []);
+    
+    const toggleFavoriteModel = (modelValue) => {
+        if (!modelValue) return;
+        setFavoriteModels(prev => {
+            const newFavorites = new Set(prev);
+            if (newFavorites.has(modelValue)) {
+                newFavorites.delete(modelValue);
+            } else {
+                newFavorites.add(modelValue);
+            }
+            localStorage.setItem('npcStudioFavoriteModels', JSON.stringify(Array.from(newFavorites)));
+            return newFavorites;
+        });
+    };
+    
+    const modelsToDisplay = useMemo(() => {
+        if (showAllModels || favoriteModels.size === 0) {
+            return availableModels;
+        }
+        return availableModels.filter(m => favoriteModels.has(m.value));
+    }, [availableModels, favoriteModels, showAllModels]);
+    
+    
     // --- NEW: useEffect for Ctrl+F shortcut ---
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -1019,7 +1065,10 @@ const handleAIEdit = async (action, customPrompt = null) => {
             npc: selectedNpc ? selectedNpc.name : currentNPC,
             npcSource: selectedNpc ? selectedNpc.source : 'global',
             attachments: [],
-            streamId: newStreamId
+            streamId: newStreamId, 
+            executionMode: executionMode, // Add this
+            tools: executionMode === 'agent' ? selectedTools : [], // Add this
+        
         });
 
         if (result && result.error) {
@@ -4527,97 +4576,189 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
 
 
 
-const renderInputArea = () => (
-    <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
-        <div
-            className="relative theme-bg-primary theme-border border rounded-lg group"
-            onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
-            onDragEnter={() => setIsHovering(true)}
-            onDragLeave={() => setIsHovering(false)}
-            onDrop={handleDrop}
-        >
-            {isHovering && (
-                <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center z-10 pointer-events-none">
-                    <span className="text-blue-300 font-semibold">Drop files here</span>
+const renderInputArea = () => {
+    if (isInputExpanded) {
+        return (
+            <div className="fixed inset-0 bg-black/80 z-50 flex flex-col p-4">
+                <div className="flex-1 flex flex-col theme-bg-primary theme-border border rounded-lg">
+                    <div className="p-2 border-b theme-border flex-shrink-0 flex justify-end">
+                        <button
+                            type="button"
+                            onClick={() => setIsInputExpanded(false)}
+                            className="p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover"
+                            aria-label="Minimize input"
+                        >
+                            <Minimize2 size={20} />
+                        </button>
+                    </div>
+                    <div className="flex-1 p-2 flex">
+                         <textarea
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (!isStreaming && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                    e.preventDefault();
+                                    handleInputSubmit(e);
+                                    setIsInputExpanded(false);
+                                }
+                            }}
+                            placeholder={isStreaming ? "Streaming response..." : "Type a message... (Ctrl+Enter to send)"}
+                            className="w-full h-full theme-input text-base rounded-lg p-4 focus:outline-none border-0 resize-none bg-transparent"
+                            disabled={isStreaming}
+                            autoFocus
+                        />
+                    </div>
+                    <div className="p-2 border-t theme-border flex-shrink-0 flex items-center justify-end gap-2">
+                        {isStreaming ? (
+                            <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1" aria-label="Stop generating">
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
+                                Stop
+                            </button>
+                        ) : (
+                            <button type="button" onClick={(e) => { handleInputSubmit(e); setIsInputExpanded(false); }} disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <Send size={16}/>
+                                Send (Ctrl+Enter)
+                            </button>
+                        )}
+                    </div>
                 </div>
-            )}
+            </div>
+        );
+    }
 
-            {/* Add thumbnails here - BEFORE the input area */}
-            {renderAttachmentThumbnails()}
+    return (
+        <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
+            <div
+                className="relative theme-bg-primary theme-border border rounded-lg group"
+                onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
+                onDragEnter={() => setIsHovering(true)}
+                onDragLeave={() => setIsHovering(false)}
+                onDrop={handleDrop}
+            >
+                {isHovering && (
+                    <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center z-10 pointer-events-none">
+                        <span className="text-blue-300 font-semibold">Drop files here</span>
+                    </div>
+                )}
+                {renderAttachmentThumbnails()}
 
-            <div className="flex items-end p-2 gap-2 relative z-0">
-                <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
-                    placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
-                    className={`flex-grow theme-input text-sm rounded-lg px-4 py-3 focus:outline-none border-0 min-h-[56px] max-h-[200px] resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
-                    rows={1}
-                    style={{ overflowY: 'auto' }}
-                    disabled={isStreaming}
-                />
-                <button
-                    type="button"
-                    onClick={handleAttachFileClick}
-                    className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    aria-label="Attach file"
-                    disabled={isStreaming}
-                >
-                    <Paperclip size={20} />
-                </button>
-
-                {isStreaming ? (
-                    <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 w-[76px] h-[40px]" aria-label="Stop generating" title="Stop generating" >
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
+                <div className="flex items-end p-2 gap-2 relative z-0">
+                    <div className="flex-grow relative">
+                        <textarea
+                            ref={(el) => {
+                                if (el) {
+                                    el.style.height = 'auto';
+                                    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+                                }
+                            }}
+                            value={input}
+                            onChange={(e) => {
+                                setInput(e.target.value);
+                                e.target.style.height = 'auto';
+                                e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                            }}
+                            onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
+                            placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
+                            className={`w-full theme-input text-sm rounded-lg pl-4 pr-8 py-3 focus:outline-none border-0 min-h-[56px] max-h-[200px] resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
+                            rows={1}
+                            style={{ overflowY: 'auto', lineHeight: '1.5' }}
+                            disabled={isStreaming}
+                        />
+                         <button
+                            type="button"
+                            onClick={() => setIsInputExpanded(true)}
+                            className="absolute top-2 right-2 p-1 theme-text-muted hover:theme-text-primary rounded-lg theme-hover opacity-50 group-hover:opacity-100 transition-opacity"
+                            aria-label="Expand input"
+                        >
+                            <Maximize2 size={16} />
+                        </button>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleAttachFileClick}
+                        className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 self-end ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        aria-label="Attach file"
+                        disabled={isStreaming}
+                    >
+                        <Paperclip size={20} />
                     </button>
-                ) : (
-                    <button type="button" onClick={handleInputSubmit} disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px]" >
-                        <Send size={16}/>
-                    </button>
+                     {isStreaming ? (
+                        <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 w-[76px] h-[40px] self-end" aria-label="Stop generating" title="Stop generating" >
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
+                        </button>
+                    ) : (
+                        <button type="button" onClick={handleInputSubmit} disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
+                            <Send size={16}/>
+                        </button>
+                    )}
+                </div>
+
+                <div className={`flex items-center gap-2 px-2 pb-2 ${isStreaming ? 'opacity-50' : ''}`}>
+                    <div className="flex theme-border border rounded-md p-0.5">
+                        <button onClick={() => setExecutionMode('chat')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'chat' ? 'theme-button-primary' : 'theme-hover'}`}>
+                            <div className="flex items-center gap-1"><MessageCircle size={12}/> Chat</div>
+                        </button>
+                        <button onClick={() => setExecutionMode('agent')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'agent' ? 'theme-button-primary' : 'theme-hover'}`}>
+                            <div className="flex items-center gap-1"><BrainCircuit size={12}/> Agent</div>
+                        </button>
+                    </div>
+                    
+                    <div className="flex-grow flex items-center gap-1">
+                        <select
+                            value={currentModel || ''}
+                            onChange={(e) => {
+                                const selectedModel = availableModels.find(m => m.value === e.target.value);
+                                setCurrentModel(e.target.value);
+                                if (selectedModel?.provider) {
+                                    setCurrentProvider(selectedModel.provider);
+                                }
+                            }}
+                            className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
+                            disabled={modelsLoading || !!modelsError || isStreaming}
+                        >
+                            {modelsLoading && <option value="">Loading...</option>}
+                            {modelsError && <option value="">Error</option>}
+                            {!modelsLoading && !modelsError && modelsToDisplay.length === 0 && (
+                                <option value="">{favoriteModels.size > 0 ? "No Favorite Models" : "No Models"}</option>
+                            )}
+                            {!modelsLoading && !modelsError && modelsToDisplay.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
+                        </select>
+                        <button onClick={() => toggleFavoriteModel(currentModel)} className={`p-1 rounded ${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`} disabled={!currentModel} title="Toggle favorite"><Star size={14}/></button>
+                        <button onClick={() => setShowAllModels(!showAllModels)} className="p-1 theme-hover rounded theme-text-muted" title={showAllModels ? "Show Favorites" : "Show All Models"}><ListFilter size={14} /></button>
+                    </div>
+                     <select
+                        value={currentNPC || ''}
+                        onChange={e => setCurrentNPC(e.target.value)}
+                        className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
+                        disabled={npcsLoading || !!npcsError || isStreaming}
+                     >
+                         {npcsLoading && <option value="">Loading NPCs...</option>}
+                         {npcsError && <option value="">Error loading NPCs</option>}
+                         {!npcsLoading && !npcsError && availableNPCs.length === 0 && (<option value="">No NPCs available</option>)}
+                         {!npcsLoading && !npcsError && availableNPCs.map(npc => ( <option key={`${npc.source}-${npc.value}`} value={npc.value}> {npc.display_name} </option>))}
+                    </select>
+                </div>
+                
+                {executionMode === 'agent' && (
+                    <div className="px-2 pb-2">
+                        <select
+                            multiple
+                            value={selectedTools}
+                            onChange={(e) => setSelectedTools(Array.from(e.target.selectedOptions, option => option.value))}
+                            className="w-full theme-input text-xs rounded px-2 py-1 border h-20"
+                            disabled={isStreaming}
+                            title="Select tools for the agent (Ctrl+Click for multiple)"
+                        >
+                            {availableTools.map(tool => (
+                                <option key={tool.id} value={tool.id}>{tool.name}</option>
+                            ))}
+                        </select>
+                    </div>
                 )}
             </div>
-
-            <div className={`flex items-center gap-2 px-2 pb-2 ${isStreaming ? 'opacity-50' : ''}`}>
-                {/* Your existing model/NPC selectors */}
-                <select
-                    value={currentModel || ''}
-                    onChange={(e) => {
-                        const selectedModel = availableModels.find(m => m.value === e.target.value);
-                        setCurrentModel(e.target.value);
-                        if (selectedModel?.provider) {
-                            setCurrentProvider(selectedModel.provider);
-                        }
-                    }}
-                    className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                    disabled={modelsLoading || !!modelsError || isStreaming}
-                >
-                    {modelsLoading && <option value="">Loading...</option>}
-                    {modelsError && <option value="">Error</option>}
-                    {!modelsLoading && !modelsError && availableModels.length === 0 && (<option value="">No models</option> )}
-                    {!modelsLoading && !modelsError && availableModels.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
-                </select>
-                <select
-                    value={currentNPC || ''}
-                    onChange={e => setCurrentNPC(e.target.value)}
-                    className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                    disabled={npcsLoading || !!npcsError || isStreaming}
-                >
-                    {npcsLoading && <option value="">Loading NPCs...</option>}
-                    {npcsError && <option value="">Error loading NPCs</option>}
-                    {!npcsLoading && !npcsError && availableNPCs.length === 0 && (
-                        <option value="">No NPCs available</option>
-                    )}
-                    {!npcsLoading && !npcsError && availableNPCs.map(npc => (
-                        <option key={`${npc.source}-${npc.value}`} value={npc.value}>
-                            {npc.display_name}
-                        </option>
-                    ))}
-                </select>
-            </div>
         </div>
-    </div>
-);
-
+    );
+};
 
 const getThumbnailIcon = (fileName, fileType) => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
