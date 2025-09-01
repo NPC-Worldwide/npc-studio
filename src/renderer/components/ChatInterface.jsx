@@ -206,21 +206,11 @@ const convertFileToBase64 = (file) => {
     });
 };
 
-
-// Helper function to highlight search terms in text, returning a string with <mark> tags.
-// Your MarkdownRenderer must be configured to handle raw HTML for this to work.
 const highlightSearchTerm = (text, term) => {
     if (!term || !text) return text;
-    try {
-        // Escape special characters in the term for the regex
-        const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedTerm})`, 'gi');
-        return text.replace(regex, `<mark class="bg-yellow-500 text-black rounded px-1">$1</mark>`);
-    } catch (e) {
-        console.error("Error highlighting search term:", e);
-        return text;
-    }
+    return text;
 };
+
 const ChatMessage = memo(({ 
     message, 
     isSelected, 
@@ -236,16 +226,17 @@ const ChatMessage = memo(({
 
     return (
         <div
-            id={`message-${messageId}`}
-            className={`max-w-[85%] rounded-lg p-3 relative group ${
-                message.role === 'user' ? 'theme-message-user' : 'theme-message-assistant'
-            } ${message.type === 'error' ? 'theme-message-error theme-border' : ''} ${
-                isSelected ? 'ring-2 ring-blue-500' : ''
-            } ${isCurrentSearchResult ? 'ring-2 ring-yellow-500' : ''} ${messageSelectionMode ? 'cursor-pointer' : ''}`}
-            onClick={() => messageSelectionMode && toggleMessageSelection(messageId)}
-            onContextMenu={(e) => handleMessageContextMenu(e, messageId)}
-        >
-            {messageSelectionMode && (
+        id={`message-${messageId}`}
+        className={`max-w-[85%] rounded-lg p-3 relative group ${
+            message.role === 'user' ? 'theme-message-user' : 'theme-message-assistant'
+        } ${message.type === 'error' ? 'theme-message-error theme-border' : ''} ${
+            isSelected ? 'ring-2 ring-blue-500' : ''
+        } ${isCurrentSearchResult ? 'ring-2 ring-yellow-500' : ''} ${messageSelectionMode ? 'cursor-pointer' : ''}`}
+        onClick={() => messageSelectionMode && toggleMessageSelection(messageId)}
+        onContextMenu={(e) => handleMessageContextMenu(e, messageId)}
+    >
+
+        {messageSelectionMode && (
                 <div className="absolute top-2 right-2 z-10">
                     <input
                         type="checkbox"
@@ -333,6 +324,7 @@ const ChatMessage = memo(({
                     <div className="mt-2 flex flex-wrap gap-2 border-t theme-border pt-2">
                         {message.attachments.map((attachment, idx) => {
                             const isImage = attachment.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                            // Fully qualify imageSrc here by prefixing "media://"
                             const imageSrc = attachment.preview || (attachment.path ? `media://${attachment.path}` : attachment.data); 
                             return (
                                 <div key={idx} className="text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1">
@@ -350,6 +342,7 @@ const ChatMessage = memo(({
         </div>
     );
 });
+
 
 const ChatInterface = () => {
     const [isEditingPath, setIsEditingPath] = useState(false);
@@ -415,12 +408,11 @@ const ChatInterface = () => {
     
     const [localSearch, setLocalSearch] = useState({
         isActive: false,
-        term: '',
+        term: '', // This will be the single source of truth for the search input
         paneId: null,
         results: [],
         currentIndex: -1
     });
-    
 
     // Add state for renaming items directly in the sidebar
     const [renamingPath, setRenamingPath] = useState(null);
@@ -551,6 +543,23 @@ const ChatInterface = () => {
         selectedNPC: ''
     });
 
+    const generateId = () => Math.random().toString(36).substr(2, 9);
+
+// This hook is used internally to delay the actual search execution
+// without creating a separate state variable for the debounced term.
+const useDebounce = (value, delay) => {
+    const [debouncedValue, setDebouncedValue] = useState(value);
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+        return () => clearTimeout(handler);
+    }, [value, delay]);
+    return debouncedValue;
+};
+
+const LAST_ACTIVE_PATH_KEY = 'npcStudioLastPath'; // <-- ADD THIS LINE
+const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
 
     const [isInputExpanded, setIsInputExpanded] = useState(false);
     const [executionMode, setExecutionMode] = useState('chat'); // 'chat' or 'agent'
@@ -2287,7 +2296,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                     <div className="flex items-center gap-2">
                         <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
                         <button 
-                        onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} 
+                        onClick={() => closeContentPane(nodeId, path)} 
                         className="p-1 theme-hover rounded-full flex-shrink-0"
                         onMouseDown={(e) => e.stopPropagation()}
                     >
@@ -2303,7 +2312,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                         filePath={filePath}
                         onSelect={handleTextSelection}
                         onContextMenu={onEditorContextMenu}
-                    />
+                        />
                 </div>
                 {editorContextMenuPos && activeContentPaneId === nodeId && (
                     <>
@@ -2332,12 +2341,11 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                 )}
             </div>
         );
-    }, [rootLayoutNode, activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setDraggedItem]);
-    
-    
+    }, [rootLayoutNode, activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setDraggedItem, searchTerm, isGlobalSearch]);
+
     const InPaneSearchBar = ({
-        searchTerm,
-        onSearchTermChange,
+        searchTerm,        // This is `localSearch.term` from the parent (debounced value)
+        onSearchTermChange, // This will be the debounced setter for localSearch.term
         onNext,
         onPrevious,
         onClose,
@@ -2345,11 +2353,24 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         currentIndex
     }) => {
         const inputRef = useRef(null);
+        // New: local state for the input field to allow smooth typing
+        const [localInputTerm, setLocalInputTerm] = useState(searchTerm);
     
+        // Effect to set initial focus and cursor position
         useEffect(() => {
-            inputRef.current?.focus();
-            inputRef.current?.select();
-        }, []);
+            if (inputRef.current) {
+                inputRef.current.focus();
+                // This ensures the cursor is at the end when the search bar appears
+                inputRef.current.setSelectionRange(localInputTerm.length, localInputTerm.length);
+            }
+        }, [localInputTerm]); // Re-run if localInputTerm changes (e.g., external update, but primarily for initial render)
+    
+        // Effect to update localInputTerm if parent searchTerm changes (e.g., search is cleared)
+        useEffect(() => {
+            if (localInputTerm !== searchTerm) {
+                setLocalInputTerm(searchTerm);
+            }
+        }, [searchTerm]);
     
         const handleKeyDown = (e) => {
             if (e.key === 'Enter') {
@@ -2366,32 +2387,37 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         };
     
         return (
-            <div className="absolute top-2 right-14 bg-gray-800 border border-gray-600 rounded-md shadow-lg z-20 p-1 flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full theme-bg-tertiary p-2 rounded-lg">
                 <input
                     ref={inputRef}
                     type="text"
-                    value={searchTerm}
-                    onChange={(e) => onSearchTermChange(e.target.value)}
-                    className="theme-input text-xs rounded px-2 py-1 w-40 border-0 focus:ring-1 focus:ring-blue-500"
+                    value={localInputTerm} // Use local state for immediate input feedback
+                    onChange={(e) => {
+                        setLocalInputTerm(e.target.value); // Update local state for smooth typing
+                        onSearchTermChange(e.target.value); // Pass the value to the parent's debounced function
+                    }}
+                    className="flex-1 theme-input text-xs rounded px-3 py-2 border-0 focus:ring-1 focus:ring-blue-500"
                     placeholder="Search messages..."
                     onKeyDown={handleKeyDown}
                 />
-                <span className="text-xs text-gray-400 min-w-[50px] text-center">
-                    {resultCount > 0 ? `${currentIndex + 1} of ${resultCount}` : '0/0'}
+                <span className="text-xs theme-text-muted min-w-[60px] text-center">
+                    {resultCount > 0 ? `${currentIndex + 1} of ${resultCount}` : 'No results'}
                 </span>
-                <div className="flex items-center">
-                    <button onClick={onPrevious} className="p-1 theme-hover rounded" title="Previous (Shift+Enter)">
-                        <ChevronRight size={16} className="transform -rotate-90" />
+                <div className="flex items-center gap-1">
+                    <button onClick={onPrevious} disabled={resultCount === 0} className="p-2 theme-hover rounded disabled:opacity-50" title="Previous (Shift+Enter)">
+                        <ChevronLeft size={14} />
                     </button>
-                    <button onClick={onNext} className="p-1 theme-hover rounded" title="Next (Enter)">
-                        <ChevronRight size={16} className="transform rotate-90" />
+                    <button onClick={onNext} disabled={resultCount === 0} className="p-2 theme-hover rounded disabled:opacity-50" title="Next (Enter)">
+                        <ChevronRight size={14} />
+                    </button>
+                    <button onClick={onClose} className="p-2 theme-hover rounded text-red-400" title="Close search (Escape)">
+                        <X size={14} />
                     </button>
                 </div>
             </div>
         );
-    };
+    };    
 
-    
     const renderChatView = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
         if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
@@ -2399,16 +2425,26 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         const scrollRef = useRef(null);
         const paneRef = useRef(null);
     
+        const debouncedSearchTerm = useDebounce(localSearch.term, 300);
+    
+        const debouncedSetSearchTerm = useCallback((newTerm) => {
+            setLocalSearch(prev => ({ ...prev, term: newTerm }));
+        }, []);
+    
         useEffect(() => {
             const paneElement = paneRef.current;
             const handleKeyDown = (e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
                     e.preventDefault();
                     e.stopPropagation();
-                    setLocalSearch(prev => ({ ...prev, isActive: true, paneId: nodeId, term: prev.paneId === nodeId ? prev.term : '' }));
+                    setLocalSearch(prev => ({
+                        ...prev,
+                        isActive: true,
+                        paneId: nodeId,
+                        term: prev.paneId === nodeId ? prev.term : ''
+                    }));
                 }
             };
-    
             if (paneElement) {
                 paneElement.addEventListener('keydown', handleKeyDown);
                 return () => paneElement.removeEventListener('keydown', handleKeyDown);
@@ -2416,19 +2452,19 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         }, [nodeId]);
     
         useEffect(() => {
-            if (localSearch.isActive && localSearch.paneId === nodeId && localSearch.term) {
+            if (localSearch.isActive && localSearch.paneId === nodeId && debouncedSearchTerm) {
                 const allMessages = paneData.chatMessages?.allMessages || [];
                 const results = [];
                 allMessages.forEach(msg => {
-                    if (msg.content && msg.content.toLowerCase().includes(localSearch.term.toLowerCase())) {
+                    if (msg.content && msg.content.toLowerCase().includes(debouncedSearchTerm.toLowerCase())) {
                         results.push(msg.id || msg.timestamp);
                     }
                 });
                 setLocalSearch(prev => ({ ...prev, results, currentIndex: results.length > 0 ? 0 : -1 }));
-            } else if (localSearch.paneId === nodeId) {
+            } else if (localSearch.paneId === nodeId && !debouncedSearchTerm) {
                 setLocalSearch(prev => ({ ...prev, results: [], currentIndex: -1 }));
             }
-        }, [localSearch.term, localSearch.isActive, localSearch.paneId, nodeId, paneData.chatMessages?.allMessages]);
+        }, [debouncedSearchTerm, localSearch.isActive, localSearch.paneId, nodeId, paneData.chatMessages?.allMessages]);
     
         useEffect(() => {
             if (localSearch.currentIndex !== -1 && localSearch.results.length > 0) {
@@ -2437,12 +2473,12 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                 element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }, [localSearch.currentIndex, localSearch.results]);
-        
+    
         useEffect(() => {
-            if (autoScrollEnabled && scrollRef.current) {
+            if (autoScrollEnabled && scrollRef.current && !localSearch.isActive) {
                 scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
             }
-        }, [paneData?.chatMessages?.messages, autoScrollEnabled]);
+        }, [paneData?.chatMessages?.messages, autoScrollEnabled, localSearch.isActive]);
     
         const handleLocalSearchNavigate = (direction) => {
             if (localSearch.results.length === 0) return;
@@ -2451,7 +2487,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                 return { ...prev, currentIndex: nextIndex };
             });
         };
-        
+    
         const messagesToDisplay = paneData.chatMessages?.messages || [];
         const totalMessages = paneData.chatMessages?.allMessages?.length || 0;
         const stats = paneData.chatStats || {};
@@ -2460,22 +2496,23 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         return (
             <div ref={paneRef} className="flex-1 flex flex-col min-h-0 overflow-hidden relative focus:outline-none" tabIndex={-1}>
                 <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move">
-                    <div className="flex justify-between items-center h-full">
+                    <div className="flex justify-between items-center min-h-[28px]">
                         <span className="truncate min-w-0 font-semibold" title={paneData.contentId}>
                             Conversation: {paneData.contentId?.slice(-8) || 'None'}
                         </span>
                         <div className="flex items-center gap-2">
-                             {localSearch.isActive && localSearch.paneId === nodeId && (
-                                <InPaneSearchBar
-                                    searchTerm={localSearch.term}
-                                    onSearchTermChange={(term) => setLocalSearch(prev => ({ ...prev, term }))}
-                                    onNext={() => handleLocalSearchNavigate(1)}
-                                    onPrevious={() => handleLocalSearchNavigate(-1)}
-                                    onClose={() => setLocalSearch({ isActive: false, term: '', paneId: null, results: [], currentIndex: -1 })}
-                                    resultCount={localSearch.results.length}
-                                    currentIndex={localSearch.currentIndex}
-                                />
-                            )}
+                            <button
+                                onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
+                                className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
+                                    autoScrollEnabled ? 'theme-button-success' : 'theme-button'
+                                } theme-hover`}
+                                title={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M12 5v14M19 12l-7 7-7-7"/>
+                                </svg>
+                                {autoScrollEnabled ? 'Auto' : 'Manual'}
+                            </button>
                             <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`}>
                                 <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
                             </button>
@@ -2484,7 +2521,17 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                             </button>
                         </div>
                     </div>
+    
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-gray-400 min-h-[20px]">
+                        <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
+                        <span><Terminal size={12} className="inline mr-1"/>~{stats.tokenCount || 0} Tokens</span>
+                        <span><Code2 size={12} className="inline mr-1"/>{stats.models?.size || 0} Models</span>
+                        <span><Users size={12} className="inline mr-1"/>{stats.agents?.size || 0} Agents</span>
+                        {stats.totalAttachments > 0 && <span><Paperclip size={12} className="inline mr-1"/>{stats.totalAttachments} Attachments</span>}
+                        {stats.totalToolCalls > 0 && <span><Wrench size={12} className="inline mr-1"/>{stats.totalToolCalls} Tool Calls</span>}
+                    </div>
                 </div>
+    
                 <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
                     {totalMessages > messagesToDisplay.length && (
                         <div className="text-center">
@@ -2502,24 +2549,38 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                         const messageId = msg.id || msg.timestamp;
                         const isCurrentSearchResult = localSearch.isActive && localSearch.paneId === nodeId && localSearch.results[localSearch.currentIndex] === messageId;
                         return (
-                            <ChatMessage 
+                            <ChatMessage
                                 key={messageId}
                                 message={msg}
-                                searchTerm={localSearch.isActive && localSearch.paneId === nodeId ? localSearch.term : ''}
+                                searchTerm={localSearch.isActive && localSearch.paneId === nodeId ? debouncedSearchTerm : ''}
                                 isCurrentSearchResult={isCurrentSearchResult}
-                                isSelected={selectedMessages.has(messageId)} 
-                                messageSelectionMode={messageSelectionMode} 
-                                toggleMessageSelection={toggleMessageSelection} 
-                                handleMessageContextMenu={handleMessageContextMenu} 
+                                isSelected={selectedMessages.has(messageId)}
+                                messageSelectionMode={messageSelectionMode}
+                                toggleMessageSelection={toggleMessageSelection}
+                                handleMessageContextMenu={handleMessageContextMenu}
                                 onResendMessage={handleResendMessage}
                             />
                         );
                     })}
                 </div>
+    
+                {localSearch.isActive && localSearch.paneId === nodeId && (
+                    <div className="flex-shrink-0 p-2 border-t theme-border theme-bg-secondary">
+                        <InPaneSearchBar
+                            searchTerm={localSearch.term}
+                            onSearchTermChange={debouncedSetSearchTerm}
+                            onNext={() => handleLocalSearchNavigate(1)}
+                            onPrevious={() => handleLocalSearchNavigate(-1)}
+                            onClose={() => setLocalSearch({ isActive: false, term: '', paneId: null, results: [], currentIndex: -1 })}
+                            resultCount={localSearch.results.length}
+                            currentIndex={localSearch.currentIndex}
+                        />
+                    </div>
+                )}
             </div>
         );
-    }, [rootLayoutNode, messageSelectionMode, selectedMessages, setDraggedItem, autoScrollEnabled, localSearch]);
-
+    }, [rootLayoutNode, messageSelectionMode, selectedMessages, autoScrollEnabled, localSearch]);
+        
     
 const createNewConversation = async () => {
     try {
