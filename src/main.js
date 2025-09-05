@@ -1384,6 +1384,10 @@ ipcMain.handle('db:getTableSchema', async (event, { tableName }) => {
     return { error: error.message };
   }
 });
+ipcMain.handle('open-new-window', async (event, initialPath) => {
+    createWindow(initialPath); // Your existing window creation function
+});
+
 
 ipcMain.handle('db:exportCSV', async (event, data) => {
     if (!data || data.length === 0) {

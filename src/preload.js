@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
    
     generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),
 
+    openNewWindow: (path) => ipcRenderer.invoke('open-new-window', path),
 
    
     deleteConversation: (id) => ipcRenderer.invoke('deleteConversation', id),

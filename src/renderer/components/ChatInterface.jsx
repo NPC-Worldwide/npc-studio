@@ -409,6 +409,15 @@ const ChatInterface = () => {
     const [browserUrlDialogOpen, setBrowserUrlDialogOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     
+
+
+    const [windowId] = useState(() => {
+        // Generate unique window ID on component mount
+        return `window_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    });
+
+    const WINDOW_WORKSPACES_KEY = 'npcStudioWindowWorkspaces';
+    const ACTIVE_WINDOWS_KEY = 'npcStudioActiveWindows';    
     const [localSearch, setLocalSearch] = useState({
         isActive: false,
         term: '',
@@ -417,7 +426,11 @@ const ChatInterface = () => {
         currentIndex: -1
     });
 
-   
+    const [workspaces, setWorkspaces] = useState(new Map());
+    const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
+    const WORKSPACES_STORAGE_KEY = 'npcStudioWorkspaces';
+    const MAX_WORKSPACES = 50; // Limit stored workspaces
+    
     const [renamingPath, setRenamingPath] = useState(null);
     const [editedSidebarItemName, setEditedSidebarItemName] = useState('');
     
@@ -507,7 +520,8 @@ const ChatInterface = () => {
         setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
     };
     
-    
+    const [workspaceIndicatorExpanded, setWorkspaceIndicatorExpanded] = useState(false);
+
 
     const [ctxEditorOpen, setCtxEditorOpen] = useState(false);
 
@@ -548,9 +562,75 @@ const ChatInterface = () => {
     });
 
     const generateId = () => Math.random().toString(36).substr(2, 9);
+    const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
 
-// This hook is used internally to delay the actual search execution
-// without creating a separate state variable for the debounced term.
+        console.log(`[updateContentPane] Updating pane "${paneId}" to type "${newContentType}" with ID "${newContentId}"`);
+        
+        if (!contentDataRef.current[paneId]) {
+            contentDataRef.current[paneId] = {};
+        }
+        const paneData = contentDataRef.current[paneId];
+        
+        paneData.contentType = newContentType;
+        paneData.contentId = newContentId;
+
+
+        if (newContentType === 'editor') {
+            try {
+                const response = await window.api.readFileContent(newContentId);
+                paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
+                paneData.fileChanged = false;
+            } catch (err) {
+                paneData.fileContent = `Error loading file: ${err.message}`;
+            }
+        }
+        else if (newContentType === 'browser') {
+            paneData.chatMessages = null;
+            paneData.fileContent = null;
+            paneData.browserUrl = newContentId;
+        }
+        else if (newContentType === 'chat') {
+            if (!paneData.chatMessages) {
+                paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+            }
+            
+            if (skipMessageLoad) {
+                paneData.chatMessages.messages = [];
+                paneData.chatMessages.allMessages = [];
+                paneData.chatStats = getConversationStats([]);
+            } else {
+                try {
+                    const msgs = await window.api.getConversationMessages(newContentId);
+                    const formatted = (msgs && Array.isArray(msgs)) 
+                        ? msgs.map(m => ({ ...m, id: m.id || generateId() })) 
+                        : [];
+
+                    paneData.chatMessages.allMessages = formatted;
+                    const count = paneData.chatMessages.displayedMessageCount || 20;
+                    paneData.chatMessages.messages = formatted.slice(-count);
+                    paneData.chatStats = getConversationStats(formatted);
+                } catch (err) {
+                    console.error(`Error loading messages for convo ${newContentId}:`, err);
+                    paneData.chatMessages.messages = [];
+                    paneData.chatMessages.allMessages = [];
+                    paneData.chatStats = getConversationStats([]);
+                }
+            }
+        } else if (newContentType === 'terminal') {
+           
+            paneData.chatMessages = null;
+            paneData.fileContent = null;
+        }
+        else if (newContentType === 'pdf') {
+           
+            console.log(`[updateContentPane] Setting up pane "${paneId}" for PDF viewer.`);
+            paneData.chatMessages = null;
+            paneData.fileContent = null;
+            }
+
+
+}, []);
+
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
     useEffect(() => {
@@ -561,6 +641,291 @@ const useDebounce = (value, delay) => {
     }, [value, delay]);
     return debouncedValue;
 };
+const serializeWorkspace = useCallback(() => {
+    if (!rootLayoutNode || !currentPath) return null;
+    
+    const serializedContentData = {};
+    Object.entries(contentDataRef.current).forEach(([paneId, paneData]) => {
+        serializedContentData[paneId] = {
+            contentType: paneData.contentType,
+            contentId: paneData.contentId,
+            displayedMessageCount: paneData.chatMessages?.displayedMessageCount,
+            browserUrl: paneData.browserUrl,
+            fileChanged: paneData.fileChanged
+        };
+    });
+    
+    return {
+        layoutNode: rootLayoutNode,
+        contentData: serializedContentData,
+        activeContentPaneId,
+        timestamp: Date.now()
+    };
+}, [rootLayoutNode, currentPath, activeContentPaneId]);
+
+const deserializeWorkspace = useCallback(async (workspaceData) => {
+    if (!workspaceData) return false;
+    
+    setIsLoadingWorkspace(true);
+    
+    try {
+        const newRootLayout = workspaceData.layoutNode;
+        setRootLayoutNode(newRootLayout);
+        setActiveContentPaneId(workspaceData.activeContentPaneId);
+        
+        contentDataRef.current = {};
+        
+        for (const [paneId, paneData] of Object.entries(workspaceData.contentData)) {
+            contentDataRef.current[paneId] = {};
+            await updateContentPane(paneId, paneData.contentType, paneData.contentId, paneData.skipMessageLoad); 
+            
+            if (paneData.displayedMessageCount) {
+                if (contentDataRef.current[paneId]?.chatMessages) { 
+                    contentDataRef.current[paneId].chatMessages.displayedMessageCount = paneData.displayedMessageCount;
+                }
+            }
+            if (paneData.browserUrl) {
+                contentDataRef.current[paneId].browserUrl = paneData.browserUrl;
+            }
+            if (paneData.fileChanged !== undefined) {
+                contentDataRef.current[paneId].fileChanged = paneData.fileChanged;
+            }
+        }
+        
+        const validPaneIdsInLayout = new Set();
+        const collectPaneIds = (node) => {
+            if (!node) return;
+            if (node.type === 'content') validPaneIdsInLayout.add(node.id);
+            if (node.type === 'split') {
+                node.children.forEach(collectPaneIds);
+            }
+        };
+        collectPaneIds(newRootLayout);
+
+        Object.keys(contentDataRef.current).forEach(paneId => {
+            if (!validPaneIdsInLayout.has(paneId)) {
+                delete contentDataRef.current[paneId];
+            }
+        });
+
+        if (activeContentPaneId && !validPaneIdsInLayout.has(activeContentPaneId)) {
+            const firstValidPaneId = Array.from(validPaneIdsInLayout).shift();
+            setActiveContentPaneId(firstValidPaneId || null);
+        } else if (!activeContentPaneId && validPaneIdsInLayout.size > 0) {
+            setActiveContentPaneId(Array.from(validPaneIdsInLayout).shift());
+        }
+
+        setRootLayoutNode(prev => ({ ...prev }));
+        
+        return true;
+    } catch (error) {
+        console.error('Error restoring workspace:', error);
+        contentDataRef.current = {}; 
+        setRootLayoutNode(null); 
+        setActiveContentPaneId(null);
+        return false;
+    } finally {
+        setIsLoadingWorkspace(false);
+    }
+}, [updateContentPane, activeContentPaneId]);
+
+
+const saveWorkspaceToStorage = useCallback((path, workspaceData) => {
+    try {
+        // Load existing data
+        const allWorkspaces = JSON.parse(localStorage.getItem(WINDOW_WORKSPACES_KEY) || '{}');
+        const activeWindows = JSON.parse(localStorage.getItem(ACTIVE_WINDOWS_KEY) || '{}');
+        
+        // Ensure window entry exists
+        if (!allWorkspaces[windowId]) {
+            allWorkspaces[windowId] = {};
+        }
+        
+        // Save workspace for this window and path
+        allWorkspaces[windowId][path] = {
+            ...workspaceData,
+            lastAccessed: Date.now(),
+            windowId
+        };
+        
+        // Update active windows registry
+        activeWindows[windowId] = {
+            currentPath: path,
+            lastActive: Date.now()
+        };
+        
+        // Cleanup old inactive windows (older than 24 hours)
+        const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
+        Object.keys(activeWindows).forEach(wId => {
+            if (activeWindows[wId].lastActive < dayAgo) {
+                delete activeWindows[wId];
+                delete allWorkspaces[wId];
+            }
+        });
+        
+        localStorage.setItem(WINDOW_WORKSPACES_KEY, JSON.stringify(allWorkspaces));
+        localStorage.setItem(ACTIVE_WINDOWS_KEY, JSON.stringify(activeWindows));
+        
+        console.log(`[Window ${windowId}] Saved workspace for ${path}`);
+    } catch (error) {
+        console.error('Error saving window workspace:', error);
+    }
+}, [windowId]);
+
+const loadWorkspaceFromStorage = useCallback((path) => {
+    try {
+        const allWorkspaces = JSON.parse(localStorage.getItem(WINDOW_WORKSPACES_KEY) || '{}');
+        const windowWorkspaces = allWorkspaces[windowId] || {};
+        return windowWorkspaces[path] || null;
+    } catch (error) {
+        console.error('Error loading window workspace:', error);
+        return null;
+    }
+}, [windowId]);
+
+useEffect(() => {
+    const saveCurrentWorkspace = () => {
+        if (currentPath && rootLayoutNode) {
+            const workspaceData = serializeWorkspace();
+            if (workspaceData) {
+                saveWorkspaceToStorage(currentPath, workspaceData);
+                console.log(`Saved workspace for ${currentPath}`);
+            }
+        }
+    };
+
+    // Save workspace before the component unmounts
+    window.addEventListener('beforeunload', saveCurrentWorkspace);
+    
+    return () => {
+        saveCurrentWorkspace();
+        window.removeEventListener('beforeunload', saveCurrentWorkspace);
+    };
+}, [currentPath, rootLayoutNode, serializeWorkspace, saveWorkspaceToStorage]);
+
+useEffect(() => {
+    const loadWorkspaceForNewPath = async () => {
+        if (!currentPath || loading) return;
+        
+        setIsLoadingWorkspace(true);
+        console.log(`[Window ${windowId}] Loading workspace for ${currentPath}`);
+        
+        try {
+            // Try to restore window-specific workspace FIRST
+            const savedWorkspace = loadWorkspaceFromStorage(currentPath);
+            if (savedWorkspace) {
+                console.log(`[Window ${windowId}] Found saved workspace for ${currentPath}`);
+                
+                // Load directory structure WITHOUT triggering conversation selection
+                await loadDirectoryStructureWithoutConversationLoad(currentPath);
+                
+                const restored = await deserializeWorkspace(savedWorkspace);
+                if (restored) {
+                    console.log(`[Window ${windowId}] Successfully restored workspace`);
+                    return;
+                }
+            }
+            
+            // No workspace found - load normally
+            console.log(`[Window ${windowId}] No workspace found, loading normally for ${currentPath}`);
+            await loadDirectoryStructure(currentPath);
+            await createDefaultWorkspace();
+            
+        } catch (error) {
+            console.error(`[Window ${windowId}] Error loading workspace:`, error);
+            await createDefaultWorkspace();
+        } finally {
+            setIsLoadingWorkspace(false);
+        }
+    };
+
+    loadWorkspaceForNewPath();
+}, [currentPath, windowId]);
+const loadDirectoryStructureWithoutConversationLoad = async (dirPath) => {
+    try {
+        if (!dirPath) {
+            console.error('No directory path provided');
+            return {};
+        }
+        const structureResult = await window.api.readDirectoryStructure(dirPath);
+        if (structureResult && !structureResult.error) {
+            setFolderStructure(structureResult);
+        } else {
+            console.error('Error loading structure:', structureResult?.error);
+            setFolderStructure({ error: structureResult?.error || 'Failed' });
+        }
+        
+        // Load conversations but DON'T auto-select any
+        await loadConversationsWithoutAutoSelect(dirPath);
+        return structureResult;
+    } catch (err) {
+        console.error('Error loading structure:', err);
+        setError(err.message);
+        setFolderStructure({ error: err.message });
+        return { error: err.message };
+    }
+};
+
+const loadConversationsWithoutAutoSelect = async (dirPath) => {
+    try {
+        const normalizedPath = normalizePath(dirPath);
+        if (!normalizedPath) return;
+        const response = await window.api.getConversations(normalizedPath);
+        const formattedConversations = response?.conversations?.map(conv => ({
+            id: conv.id,
+            title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
+            preview: conv.preview || 'No content',
+            timestamp: conv.timestamp || Date.now(),
+            last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
+        })) || [];
+
+        formattedConversations.sort((a, b) => 
+            new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
+        );
+        
+        setDirectoryConversations(formattedConversations);
+        
+        // DON'T auto-select any conversations - let workspace restoration handle it
+
+    } catch (err) {
+        console.error('Error loading conversations:', err);
+        setError(err.message);
+        setDirectoryConversations([]);
+    }
+};
+
+const createDefaultWorkspace = useCallback(async () => {
+    const initialPaneId = generateId();
+    const initialLayout = { id: initialPaneId, type: 'content' };
+    
+    contentDataRef.current[initialPaneId] = {};
+    
+    // Try to use stored conversation ID or create new one
+    const storedConvoId = localStorage.getItem(LAST_ACTIVE_CONVO_ID_KEY);
+    const currentConvos = directoryConversationsRef.current;
+    
+    let targetConvoId = null;
+    if (storedConvoId && currentConvos.find(c => c.id === storedConvoId)) {
+        targetConvoId = storedConvoId;
+    } else if (currentConvos.length > 0) {
+        targetConvoId = currentConvos[0].id;
+    }
+    
+    if (targetConvoId) {
+        await updateContentPane(initialPaneId, 'chat', targetConvoId);
+    } else {
+        // Create new conversation if none exist
+        const newConversation = await window.api.createConversation({ directory_path: currentPath });
+        if (newConversation?.id) {
+            await updateContentPane(initialPaneId, 'chat', newConversation.id, true);
+            setActiveConversationId(newConversation.id);
+        }
+    }
+    
+    setRootLayoutNode(initialLayout);
+    setActiveContentPaneId(initialPaneId);
+}, [updateContentPane, currentPath]);
+
 
 const LAST_ACTIVE_PATH_KEY = 'npcStudioLastPath';
 const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId';
@@ -845,6 +1210,29 @@ const handleMessageContextMenu = useCallback((e, messageId) => {
     }
     setMessageContextMenuPos({ x: e.clientX, y: e.clientY, messageId });
 }, [messageSelectionMode]);
+const handlePathChange = useCallback(async (newPath) => {
+    // Save current workspace before switching
+    if (currentPath && rootLayoutNode) {
+        const workspaceData = serializeWorkspace();
+        if (workspaceData) {
+            saveWorkspaceToStorage(currentPath, workspaceData);
+        }
+    }
+    
+    // Switch to new path
+    setCurrentPath(newPath);
+}, [currentPath, rootLayoutNode, serializeWorkspace, saveWorkspaceToStorage]);
+
+
+const validateWorkspaceData = (workspaceData) => {
+    if (!workspaceData || typeof workspaceData !== 'object') return false;
+    if (!workspaceData.layoutNode || !workspaceData.contentData) return false;
+    
+    // Validate that referenced files/conversations still exist
+    // You might want to add API calls to verify this
+    
+    return true;
+};
 
 const handlePdfTextSelect = (selectionEvent) => {
     console.log('[PDF_SELECT] handlePdfTextSelect called with:', selectionEvent);
@@ -1586,74 +1974,6 @@ const loadAvailableNPCs = async () => {
 
 
 
-    const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
-
-        console.log(`[updateContentPane] Updating pane "${paneId}" to type "${newContentType}" with ID "${newContentId}"`);
-        
-        if (!contentDataRef.current[paneId]) {
-            contentDataRef.current[paneId] = {};
-        }
-        const paneData = contentDataRef.current[paneId];
-        
-        paneData.contentType = newContentType;
-        paneData.contentId = newContentId;
-
-
-        if (newContentType === 'editor') {
-            try {
-                const response = await window.api.readFileContent(newContentId);
-                paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
-                paneData.fileChanged = false;
-            } catch (err) {
-                paneData.fileContent = `Error loading file: ${err.message}`;
-            }
-        }
-        else if (newContentType === 'browser') {
-            paneData.chatMessages = null;
-            paneData.fileContent = null;
-            paneData.browserUrl = newContentId;
-        }
-        else if (newContentType === 'chat') {
-            if (!paneData.chatMessages) {
-                paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-            }
-            
-            if (skipMessageLoad) {
-                paneData.chatMessages.messages = [];
-                paneData.chatMessages.allMessages = [];
-                paneData.chatStats = getConversationStats([]);
-            } else {
-                try {
-                    const msgs = await window.api.getConversationMessages(newContentId);
-                    const formatted = (msgs && Array.isArray(msgs)) 
-                        ? msgs.map(m => ({ ...m, id: m.id || generateId() })) 
-                        : [];
-
-                    paneData.chatMessages.allMessages = formatted;
-                    const count = paneData.chatMessages.displayedMessageCount || 20;
-                    paneData.chatMessages.messages = formatted.slice(-count);
-                    paneData.chatStats = getConversationStats(formatted);
-                } catch (err) {
-                    console.error(`Error loading messages for convo ${newContentId}:`, err);
-                    paneData.chatMessages.messages = [];
-                    paneData.chatMessages.allMessages = [];
-                    paneData.chatStats = getConversationStats([]);
-                }
-            }
-        } else if (newContentType === 'terminal') {
-           
-            paneData.chatMessages = null;
-            paneData.fileContent = null;
-        }
-        else if (newContentType === 'pdf') {
-           
-            console.log(`[updateContentPane] Setting up pane "${paneId}" for PDF viewer.`);
-            paneData.chatMessages = null;
-            paneData.fileContent = null;
-            }
-
-
-}, []);
 
 const renderMessageContextMenu = () => (
     messageContextMenuPos && (
@@ -1827,23 +2147,23 @@ const closeContentPane = useCallback((paneId, nodePath) => {
 }, [activeContentPaneId, findNodeByPath]);
 
    
-    useEffect(() => {
-        if (!rootLayoutNode && !loading) {
-            const initialPaneId = generateId();
-            const storedConvoId = localStorage.getItem(LAST_ACTIVE_CONVO_ID_KEY);
-            const initialLayout = {
-                id: initialPaneId,
-                type: 'content'
-            };
-            contentDataRef.current[initialPaneId] = {};
-            updateContentPane(initialPaneId, 'chat', storedConvoId || directoryConversationsRef.current[0]?.id || null);
-            setRootLayoutNode(initialLayout);
-            setActiveContentPaneId(initialPaneId);
-        }
-    }, [loading]);
-const handleConversationSelect = async (conversationId, skipMessageLoad = false) => {
+
+
+const handleConversationSelect = async (conversationId, skipMessageLoad = false, skipPaneUpdate = false) => {
     setActiveConversationId(conversationId);
     setCurrentFile(null);
+
+    const hasRestoredWorkspace = rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
+    const isCurrentlyRestoring = isLoadingWorkspace;
+    
+    if (hasRestoredWorkspace || isCurrentlyRestoring) {
+        console.log('Skipping pane update - workspace restoration detected');
+        return null;
+    }
+
+    if (skipPaneUpdate) {
+        return null;
+    }
 
     let paneIdToUpdate;
 
@@ -1867,7 +2187,6 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     }
     return paneIdToUpdate;
 };
-
 
     const handleFileClick = async (filePath) => {
         setCurrentFile(filePath);
@@ -2791,8 +3110,235 @@ const createNewTextFile = async () => {
             setRenamingPaneId(null);
         }
     };
+        const switchToPath = useCallback(async (newPath) => {
+            if (newPath === currentPath) return;
+            
+            console.log(`[Window ${windowId}] Switching from ${currentPath} to ${newPath}`);
+            
+            // Save current workspace before leaving
+            if (currentPath && rootLayoutNode) {
+                const workspaceData = serializeWorkspace();
+                if (workspaceData) {
+                    saveWorkspaceToStorage(currentPath, workspaceData);
+                    console.log(`[Window ${windowId}] Saved workspace for ${currentPath}`);
+                }
+            }
+            
+            // Clear current state
+            setRootLayoutNode(null);
+            setActiveContentPaneId(null);
+            contentDataRef.current = {};
+            setActiveConversationId(null);
+            setCurrentFile(null);
+            
+            // THIS IS THE KEY PART - Actually set the new path
+            setCurrentPath(newPath);
+        }, [windowId, currentPath, rootLayoutNode, serializeWorkspace, saveWorkspaceToStorage]);
+const renderActiveWindowsIndicator = () => {
+    const [otherWindows, setOtherWindows] = useState([]);
     
+    useEffect(() => {
+        const checkOtherWindows = () => {
+            try {
+                const activeWindows = JSON.parse(localStorage.getItem(ACTIVE_WINDOWS_KEY) || '{}');
+                const now = Date.now();
+                const others = Object.entries(activeWindows)
+                    .filter(([wId]) => wId !== windowId) // Not this window
+                    .filter(([, data]) => !data.closing) // Not marked as closing
+                    .filter(([, data]) => (now - data.lastActive) < 30000) // Active in last 30 seconds
+                    .map(([wId, data]) => ({
+                        id: wId,
+                        path: data.currentPath,
+                        lastActive: data.lastActive
+                    }));
+                setOtherWindows(others);
+            } catch (error) {
+                console.error('Error checking other windows:', error);
+                setOtherWindows([]);
+            }
+        };
+        
+        checkOtherWindows();
+        const interval = setInterval(checkOtherWindows, 5000); // Check every 5 seconds
+        return () => clearInterval(interval);
+    }, [windowId]);
     
+    // Don't render if no other windows - this prevents the "Other Windows (1)" issue
+    if (otherWindows.length === 0) return null;
+    
+    return (
+        <div className="px-4 py-2 border-b theme-border">
+            <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => setActiveWindowsExpanded(!activeWindowsExpanded)}
+            >
+                <div className="text-xs theme-text-muted">
+                    Other Windows ({otherWindows.length})
+                </div>
+                <ChevronRight 
+                    size={12} 
+                    className={`transform transition-transform ${activeWindowsExpanded ? 'rotate-90' : ''}`} 
+                />
+            </div>
+            
+            {activeWindowsExpanded && (
+                <div className="mt-1 pl-2 space-y-1">
+                    {otherWindows.map(window => (
+                        <div key={window.id} className="text-xs theme-text-muted truncate">
+                            📁 {window.path?.split('/').pop() || 'No folder'}
+                            <span className="text-gray-600 ml-2">
+                                ({Math.round((Date.now() - window.lastActive) / 1000)}s ago)
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+
+
+const renderWorkspaceIndicator = () => {
+    // Debug logging
+    console.log('contentDataRef.current:', contentDataRef.current);
+    console.log('Object.keys(contentDataRef.current):', Object.keys(contentDataRef.current));
+    console.log('rootLayoutNode:', rootLayoutNode);
+    
+    // Check if current path has a saved workspace
+    const allWorkspaces = JSON.parse(localStorage.getItem(WINDOW_WORKSPACES_KEY) || '{}');
+    const windowWorkspaces = allWorkspaces[windowId] || {};
+    const hasWorkspace = !!windowWorkspaces[currentPath];
+    
+    // Count ONLY currently active panes
+    const activePaneCount = Object.keys(contentDataRef.current).length;
+    
+    // Let's also count from the layout tree to double-check
+    const countPanesInLayout = (node) => {
+        if (!node) return 0;
+        if (node.type === 'content') return 1;
+        if (node.type === 'split') {
+            return node.children.reduce((count, child) => count + countPanesInLayout(child), 0);
+        }
+        return 0;
+    };
+    const layoutPaneCount = countPanesInLayout(rootLayoutNode);
+    
+    console.log('activePaneCount from contentDataRef:', activePaneCount);
+    console.log('layoutPaneCount from rootLayoutNode:', layoutPaneCount);
+    
+    const workspaceData = windowWorkspaces[currentPath];
+    const workspaceInfo = workspaceData ? {
+        paneCount: layoutPaneCount, // Use the layout count instead
+        lastSaved: new Date(workspaceData.lastAccessed).toLocaleTimeString(),
+        timestamp: workspaceData.timestamp
+    } : null;
+    
+    return (
+        <div className="px-4 py-2 border-b theme-border">
+            <div 
+                className="flex items-center justify-between cursor-pointer" 
+                onClick={() => setWorkspaceIndicatorExpanded(!workspaceIndicatorExpanded)}
+            >
+                <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${hasWorkspace ? 'bg-green-400' : 'bg-gray-500'}`} />
+                    <span className="text-xs theme-text-muted">
+                        {hasWorkspace ? `Workspace (${layoutPaneCount} panes)` : 'No Workspace'}
+                    </span>
+                </div>
+                <ChevronRight 
+                    size={12} 
+                    className={`transform transition-transform ${workspaceIndicatorExpanded ? 'rotate-90' : ''}`} 
+                />
+            </div>
+            
+            {workspaceIndicatorExpanded && (
+                <div className="mt-2 pl-4 space-y-2">
+                    <div className="text-xs theme-text-muted">
+                        Layout panes: {layoutPaneCount} | ContentData panes: {activePaneCount}
+                    </div>
+                    {hasWorkspace ? (
+                        <>
+                            <div className="text-xs theme-text-muted">
+                                Last saved: {workspaceInfo?.lastSaved}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const workspaceData = serializeWorkspace();
+                                        if (workspaceData) {
+                                            saveWorkspaceToStorage(currentPath, workspaceData);
+                                            setRootLayoutNode(p => ({ ...p }));
+                                        }
+                                    }}
+                                    className="text-xs theme-button theme-hover px-2 py-1 rounded"
+                                    title="Save current workspace"
+                                >
+                                    Save Now
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        // Clear workspace AND clean up contentDataRef
+                                        const stored = JSON.parse(localStorage.getItem(WINDOW_WORKSPACES_KEY) || '{}');
+                                        if (stored[windowId] && stored[windowId][currentPath]) {
+                                            delete stored[windowId][currentPath];
+                                            localStorage.setItem(WINDOW_WORKSPACES_KEY, JSON.stringify(stored));
+                                        }
+                                        
+                                        // Clean up phantom panes in contentDataRef
+                                        const validPaneIds = new Set();
+                                        const collectPaneIds = (node) => {
+                                            if (!node) return;
+                                            if (node.type === 'content') validPaneIds.add(node.id);
+                                            if (node.type === 'split') {
+                                                node.children.forEach(collectPaneIds);
+                                            }
+                                        };
+                                        collectPaneIds(rootLayoutNode);
+                                        
+                                        // Remove any contentDataRef entries that don't exist in the layout
+                                        Object.keys(contentDataRef.current).forEach(paneId => {
+                                            if (!validPaneIds.has(paneId)) {
+                                                delete contentDataRef.current[paneId];
+                                            }
+                                        });
+                                        
+                                        setRootLayoutNode(p => ({ ...p }));
+                                    }}
+                                    className="text-xs theme-text-muted hover:text-red-400 transition-colors px-2 py-1 rounded"
+                                    title="Clear saved workspace and clean up phantom panes"
+                                >
+                                    Clear & Clean
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const workspaceData = serializeWorkspace();
+                                if (workspaceData) {
+                                    saveWorkspaceToStorage(currentPath, workspaceData);
+                                    setRootLayoutNode(p => ({ ...p }));
+                                }
+                            }}
+                            className="text-xs theme-button theme-hover px-2 py-1 rounded"
+                            title="Save current layout as workspace"
+                        >
+                            Save Current Layout
+                        </button>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const [activeWindowsExpanded, setActiveWindowsExpanded] = useState(false);
+
 const deleteSelectedConversations = async () => {
    const selectedConversationIds = Array.from(selectedConvos);
    const selectedFilePaths = Array.from(selectedFiles);
@@ -2825,39 +3371,6 @@ const deleteSelectedConversations = async () => {
        setSelectedFiles(new Set());
    }
 };
-    useEffect(() => {
-        const loadData = async () => {
-            if (currentPath) {
-                setLoading(true);
-                await loadDirectoryStructure(currentPath);
-                setLoading(false);
-
-                const currentConvos = directoryConversationsRef.current;
-
-                if (!activeConversationId) {
-                    const needsNewConvo = currentConvos.length === 0;
-                    const needsSelectConvo = currentConvos.length > 0;
-
-                    
-
-                    if (needsNewConvo) {
-                       
-                       
-                        createNewConversation();
-                    } else if (needsSelectConvo) {
-                       
-                       
-                        handleConversationSelect(currentConvos[0].id);
-                    }
-                } else {
-                   
-                }
-            }
-        };
-
-        loadData();
-    }, [currentPath]);
-
     useEffect(() => {
         if (currentPath) {
             localStorage.setItem(LAST_ACTIVE_PATH_KEY, currentPath);
@@ -3137,6 +3650,82 @@ useEffect(() => {
             setModelsLoading(false);
         }
     };
+    // Register window on mount and update activity
+useEffect(() => {
+    const registerWindow = () => {
+        try {
+            const activeWindows = JSON.parse(localStorage.getItem(ACTIVE_WINDOWS_KEY) || '{}');
+            activeWindows[windowId] = {
+                currentPath: currentPath || '',
+                lastActive: Date.now(),
+                created: Date.now()
+            };
+            localStorage.setItem(ACTIVE_WINDOWS_KEY, JSON.stringify(activeWindows));
+        } catch (error) {
+            console.error('Error registering window:', error);
+        }
+    };
+
+    const updateActivity = () => {
+        try {
+            const activeWindows = JSON.parse(localStorage.getItem(ACTIVE_WINDOWS_KEY) || '{}');
+            if (activeWindows[windowId]) {
+                activeWindows[windowId].lastActive = Date.now();
+                activeWindows[windowId].currentPath = currentPath || '';
+                localStorage.setItem(ACTIVE_WINDOWS_KEY, JSON.stringify(activeWindows));
+            }
+        } catch (error) {
+            console.error('Error updating window activity:', error);
+        }
+    };
+
+    registerWindow();
+    
+    // Update activity periodically and on focus
+    const activityInterval = setInterval(updateActivity, 30000); // Every 30 seconds
+    const handleFocus = () => updateActivity();
+    const handleVisibilityChange = () => {
+        if (!document.hidden) updateActivity();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+        clearInterval(activityInterval);
+        window.removeEventListener('focus', handleFocus);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+}, [windowId, currentPath]);
+
+// Cleanup on window close
+useEffect(() => {
+    const handleBeforeUnload = () => {
+        // Save current workspace
+        if (currentPath && rootLayoutNode) {
+            const workspaceData = serializeWorkspace();
+            if (workspaceData) {
+                saveWorkspaceToStorage(currentPath, workspaceData);
+            }
+        }
+        
+        // Mark window as closed but don't remove immediately
+        // (in case it's just a refresh)
+        try {
+            const activeWindows = JSON.parse(localStorage.getItem(ACTIVE_WINDOWS_KEY) || '{}');
+            if (activeWindows[windowId]) {
+                activeWindows[windowId].closing = true;
+                activeWindows[windowId].lastActive = Date.now();
+                localStorage.setItem(ACTIVE_WINDOWS_KEY, JSON.stringify(activeWindows));
+            }
+        } catch (error) {
+            console.error('Error marking window as closing:', error);
+        }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+}, [windowId, currentPath, rootLayoutNode, serializeWorkspace, saveWorkspaceToStorage]);
 
 useEffect(() => {
     const initApplicationData = async () => {
@@ -3262,39 +3851,48 @@ useEffect(() => {
         setCurrentProvider(providerToSet);
         setCurrentNPC(npcToSet);
 
-       
-        if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
-           
-            console.log('Selecting stored conversation:', targetConvoId);
-            await handleConversationSelect(targetConvoId);
-        } else if (currentConversations.length > 0) {
-           
-            console.log('Selecting first conversation:', currentConversations[0].id);
-            await handleConversationSelect(currentConversations[0].id);
-        } else {
-           
-            console.log('Creating new conversation - none found');
-            await createNewConversation();
-        }
+                            
+            const hasExistingWorkspace = rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
+            const isLoadingWorkspaceForPath = isLoadingWorkspace; 
+
+            if (!hasExistingWorkspace && !isLoadingWorkspaceForPath) {
+                if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
+                    console.log('Selecting stored conversation:', targetConvoId);
+                    await handleConversationSelect(targetConvoId, false, false); // Allow pane update
+                } else if (currentConversations.length > 0) {
+                    console.log('Selecting first conversation:', currentConversations[0].id);
+                    await handleConversationSelect(currentConversations[0].id, false, false); // Allow pane update
+                } else {
+                    console.log('Creating new conversation - none found');
+                    await createNewConversation();
+                }
+            } else {
+                if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
+                    console.log('Setting active conversation without overriding workspace:', targetConvoId);
+                    await handleConversationSelect(targetConvoId, false, true); // Skip pane update
+                }
+                console.log('Skipping conversation selection - workspace was restored or is being restored');
+            }
+
 
         setLoading(false);
     };
 
+
+
     initApplicationData();
 }, [currentPath, config]);    
 
-    const goUpDirectory = async () => {
-        try {
-            if (!currentPath || currentPath === baseDir) return;
-            const newPath = await window.api.goUpDirectory(currentPath);
-            setCurrentPath(newPath);
-        } catch (err) {
-            console.error('Error going up directory:', err);
-            setError(err.message);
-        }
-    };
-
-
+const goUpDirectory = async () => {
+    try {
+        if (!currentPath || currentPath === baseDir) return;
+        const newPath = await window.api.goUpDirectory(currentPath);
+        await switchToPath(newPath);
+    } catch (err) {
+        console.error('Error going up directory:', err);
+        setError(err.message);
+    }
+};
 
     const handleDrop = async (e) => {
         e.preventDefault();
@@ -3948,6 +4546,7 @@ const renderSidebar = () => {
                     <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
 
                     
+                    
                     <div className="relative group">
                         <div className="flex">
                             <button onClick={createNewConversation} className="p-2 theme-button-primary rounded-full flex items-center gap-1 transition-all" aria-label="New Conversation">
@@ -3956,6 +4555,7 @@ const renderSidebar = () => {
                             </button>
                         </div>
                         
+
                         <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
                             <button onClick={createNewConversation} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
                                 <MessageSquare size={12} />
@@ -3977,6 +4577,23 @@ const renderSidebar = () => {
                                 <Terminal size={12} />
                                 <span>New Terminal</span>
                             </button>
+                            <button 
+                                onClick={() => {
+                                    // Open new window - this will depend on your app architecture
+                                    if (window.api && window.api.openNewWindow) {
+                                        window.api.openNewWindow(currentPath);
+                                    } else {
+                                        // Fallback: open in new browser window/tab
+                                        window.open(window.location.href, '_blank');
+                                    }
+                                }}
+                                className="p-2 theme-button theme-hover rounded-full transition-all" 
+                                aria-label="Open New NPC Studio Window"
+                                title="Open New NPC Studio Window"
+                            >
+                                <Plus size={14} /> 
+                            </button>
+
                         </div>
                     </div>
                     
@@ -3986,13 +4603,33 @@ const renderSidebar = () => {
 
             <div className="p-2 border-b theme-border flex items-center gap-2 flex-shrink-0">
                 <button onClick={goUpDirectory} className="p-2 theme-hover rounded-full transition-all" title="Go Up" aria-label="Go Up Directory"><ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/></button>
-                {isEditingPath ? (
-                    <input type="text" value={editedPath} onChange={(e) => setEditedPath(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { setIsEditingPath(false); setCurrentPath(editedPath); loadDirectoryStructure(editedPath); } else if (e.key === 'Escape') { setIsEditingPath(false); } }} onBlur={() => setIsEditingPath(false)} autoFocus className="text-xs theme-text-muted theme-input border rounded px-2 py-1 flex-1"/>
-                 ) : (
-                    <div onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }} className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-1 rounded flex-1" title={currentPath}>
+                    {isEditingPath ? (
+                        <input 
+                            type="text" 
+                            value={editedPath} 
+                            onChange={(e) => setEditedPath(e.target.value)} 
+                            onKeyDown={(e) => { 
+                                if (e.key === 'Enter') { 
+                                    setIsEditingPath(false); 
+                                    switchToPath(editedPath); // Use switchToPath instead of setCurrentPath
+                                } else if (e.key === 'Escape') { 
+                                    setIsEditingPath(false); 
+                                } 
+                            }} 
+                            onBlur={() => setIsEditingPath(false)} 
+                            autoFocus 
+                            className="text-xs theme-text-muted theme-input border rounded px-2 py-1 flex-1"
+                        />
+                    ) : (
+                    <div 
+                        onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }} 
+                        className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-1 rounded flex-1" 
+                        title={currentPath}
+                    >
                         {currentPath || '...'}
                     </div>
                 )}
+
             </div>
             
             <div className="p-2 border-b theme-border flex flex-col gap-2 flex-shrink-0">
@@ -4046,6 +4683,9 @@ const renderSidebar = () => {
                 {fileContextMenuPos && renderFileContextMenu()}
             
             </div>
+            {renderActiveWindowsIndicator()}
+            {renderWorkspaceIndicator()}
+
             <div className="flex justify-center">
                 <button
                     onClick={deleteSelectedConversations}
@@ -4201,15 +4841,22 @@ const renderSidebar = () => {
             );
         } else {
 
-            if (isFolder) { entries.push(
-                <div key={`folder-${fullPath}`}>
-                    <button onDoubleClick={() => setCurrentPath(fullPath)} onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')} className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded" title={`Double-click to open ${name}`}>
-                        <Folder size={16} className="text-blue-400 flex-shrink-0" />
-                        <span className="truncate">{name}</span>
-                    </button>
-                </div>
-            );
-            } else if (isFile) { 
+            if (isFolder) { 
+                entries.push(
+                    <div key={`folder-${fullPath}`}>
+                        <button 
+                            onDoubleClick={() => switchToPath(fullPath)} 
+                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')} 
+                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded" 
+                            title={`Double-click to open ${name}`}
+                        >
+                            <Folder size={16} className="text-blue-400 flex-shrink-0" />
+                            <span className="text-gray-300 truncate">{name}</span>
+                        </button>
+                    </div>
+                );
+            }
+             else if (isFile) { 
                 const fileIcon = getFileIcon(name); 
                 const isActiveFile = currentFile === fullPath;
                 const isSelected = selectedFiles.has(fullPath);
