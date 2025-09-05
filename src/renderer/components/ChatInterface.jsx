@@ -26,8 +26,8 @@ import BrowserUrlDialog from './BrowserUrlDialog';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-const LAST_ACTIVE_PATH_KEY = 'npcStudioLastPath'; // <-- ADD THIS LINE
-const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
+const LAST_ACTIVE_PATH_KEY = 'npcStudioLastPath';
+const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId';
 
 const normalizePath = (path) => {
     if (!path) return '';
@@ -121,7 +121,7 @@ const LayoutNode = memo(({ node, path, component }) => {
                 }
             } else if (draggedItem.type === 'browser') {
                 contentType = 'browser';
-            } else if (draggedItem.type === 'terminal') { // <-- ADD THIS
+            } else if (draggedItem.type === 'terminal') {
                 contentType = 'terminal';
             } else {
                 return;
@@ -189,7 +189,7 @@ const getFileIcon = (filename) => {
         case 'css': return <Code2 {...iconProps} className={`${iconProps.className} text-blue-300`} />;
         case 'txt': case 'yaml': case 'yml': case 'npc': case 'jinx':
              return <File {...iconProps} className={`${iconProps.className} text-gray-400`} />;
-        case 'pdf': return <FileText {...iconProps} className={`${iconProps.className} text-purple-400`} />; // <-- ADD THIS LINE
+        case 'pdf': return <FileText {...iconProps} className={`${iconProps.className} text-purple-400`} />;
 
         default: return <File {...iconProps} className={`${iconProps.className} text-gray-400`} />;
     }
@@ -198,7 +198,7 @@ const convertFileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
-            // We return both the full data URL for previews and the raw base64 for the backend
+           
             resolve({
                 dataUrl: reader.result,
                 base64: reader.result.split(',')[1] 
@@ -327,7 +327,7 @@ const ChatMessage = memo(({
                     <div className="mt-2 flex flex-wrap gap-2 border-t theme-border pt-2">
                         {message.attachments.map((attachment, idx) => {
                             const isImage = attachment.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-                            // Fully qualify imageSrc here by prefixing "media://"
+                           
                             const imageSrc = attachment.preview || (attachment.path ? `media://${attachment.path}` : attachment.data); 
                             return (
                                 <div key={idx} className="text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1">
@@ -357,7 +357,7 @@ const ChatInterface = () => {
     const [selectedConvos, setSelectedConvos] = useState(new Set());
     const [lastClickedIndex, setLastClickedIndex] = useState(null);
     const [contextMenuPos, setContextMenuPos] = useState(null);
-    // --- NEW: File selection and context menu states ---
+   
     const [selectedFiles, setSelectedFiles] = useState(new Set());
     const [lastClickedFileIndex, setLastClickedFileIndex] = useState(null);
     const [fileContextMenuPos, setFileContextMenuPos] = useState(null);
@@ -397,11 +397,11 @@ const ChatInterface = () => {
     const [directoryConversations, setDirectoryConversations] = useState([]);
     const [isStreaming, setIsStreaming] = useState(false);
     const streamIdRef = useRef(null);
-    const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false); // State for the new menu
+    const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false);
     const [analysisContext, setAnalysisContext] = useState(null); 
     const [renamingPaneId, setRenamingPaneId] = useState(null);
     const [editedFileName, setEditedFileName] = useState('');
-    const [sidebarItemContextMenuPos, setSidebarItemContextMenuPos] = useState(null); // ADD THIS
+    const [sidebarItemContextMenuPos, setSidebarItemContextMenuPos] = useState(null);
 
     const [pdfContextMenuPos, setPdfContextMenuPos] = useState(null);
     const [selectedPdfText, setSelectedPdfText] = useState(null);
@@ -411,13 +411,13 @@ const ChatInterface = () => {
     
     const [localSearch, setLocalSearch] = useState({
         isActive: false,
-        term: '', // This will be the single source of truth for the search input
+        term: '',
         paneId: null,
         results: [],
         currentIndex: -1
     });
 
-    // Add state for renaming items directly in the sidebar
+   
     const [renamingPath, setRenamingPath] = useState(null);
     const [editedSidebarItemName, setEditedSidebarItemName] = useState('');
     
@@ -429,7 +429,7 @@ const ChatInterface = () => {
         selectionStart: 0,
         selectionEnd: 0,
         aiResponse: '',
-        aiResponseDiff: [], // ADD THIS LINE
+        aiResponseDiff: [],
         showDiff: false,
         isLoading: false,
         streamId: null,
@@ -456,6 +456,7 @@ const ChatInterface = () => {
         defaultPrompt: '',
         onConfirm: null
     });
+    const [mcpServerPath, setMcpServerPath] = useState('~/.npcsh/npc_team/mcp_server.py');
     const [browserContextMenu, setBrowserContextMenu] = useState({
         isOpen: false,
         x: 0,
@@ -473,7 +474,7 @@ const ChatInterface = () => {
         if (browserContextMenu.selectedText) {
             navigator.clipboard.writeText(browserContextMenu.selectedText);
         }
-        // Restore visibility
+       
         window.api.browserSetVisibility({ viewId: browserContextMenu.viewId, visible: true });
         setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
     };
@@ -482,7 +483,7 @@ const ChatInterface = () => {
         if (browserContextMenu.selectedText) {
             setInput(prev => `${prev}${prev ? '\n\n' : ''}"${browserContextMenu.selectedText}"`);
         }
-        // Restore visibility
+       
         window.api.browserSetVisibility({ viewId: browserContextMenu.viewId, visible: true });
         setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
     };
@@ -501,7 +502,7 @@ const ChatInterface = () => {
                 break;
         }
         setInput(prompt);
-        // Restore visibility
+       
         window.api.browserSetVisibility({ viewId, visible: true });
         setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
     };
@@ -510,28 +511,28 @@ const ChatInterface = () => {
 
     const [ctxEditorOpen, setCtxEditorOpen] = useState(false);
 
-    // --- NEW: Collapsible section states ---
-    const [filesCollapsed, setFilesCollapsed] = useState(true); // Set to true by default
-    const [conversationsCollapsed, setConversationsCollapsed] = useState(true); // Set to true by default
-    const chatContainerRef = useRef(null); // Ref for the chat messages container
+   
+    const [filesCollapsed, setFilesCollapsed] = useState(true);
+    const [conversationsCollapsed, setConversationsCollapsed] = useState(true);
+    const chatContainerRef = useRef(null);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [isSearching, setIsSearching] = useState(false);
-    const [isGlobalSearch, setIsGlobalSearch] = useState(false); // Checkbox state
-    const [searchLoading, setSearchLoading] = useState(false); // For deep search spinner
-    const [deepSearchResults, setDeepSearchResults] = useState([]); // Stores results from backend
-    const [messageSearchResults, setMessageSearchResults] = useState([]); // Stores in-chat match locations
-    const [activeSearchResult, setActiveSearchResult] = useState(null); // ID of highlighted message
-    const searchInputRef = useRef(null); // Ref to focus the search input
-    // --- TILING WINDOW MANAGER STATE ---
-    // The core data structure for the layout tree
+    const [isGlobalSearch, setIsGlobalSearch] = useState(false);
+    const [searchLoading, setSearchLoading] = useState(false);
+    const [deepSearchResults, setDeepSearchResults] = useState([]);
+    const [messageSearchResults, setMessageSearchResults] = useState([]);
+    const [activeSearchResult, setActiveSearchResult] = useState(null);
+    const searchInputRef = useRef(null);
+   
+   
     const [rootLayoutNode, setRootLayoutNode] = useState(null);
-    // The ID of the currently focused pane
+   
     const [activeContentPaneId, setActiveContentPaneId] = useState(null);
-    // State for drag & drop operations
+   
     const [draggedItem, setDraggedItem] = useState(null);
     const [dropTarget, setDropTarget] = useState(null);
-    // A ref to hold bulky data for each pane, preventing state updates on every keypress
+   
     const contentDataRef = useRef({});
     const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
     const rootLayoutNodeRef = useRef(rootLayoutNode);
@@ -561,18 +562,18 @@ const useDebounce = (value, delay) => {
     return debouncedValue;
 };
 
-const LAST_ACTIVE_PATH_KEY = 'npcStudioLastPath'; // <-- ADD THIS LINE
-const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
+const LAST_ACTIVE_PATH_KEY = 'npcStudioLastPath';
+const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId';
 
     const [isInputExpanded, setIsInputExpanded] = useState(false);
-    const [executionMode, setExecutionMode] = useState('chat'); // 'chat' or 'agent'
+    const [executionMode, setExecutionMode] = useState('chat');
     const [favoriteModels, setFavoriteModels] = useState(new Set());
     const [showAllModels, setShowAllModels] = useState(false);
     const [availableJinxs, setAvailableJinxss] = useState([
     ]);
     const [selectedTools, setSelectedTools] = useState([]);
     
-    // Add this useEffect to load/save favorite models
+   
     useEffect(() => {
         const savedFavorites = localStorage.getItem('npcStudioFavoriteModels');
         if (savedFavorites) {
@@ -602,7 +603,7 @@ const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
     }, [availableModels, favoriteModels, showAllModels]);
     
     
-    // --- NEW: useEffect for Ctrl+F shortcut ---
+   
 
 
     useEffect(() => {
@@ -646,22 +647,22 @@ const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
     useEffect(() => {
         const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText }) => {
             console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText });
-            // Set the state to show the menu at the correct position with the selected text
+           
             setBrowserContextMenuPos({ x, y, selectedText });
         });
     
         return () => {
             cleanup();
         };
-    }, []); // Empty dependency array ensures this runs only once
+    }, []);
     
     useEffect(() => {
         if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
-    }, [ activeConversationId]); // Re-scroll when messages update or conversation changes
+    }, [ activeConversationId]);
 
-    // --- NEW: Handler for deep search submission ---
+   
     const findNodeByPath = useCallback((node, path) => {
         if (!node || !path) return null;
         let currentNode = node;
@@ -685,14 +686,14 @@ const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
             }
         }
         return null;
-    }, []); // No dependencies, so it's created only once.
+    }, []);
 
     const handleEditorCopy = () => {
         const selectedText = aiEditModal.selectedText;
         if (selectedText) {
             navigator.clipboard.writeText(selectedText);
         }
-        setEditorContextMenuPos(null); // Close menu after action
+        setEditorContextMenuPos(null);
     };
     
     const handleEditorPaste = async () => {
@@ -707,34 +708,34 @@ const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
             const originalContent = paneData.fileContent || '';
             const { selectionStart, selectionEnd } = aiEditModal;
     
-            // Replace selection or insert at cursor
+           
             const newContent = originalContent.substring(0, selectionStart) +
                                textToPaste +
                                originalContent.substring(selectionEnd);
             
-            // Update the pane's data and mark as changed
+           
             paneData.fileContent = newContent;
             paneData.fileChanged = true;
     
-            setRootLayoutNode(p => ({ ...p })); // Trigger re-render
+            setRootLayoutNode(p => ({ ...p }));
         } catch (err) {
             console.error("Failed to read from clipboard:", err);
             setError("Clipboard paste failed. Please grant permission if prompted.");
         } finally {
-            setEditorContextMenuPos(null); // Close menu
+            setEditorContextMenuPos(null);
         }
     };
     
     const handleAddToChat = () => {
         const selectedText = aiEditModal.selectedText;
         if (selectedText) {
-            // Appends the selected code to the main input field, wrapped in markdown for clarity.
+           
             setInput(prevInput => {
-                const separator = prevInput.trim() ? '\n\n' : ''; // Add space if input isn't empty
+                const separator = prevInput.trim() ? '\n\n' : '';
                 return `${prevInput}${separator}\`\`\`\n${selectedText}\n\`\`\``;
             });
         }
-        setEditorContextMenuPos(null); // Close menu
+        setEditorContextMenuPos(null);
     };    
     const handleStartConversationFromViewer = async (images) => {
         if (!images || images.length === 0) return;
@@ -791,21 +792,21 @@ const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
         }
     };
     
-    // --- ADJUSTED: Search input change handler ---
+   
     const handleSearchChange = (e) => {
         const searchValue = e.target.value;
         setSearchTerm(searchValue);
 
-        // If the user clears the input, reset the search state and go back to normal view
+       
         if (!searchValue.trim()) {
             setIsSearching(false);
             setDeepSearchResults([]);
             setMessageSearchResults([]);
         }
-        // The actual search is now triggered by the Enter key in the input field
+       
     };
 
-    // Message selection handlers
+   
     const toggleMessageSelection = useCallback((messageId) => {
         if (!messageSelectionMode) return;
         setSelectedMessages(prev => {
@@ -817,7 +818,7 @@ const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId'; // <-- ADD THIS LINE
             }
             return newSelected;
         });
-    }, [messageSelectionMode]); // Dependency: only re-create if messageSelectionMode changes
+    }, [messageSelectionMode]);
 
 
 const toggleMessageSelectionMode = () => {
@@ -828,12 +829,12 @@ const toggleMessageSelectionMode = () => {
 const handleMessageContextMenu = useCallback((e, messageId) => {
     e.preventDefault();
     e.stopPropagation();
-    // If not in selection mode, enter it and select the current message
+   
     if (!messageSelectionMode) {
         setMessageSelectionMode(true);
         setSelectedMessages(new Set([messageId]));
     } else {
-        // If already in selection mode, just add the right-clicked message to the selection
+       
         setSelectedMessages(prev => {
             const newSelected = new Set(prev);
             if (!newSelected.has(messageId)) {
@@ -886,7 +887,7 @@ const handleHighlightPdfSelection = async () => {
 
     const filePath = paneData.contentId;
     
-    // Use the complete selection data
+   
     const highlightData = {
         filePath: filePath,
         text: selectedPdfText.text,
@@ -925,20 +926,20 @@ useEffect(() => {
             if (paneData && paneData.contentType === 'pdf') {
                 const response = await window.api.getHighlightsForFile(paneData.contentId);
                 if (response.highlights) {
-                    // --- THIS IS THE FIX ---
-                    // Transform the data from our DB format to the plugin's required format.
+                   
+                   
                     const transformedHighlights = response.highlights.map(h => ({
                         id: h.id,
                         position: {
-                            pageIndex: h.position.pageIndex, // Use the pageIndex from the DB
-                            rects: h.position.quads,         // Map our 'quads' to the plugin's 'rects'
+                            pageIndex: h.position.pageIndex,
+                            rects: h.position.quads,        
                         },
                         content: {
-                            text: h.highlighted_text, // Add content for potential future features
+                            text: h.highlighted_text,
                         }
                     }));
                     setPdfHighlights(transformedHighlights);
-                    // --- END FIX ---
+                   
                 } else {
                     setPdfHighlights([]);
                 }
@@ -965,7 +966,7 @@ const handleEditorContextMenu = (e) => {
             selectionEnd: end
         }));
         
-        // Show context menu at cursor position
+       
         const rect = textarea.getBoundingClientRect();
         const contextMenu = document.getElementById('editor-context-menu');
         if (contextMenu) {
@@ -985,15 +986,15 @@ const handleAnalyzeInDashboard = () => {
     log(`Analyzing ${selectedIds.length} conversations in dashboard.`);
     setAnalysisContext({ type: 'conversations', ids: selectedIds });
     setDashboardMenuOpen(true);
-    setContextMenuPos(null); // Close the context menu
+    setContextMenuPos(null);
 };
 
 const handleAIEdit = async (action, customPrompt = null) => {
-    // Hide the right-click context menu immediately
+   
     setEditorContextMenuPos(null);
 
-    // If the action is 'edit' and we haven't received a custom prompt yet,
-    // open our custom modal to ask the user for one.
+   
+   
     if (action === 'edit' && customPrompt === null) {
         setPromptModal({
             isOpen: true,
@@ -1001,14 +1002,14 @@ const handleAIEdit = async (action, customPrompt = null) => {
             message: 'Describe the changes you want the AI to make to the selected code.',
             defaultValue: 'Refactor this for clarity and efficiency',
             onConfirm: (userPrompt) => {
-                // Once the user confirms, call this function again with the provided prompt.
+               
                 handleAIEdit('edit', userPrompt);
             },
         });
-        return; // Stop execution until the user provides a prompt
+        return;
     }
 
-    // --- Proceed with the AI request ---
+   
 
     const newStreamId = generateId();
     
@@ -1056,8 +1057,8 @@ const handleAIEdit = async (action, customPrompt = null) => {
             npcSource: selectedNpc ? selectedNpc.source : 'global',
             attachments: [],
             streamId: newStreamId, 
-            executionMode: executionMode, // Add this
-            tools: executionMode === 'agent' ? selectedTools : [], // Add this
+            executionMode: executionMode,
+            tools: executionMode === 'agent' ? selectedTools : [],
         
         });
 
@@ -1071,7 +1072,7 @@ const handleAIEdit = async (action, customPrompt = null) => {
         setAiEditModal(prev => ({
             ...prev,
             isLoading: false,
-            isOpen: false, // Close modal on error
+            isOpen: false,
         }));
     }
 };
@@ -1084,20 +1085,20 @@ const generateDiff = (original, modified) => {
     
     while (i < originalLines.length || j < modifiedLines.length) {
         if (i >= originalLines.length) {
-            // Added lines
+           
             diff.push({ type: 'added', content: modifiedLines[j], lineNumber: j + 1 });
             j++;
         } else if (j >= modifiedLines.length) {
-            // Removed lines
+           
             diff.push({ type: 'removed', content: originalLines[i], lineNumber: i + 1 });
             i++;
         } else if (originalLines[i] === modifiedLines[j]) {
-            // Unchanged lines
+           
             diff.push({ type: 'unchanged', content: originalLines[i], lineNumber: i + 1 });
             i++;
             j++;
         } else {
-            // Changed lines
+           
             diff.push({ type: 'removed', content: originalLines[i], lineNumber: i + 1 });
             diff.push({ type: 'added', content: modifiedLines[j], lineNumber: j + 1 });
             i++;
@@ -1109,10 +1110,10 @@ const generateDiff = (original, modified) => {
 };
 
 const applyAIEdit = () => {
-    // Ensure there is an active pane
+   
     if (!activeContentPaneId) return;
     const paneData = contentDataRef.current[activeContentPaneId];
-    // Ensure the active pane is an editor
+   
     if (!paneData || paneData.contentType !== 'editor') return;
 
     const originalContent = paneData.fileContent || '';
@@ -1121,14 +1122,14 @@ const applyAIEdit = () => {
                       aiEditModal.aiResponse + 
                       originalContent.substring(aiEditModal.selectionEnd);
     
-    // Update the file content and changed status directly in the pane's data ref
+   
     paneData.fileContent = newContent;
     paneData.fileChanged = true;
 
-    // Trigger a re-render of the layout to show the changes (e.g., the '*' for unsaved)
+   
     setRootLayoutNode(p => ({ ...p }));
     
-    // Close the AI Edit modal
+   
     setAiEditModal({ isOpen: false, type: '', selectedText: '', selectionStart: 0, selectionEnd: 0, aiResponse: '', showDiff: false, isLoading: false });
 };
 
@@ -1184,14 +1185,14 @@ const handleApplyPromptToMessages = async (operationType, customPrompt = '') => 
         
         if (!newConversation) throw new Error('Failed to create new conversation');
 
-        // The createNewConversation function already handles opening the new convo in a pane.
-        // Now, we just need to send the message by populating the input field.
+       
+       
         setInput(fullPrompt);
         
     } catch (err) {
         console.error('Error processing messages:', err);
         setError(err.message);
-        setInput(fullPrompt); // Fallback to setting input on error
+        setInput(fullPrompt);
     } finally {
         setSelectedMessages(new Set());
         setMessageContextMenuPos(null);
@@ -1203,7 +1204,7 @@ const handleApplyPromptToCurrentConversation = async (operationType, customPromp
     const selectedIds = Array.from(selectedMessages);
     if (selectedIds.length === 0) return;
     
-    // --- THIS IS THE FIX: Get messages from the active pane's data ---
+   
     const activePaneData = contentDataRef.current[activeContentPaneId];
     if (!activePaneData || !activePaneData.chatMessages) {
         console.error("No active chat pane data found for message operation.");
@@ -1211,7 +1212,7 @@ const handleApplyPromptToCurrentConversation = async (operationType, customPromp
     }
     const allMessagesInPane = activePaneData.chatMessages.allMessages;
     const selectedMsgs = allMessagesInPane.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
-    // --- END FIX ---
+   
     
     if (selectedMsgs.length === 0) return;
 
@@ -1237,10 +1238,10 @@ const handleApplyPromptToCurrentConversation = async (operationType, customPromp
 
     const fullPrompt = prompt + messagesText;
 
-    // Put the prompt in the input field for the user to review and send
+   
     setInput(fullPrompt);
     
-    // Clear selection state
+   
     setSelectedMessages(new Set());
     setMessageContextMenuPos(null);
     setMessageSelectionMode(false);
@@ -1251,7 +1252,7 @@ const handleApplyPromptToFiles = async (operationType, customPrompt = '') => {
     if (selectedFilePaths.length === 0) return;
 
     try {
-        // This part remains correct: read files and build the prompt
+       
         const filesContentPromises = selectedFilePaths.map(async (filePath) => {
             const response = await window.api.readFileContent(filePath);
             if (response.error) {
@@ -1268,7 +1269,7 @@ const handleApplyPromptToFiles = async (operationType, customPrompt = '') => {
             case 'summarize':
                 prompt = `Summarize the content of these ${selectedFilePaths.length} file(s):\n\n`;
                 break;
-            // ... other cases
+           
             default:
                  prompt = customPrompt + `\n\nApply this to these ${selectedFilePaths.length} file(s):\n\n`;
                  break;
@@ -1287,7 +1288,7 @@ const handleApplyPromptToFiles = async (operationType, customPrompt = '') => {
         }
 
         const newStreamId = generateId();
-        streamToPaneRef.current[newStreamId] = newPaneId; // Link stream to the correct pane
+        streamToPaneRef.current[newStreamId] = newPaneId;
         setIsStreaming(true);
 
         const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
@@ -1399,7 +1400,7 @@ const handleSidebarItemDelete = async () => {
     if (!sidebarItemContextMenuPos) return;
     const { path, type } = sidebarItemContextMenuPos;
     
-    // Simple confirmation dialog
+   
     const confirmation = window.confirm(`Are you sure you want to delete this ${type}? This action cannot be undone.`);
     if (!confirmation) {
         setSidebarItemContextMenuPos(null);
@@ -1416,7 +1417,7 @@ const handleSidebarItemDelete = async () => {
 
         if (response?.error) throw new Error(response.error);
         
-        await loadDirectoryStructure(currentPath); // Refresh sidebar
+        await loadDirectoryStructure(currentPath);
 
     } catch (err) {
         setError(`Failed to delete: ${err.message}`);
@@ -1444,13 +1445,13 @@ const handleSidebarRenameSubmit = async () => {
     const dir = renamingPath.substring(0, renamingPath.lastIndexOf('/'));
     const newPath = `${dir}/${editedSidebarItemName}`;
 
-    if (newPath === renamingPath) { // No change
+    if (newPath === renamingPath) {
         setRenamingPath(null);
         return;
     }
 
     try {
-        const response = await window.api.renameFile(renamingPath, newPath); // renameFile works on directories too
+        const response = await window.api.renameFile(renamingPath, newPath);
         if (response?.error) throw new Error(response.error);
 
         await loadDirectoryStructure(currentPath);
@@ -1468,7 +1469,7 @@ const handleFolderOverview = async () => {
     setSidebarItemContextMenuPos(null);
 
     try {
-        // 1. Get all file paths from the backend
+       
         const response = await window.api.getDirectoryContentsRecursive(path);
         if (response.error) throw new Error(response.error);
         if (response.files.length === 0) {
@@ -1476,7 +1477,7 @@ const handleFolderOverview = async () => {
             return;
         }
 
-        // 2. Reuse logic from handleApplyPromptToFiles to build the prompt and send
+       
         const filesContentPromises = response.files.map(async (filePath) => {
             const fileResponse = await window.api.readFileContent(filePath);
             const fileName = filePath.split('/').pop();
@@ -1491,7 +1492,7 @@ const handleFolderOverview = async () => {
         const { conversation, paneId } = await createNewConversation();
         if (!conversation) throw new Error("Failed to create conversation for overview.");
 
-        // This directly sends the message to the newly created conversation pane
+       
         handleInputSubmit(new Event('submit'), fullPrompt, paneId, conversation.id);
 
     } catch (err) {
@@ -1501,19 +1502,19 @@ const handleFolderOverview = async () => {
 
 
 const loadAvailableNPCs = async () => {
-    if (!currentPath) return []; // Return empty array if no path
+    if (!currentPath) return [];
     setNpcsLoading(true);
     setNpcsError(null);
     try {
-        // First load project NPCs
+       
         const projectResponse = await window.api.getNPCTeamProject(currentPath);
         const projectNPCs = projectResponse.npcs || [];
         
-        // Then load global NPCs
+       
         const globalResponse = await window.api.getNPCTeamGlobal();
         const globalNPCs = globalResponse.npcs || [];
         
-        // Format and combine both sets
+       
         const formattedProjectNPCs = projectNPCs.map(npc => ({
             ...npc,
             value: npc.name,
@@ -1528,15 +1529,15 @@ const loadAvailableNPCs = async () => {
             source: 'global'
         }));
         
-        // Combine project NPCs first, then global NPCs
+       
         const combinedNPCs = [...formattedProjectNPCs, ...formattedGlobalNPCs];
-        setAvailableNPCs(combinedNPCs); // Update state for dropdowns
-        return combinedNPCs; // IMPORTANT: Return the fetched NPCs for immediate use
+        setAvailableNPCs(combinedNPCs);
+        return combinedNPCs;
     } catch (err) {
         console.error('Error fetching NPCs:', err);
         setNpcsError(err.message);
         setAvailableNPCs([]);
-        return []; // Return empty array on error
+        return [];
     } finally {
         setNpcsLoading(false);
     }
@@ -1544,7 +1545,7 @@ const loadAvailableNPCs = async () => {
 
 
 
-    // Add this useEffect to load NPCs when the path changes
+   
     useEffect(() => {
         if (currentPath) {
             loadAvailableNPCs();
@@ -1557,7 +1558,7 @@ const loadAvailableNPCs = async () => {
                 setFileContextMenuPos(null);
                 setMessageContextMenuPos(null);
                 setEditorContextMenuPos(null);
-                setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '' }); // <-- ADD THIS
+                setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '' });
 
             }
         };
@@ -1566,7 +1567,7 @@ const loadAvailableNPCs = async () => {
         return () => {
             window.removeEventListener('keydown', handleGlobalDismiss);
         };
-    }, []); // Empty array ensures this runs only once.
+    }, []);
     
 
     const directoryConversationsRef = useRef(directoryConversations);
@@ -1610,7 +1611,7 @@ const loadAvailableNPCs = async () => {
         else if (newContentType === 'browser') {
             paneData.chatMessages = null;
             paneData.fileContent = null;
-            paneData.browserUrl = newContentId; // Store the URL or browser ID
+            paneData.browserUrl = newContentId;
         }
         else if (newContentType === 'chat') {
             if (!paneData.chatMessages) {
@@ -1639,13 +1640,13 @@ const loadAvailableNPCs = async () => {
                     paneData.chatStats = getConversationStats([]);
                 }
             }
-        } else if (newContentType === 'terminal') { // <-- ADD THIS ELSE IF BLOCK
-            // Clear other content types' data
+        } else if (newContentType === 'terminal') {
+           
             paneData.chatMessages = null;
             paneData.fileContent = null;
         }
         else if (newContentType === 'pdf') {
-            // LOG E: Confirm we hit the PDF logic block.
+           
             console.log(`[updateContentPane] Setting up pane "${paneId}" for PDF viewer.`);
             paneData.chatMessages = null;
             paneData.fileContent = null;
@@ -1756,7 +1757,7 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
             if (parentNode) {
                 parentNode.children[targetIndexInParent] = newSplitNode;
             } else {
-                // If we split the root, the new split node becomes the root
+               
                 return newSplitNode;
             }
             
@@ -1765,7 +1766,7 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
         });
     }, [updateContentPane]);
 
-    // Closes a pane and re-balances the layout
+   
 
 const closeContentPane = useCallback((paneId, nodePath) => {
     setRootLayoutNode(currentRoot => {
@@ -1795,23 +1796,23 @@ const closeContentPane = useCallback((paneId, nodePath) => {
         delete contentDataRef.current[paneId];
 
         if (parentNode.children.length === 1) {
-            // Only one child left in this parent - need to collapse this split
+           
             const remainingChild = parentNode.children[0];
             
             if (parentPath.length === 0) {
-                // The parent is the root - replace the entire root with the single child
+               
                 newRoot = remainingChild;
             } else {
-                // There's a grandparent - replace the parent with the single child
+               
                 const grandParentNode = findNodeByPath(newRoot, parentPath.slice(0, -1));
                 if (grandParentNode) {
                     const parentIndex = parentPath[parentPath.length - 1];
                     grandParentNode.children[parentIndex] = remainingChild;
-                    // The grandparent's sizes don't need to change - it still has the same number of children
+                   
                 }
             }
         } else if (parentNode.children.length > 1) {
-            // Multiple children remaining - redistribute sizes equally
+           
             const equalSize = 100 / parentNode.children.length;
             parentNode.sizes = new Array(parentNode.children.length).fill(equalSize);
         }
@@ -1825,7 +1826,7 @@ const closeContentPane = useCallback((paneId, nodePath) => {
     });
 }, [activeContentPaneId, findNodeByPath]);
 
-    // Initial layout setup
+   
     useEffect(() => {
         if (!rootLayoutNode && !loading) {
             const initialPaneId = generateId();
@@ -1839,7 +1840,7 @@ const closeContentPane = useCallback((paneId, nodePath) => {
             setRootLayoutNode(initialLayout);
             setActiveContentPaneId(initialPaneId);
         }
-    }, [loading]); // Run once after initial loading is complete
+    }, [loading]);
 const handleConversationSelect = async (conversationId, skipMessageLoad = false) => {
     setActiveConversationId(conversationId);
     setCurrentFile(null);
@@ -1873,24 +1874,24 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         setActiveConversationId(null);
     
         const extension = filePath.split('.').pop()?.toLowerCase();
-        const contentType = extension === 'pdf' ? 'pdf' : 'editor'; // <-- KEY CHANGE
+        const contentType = extension === 'pdf' ? 'pdf' : 'editor';
     
-        // If no layout exists, create the first pane.
+       
         if (!rootLayoutNode) {
             const newPaneId = generateId();
             const newLayout = { id: newPaneId, type: 'content' };
             
             contentDataRef.current[newPaneId] = {};
-            await updateContentPane(newPaneId, contentType, filePath); // Use determined contentType
+            await updateContentPane(newPaneId, contentType, filePath);
             
             setRootLayoutNode(newLayout);
             setActiveContentPaneId(newPaneId);
         } 
-        // If a layout exists, update the data and trigger a re-render.
+       
     else {
         const targetPaneId = activeContentPaneId || Object.keys(contentDataRef.current)[0];
         if (targetPaneId) {
-            // LOG C: Confirm we are about to update the pane.
+           
             console.log(`[handleFileClick] Updating pane "${targetPaneId}" with new content.`);
             await updateContentPane(targetPaneId, contentType, filePath);
             setRootLayoutNode(prev => ({...prev}));
@@ -1919,7 +1920,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                         throw new Error(response.error);
                     }
     
-                    // Refresh the sidebar to show the new folder
+                   
                     await loadDirectoryStructure(currentPath);
     
                 } catch (err) {
@@ -1967,7 +1968,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                 selectedTextPreview: selectedPdfText?.text?.substring(0, 50) || 'none'
             });
             
-            // Show context menu if we have selected text stored
+           
             if (selectedPdfText && selectedPdfText.text) {
                 console.log('[PDF_CONTEXT] Showing context menu at:', { x: e.clientX, y: e.clientY });
                 setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
@@ -2010,7 +2011,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     }, [rootLayoutNode, selectedPdfText, pdfHighlights,setDraggedItem]);
     const handleGlobalDragStart = (e, item) => {
         setDraggedItem(item);
-        // Hide all active browser views
+       
         Object.values(contentDataRef.current).forEach(paneData => {
             if (paneData.contentType === 'browser' && paneData.contentId) {
                 window.api.browserSetVisibility({ viewId: paneData.contentId, visible: false });
@@ -2021,7 +2022,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     const handleGlobalDragEnd = () => {
         setDraggedItem(null);
         setDropTarget(null);
-        // Show all active browser views again
+       
         Object.values(contentDataRef.current).forEach(paneData => {
             if (paneData.contentType === 'browser' && paneData.contentId) {
                 window.api.browserSetVisibility({ viewId: paneData.contentId, visible: true });
@@ -2030,7 +2031,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     };
     
     const createNewBrowser = async (url = null) => {
-        // If no URL provided, open the dialog
+       
         if (!url) {
             setBrowserUrlDialogOpen(true);
             return;
@@ -2050,7 +2051,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     
         await updateContentPane(targetPaneId, 'browser', newBrowserId);
         
-        // Store the initial URL in the pane data
+       
         contentDataRef.current[targetPaneId].browserUrl = url;
         
         setActiveConversationId(null);
@@ -2083,7 +2084,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                     <button 
                         onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNodeRef.current, nodeId))} 
                         className="p-1 theme-hover rounded-full"
-                        onMouseDown={(e) => e.stopPropagation()} // <-- Prevent drag when clicking close
+                        onMouseDown={(e) => e.stopPropagation()}
                     >
                         <X size={14} />
                     </button>
@@ -2103,7 +2104,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     }, [closeContentPane, findNodePath, setDraggedItem]);
 
     useEffect(() => {
-        // This function now receives the viewId
+       
         const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText, viewId }) => {
             console.log(`[REACT BROWSER CONTEXT] Received event for viewId: ${viewId}`);
             setBrowserContextMenu({ isOpen: true, x, y, selectedText, viewId });
@@ -2111,33 +2112,33 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     
         const handleClickOutside = () => {
             setBrowserContextMenu(currentState => {
-                // Only act if the menu is open
+               
                 if (currentState.isOpen) {
                     console.log(`[REACT BROWSER CONTEXT] Closing menu, restoring viewId: ${currentState.viewId}`);
-                    // Tell main process to make the BrowserView visible again
+                   
                     window.api.browserSetVisibility({ viewId: currentState.viewId, visible: true });
-                    // Return the new "closed" state
+                   
                     return { isOpen: false, x: 0, y: 0, selectedText: '', viewId: null };
                 }
-                return currentState; // Return unchanged state if it wasn't open
+                return currentState;
             });
         };
     
-        // Use 'mousedown' to catch all clicks (left and right) to dismiss the menu
+       
         window.addEventListener('mousedown', handleClickOutside);
     
         return () => {
             cleanup();
             window.removeEventListener('mousedown', handleClickOutside);
         };
-    }, []); // Keep dependency array empty
+    }, []);
     
     
     const renderBrowserContextMenu = () => {
         if (!browserContextMenu.isOpen) return null;
     
         return (
-            // stopPropagation prevents the click-outside handler from firing on the menu itself
+           
             <div
                 className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
                 style={{ top: browserContextMenu.y, left: browserContextMenu.x }}
@@ -2165,18 +2166,18 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     
     
     const renderPdfContextMenu = () => {
-        //console.log('[PDF_MENU] renderPdfContextMenu called with:', {
-        //    hasPdfContextMenuPos: !!pdfContextMenuPos,
-        //   menuPosition: pdfContextMenuPos,
-        //    hasSelectedText: !!selectedPdfText,
-        //    textPreview: selectedPdfText?.text?.substring(0, 30) || 'none'
-        //});
+       
+       
+       
+       
+       
+       
     
         return pdfContextMenuPos && (
             <>
 
                 <div className="fixed inset-0 z-40" onClick={() => {
-                //    console.log('[PDF_MENU] Backdrop clicked - closing menu');
+               
                     setPdfContextMenuPos(null);
                 }} />
                 <div
@@ -2344,8 +2345,8 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     }, [rootLayoutNode, activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setDraggedItem, searchTerm, isGlobalSearch]);
 
     const InPaneSearchBar = ({
-        searchTerm,        // This is `localSearch.term` from the parent (debounced value)
-        onSearchTermChange, // This will be the debounced setter for localSearch.term
+        searchTerm,       
+        onSearchTermChange,
         onNext,
         onPrevious,
         onClose,
@@ -2353,19 +2354,19 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         currentIndex
     }) => {
         const inputRef = useRef(null);
-        // New: local state for the input field to allow smooth typing
+       
         const [localInputTerm, setLocalInputTerm] = useState(searchTerm);
     
-        // Effect to set initial focus and cursor position
+       
         useEffect(() => {
             if (inputRef.current) {
                 inputRef.current.focus();
-                // This ensures the cursor is at the end when the search bar appears
+               
                 inputRef.current.setSelectionRange(localInputTerm.length, localInputTerm.length);
             }
-        }, [localInputTerm]); // Re-run if localInputTerm changes (e.g., external update, but primarily for initial render)
+        }, [localInputTerm]);
     
-        // Effect to update localInputTerm if parent searchTerm changes (e.g., search is cleared)
+       
         useEffect(() => {
             if (localInputTerm !== searchTerm) {
                 setLocalInputTerm(searchTerm);
@@ -2391,10 +2392,10 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
                 <input
                     ref={inputRef}
                     type="text"
-                    value={localInputTerm} // Use local state for immediate input feedback
+                    value={localInputTerm}
                     onChange={(e) => {
-                        setLocalInputTerm(e.target.value); // Update local state for smooth typing
-                        onSearchTermChange(e.target.value); // Pass the value to the parent's debounced function
+                        setLocalInputTerm(e.target.value);
+                        onSearchTermChange(e.target.value);
                     }}
                     className="flex-1 theme-input text-xs rounded px-3 py-2 border-0 focus:ring-1 focus:ring-blue-500"
                     placeholder="Search messages..."
@@ -2628,8 +2629,8 @@ const createNewTextFile = async () => {
             const filename = `untitled-${Date.now()}.txt`;
             const filepath = normalizePath(`${currentPath}/${filename}`);
             await window.api.writeFileContent(filepath, '');
-            await loadDirectoryStructure(currentPath); // Refresh sidebar
-            await handleFileClick(filepath); // Open in active pane
+            await loadDirectoryStructure(currentPath);
+            await handleFileClick(filepath);
         } catch (err) {
             setError(err.message);
         }
@@ -2715,7 +2716,7 @@ const createNewTextFile = async () => {
             if (response.error) throw new Error(response.error);
             setFileChanged(false);
             
-            // Only refresh the directory structure WITHOUT affecting conversations
+           
             const structureResult = await window.api.readDirectoryStructure(currentPath);
             if (structureResult && !structureResult.error) {
                 setFolderStructure(structureResult);
@@ -2732,14 +2733,14 @@ const createNewTextFile = async () => {
     const handleFileContentChange = useCallback((value) => {
         setFileContent(value);
         setFileChanged(true);
-    }, []); // useCallback to prevent re-renders
+    }, []);
 
-    // This handler receives start/end positions from CodeMirror
+   
     const handleTextSelection = useCallback((from, to) => {
-        // Only act if there's an active pane
+       
         if (!activeContentPaneId) return;
         const paneData = contentDataRef.current[activeContentPaneId];
-        // And if that pane is an editor
+       
         if (!paneData || paneData.contentType !== 'editor') return;
 
         const selectedText = (paneData.fileContent || '').substring(from, to);
@@ -2751,14 +2752,14 @@ const createNewTextFile = async () => {
                 selectionEnd: to,
             }));
         }
-    }, [activeContentPaneId]); // This depends on which pane is active
+    }, [activeContentPaneId]);
 
-    // --- NEW: File renaming state and handlers ---
+   
     const [isRenamingFile, setIsRenamingFile] = useState(false);
     const [newFileName, setNewFileName] = useState('');
 
     const handleRenameFile = async (nodeId, oldPath) => {
-        // Exit if the name is empty or unchanged
+       
         if (!editedFileName.trim() || editedFileName === oldPath.split('/').pop()) {
             setRenamingPaneId(null);
             return;
@@ -2771,22 +2772,22 @@ const createNewTextFile = async () => {
             const response = await window.api.renameFile(oldPath, newPath);
             if (response?.error) throw new Error(response.error);
     
-            // Update the pane's contentId to the new path
+           
             if (contentDataRef.current[nodeId]) {
                 contentDataRef.current[nodeId].contentId = newPath;
             }
     
-            // Refresh the file list in the sidebar
+           
             await loadDirectoryStructure(currentPath);
     
-            // Trigger a re-render to show the new name in the header
+           
             setRootLayoutNode(p => ({ ...p }));
     
         } catch (err) {
             console.error("Error renaming file:", err);
             setError(`Failed to rename: ${err.message}`);
         } finally {
-            // Exit renaming mode regardless of success or failure
+           
             setRenamingPaneId(null);
         }
     };
@@ -2797,11 +2798,11 @@ const deleteSelectedConversations = async () => {
    const selectedFilePaths = Array.from(selectedFiles);
    
    if (selectedConversationIds.length === 0 && selectedFilePaths.length === 0) {
-       return; // Nothing to do
+       return;
    }
    
    try {
-       // --- Call the backend to delete from the database ---
+      
        if (selectedConversationIds.length > 0) {
            console.log('Deleting conversations from database:', selectedConversationIds);
            await Promise.all(selectedConversationIds.map(id => window.api.deleteConversation(id)));
@@ -2812,14 +2813,14 @@ const deleteSelectedConversations = async () => {
            await Promise.all(selectedFilePaths.map(filePath => window.api.deleteFile(filePath)));
        }
 
-       // --- Refresh the UI from the source of truth ---
+      
        await loadDirectoryStructure(currentPath);
 
    } catch (err) {
        console.error('Error deleting items:', err);
        setError(err.message);
    } finally {
-       // --- Clear selections ---
+      
        setSelectedConvos(new Set());
        setSelectedFiles(new Set());
    }
@@ -2828,28 +2829,28 @@ const deleteSelectedConversations = async () => {
         const loadData = async () => {
             if (currentPath) {
                 setLoading(true);
-                await loadDirectoryStructure(currentPath); // Includes loadConversations -> setDirectoryConversations
-                setLoading(false); // Loading done for this path
+                await loadDirectoryStructure(currentPath);
+                setLoading(false);
 
                 const currentConvos = directoryConversationsRef.current;
 
-                if (!activeConversationId) { // Only act if NO conversation is currently active
+                if (!activeConversationId) {
                     const needsNewConvo = currentConvos.length === 0;
                     const needsSelectConvo = currentConvos.length > 0;
 
-                     //console.log(`Post-Load Decision: needsNew=${needsNewConvo}, needsSelect=${needsSelectConvo}, activeId=${activeConversationId}, convoCount=${currentConvos.length}`);
+                    
 
                     if (needsNewConvo) {
-                        //console.log("No active convo, none loaded: Creating new conversation.");
-                        // No await needed if createNewConversation doesn't need to block anything *here*
+                       
+                       
                         createNewConversation();
                     } else if (needsSelectConvo) {
-                        //console.log(`No active convo, selecting first loaded: ${currentConvos[0].id}`);
-                        // No await needed if handleConversationSelect doesn't need to block anything *here*
+                       
+                       
                         handleConversationSelect(currentConvos[0].id);
                     }
                 } else {
-                    //  console.log(`Post-Load: Conversation ${activeConversationId} is already active.`);
+                   
                 }
             }
         };
@@ -2890,7 +2891,7 @@ useEffect(() => {
             }
             
             if (content) {
-                // Update the raw response in real-time
+               
                 setAiEditModal(prev => ({
                     ...prev,
                     aiResponse: (prev.aiResponse || '') + content
@@ -2904,7 +2905,7 @@ useEffect(() => {
     const handleAIStreamComplete = (_, { streamId }) => {
         if (streamId !== currentStreamId) return;
         
-        // Now that the stream is done, calculate the final diff
+       
         setAiEditModal(prev => {
             const finalDiff = prev.showDiff ? generateDiff(prev.selectedText, prev.aiResponse) : [];
             return {
@@ -2935,8 +2936,8 @@ useEffect(() => {
 }, [aiEditModal.isOpen, aiEditModal.isLoading, aiEditModal.streamId]);
 
 
-    // Effect to save activeConversationId to localStorage whenever it changes
-    // Clears if no active conversation (e.g., when opening a file)
+   
+   
     useEffect(() => {
         if (activeConversationId) {
             localStorage.setItem(LAST_ACTIVE_CONVO_ID_KEY, activeConversationId);
@@ -2956,10 +2957,10 @@ useEffect(() => {
         try {
             const newConversation = await createNewConversation();
             if (newConversation) {
-                // Set the selected NPC as the current NPC
+               
                 setCurrentNPC(npc.name);
                 
-                // Create a welcome message from the NPC
+               
                 setMessages([{ 
                     role: 'assistant', 
                     content: `Hello, I'm ${npc.name}. ${npc.primary_directive}`, 
@@ -3029,7 +3030,7 @@ useEffect(() => {
                         last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
                     }));
                     
-                    // Sort conversations by last message timestamp, newest first
+                   
                     formattedConversations.sort((a, b) => 
                         new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
                     );
@@ -3048,7 +3049,7 @@ useEffect(() => {
     };
     
     const loadConversations = async (dirPath) => {
-        let currentActiveId = activeConversationId; // Capture current active ID
+        let currentActiveId = activeConversationId;
         try {
             const normalizedPath = normalizePath(dirPath);
             if (!normalizedPath) return;
@@ -3061,7 +3062,7 @@ useEffect(() => {
                 last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
             })) || [];
     
-            // Sort conversations by last message timestamp, newest first
+           
             formattedConversations.sort((a, b) => 
                 new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
             );
@@ -3087,7 +3088,7 @@ useEffect(() => {
             setError(err.message);
             setDirectoryConversations([]);
              if (!activeConversationId && initialLoadComplete.current) {
-                 await createNewConversation(); // Attempt to create if load fails
+                 await createNewConversation();
             }
         }
     };
@@ -3116,14 +3117,14 @@ useEffect(() => {
     };
 
     const fetchModels = async () => {
-        if (!currentPath) return []; // Return empty array if no path
+        if (!currentPath) return [];
         setModelsLoading(true);
         setModelsError(null);
         try {
             const response = await window.api.getAvailableModels(currentPath);
             if (response?.models && Array.isArray(response.models)) {
-                setAvailableModels(response.models); // Update state for dropdowns
-                return response.models; // IMPORTANT: Return the fetched models for immediate use
+                setAvailableModels(response.models);
+                return response.models;
             } else {
                 throw new Error(response?.error || "Invalid models response");
             }
@@ -3131,7 +3132,7 @@ useEffect(() => {
             console.error('Error fetching models:', err);
             setModelsError(err.message);
             setAvailableModels([]);
-            return []; // Return empty array on error
+            return [];
         } finally {
             setModelsLoading(false);
         }
@@ -3142,7 +3143,7 @@ useEffect(() => {
         setLoading(true);
         setError(null);
 
-        // Step 0: Load initial configuration if not already loaded
+       
         if (!config) {
             try {
                 const loadedConfig = await window.api.getDefaultConfig();
@@ -3158,7 +3159,7 @@ useEffect(() => {
             }
         }
 
-        // Step 1: Determine the initial path to use
+       
         let initialPathToLoad = config.baseDir;
         const storedPath = localStorage.getItem(LAST_ACTIVE_PATH_KEY);
         if (storedPath) {
@@ -3180,31 +3181,31 @@ useEffect(() => {
 
         initialLoadComplete.current = true;
 
-        // Load directory structure and conversations for the determined path
+       
         await loadDirectoryStructure(currentPath);
 
-        // Fetch available models and NPCs for the determined path
+       
         const fetchedModels = await fetchModels();
         const fetchedNPCs = await loadAvailableNPCs();
 
-        // Determine current model and NPC based on database history/fallbacks
+       
         let modelToSet = config.model || 'llama3.2';
         let providerToSet = config.provider || 'ollama';
         let npcToSet = config.npc || 'sibiji';
 
-        // Get the stored conversation ID
+       
         const storedConvoId = localStorage.getItem(LAST_ACTIVE_CONVO_ID_KEY);
         let targetConvoId = null;
 
-        // Wait for conversations to be loaded and then check if stored convo exists
-        // We need to get the fresh conversations since loadDirectoryStructure just loaded them
+       
+       
         const currentConversations = directoryConversationsRef.current;
         
         if (storedConvoId) {
             const convoInCurrentDir = currentConversations.find(conv => conv.id === storedConvoId);
             if (convoInCurrentDir) {
                 targetConvoId = storedConvoId;
-                // Load specific model/NPC for this conversation
+               
                 const lastUsedInConvo = await window.api.getLastUsedInConversation(targetConvoId);
                 if (lastUsedInConvo?.model) {
                     const validModel = fetchedModels.find(m => m.value === lastUsedInConvo.model);
@@ -3224,7 +3225,7 @@ useEffect(() => {
             }
         }
 
-        // If no specific conversation's model/NPC was loaded, try directory defaults
+       
         if (!targetConvoId) {
             const lastUsedInDir = await window.api.getLastUsedInDirectory(currentPath);
             if (lastUsedInDir?.model) {
@@ -3242,7 +3243,7 @@ useEffect(() => {
             }
         }
         
-        // Final validation against available lists
+       
         if (!fetchedModels.some(m => m.value === modelToSet) && fetchedModels.length > 0) {
             modelToSet = fetchedModels[0].value;
             providerToSet = fetchedModels[0].provider;
@@ -3261,17 +3262,17 @@ useEffect(() => {
         setCurrentProvider(providerToSet);
         setCurrentNPC(npcToSet);
 
-        // Now handle conversation selection with the fresh conversation list
+       
         if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
-            // We have a valid stored conversation - select it
+           
             console.log('Selecting stored conversation:', targetConvoId);
             await handleConversationSelect(targetConvoId);
         } else if (currentConversations.length > 0) {
-            // No valid stored conversation, but we have conversations - select the first one
+           
             console.log('Selecting first conversation:', currentConversations[0].id);
             await handleConversationSelect(currentConversations[0].id);
         } else {
-            // No conversations at all - create a new one
+           
             console.log('Creating new conversation - none found');
             await createNewConversation();
         }
@@ -3310,9 +3311,9 @@ useEffect(() => {
                     id: generateId(),
                     name: file.name,
                     type: file.type,
-                    data: base64, // The raw base64 data for the backend
+                    data: base64,
                     size: file.size,
-                    preview: file.type.startsWith('image/') ? dataUrl : null // The full data URL for UI preview
+                    preview: file.type.startsWith('image/') ? dataUrl : null
                 };
             } catch (error) {
                 console.error(`Failed to process dropped file ${file.name}:`, error);
@@ -3328,7 +3329,7 @@ useEffect(() => {
     };
 
     
-    // Add this logging to your handleFileUpload function
+   
     const handleFileUpload = async (files) => {
         console.log('handleFileUpload called with:', files);
         const existingFileNames = new Set(uploadedFiles.map(f => f.name));
@@ -3346,7 +3347,7 @@ useEffect(() => {
             
             try {
                 if (file.path) {
-                    // Electron dropped file - use the path directly
+                   
                     attachmentData.push({
                         id: generateId(), 
                         name: file.name, 
@@ -3357,14 +3358,14 @@ useEffect(() => {
                     });
                     console.log(`Added file with path: ${file.path}`);
                 } else {
-                    // Fallback: Convert to base64 data
+                   
                     console.log(`No path property found, converting ${file.name} to base64...`);
                     const base64Data = await convertFileToBase64(file);
                     attachmentData.push({
                         id: generateId(),
                         name: file.name,
                         type: file.type,
-                        data: base64Data, // Base64 string without the data:mime;base64, prefix
+                        data: base64Data,
                         size: file.size,
                         preview: file.type.startsWith('image/') ? `data:${file.type};base64,${base64Data}` : null
                     });
@@ -3372,7 +3373,7 @@ useEffect(() => {
                 }
             } catch (error) {
                 console.error(`Failed to process file ${file.name}:`, error);
-                // Still add the file but mark it as having an error
+               
                 attachmentData.push({
                     id: generateId(),
                     name: file.name,
@@ -3410,7 +3411,7 @@ useEffect(() => {
                     id: generateId(),
                     name: file.name,
                     type: file.type,
-                    path: file.path,  // This will now have the full filesystem path!
+                    path: file.path, 
                     size: file.size,
                     preview: file.type.startsWith('image/') ? `file://${file.path}` : null
                 }));
@@ -3423,7 +3424,7 @@ useEffect(() => {
             console.error('Error selecting files:', error);
         }
         
-        // Clear the file input
+       
         if (event && event.target) {
             event.target.value = null;
         }
@@ -3431,23 +3432,23 @@ useEffect(() => {
 
     
 useEffect(() => {
-    // We only attach listeners if streaming is enabled in the config.
+   
     if (!config?.stream || listenersAttached.current) return;
 
     console.log('[REACT] Attaching PANE-AWARE stream listeners.');
 
-    // --- PANE-AWARE STREAM DATA HANDLER ---
+   
     const handleStreamData = (_, { streamId: incomingStreamId, chunk }) => {
-        // 1. Find which pane this stream belongs to.
+       
         const targetPaneId = streamToPaneRef.current[incomingStreamId];
-        if (!targetPaneId) return; // Ignore streams not meant for our panes.
+        if (!targetPaneId) return;
 
-        // 2. Get the data for that specific pane.
+       
         const paneData = contentDataRef.current[targetPaneId];
         if (!paneData || !paneData.chatMessages) return;
 
         try {
-            // (Your existing chunk parsing logic is excellent, we'll keep it)
+           
             let content = '', reasoningContent = '', toolCalls = null, isDecision = false;
             if (typeof chunk === 'string') {
                 if (chunk.startsWith('data:')) {
@@ -3468,7 +3469,7 @@ useEffect(() => {
                 toolCalls = chunk.tool_calls || null;
             }
 
-            // 3. Update the data *inside the correct pane's ref*.
+           
             const msgIndex = paneData.chatMessages.allMessages.findIndex(m => m.id === incomingStreamId);
             if (msgIndex !== -1) {
                 const message = paneData.chatMessages.allMessages[msgIndex];
@@ -3479,10 +3480,10 @@ useEffect(() => {
                     message.toolCalls = (message.toolCalls || []).concat(toolCalls);
                 }
 
-                // 4. Update the displayed messages slice.
+               
                 paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
 
-                // 5. Trigger a re-render.
+               
                 setRootLayoutNode(prev => ({ ...prev }));
             }
         } catch (err) {
@@ -3490,7 +3491,7 @@ useEffect(() => {
         }
     };
 
-    // --- PANE-AWARE STREAM COMPLETION HANDLER ---
+   
     const handleStreamComplete = async (_, { streamId: completedStreamId } = {}) => {
         const targetPaneId = streamToPaneRef.current[completedStreamId];
         if (targetPaneId) {
@@ -3502,7 +3503,7 @@ useEffect(() => {
                     paneData.chatMessages.allMessages[msgIndex].streamId = null;
                 }
                 
-                // UPDATE STATS AFTER COMPLETION
+               
                 paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
             }
             delete streamToPaneRef.current[completedStreamId];
@@ -3516,7 +3517,7 @@ useEffect(() => {
         await refreshConversations();
     };
     
-    // --- PANE-AWARE STREAM ERROR HANDLER ---
+   
     const handleStreamError = (_, { streamId: errorStreamId, error } = {}) => {
         const targetPaneId = streamToPaneRef.current[errorStreamId];
         if (targetPaneId) {
@@ -3552,13 +3553,13 @@ useEffect(() => {
         cleanupStreamError();
         listenersAttached.current = false;
     };
-}, [config]); // This dependency is correct.
+}, [config]);
 
 
 
 
 
-    // This effect ensures we always know which chat pane was last active.
+   
     useEffect(() => {
         if (activeContentPaneId) {
             const paneData = contentDataRef.current[activeContentPaneId];
@@ -3568,18 +3569,18 @@ useEffect(() => {
         }
     }, [activeContentPaneId]);
 const handleInterruptStream = async () => {
-    // Find the stream ID that belongs to the currently active chat pane.
+   
     const activePaneData = contentDataRef.current[activeContentPaneId];
     if (!activePaneData || !activePaneData.chatMessages) {
         console.warn("Interrupt clicked but no active chat pane found.");
         return;
     }
 
-    // Find the message that is currently streaming in this specific pane.
+   
     const streamingMessage = activePaneData.chatMessages.allMessages.find(m => m.isStreaming);
     if (!streamingMessage || !streamingMessage.streamId) {
         console.warn("Interrupt clicked, but no streaming message found in the active pane.");
-        // As a fallback, try to stop any stream if the UI is stuck.
+       
         if (isStreaming) {
             const anyStreamId = Object.keys(streamToPaneRef.current)[0];
             if (anyStreamId) {
@@ -3594,28 +3595,28 @@ const handleInterruptStream = async () => {
     const streamIdToInterrupt = streamingMessage.streamId;
     console.log(`[REACT] handleInterruptStream: Attempting to interrupt stream: ${streamIdToInterrupt}`);
 
-    // --- IMMEDIATE UI UPDATE (PANE-AWARE) ---
+   
     streamingMessage.content = (streamingMessage.content || '') + `\n\n[Stream Interrupted by User]`;
     streamingMessage.isStreaming = false;
     streamingMessage.streamId = null;
     
-    // Clean up the global tracking refs
+   
     delete streamToPaneRef.current[streamIdToInterrupt];
     if (Object.keys(streamToPaneRef.current).length === 0) {
         setIsStreaming(false);
     }
     
-    // Force a re-render to show the updated message text
+   
     setRootLayoutNode(prev => ({ ...prev }));
-    // --- END UI UPDATE ---
+   
 
-    // --- Call Backend API ---
+   
     try {
         await window.api.interruptStream(streamIdToInterrupt);
         console.log(`[REACT] handleInterruptStream: API call to interrupt stream ${streamIdToInterrupt} successful.`);
     } catch (error) {
         console.error(`[REACT] handleInterruptStream: API call to interrupt stream ${streamIdToInterrupt} failed:`, error);
-        // Optionally update the message again to show interruption attempt failed
+       
         streamingMessage.content += " [Interruption API call failed]";
         setRootLayoutNode(prev => ({ ...prev }));
     }
@@ -3626,11 +3627,11 @@ const getConversationStats = (messages) => {
     }
 
     const stats = messages.reduce((acc, msg) => {
-        // Improved token estimation: ~4 chars per token for English text
+       
         if (msg.content) {
             acc.tokenCount += Math.ceil(msg.content.length / 4);
         }
-        // Also count reasoning content if present
+       
         if (msg.reasoningContent) {
             acc.tokenCount += Math.ceil(msg.reasoningContent.length / 4);
         }
@@ -3653,10 +3654,10 @@ const getConversationStats = (messages) => {
 const handleSummarizeAndStart = async () => {
         const selectedIds = Array.from(selectedConvos);
         if (selectedIds.length === 0) return;
-        setContextMenuPos(null); // Close context menu
+        setContextMenuPos(null);
 
         try {
-            // 1. Fetch and format conversation content
+           
             const convosContentPromises = selectedIds.map(async (id, index) => {
                 const messages = await window.api.getConversationMessages(id);
                 if (!Array.isArray(messages)) {
@@ -3668,23 +3669,23 @@ const handleSummarizeAndStart = async () => {
             });
             const convosContent = await Promise.all(convosContentPromises);
             
-            // 2. Create the full prompt for the LLM
+           
             const fullPrompt = `Please provide a concise summary of the following ${selectedIds.length} conversation(s):\n\n` + convosContent.join('\n\n');
 
-            // 3. Create a new conversation for this operation
+           
             const newConversation = await createNewConversation();
             if (!newConversation) {
                 throw new Error('Failed to create a new conversation for the summary.');
             }
 
-            // Set the new conversation as active
+           
             setActiveConversationId(newConversation.id);
             setCurrentConversation(newConversation);
             setMessages([]);
             setAllMessages([]);
             setDisplayedMessageCount(10);
 
-            // 4. Prepare for the streaming response
+           
             const newStreamId = generateId();
             streamIdRef.current = newStreamId;
             setIsStreaming(true);
@@ -3714,7 +3715,7 @@ const handleSummarizeAndStart = async () => {
             setMessages([userMessage, assistantPlaceholderMessage]);
             setAllMessages([userMessage, assistantPlaceholderMessage]);
             
-            // 5. Execute the streaming command
+           
             await window.api.executeCommandStream({
                 commandstr: fullPrompt,
                 currentPath,
@@ -3730,10 +3731,10 @@ const handleSummarizeAndStart = async () => {
         } catch (err) {
             console.error('Error summarizing and starting new conversation:', err);
             setError(err.message);
-            setIsStreaming(false); // Reset streaming state on error
+            setIsStreaming(false);
             streamIdRef.current = null;
         } finally {
-            setSelectedConvos(new Set()); // Clear selection
+            setSelectedConvos(new Set());
         }
     };
 const handleSummarizeAndDraft = async () => {
@@ -3838,7 +3839,7 @@ const handleSummarizeAndPrompt = async () => {
 const renderSidebarItemContextMenu = () => {
     if (!sidebarItemContextMenuPos) return null;
     const { x, y, path, type } = sidebarItemContextMenuPos;
-    if (type !== 'file') return null; // Only show this for files for now
+    if (type !== 'file') return null;
 
     const selectedFilePaths = Array.from(selectedFiles);
 
@@ -4090,7 +4091,7 @@ const renderSidebar = () => {
         if (!structure || typeof structure !== 'object' || structure.error) { return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>; }
         if (Object.keys(structure).length === 0) { return <div className="p-2 text-xs text-gray-500">Empty directory</div>; }
         
-        // Section header with collapse toggle and a new refresh button
+       
         const header = (
             <div className="flex items-center justify-between px-4 py-2 mt-4">
                 <div className="text-xs text-gray-500 font-medium">Files and Folders</div>
@@ -4126,9 +4127,9 @@ const renderSidebar = () => {
             </div>
         );
         
-        // If collapsed, we still show the active file (if any)
+       
         if (filesCollapsed) {
-            // Find the currently open file in the structure
+           
             const findCurrentFile = (struct) => {
                 for (const [name, content] of Object.entries(struct)) {
                     if (content?.path === currentFile && content?.type === 'file') {
@@ -4210,11 +4211,11 @@ const renderSidebar = () => {
             );
             } else if (isFile) { 
                 const fileIcon = getFileIcon(name); 
-                const isActiveFile = currentFile === fullPath; // Highlight if this file is open
+                const isActiveFile = currentFile === fullPath;
                 const isSelected = selectedFiles.has(fullPath);
                 
-                // Get the actual file index (only coun
-                // ting files, not folders)
+               
+               
                 const fileEntries = sortedEntries.filter(([, content]) => content?.type === 'file');
                 const currentFileIndex = fileEntries.findIndex(([, content]) => content?.path === fullPath);
                
@@ -4226,7 +4227,7 @@ const renderSidebar = () => {
                             onDragEnd={handleGlobalDragEnd}
                             onClick={(e) => {
                                 if (e.ctrlKey || e.metaKey) {
-                                    // Ctrl+Click for multi-select
+                                   
                                     const newSelected = new Set(selectedFiles);
                                     if (newSelected.has(fullPath)) {
                                         newSelected.delete(fullPath);
@@ -4236,7 +4237,7 @@ const renderSidebar = () => {
                                     setSelectedFiles(newSelected);
                                     setLastClickedFileIndex(currentFileIndex);
                                 } else if (e.shiftKey && lastClickedFileIndex !== null) {
-                                    // Shift+Click for range selection
+                                   
                                     const newSelected = new Set();
                                     
                                     const start = Math.min(lastClickedFileIndex, currentFileIndex);
@@ -4249,13 +4250,13 @@ const renderSidebar = () => {
                                     }
                                     setSelectedFiles(newSelected);
                                 } else {
-                                    // Regular click - clear other selections and open file
+                                   
                                     setSelectedFiles(new Set([fullPath]));
                                     handleFileClick(fullPath);
                                     setLastClickedFileIndex(currentFileIndex);
                                 }
                             }}
-                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'file')} // <-- MODIFIED
+                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'file')}
                             className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all duration-200
                                 ${isActiveFile ? 'conversation-selected border-l-2 border-blue-500' : 
                                   isSelected ? 'conversation-selected' : 'hover:bg-gray-800'}`} 
@@ -4291,7 +4292,7 @@ const renderSidebar = () => {
                     id: generateId(),
                     name: file.name,
                     type: file.type,
-                    path: file.path,  // The full filesystem path is available here.
+                    path: file.path, 
                     size: file.size,
                     preview: file.type.startsWith('image/') ? `file://${file.path}` : null
                 }));
@@ -4341,7 +4342,7 @@ const renderSidebar = () => {
                         {result.matches[0] && (
                             <div
                                 className="text-xs text-gray-500 pl-6 mt-1 italic truncate"
-                                title={result.matches[0].snippet} // Show full snippet on hover
+                                title={result.matches[0].snippet}
                             >
                                 ...{result.matches[0].snippet}...
                                                        </div>
@@ -4361,14 +4362,14 @@ const renderSidebar = () => {
     const renderConversationList = (conversations) => {
         if (!conversations?.length) return null;
         
-        // Sort conversations by most recent message timestamp
+       
         const sortedConversations = [...conversations].sort((a, b) => {
             const aTimestamp = new Date(a.last_message_timestamp || a.timestamp).getTime();
             const bTimestamp = new Date(b.last_message_timestamp || b.timestamp).getTime();
             return bTimestamp - aTimestamp;
         });
         
-        // Section header with collapse toggle and refresh button
+       
         const header = (
             <div className="flex items-center justify-between px-4 py-2 mt-4">
                 <div className="text-xs text-gray-500 font-medium">Conversations ({sortedConversations.length})</div>
@@ -4403,7 +4404,7 @@ const renderSidebar = () => {
             </div>
         );
         
-        // If collapsed, we still show the active conversation (if any)
+       
         if (conversationsCollapsed) {
             const activeConversation = activeConversationId ? sortedConversations.find(conv => conv.id === activeConversationId) : null;
             
@@ -4433,7 +4434,7 @@ const renderSidebar = () => {
             );
         }
         
-        // Regular full list when not collapsed
+       
         return (
     
             <div className="mt-4">
@@ -4635,7 +4636,7 @@ const renderSidebar = () => {
 };
 
 const handleResendWithSettings = async (messageToResend, selectedModel, selectedNPC) => {
-    // 1. Get the currently active chat pane.
+   
     const activePaneData = contentDataRef.current[activeContentPaneId];
     if (!activePaneData || activePaneData.contentType !== 'chat' || !activePaneData.contentId) {
         setError("Cannot resend: The active pane is not a valid chat window.");
@@ -4646,17 +4647,17 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
         return;
     }
     const conversationId = activePaneData.contentId;
-    let newStreamId = null; // Declare here to be available in catch block
+    let newStreamId = null;
 
     try {
-        // 2. Prepare for the new streaming response.
+       
         newStreamId = generateId();
-        streamToPaneRef.current[newStreamId] = activeContentPaneId; // Link stream to the active pane
+        streamToPaneRef.current[newStreamId] = activeContentPaneId;
         setIsStreaming(true);
 
         const selectedNpc = availableNPCs.find(npc => npc.value === selectedNPC);
 
-        // 3. Create a copy of the user message and a placeholder for the AI response.
+       
         const resentUserMessage = {
             id: generateId(),
             role: 'user',
@@ -4676,24 +4677,24 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
             npc: selectedNPC,
         };
 
-        // 4. Add these messages to the *active pane's* data store.
+       
         if (!activePaneData.chatMessages) {
              activePaneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
         activePaneData.chatMessages.allMessages.push(resentUserMessage, assistantPlaceholderMessage);
         activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(-activePaneData.chatMessages.displayedMessageCount);
 
-        // 5. Trigger a re-render of the layout to show the changes.
+       
         setRootLayoutNode(prev => ({ ...prev }));
 
         const selectedModelObj = availableModels.find(m => m.value === selectedModel);
         const providerToUse = selectedModelObj ? selectedModelObj.provider : currentProvider;
 
-        // 6. Execute the command.
+       
         await window.api.executeCommandStream({
             commandstr: messageToResend.content,
             currentPath,
-            conversationId: conversationId, // Use the pane-specific ID
+            conversationId: conversationId,
             model: selectedModel,
             provider: providerToUse,
             npc: selectedNpc ? selectedNpc.name : selectedNPC,
@@ -4708,7 +4709,7 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
         console.error('Error resending message:', err);
         setError(err.message);
         
-        // Update the placeholder in the correct pane to show the error
+       
         if (activePaneData.chatMessages) {
             const msgIndex = activePaneData.chatMessages.allMessages.findIndex(m => m.id === newStreamId);
             if (msgIndex !== -1) {
@@ -4719,7 +4720,7 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
             }
         }
 
-        // Clean up streaming state if the API call itself failed
+       
         if (newStreamId) delete streamToPaneRef.current[newStreamId];
         if (Object.keys(streamToPaneRef.current).length === 0) {
             setIsStreaming(false);
@@ -4728,6 +4729,28 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
         setRootLayoutNode(prev => ({ ...prev }));
     }
 };
+
+    const fetchTools = async (serverPath) => {
+        if (!serverPath) {
+            setAvailableMcpTools([]);
+            setSelectedMcpTools([]);
+            return;
+        }
+        try {
+            // Include conversationId and currentNPC in the request
+            const response = await window.api.getMcpTools(serverPath, activeConversationId, currentNPC); // <-- ADDED PARAMS
+            if (response.tools && Array.isArray(response.tools)) {
+                setAvailableMcpTools(response.tools.map(tool => tool.function.name));
+            } else {
+                setAvailableMcpTools([]);
+            }
+            setSelectedMcpTools([]);
+        } catch (err) {
+            console.error("Error fetching MCP tools:", err);
+            setAvailableMcpTools([]);
+            setSelectedMcpTools([]);
+        }
+    };
 
 
 
@@ -4919,6 +4942,19 @@ const renderInputArea = () => {
                         </select>
                     </div>
                 )}
+                    {executionMode === 'corca' && (
+                        <div className="flex-grow">
+                            <input
+                                type="text"
+                                value={mcpServerPath}
+                                onChange={(e) => setMcpServerPath(e.target.value)}
+                                placeholder="MCP server path (optional)"
+                                className="w-full theme-input text-xs rounded px-2 py-1 border"
+                                disabled={isStreaming}
+                            />
+                        </div>
+                    )}
+
             </div>
         </div>
     );
@@ -4978,10 +5014,10 @@ const renderAttachmentThumbnails = () => {
             isOpen={dashboardMenuOpen} 
             onClose={() => {
                 setDashboardMenuOpen(false);
-                setAnalysisContext(null); // Reset context on close
+                setAnalysisContext(null);
             }}
-            initialAnalysisContext={analysisContext} // Pass the context
-            // Add these props:
+            initialAnalysisContext={analysisContext}
+           
             currentModel={currentModel}
             currentProvider={currentProvider}
             currentNPC={currentNPC}
@@ -5147,7 +5183,7 @@ const renderAttachmentThumbnails = () => {
                 {/* --- DYNAMIC CONTENT AREA --- */}
                 <div className="flex-1 overflow-y-auto mt-2 border theme-border rounded">
                     {aiEditModal.isLoading ? (
-                        // WHILE LOADING: Show raw, streaming text
+                       
                         <div className="p-3">
                             <h4 className="text-sm font-medium theme-text-primary mb-2">Generating...</h4>
                             <pre className="text-xs whitespace-pre-wrap theme-text-secondary">
@@ -5156,10 +5192,10 @@ const renderAttachmentThumbnails = () => {
                             </pre>
                         </div>
                     ) : (
-                        // AFTER LOADING: Show formatted result
+                       
                         aiEditModal.aiResponse && (
                             aiEditModal.showDiff ? (
-                                // Final Diff View
+                               
                                 <div>
                                     <h4 className="text-sm font-medium theme-text-primary p-3">Changes Preview:</h4>
                                     <div className="theme-bg-primary">
@@ -5180,7 +5216,7 @@ const renderAttachmentThumbnails = () => {
                                     </div>
                                 </div>
                             ) : (
-                                // Final Markdown View for "Ask AI"
+                               
                                 <div className="p-3">
                                     <h4 className="text-sm font-medium theme-text-primary mb-2">AI Analysis:</h4>
                                     <div className="prose prose-sm prose-invert max-w-none theme-text-primary">
@@ -5234,7 +5270,7 @@ const renderAttachmentThumbnails = () => {
     );
 
 
-    // --- NEW: Missing handler functions ---
+   
     const handleOpenNpcTeamMenu = () => {
         setNpcTeamMenuOpen(true);
     };
@@ -5244,11 +5280,11 @@ const renderAttachmentThumbnails = () => {
     };
 
 const handleSearchResultSelect = async (conversationId, searchTerm) => {
-    // Select the conversation.
+   
     await handleConversationSelect(conversationId);
 
     setTimeout(() => {
-        // Update state with search results
+       
         setAllMessages(currentMessages => {
             const results = [];
             currentMessages.forEach((msg, index) => {
@@ -5265,7 +5301,7 @@ const handleSearchResultSelect = async (conversationId, searchTerm) => {
                 const firstResultId = results[0].messageId;
                 setActiveSearchResult(firstResultId);
 
-                // Scroll to the first result
+               
                 setTimeout(() => {
                     const messageElement = document.getElementById(`message-${firstResultId}`);
                     if (messageElement) {
@@ -5315,13 +5351,13 @@ const renderMainContent = () => {
                         contentType = 'chat';
                     } else if (draggedItem.type === 'browser') {
                         contentType = 'browser';
-                    } else if (draggedItem.type === 'terminal') { // <-- ADD THIS
+                    } else if (draggedItem.type === 'terminal') {
                         contentType = 'terminal';
                     } else if (draggedItem.type === 'file') {
                         const extension = draggedItem.id.split('.').pop()?.toLowerCase();
                         contentType = extension === 'pdf' ? 'pdf' : 'editor';
                     } else {
-                        contentType = 'editor'; // fallback
+                        contentType = 'editor';
                     }
                     
                     contentDataRef.current[newPaneId] = {};
@@ -5335,7 +5371,7 @@ const renderMainContent = () => {
                     <div className="text-xl mb-2">No panes open</div>
                     <div>Drag a conversation or file here to create a new pane</div>
                 </div>
-            </div> // <-- Closing div added here
+            </div>
         );
     }
 

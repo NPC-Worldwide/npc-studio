@@ -12,7 +12,7 @@ const NPCTeamMenu = ({ isOpen, onClose, currentPath, startNewConversation }) => 
     const [isGlobal, setIsGlobal] = useState(true);
     const [editedNpc, setEditedNpc] = useState(null);
 
-    // MODIFICATION: Added useEffect for Escape key handling
+   
     useEffect(() => {
         const handleKeyDown = (event) => {
             if (event.key === 'Escape') {
@@ -84,7 +84,7 @@ const NPCTeamMenu = ({ isOpen, onClose, currentPath, startNewConversation }) => 
 
     if (!isOpen) return null;
 
-    // The rest of the component's JSX remains the same as provided previously
+   
     return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
             <div className="theme-bg-secondary rounded-lg shadow-xl w-full max-w-6xl max-h-[85vh] flex flex-col">

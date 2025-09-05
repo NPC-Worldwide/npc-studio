@@ -11,7 +11,7 @@ const BrowserUrlDialog = ({ isOpen, onClose, onNavigate, currentPath }) => {
     useEffect(() => {
         if (isOpen) {
             loadBookmarksAndHistory();
-            setUrlInput(''); // Clear input when dialog opens
+            setUrlInput('');
         }
     }, [isOpen, currentPath]);
 
@@ -62,7 +62,7 @@ const BrowserUrlDialog = ({ isOpen, onClose, onNavigate, currentPath }) => {
             
             if (result.success) {
                 await loadBookmarksAndHistory();
-                setActiveTab('bookmarks'); // Switch to bookmarks tab to show the new bookmark
+                setActiveTab('bookmarks');
             }
         } catch (error) {
             console.error('Error adding bookmark:', error);
@@ -84,7 +84,7 @@ const BrowserUrlDialog = ({ isOpen, onClose, onNavigate, currentPath }) => {
     const handleMakeGlobal = async (bookmark, e) => {
         e.stopPropagation();
         try {
-            // Delete old bookmark and create global one
+           
             await window.api.browserDeleteBookmark({ bookmarkId: bookmark.id });
             await window.api.browserAddBookmark({
                 url: bookmark.url,

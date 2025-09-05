@@ -5,7 +5,7 @@ import {
 import AutosizeTextarea from './AutosizeTextarea';
 
 const JinxMenu = ({ isOpen, onClose, currentPath }) => {
-    // ... no changes to state or other functions ...
+   
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [jinxs, setJinxs] = useState([]);
@@ -103,7 +103,7 @@ const JinxMenu = ({ isOpen, onClose, currentPath }) => {
         }
     };
     
-    // ... (rest of the component is the same as before) ...
+   
     if (!isOpen) return null;
  
     return (

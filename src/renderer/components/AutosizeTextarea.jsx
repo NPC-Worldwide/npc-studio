@@ -6,10 +6,10 @@ const AutosizeTextarea = ({ value, ...props }) => {
     useEffect(() => {
         const textarea = textareaRef.current;
         if (textarea) {
-            textarea.style.height = 'auto'; // Reset height to recalculate
-            textarea.style.height = `${textarea.scrollHeight}px`; // Set to content height
+            textarea.style.height = 'auto';
+            textarea.style.height = `${textarea.scrollHeight}px`;
         }
-    }, [value]); // Rerun this effect when the text value changes
+    }, [value]);
 
     return (
         <textarea

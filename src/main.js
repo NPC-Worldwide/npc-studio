@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs/promises');
 const os = require('os');
-const pty = require('node-pty'); // <-- ADD THIS
+const pty = require('node-pty');
 
 const sqlite3 = require('sqlite3');
 const dbPath = path.join(os.homedir(), 'npcsh_history.db');
@@ -82,12 +82,12 @@ const log = (...messages) => {
 };
 // Use Option+Space on macOS, Command/Control+Space elsewhere
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
-const ptySessions = new Map(); // <-- ADD THIS
+const ptySessions = new Map();
 const ptyKillTimers = new Map();
 
 // In main.js
 const dbQuery = (query, params = []) => {
-  // CORRECTED: Also treat PRAGMA as a read query
+ 
   const isReadQuery = query.trim().toUpperCase().startsWith('SELECT') || query.trim().toUpperCase().startsWith('PRAGMA');
   console.log(`[DB] EXECUTING: ${query.substring(0, 100).replace(/\s+/g, ' ')}...`, params);
 
@@ -99,8 +99,8 @@ const dbQuery = (query, params = []) => {
           }
       });
 
-      if (isReadQuery) { // Use the corrected check
-          // Use .all for SELECT and PRAGMA queries to get rows back
+      if (isReadQuery) {
+         
           db.all(query, params, (err, rows) => {
               db.close();
               if (err) {
@@ -110,7 +110,7 @@ const dbQuery = (query, params = []) => {
               resolve(rows);
           });
       } else {
-          // Use .run for INSERT, UPDATE, DELETE to get info like lastID
+         
           db.run(query, params, function(err) {
               db.close();
               if (err) {
@@ -133,7 +133,7 @@ const DEFAULT_CONFIG = {
 };
 
 function generateId() {
-  return crypto.randomUUID(); // Requires crypto module
+  return crypto.randomUUID();
 }
 
 const activeStreams = new Map();
@@ -142,7 +142,7 @@ const activeStreams = new Map();
 let isCapturingScreenshot = false;
 
 let lastScreenshotTime = 0;
-const SCREENSHOT_COOLDOWN = 1000; // 1 second cooldown between screenshots
+const SCREENSHOT_COOLDOWN = 1000;
 
 let backendProcess = null;
 
@@ -158,11 +158,11 @@ async function waitForServer(maxAttempts = 120, delay = 1000) {
         return true;
       }
     } catch (err) {
-      // Server not ready yet, will retry
+     
       log(`Waiting for server... attempt ${attempt}/${maxAttempts}`);
     }
     
-    // Wait before next attempt
+   
     await new Promise(resolve => setTimeout(resolve, delay));
   }
   
@@ -184,9 +184,9 @@ async function ensureBaseDir() {
 
 
 app.whenReady().then(async () => {
-  // Ensure user data directory exists
+ 
   const dataPath = ensureUserDataDirectory();
-  await ensureTablesExist(); // <<< ADD THIS LINE. IT MUST BE CALLED.
+  await ensureTablesExist();
 
   protocol.registerFileProtocol('file', (request, callback) => {
     const filepath = request.url.replace('file://', '');
@@ -208,7 +208,7 @@ app.whenReady().then(async () => {
 
   try {
     log('Starting backend server...');
-    // Use the bundled Python executable instead of 'npc serve'
+   
     const executableName = process.platform === 'win32' ? 'npc_studio_serve.exe' : 'npc_studio_serve';
     const backendPath = app.isPackaged 
       ? path.join(process.resourcesPath, 'backend', executableName)
@@ -216,10 +216,10 @@ app.whenReady().then(async () => {
     
     log(`Using backend path: ${backendPath}`);
     
-    // Make sure it's executable
-    //if (app.isPackaged && fs.existsSync(backendPath)) {
-    //  fs.chmodSync(backendPath, '755');
-    //}
+   
+   
+   
+   
     
     backendProcess = spawn(backendPath, {
       stdio: 'inherit',
@@ -239,17 +239,17 @@ app.whenReady().then(async () => {
     });
 
     
-    // Wait for server to be ready before proceeding
+   
     const serverReady = await waitForServer();
     if (!serverReady) {
       console.error('Backend server failed to start in time');
-      // You might want to display an error message to the user here
+     
     }
   } catch (err) {
     console.error('Error spawning backend server:', err);
   }
 
-  // Ensure base directories and create the main window
+ 
   await ensureBaseDir();
   createWindow();
 });
@@ -264,7 +264,7 @@ async function callBackendApi(url, options = {}) {
     return await response.json();
   } catch (err) {
     console.error(`API call failed to ${url}:`, err);
-    // Return a consistent error object
+   
     return { error: err.message, success: false };
   }
 }
@@ -303,7 +303,7 @@ function registerGlobalShortcut(win) {
       }
     }
 
-    // Register the macro shortcut
+   
     const macroSuccess = globalShortcut.register(shortcut, () => {
       if (win.isMinimized()) win.restore();
       win.focus();
@@ -312,7 +312,7 @@ function registerGlobalShortcut(win) {
     console.log('Macro shortcut registered:', macroSuccess);
     
     const screenshotSuccess = globalShortcut.register('Alt+Shift+4', async () => {
-      // Prevent multiple captures at once
+     
       const now = Date.now();
       if (isCapturingScreenshot || (now - lastScreenshotTime) < SCREENSHOT_COOLDOWN) {
         console.log('Screenshot capture blocked - too soon or already capturing');
@@ -342,7 +342,7 @@ function registerGlobalShortcut(win) {
 
       const selectionPath = path.join(__dirname, 'renderer', 'components', 'selection.html');
 
-      // Use a single event handler
+     
       const handleScreenshot = async (event, bounds) => {
         try {
           const sources = await desktopCapturer.getSources({
@@ -358,16 +358,16 @@ function registerGlobalShortcut(win) {
           console.log(image);
           const screenshotPath = path.join(DEFAULT_CONFIG.baseDir, 'screenshots', `screenshot-${Date.now()}.png`);
 
-          // Write file synchronously
+         
           fs.writeFileSync(screenshotPath, image.toPNG());
 
-          // Send event once
+         
           win.webContents.send('screenshot-captured', screenshotPath);
 
         } catch (error) {
           console.error('Screenshot failed:', error);
         } finally {
-          // Clean up
+         
           ipcMain.removeListener('selection-complete', handleScreenshot);
           selectionWindow.close();
           isCapturingScreenshot = false;
@@ -412,7 +412,7 @@ if (!gotTheLock) {
     return filepath;
   };
 
-  // Second instance handler
+ 
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     const windows = BrowserWindow.getAllWindows();
     if (windows.length) {
@@ -443,7 +443,7 @@ if (!gotTheLock) {
     }
     await window.api.get_attachment_response(attachmentData);
   };
-  // Add this near your other protocol.registerFileProtocol calls
+ 
 
   protocol.registerSchemesAsPrivileged([{
     scheme: 'media',
@@ -491,26 +491,26 @@ if (!gotTheLock) {
       createWindow();
     }
 
-    // Get all screens
+   
     const { screen } = require('electron');
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.workAreaSize;
 
-    // Center the window
+   
     mainWindow.setPosition(
-      Math.round(width / 2 - 600), // Assuming window width is 1200
-      Math.round(height / 2 - 400)  // Assuming window height is 800
+      Math.round(width / 2 - 600),
+      Math.round(height / 2 - 400) 
     );
 
     mainWindow.show();
     mainWindow.focus();
 
-    // Tell renderer to show macro input
+   
     mainWindow.webContents.send('show-macro-input');
   }
-  const browserViews = new Map(); // Stores state: { view, bounds, visible }
+  const browserViews = new Map();
 
-  // --- 2. Update 'show-browser' handler ---
+ 
   ipcMain.handle('show-browser', (event, { url, bounds, viewId }) => {
       log(`[BROWSER VIEW] Received 'show-browser' for URL: ${url}, viewId: ${viewId}`);
       if (!mainWindow) return { success: false, error: 'Main window not found' };
@@ -532,7 +532,7 @@ if (!gotTheLock) {
       mainWindow.addBrowserView(newBrowserView);
       newBrowserView.setBounds(bounds);
       
-      // Store the complete state
+     
       browserViews.set(viewId, { view: newBrowserView, bounds, visible: true });
   
 
@@ -542,22 +542,22 @@ if (!gotTheLock) {
         if (selectionText && selectionText.trim().length > 0) {
             log(`[BROWSER CONTEXT] Selected text found, hiding view for menu.`);
           
-            // --- THIS IS THE FIX ---
-            // 1. Find the view's state from our map
+           
+           
             if (browserViews.has(viewId)) {
                 const browserState = browserViews.get(viewId);
                 
-                // 2. Temporarily hide the BrowserView by moving it off-screen
+               
                 browserState.view.setBounds({ x: -2000, y: -2000, width: 0, height: 0 });
-                // We DON'T set `visible: false` because this is a temporary hide
+               
                 
-                // 3. Tell React to show the HTML menu, passing the viewId
+               
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('browser-show-context-menu', {
                         x,
                         y,
                         selectedText: selectionText.trim(),
-                        viewId // Pass the viewId so React knows which view to restore
+                        viewId
                     });
                 }
             }
@@ -569,7 +569,7 @@ if (!gotTheLock) {
       return { success: true, viewId };
   });
   
-  // --- 3. Add NEW 'browser:set-visibility' handler ---
+ 
   ipcMain.handle('browser:set-visibility', (event, { viewId, visible }) => {
       if (browserViews.has(viewId)) {
           const browserState = browserViews.get(viewId);
@@ -579,7 +579,7 @@ if (!gotTheLock) {
               browserState.visible = true;
           } else {
               log(`[BROWSER VIEW] Setting visibility to FALSE for ${viewId}`);
-              // Hide by moving it off-screen with zero size
+             
               browserState.view.setBounds({ x: -2000, y: -2000, width: 0, height: 0 });
               browserState.visible = false;
           }
@@ -588,13 +588,13 @@ if (!gotTheLock) {
       return { success: false, error: 'View not found' };
   });
   
-  // --- 4. Update 'update-browser-bounds' handler ---
+ 
   ipcMain.handle('update-browser-bounds', (event, { viewId, bounds }) => {
       if (browserViews.has(viewId)) {
           const browserState = browserViews.get(viewId);
-          browserState.bounds = bounds; // Always update stored bounds
+          browserState.bounds = bounds;
           
-          // Only set bounds if the view is supposed to be visible
+         
           if (browserState.visible) {
               browserState.view.setBounds(bounds);
           }
@@ -603,7 +603,7 @@ if (!gotTheLock) {
       return { success: false, error: 'Browser view not found' };
   });
   
-  // --- 5. Update 'hide-browser' handler ---
+ 
   ipcMain.handle('hide-browser', (event, { viewId }) => {
       log(`[BROWSER VIEW] Received 'hide-browser' for viewId: ${viewId}`);
       if (browserViews.has(viewId) && mainWindow && !mainWindow.isDestroyed()) {
@@ -611,7 +611,7 @@ if (!gotTheLock) {
           const browserState = browserViews.get(viewId);
           mainWindow.removeBrowserView(browserState.view);
           browserState.view.webContents.destroy();
-          browserViews.delete(viewId); // Clean up the map
+          browserViews.delete(viewId);
           return { success: true };
       }
       return { success: false, error: 'Browser view not found' };
@@ -621,20 +621,20 @@ if (!gotTheLock) {
   
   ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath }) => {
     try {
-      // Check if URL already exists in this folder
+     
       const existing = await dbQuery(
         'SELECT id, visit_count FROM browser_history WHERE url = ? AND folder_path = ?', 
         [url, folderPath]
       );
       
       if (existing.length > 0) {
-        // Update existing record
+       
         await dbQuery(
           'UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ? WHERE id = ?',
           [title, existing[0].id]
         );
       } else {
-        // Insert new record
+       
         await dbQuery(
           'INSERT INTO browser_history (url, title, folder_path) VALUES (?, ?, ?)',
           [url, title, folderPath]
@@ -672,7 +672,7 @@ if (!gotTheLock) {
   
   ipcMain.handle('browser:getBookmarks', async (event, { folderPath }) => {
     try {
-      // Get both local and global bookmarks
+     
       const bookmarks = await dbQuery(
         'SELECT * FROM bookmarks WHERE (folder_path = ? OR is_global = 1) ORDER BY is_global ASC, timestamp DESC',
         [folderPath]
@@ -848,14 +848,14 @@ function createWindow() {
 
 
     ipcMain.handle('getAvailableModels', async (event, currentPath) => {
-      //log('Handler: getAvailableModels called for path:', currentPath); // Use your log function
+     
       if (!currentPath) {
           log('Error: getAvailableModels called without currentPath');
           return { models: [], error: 'Current path is required to fetch models.' };
       }
       try {
           const url = `http://127.0.0.1:5337/api/models?currentPath=${encodeURIComponent(currentPath)}`;
-          log('Fetching models from:', url); // Log the URL being called
+          log('Fetching models from:', url);
 
           const response = await fetch(url);
 
@@ -866,21 +866,21 @@ function createWindow() {
           }
 
           const data = await response.json();
-          log('Received models:', data.models?.length); // Log how many models received
-          return data; // Should be { models: [...], error: null } on success
+          log('Received models:', data.models?.length);
+          return data;
 
       } catch (err) {
-          log('Error in getAvailableModels handler:', err); // Log the error
-          // Ensure a consistent error structure is returned
+          log('Error in getAvailableModels handler:', err);
+         
           return { models: [], error: err.message || 'Failed to fetch models from backend' };
       }
   });
 
   ipcMain.handle('db:getHighlightsForFile', async (event, { filePath }) => {
     try {
-      ensureTablesExist(); // Ensure tables exist before querying
+      ensureTablesExist();
       const rows = await dbQuery('SELECT * FROM pdf_highlights WHERE file_path = ? ORDER BY id ASC', [filePath]);
-      // We need to parse the position data back into an object
+     
       return { highlights: rows.map(r => ({ ...r, position: JSON.parse(r.position_json) })) };
     } catch (error) {
       return { error: error.message };
@@ -916,18 +916,18 @@ function createWindow() {
         timestamp: data.timestamp
     }, '*');
 });
-  // Update IPC handler to modify npcshrc
+ 
   ipcMain.handle('update-shortcut', (event, newShortcut) => {
     const rcPath = path.join(os.homedir(), '.npcshrc');
     try {
       let rcContent = '';
       if (fsPromises.existsSync(rcPath)) {
         rcContent = fsPromises.readFileSync(rcPath, 'utf8');
-        // Replace existing shortcut if it exists
+       
         if (rcContent.includes('CHAT_SHORTCUT=')) {
           rcContent = rcContent.replace(/CHAT_SHORTCUT=["']?[^"'\n]+["']?/, `CHAT_SHORTCUT="${newShortcut}"`);
         } else {
-          // Add new shortcut line if it doesn't exist
+         
           rcContent += `\nCHAT_SHORTCUT="${newShortcut}"\n`;
         }
       } else {
@@ -948,7 +948,7 @@ function createWindow() {
     const result = await dialog.showOpenDialog(options);
     
     if (!result.canceled && result.filePaths.length > 0) {
-      // Return file info with real paths
+     
       return result.filePaths.map(filePath => {
         const stats = fs.statSync(filePath);
         return {
@@ -963,7 +963,7 @@ function createWindow() {
     return [];
   });
   
-  // Helper function to get MIME type - add this near the top of your main.js
+ 
   function getFileType(filePath) {
     const ext = path.extname(filePath).toLowerCase();
     const mimeTypes = {
@@ -988,8 +988,8 @@ ipcMain.handle('ollama:checkStatus', async () => {
 
 ipcMain.handle('ollama:install', async () => {
     log('[Main Process] Requesting Ollama installation from backend...');
-    // This could be a long-running process. The backend should handle this asynchronously.
-    // The `callBackendApi` might need a timeout adjustment if it's very long.
+   
+   
     return await callBackendApi('http://127.0.0.1:5337/api/ollama/install', { method: 'POST' });
 });
 
@@ -1024,7 +1024,7 @@ ipcMain.handle('ollama:pullModel', async (event, { model }) => {
         const stream = response.body;
         stream.on('data', (chunk) => {
             try {
-                // The backend should send newline-delimited JSON objects for progress
+               
                 const progressLines = chunk.toString().trim().split('\n');
                 for (const line of progressLines) {
                     if (line) {
@@ -1033,9 +1033,9 @@ ipcMain.handle('ollama:pullModel', async (event, { model }) => {
                     if (progress.status && progress.status.toLowerCase() === 'error') {
                         log(`[Ollama Pull] Received error from backend stream:`, progress.details);
                         mainWindow?.webContents.send('ollama-pull-error', progress.details || 'An unknown error occurred during download.');
-                        // We can stop processing this stream now if we want, but letting it end naturally is also fine.
+                       
                     } else {
-                        // It's a normal progress update
+                       
                         const frontendProgress = {
                             status: progress.status,
                             details: `${progress.digest || ''} - ${progress.total ? (progress.completed / progress.total * 100).toFixed(1) + '%' : ''}`,
@@ -1050,7 +1050,7 @@ ipcMain.handle('ollama:pullModel', async (event, { model }) => {
                 }
             } catch (e) {
                 console.error('Error parsing pull progress:', e);
-                // Send a generic error if parsing fails
+               
                 mainWindow?.webContents.send('ollama-pull-error', 'Failed to parse progress update.');
             }
         });
@@ -1124,7 +1124,7 @@ ipcMain.handle('saveGlobalSettings', async (event, { global_settings, global_var
 
 ipcMain.handle('kg:getNetworkStats', async (event, { generation }) => {
   const params = generation !== null ? `?generation=${generation}` : '';
-  // Note: Ensure callBackendApi can handle GET requests without a body
+ 
   return await callBackendApi(`http://127.0.0.1:5337/api/kg/network-stats${params}`);
 });
 
@@ -1186,14 +1186,14 @@ ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
     const result = await response.json();
     log(`[Main Process] Backend response to interruption:`, result.message);
     
-    // It's still good practice to destroy the client-side stream to stop processing
-    // any data that might already be in the pipe.
+   
+   
     if (activeStreams.has(streamIdToInterrupt)) {
         const { stream } = activeStreams.get(streamIdToInterrupt);
         if (stream && typeof stream.destroy === 'function') {
             stream.destroy();
         }
-        // The 'end' and 'error' listeners on the stream will handle deleting from activeStreams.
+       
     }
     
     return { success: true };
@@ -1205,8 +1205,8 @@ ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
 });
 
 ipcMain.handle('wait-for-screenshot', async (event, screenshotPath) => {
-    const maxAttempts = 20; // 10 seconds total
-    const delay = 500; // 500ms between attempts
+    const maxAttempts = 20;
+    const delay = 500;
 
     for (let i = 0; i < maxAttempts; i++) {
       try {
@@ -1216,7 +1216,7 @@ ipcMain.handle('wait-for-screenshot', async (event, screenshotPath) => {
           return true;
         }
       } catch (err) {
-        // File doesn't exist yet or is empty
+       
       }
       await new Promise(resolve => setTimeout(resolve, delay));
     }
@@ -1276,7 +1276,7 @@ app.on('will-quit', () => {
 
       const data = await response.json();
       return {
-        npcs: data.npcs || []  // Ensure we always return an array
+        npcs: data.npcs || [] 
       };
     } catch (error) {
       console.error('Error fetching NPC team:', error);
@@ -1356,8 +1356,8 @@ app.on('will-quit', () => {
         }
         
         const data = await response.json();
-        console.log('Global jinxs data:', data); // Log the data
-        return data; // Make sure we're returning the whole response
+        console.log('Global jinxs data:', data);
+        return data;
     } catch (err) {
         console.error('Error loading global jinxs:', err);
         return { jinxs: [], error: err.message };
@@ -1373,7 +1373,7 @@ ipcMain.handle('db:listTables', async () => {
 });
 
 ipcMain.handle('db:getTableSchema', async (event, { tableName }) => {
-  // Basic validation to prevent obvious SQL injection
+ 
   if (!/^[a-zA-Z0-9_]+$/.test(tableName)) {
       return { error: 'Invalid table name provided.' };
   }
@@ -1405,7 +1405,7 @@ ipcMain.handle('db:exportCSV', async (event, data) => {
         const rows = data.map(row => {
             return Object.values(row).map(value => {
                 const strValue = String(value ?? '');
-                // Handle commas, quotes, and newlines in values
+               
                 if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
                     return `"${strValue.replace(/"/g, '""')}"`;
                 }
@@ -1431,8 +1431,8 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
       }
       
       const data = await response.json();
-      console.log('Project jinxs data:', data); // Log the data
-      return data; // Make sure we're returning the whole response
+      console.log('Project jinxs data:', data);
+      return data;
   } catch (err) {
       console.error('Error loading project jinxs:', err);
       return { jinxs: [], error: err.message };
@@ -1477,16 +1477,16 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
 
 
 ipcMain.handle('executeCommandStream', async (event, data) => {
-  // Your React code is already generating a streamId, which is perfect.
+ 
   const currentStreamId = data.streamId || generateId(); 
   log(`[Main Process] executeCommandStream: Starting stream with ID: ${currentStreamId}`);
   
   try {
-    const apiUrl = 'http://127.0.0.1:5337/api/stream'; // Or /api/execute if that's the one
+    const apiUrl = 'http://127.0.0.1:5337/api/stream';
     
-    // --- KEY CHANGE: Ensure streamId is in the payload ---
+   
     const payload = {
-      streamId: currentStreamId, // Pass the ID to the backend
+      streamId: currentStreamId,
       commandstr: data.commandstr,
       currentPath: data.currentPath,
       conversationId: data.conversationId,
@@ -1496,6 +1496,8 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       npcSource: data.npcSource || 'global',
       attachments: data.attachments || [], 
       executionMode: data.executionMode || 'chat', 
+      mcpServerPath: data.executionMode === 'corca' ? data.mcpServerPath : undefined, 
+
       jinxs: data.jinxs || [],  
       tools: data.tools || [],     
 
@@ -1519,10 +1521,10 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       return { error: 'Backend returned no stream data.', streamId: currentStreamId };
     }
     
-    // Keep track of the stream to manage listeners
+   
     activeStreams.set(currentStreamId, { stream, eventSender: event.sender });
     
-    // This listener setup is correct and does not need to change.
+   
     (function(capturedStreamId) {
       stream.on('data', (chunk) => {
         if (event.sender.isDestroyed()) {
@@ -1608,7 +1610,7 @@ ipcMain.handle('getAvailableImageModels', async (event, currentPath) => {
       const url = `http://127.0.0.1:5337/api/image_models?currentPath=${encodeURIComponent(currentPath)}`;
       log('Fetching image models from:', url);
 
-      const response = await fetch(url); // No 'body' for GET request
+      const response = await fetch(url);
 
       if (!response.ok) {
           const errorText = await response.text();
@@ -1660,7 +1662,7 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
       }
 
       const data = await response.json();
-      // The backend now returns { images: [...] } with base64 data URLs
+     
       if (data.error) {
           return { error: data.error };
       }
@@ -1678,7 +1680,7 @@ ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
     clearTimeout(ptyKillTimers.get(id));
     ptyKillTimers.delete(id);
     
-    // If the session still exists, we don't need to do anything else. It's ready.
+   
     if (ptySessions.has(id)) {
         console.log(`[PTY] INFO: Session ${id} already exists and is active. Re-attaching.`);
         return { success: true };
@@ -1708,7 +1710,7 @@ ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
 
     ptyProcess.onExit(({ exitCode, signal }) => {
       console.log(`[Main Process] INFO: PTY process ${id} has exited. Code: ${exitCode}, Signal: ${signal}.`);
-      ptySessions.delete(id); // Clean up the session from the map
+      ptySessions.delete(id);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('terminal-closed', { id });
       }
@@ -1724,22 +1726,22 @@ ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
 });
 
 ipcMain.handle('closeTerminalSession', (event, id) => {
-  // --- THIS IS THE OTHER KEY ---
-  // Instead of killing immediately, we set a timer.
-  // This gives the app a brief moment (100ms) to cancel the kill if it was just a re-render.
+ 
+ 
+ 
   if (ptySessions.has(id)) {
     console.log(`[PTY] INFO: Received request to close session ${id}. Setting a 100ms delayed kill timer.`);
     
-    // If there's already a timer, do nothing.
+   
     if (ptyKillTimers.has(id)) return { success: true };
 
     const timer = setTimeout(() => {
       if (ptySessions.has(id)) {
         console.log(`[PTY] INFO: Executing delayed kill for session ${id}.`);
         ptySessions.get(id).kill();
-        // The onExit handler will clean up the ptySessions map.
+       
       }
-      ptyKillTimers.delete(id); // Clean up the timer itself
+      ptyKillTimers.delete(id);
     }, 100);
 
     ptyKillTimers.set(id, timer);
@@ -1784,7 +1786,7 @@ ipcMain.handle('executeShellCommand', async (event, { command, currentPath }) =>
             console.log(`[TERMINAL DEBUG] STDERR: "${stderr}"`);
             console.log(`[TERMINAL DEBUG] ERROR: ${error}`);
 
-            // Convert Unix line endings to terminal-friendly format
+           
             const normalizedStdout = stdout.replace(/\n/g, '\r\n');
             const normalizedStderr = stderr.replace(/\n/g, '\r\n');
 
@@ -1934,7 +1936,7 @@ ipcMain.handle('executeCommand', async (event, data) => {
             throw new Error('Backend returned no stream data.');
         }
 
-        // Match the working stream pattern
+       
         activeStreams.set(currentStreamId, { stream, eventSender: event.sender });
 
         stream.on('data', (chunk) => {
@@ -1980,8 +1982,8 @@ ipcMain.handle('executeCommand', async (event, data) => {
 });
 ipcMain.handle('getConversations', async (_, path) => {
     try {
-      //console.log('Handler: getConversations called for path:', path);
-      // Add filesystem check to see if directory exists
+     
+     
       try {
         await fsPromises.access(path);
         console.log('Directory exists and is accessible');
@@ -2001,7 +2003,7 @@ ipcMain.handle('getConversations', async (_, path) => {
       }
 
       const responseText = await response.text();
-      //console.log('Raw API response text:', responseText);
+     
 
       let data;
       try {
@@ -2011,9 +2013,9 @@ ipcMain.handle('getConversations', async (_, path) => {
         return { conversations: [], error: 'Invalid JSON response' };
       }
 
-      //console.log('Parsed conversations data from API:', data);
+     
 
-      // Ensure we always return in the expected format
+     
       return {
         conversations: data.conversations || []
       };
@@ -2150,7 +2152,7 @@ ipcMain.handle('getConversations', async (_, path) => {
                 try {
                     content = JSON.parse(content);
                 } catch (e) {
-                    // keep as string if parse fails
+                   
                 }
             }
             
@@ -2167,19 +2169,19 @@ ipcMain.handle('getConversations', async (_, path) => {
 
 
     ipcMain.handle('getDefaultConfig', () => {
-    //console.log('Handler: getDefaultConfig called');
+   
     console.log('CONFIG:', DEFAULT_CONFIG);
     return DEFAULT_CONFIG;
 
   });
 
   ipcMain.handle('getWorkingDirectory', () => {
-    //console.log('Handler: getWorkingDirectory called');
+   
     return DEFAULT_CONFIG.baseDir;
   });
 
   ipcMain.handle('setWorkingDirectory', async (_, dir) => {
-    //console.log('Handler: setWorkingDirectory called with:', dir);
+   
     try {
       const normalizedDir = path.normalize(dir);
       const baseDir = DEFAULT_CONFIG.baseDir;
@@ -2217,12 +2219,12 @@ ipcMain.handle('getConversations', async (_, path) => {
     const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', 
                                '.json', '.txt', '.yaml', '.yml', '.html', '.css', 
                                '.npc', '.jinx', '.pdf', '.csv', '.sh',];
-    //console.log(`[Main Process] readDirectoryStructure called for: ${dirPath}`); // LOG 1
+   
 
     try {
       await fsPromises.access(dirPath, fs.constants.R_OK);
       const items = await fsPromises.readdir(dirPath, { withFileTypes: true });
-      //console.log(`[Main Process] Read ${items.length} items from ${dirPath}`); // LOG 2
+     
 
       for (const item of items) {
         const itemPath = path.join(dirPath, item.name);
@@ -2231,16 +2233,16 @@ ipcMain.handle('getConversations', async (_, path) => {
         } else if (item.isFile()) {
           const ext = path.extname(item.name).toLowerCase();
           if (allowedExtensions.includes(ext)) {
-            //console.log(`[Main Process] Found allowed file: ${item.name}`); // LOG 3
+           
             structure[item.name] = { type: 'file', path: itemPath };
           }
         }
       }
-      //console.log(`[Main Process] Returning structure for ${dirPath}:`, JSON.stringify(structure, null, 2)); // LOG 4 (Critical: See the final structure)
+     
       return structure;
 
     } catch (err) {
-      console.error(`[Main Process] Error in readDirectoryStructure for ${dirPath}:`, err); // LOG 5
+      console.error(`[Main Process] Error in readDirectoryStructure for ${dirPath}:`, err);
       if (err.code === 'ENOENT') return { error: 'Directory not found' };
       if (err.code === 'EACCES') return { error: 'Permission denied' };
       return { error: err.message || 'Failed to read directory contents' };
@@ -2249,7 +2251,7 @@ ipcMain.handle('getConversations', async (_, path) => {
 
 
   ipcMain.handle('goUpDirectory', async (_, currentPath) => {
-    //console.log('goUpDirectory called with:', currentPath);
+   
     if (!currentPath) {
       console.log('No current path, returning base dir');
       return DEFAULT_CONFIG.baseDir;
@@ -2260,7 +2262,7 @@ ipcMain.handle('getConversations', async (_, path) => {
   });
 
   ipcMain.handle('readDirectory', async (_, dir) => {
-    //console.log('Handler: readDirectory called for:', dir);
+   
     try {
       const items = await fsPromises.readdir(dir, { withFileTypes: true });
       return items.map(item => ({
@@ -2442,12 +2444,12 @@ ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
 
 ipcMain.handle('create-directory', async (_, directoryPath) => {
   try {
-    // fs.promises.mkdir will create the directory. It will throw an error if it already exists.
+   
     await fsPromises.mkdir(directoryPath);
     return { success: true, error: null };
   } catch (err) {
     console.error('Error creating directory:', err);
-    // Return the specific error message to the frontend
+   
     return { success: false, error: err.message };
   }
 });
@@ -2470,7 +2472,7 @@ ipcMain.handle('get-directory-contents-recursive', async (_, directoryPath) => {
         for (const entry of entries) {
             const fullPath = path.join(currentDir, entry.name);
             if (entry.isDirectory()) {
-                await readDir(fullPath); // Recurse into subdirectories
+                await readDir(fullPath);
             } else if (entry.isFile()) {
                 allFiles.push(fullPath);
             }
@@ -2494,5 +2496,5 @@ ipcMain.handle('renameFile', async (_, oldPath, newPath) => {
       return { success: false, error: err.message };
     }
   });
-  let currentPdfPath = null; // <<< THIS IS THE FIX. DECLARE THE VARIABLE HERE.
+  let currentPdfPath = null;
 

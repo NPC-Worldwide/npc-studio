@@ -20,16 +20,16 @@ const defaultSettings = {
 // +++ NEW COMPONENT: ModelManager +++
 // This component handles everything related to downloading and managing local Ollama models.
 const ModelManager = () => {
-    const [ollamaStatus, setOllamaStatus] = useState('checking'); // 'checking', 'running', 'not_found', 'installing'
+    const [ollamaStatus, setOllamaStatus] = useState('checking');
     const [localModels, setLocalModels] = useState([]);
     const [pullModelName, setPullModelName] = useState('llama3.1');
     const [pullProgress, setPullProgress] = useState(null);
     const [isPulling, setIsPulling] = useState(false);
-    const [isDeleting, setIsDeleting] = useState(null); // holds the name of the model being deleted
+    const [isDeleting, setIsDeleting] = useState(null);
 
     const fetchLocalModels = async () => {
         try {
-            // Assumes an API call that returns a list of installed models
+           
             const models = await window.api.getLocalOllamaModels();
             if (models && !models.error) {
                 setLocalModels(models);
@@ -60,15 +60,15 @@ const ModelManager = () => {
         checkStatus();
 
     const handleProgress = (progress) => {
-        console.log('React received progress:', progress); // Add this for debugging
+        console.log('React received progress:', progress);
         setPullProgress(progress);
     };
     
     const handleComplete = () => {
-        console.log('React received pull complete signal.'); // Add this for debugging
+        console.log('React received pull complete signal.');
         setIsPulling(false);
         setPullProgress({ status: 'Success!', details: 'Model installed.'});
-        // Set a timer to clear the success message and refresh the list
+       
         setTimeout(() => {
             setPullProgress(null);
             setPullModelName('');
@@ -77,7 +77,7 @@ const ModelManager = () => {
     };
 
     const handleError = (error) => {
-        console.error('React received pull error:', error); // Add this for debugging
+        console.error('React received pull error:', error);
         setIsPulling(false);
         setPullProgress({ status: 'Error', details: error });
     };
@@ -99,10 +99,10 @@ const ModelManager = () => {
         setOllamaStatus('installing');
         try {
             await window.api.installOllama();
-            checkStatus(); // After successful installation, re-check the status.
+            checkStatus();
         } catch (error) {
             console.error("Ollama installation failed:", error);
-            setOllamaStatus('not_found'); // Revert on failure
+            setOllamaStatus('not_found');
         }
     };
 

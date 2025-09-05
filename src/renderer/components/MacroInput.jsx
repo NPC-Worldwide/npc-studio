@@ -12,7 +12,7 @@ const MacroInput = ({ isOpen, onClose, onSubmit, currentPath }) => {
     const [selectedModel, setSelectedModel] = useState(null);
     const inputRef = useRef(null);
 
-    // Debug logging for model selection
+   
     useEffect(() => {
         if (selectedModel) {
             console.log('Selected model:', {
@@ -40,7 +40,7 @@ const MacroInput = ({ isOpen, onClose, onSubmit, currentPath }) => {
                 if (models) {
                     setAvailableModels(models);
                     
-                    // Try to find last used model
+                   
                     const lastUsedModel = localStorage.getItem(LAST_USED_MODEL_KEY);
                     if (lastUsedModel) {
                         const foundModel = models.find(m => 
@@ -52,7 +52,7 @@ const MacroInput = ({ isOpen, onClose, onSubmit, currentPath }) => {
                             return;
                         }
                     }
-                    // Fall back to first model if no last used model found
+                   
                     setSelectedModel(models[0]);
                 }
             };
@@ -68,20 +68,20 @@ const MacroInput = ({ isOpen, onClose, onSubmit, currentPath }) => {
         setIsSubmitting(true);
 
         try {
-            // Save the selected model as last used
+           
             localStorage.setItem(LAST_USED_MODEL_KEY, JSON.stringify({
                 value: selectedModel.value,
                 provider: selectedModel.provider
             }));
 
-            // Create conversation
+           
             const conversation = await window.api.createConversation({
                 title: macro.trim().slice(0, 50),
                 type: 'conversation',
                 directory_path: currentPath
             });
 
-            // Switch immediately
+           
             onSubmit({
                 macro: macro.trim(),
                 conversationId: conversation.id,
@@ -90,7 +90,7 @@ const MacroInput = ({ isOpen, onClose, onSubmit, currentPath }) => {
 
             onClose();
 
-            // Execute command
+           
             const result = await window.api.executeCommand({
                 commandstr: macro.trim(),
                 currentPath: currentPath,

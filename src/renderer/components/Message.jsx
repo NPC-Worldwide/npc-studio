@@ -3,9 +3,9 @@ import React from "react";
 const Message = ({ message, isSelected, onSelect, isDarkMode }) => {
     const isHuman = message.role === 'human' || message.role === 'user';
 
-    // Helper function to render message content based on type
+   
     const renderContent = () => {
-        // If message has base64 image data
+       
         if (message.content?.startsWith('data:image')) {
             return (
                 <img
@@ -16,7 +16,7 @@ const Message = ({ message, isSelected, onSelect, isDarkMode }) => {
             );
         }
 
-        // If message has HTML content
+       
         if (message.content?.includes('<img') || message.content?.includes('<p')) {
             return (
                 <div
@@ -26,7 +26,7 @@ const Message = ({ message, isSelected, onSelect, isDarkMode }) => {
             );
         }
 
-        // Regular text content
+       
         return (
             <div className="whitespace-pre-wrap text-base leading-relaxed">
                 {message.content}

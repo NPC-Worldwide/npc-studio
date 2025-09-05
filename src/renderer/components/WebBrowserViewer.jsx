@@ -16,7 +16,7 @@ const WebBrowserViewer = ({ initialUrl, viewId }) => {
             const rect = containerRef.current.getBoundingClientRect();
             const bounds = {
                 x: Math.round(rect.left),
-                y: Math.round(rect.top + 40), // Account for toolbar
+                y: Math.round(rect.top + 40),
                 width: Math.round(rect.width),
                 height: Math.round(rect.height - 40)
             };
@@ -25,7 +25,7 @@ const WebBrowserViewer = ({ initialUrl, viewId }) => {
         }
     }, [viewId]);
 
-    // Handle navigation
+   
     const handleNavigate = useCallback(() => {
         if (urlInput.trim()) {
             setCurrentUrl(urlInput);
@@ -45,23 +45,23 @@ const WebBrowserViewer = ({ initialUrl, viewId }) => {
         window.api?.browserRefresh?.({ viewId });
     }, [viewId]);
 
-    // Context menu handler
+   
     const handleContextMenu = useCallback(async (e) => {
         e.preventDefault();
         
-        // Get selected text from the browser view
+       
         const result = await window.api?.browserGetSelectedText?.({ viewId });
         if (result?.success && result.selectedText) {
-            // Show context menu with AI options
+           
             showBrowserContextMenu(e.clientX, e.clientY, result.selectedText);
         }
     }, [viewId]);
 
     const showBrowserContextMenu = (x, y, selectedText) => {
-        // This would integrate with your existing AI context menu system
-        // For now, just log it
+       
+       
         console.log('Browser context menu at', x, y, 'with text:', selectedText);
-        // You can integrate this with your existing AI edit modal system
+       
     };
 
     useEffect(() => {
@@ -72,7 +72,7 @@ const WebBrowserViewer = ({ initialUrl, viewId }) => {
         const rect = containerRef.current.getBoundingClientRect();
         const bounds = {
             x: Math.round(rect.left),
-            y: Math.round(rect.top + 40), // Account for toolbar
+            y: Math.round(rect.top + 40),
             width: Math.round(rect.width),
             height: Math.round(rect.height - 40)
         };
@@ -80,18 +80,18 @@ const WebBrowserViewer = ({ initialUrl, viewId }) => {
         console.log('[WebBrowserViewer] Mounting browser viewer for:', currentUrl);
         window.api?.showBrowser?.({ url: currentUrl, bounds, viewId });
 
-        // Set up event listeners
+       
         const cleanupLoaded = window.api?.onBrowserLoaded?.((data) => {
             if (data.viewId === viewId) {
                 setCurrentUrl(data.url);
                 setUrlInput(data.url);
                 setLoading(false);
                 
-                // Add to history automatically
+               
                 window.api?.browserAddToHistory?.({
                     url: data.url,
                     title: title || data.url,
-                    folderPath: currentPath // You'll need to pass this as a prop
+                    folderPath: currentPath
                 });
             }
         });
@@ -115,7 +115,7 @@ const WebBrowserViewer = ({ initialUrl, viewId }) => {
             }
         });
 
-        // Set up resize observer
+       
         const resizeObserver = new ResizeObserver(updateBounds);
         resizeObserver.observe(containerRef.current);
 
@@ -132,7 +132,7 @@ const WebBrowserViewer = ({ initialUrl, viewId }) => {
             cleanupTitle?.();
             cleanupError?.();
         };
-    }, []); // Empty dependency array - only run once when mounted
+    }, []);
 
     return (
         <div 

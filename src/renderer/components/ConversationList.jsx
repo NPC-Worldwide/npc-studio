@@ -10,7 +10,7 @@ const ConversationList = ({ conversations, onConversationSelect, activeConversat
         const currentIndex = conversations.findIndex(c => c.id === conv.id);
 
         if (e.shiftKey && lastClickedIndex !== null) {
-            // Shift+click: select range and navigate to clicked item
+           
             e.preventDefault();
             e.stopPropagation();
             const start = Math.min(lastClickedIndex, currentIndex);
@@ -23,10 +23,10 @@ const ConversationList = ({ conversations, onConversationSelect, activeConversat
                 }
             }
             setSelectedConvos(newSelected);
-            // Navigate to the clicked conversation
+           
             onConversationSelect(conv.id);
         } else if (e.ctrlKey || e.metaKey) {
-            // Ctrl+click: toggle individual selection but don't navigate
+           
             e.preventDefault();
             e.stopPropagation();
             const newSelected = new Set(selectedConvos);
@@ -37,9 +37,9 @@ const ConversationList = ({ conversations, onConversationSelect, activeConversat
             }
             setSelectedConvos(newSelected);
             setLastClickedIndex(currentIndex);
-            // Don't navigate on ctrl+click, just select
+           
         } else {
-            // Regular click: clear selection, select single item and navigate
+           
             setSelectedConvos(new Set([conv.id]));
             onConversationSelect(conv.id);
             setLastClickedIndex(currentIndex);
@@ -52,14 +52,14 @@ const ConversationList = ({ conversations, onConversationSelect, activeConversat
         setContextMenuPos({ x: e.clientX, y: e.clientY });
     };
 
-    // Close context menu when clicking outside
+   
     const handleClickOutside = (e) => {
         if (contextMenuPos) {
             setContextMenuPos(null);
         }
     };
 
-    // Add click outside listener
+   
     React.useEffect(() => {
         document.addEventListener('click', handleClickOutside);
         return () => document.removeEventListener('click', handleClickOutside);

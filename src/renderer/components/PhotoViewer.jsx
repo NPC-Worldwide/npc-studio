@@ -10,7 +10,7 @@ import {
     RectangleHorizontal, Brush, Eraser, 
   } from 'lucide-react';
   
-  // --- Constants ---
+ 
   const IMAGES_PER_PAGE = 24;
   
 
@@ -61,18 +61,18 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
   
-    // --- File & Directory Management ---
+   
     console.log(currentPath);
-    const [projectPath, setProjectPath] = useState(currentPath || '~/.npcsh/images'); // This line stays the same initially
+    const [projectPath, setProjectPath] = useState(currentPath || '~/.npcsh/images');
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [imageSources, setImageSources] = useState([]);
       const [activeSourceId, setActiveSourceId] = useState('project-images');
-    // Add these state variables near the top of PhotoViewer component
+   
     const [selectedModel, setSelectedModel] = useState('');
     const [selectedProvider, setSelectedProvider] = useState('');
     const [availableModels, setAvailableModels] = useState([]);
     
-    // --- Image Selection & Gallery State ---
+   
     const [selectedImage, setSelectedImage] = useState(null);
     const [selectedImageGroup, setSelectedImageGroup] = useState(new Set());
     const [lastClickedIndex, setLastClickedIndex] = useState(null);
@@ -81,58 +81,58 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [metaSearch, setMetaSearch] = useState('');
   
-    // --- Context Menu & Renaming ---
+   
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
     const [renamingImage, setRenamingImage] = useState({ path: null, newName: '' });
     
-    // --- Editor: "The DarkRoom" ---
-    // Base image adjustments
+   
+   
     const [adjustments, setAdjustments] = useState({ 
         exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
         saturation: 100, warmth: 0, tint: 0,
         pop: 0, vignette: 0, blur: 0
     });
-    // Crop state
-    const [crop, setCrop] = useState({ x: 0, y: 0, width: 100, height: 100 }); // In percentage
-    const [isCropping, setIsCropping] = useState(false); // True when crop overlay is active
+   
+    const [crop, setCrop] = useState({ x: 0, y: 0, width: 100, height: 100 });
+    const [isCropping, setIsCropping] = useState(false);
     
-    // Layer-based editing
+   
     const [layers, setLayers] = useState([]);
     const [selectedLayerId, setSelectedLayerId] = useState(null);
-    const [editorTool, setEditorTool] = useState('select'); // 'select', 'crop', 'lasso', 'marquee', 'brush', 'text'
+    const [editorTool, setEditorTool] = useState('select');
     
-    // Interactive state
-    const [selectionPath, setSelectionPath] = useState(null); // SVG path for active selection (marquee/lasso)
-    const [isDrawing, setIsDrawing] = useState(false); // General flag for mouse-down drawing/dragging actions
+   
+    const [selectionPath, setSelectionPath] = useState(null);
+    const [isDrawing, setIsDrawing] = useState(false);
     const [textEditState, setTextEditState] = useState({ editing: false, layerId: null });
     const [draggingLayerId, setDraggingLayerId] = useState(null);
 
-    // History for undo/redo
+   
     const [editHistory, setEditHistory] = useState([]);
     const [redoStack, setRedoStack] = useState([]);
   
-    // --- Metadata & Labeling ---
+   
     const [metadata, setMetadata] = useState(null);
     const [customTags, setCustomTags] = useState([]);
     const [rating, setRating] = useState(0);
     const [labels, setLabels] = useState([]);
     
-    // --- Refs ---
+   
     const fileInputRef = useRef(null);
-    const imageRef = useRef(null); // Ref for the main <img> element in the darkroom
-    const canvasContainerRef = useRef(null); // Ref for the container of the image and layers
+    const imageRef = useRef(null);
+    const canvasContainerRef = useRef(null);
 
-    // --- Derived State ---
+   
     const activeSource = imageSources.find(s => s.id === activeSourceId);
     const sourceImages = (activeSource?.images || []);
     const filteredImages = sourceImages.filter(img => img.toLowerCase().includes(searchTerm.toLowerCase()));
     
-    const [numImagesToGenerate, setNumImagesToGenerate] = useState(1); // ADDED: State for number of images
-    const [selectedGeneratedImages, setSelectedGeneratedImages] = useState(new Set()); // NEW: Track selected generated images
+    const [numImagesToGenerate, setNumImagesToGenerate] = useState(1);
+    const [selectedGeneratedImages, setSelectedGeneratedImages] = useState(new Set());
 
     
     
-    const [isDrawingSelection, setIsDrawingSelection] = useState(false); // ADD THIS LINE
+    const [isDrawingSelection, setIsDrawingSelection] = useState(false);
     
     
     
@@ -141,10 +141,10 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const [generatePrompt, setGeneratePrompt] = useState('');
     const [generatedImages, setGeneratedImages] = useState([]);
   
-    // --- Generator State (now integrated into DarkRoom layers) ---
+   
     const [generating, setGenerating] = useState(false);
   
-    // --- Metadata State ---
+   
     
     const [activeTool, setActiveTool] = useState('rect');
     const [newLabelName, setNewLabelName] = useState('');
@@ -161,7 +161,7 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
       const updatedSources = await Promise.all(
         sourcesToLoad.map(async (source) => {
           try {
-            // This is the real implementation that reads from your file system via the Electron API
+           
             await window.api?.ensureDirectory?.(source.path);
             const images = await window.api?.readDirectoryImages?.(source.path) || [];
             console.log(images);
@@ -182,7 +182,7 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
   useEffect(() => {
     const loadAllData = async () => {
         if (!isOpen) {
-            // Reset everything on close
+           
             setActiveTab('gallery');
             setSelectedImage(null);
             setSelectedImageGroup(new Set());
@@ -204,7 +204,7 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
             { id: 'screenshots', name: 'Screenshots', path: '~/.npcsh/screenshots', icon: Camera },
         ];
         
-        // Load images and get the result directly
+       
         setLoading(true); 
         setError(null);
         try {
@@ -222,7 +222,7 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
             );
             setImageSources(updatedSources);
             
-            // NOW check if project has images using the ACTUAL loaded data
+           
             const projectSource = updatedSources.find(s => s.id === 'project-images');
             const projectHasImages = projectSource?.images?.length > 0;
             
@@ -238,7 +238,7 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
             setLoading(false);
         }
 
-        // Load image generation models...
+       
         if (currentPath) {
           try {
             const imageModelsResponse = await window.api.getAvailableImageModels(currentPath);
@@ -286,24 +286,24 @@ const handleRefreshImages = async () => {
 // Update the Use button handler
 const handleUseGeneratedImage = async (imageData) => {
   try {
-    // Convert the base64 image to a file and save it
+   
     const response = await fetch(imageData);
     const blob = await response.blob();
     const timestamp = Date.now();
     const filename = `generated_${timestamp}.png`;
     
-    // Save to the active source directory
+   
     await window.api?.saveGeneratedImage?.(blob, activeSource?.path, filename);
     
-    // Refresh the images
+   
     await loadImagesForAllSources(imageSources);
     
-    // Set as selected image and switch to editor
+   
     const newImagePath = `media://${activeSource?.path}/${filename}`;
     setSelectedImage(newImagePath);
     setActiveTab('editor');
     
-    // Also prepare it for conversation if needed
+   
     setSelectedGeneratedImage({
       path: `${activeSource?.path}/${filename}`,
       data: imageData
@@ -317,9 +317,9 @@ const handleUseGeneratedImage = async (imageData) => {
 
 // Add these missing functions before the return statement
 const handleUseSelected = () => {
-  // Just switch to editor tab - the images are already saved
+ 
   setActiveTab('editor');
-  // Clear selection
+ 
   setSelectedGeneratedImages(new Set());
 };
 
@@ -327,7 +327,7 @@ const handleUseSelected = () => {
 const [generatedFilenames, setGeneratedFilenames] = useState([]);
 
 const [generateFilename, setGenerateFilename] = useState('vixynt_gen');
-  // --- Handlers (Most are unchanged from original code) ---
+ 
   const handleImageSelect = (index, isSelected) => {
     const newSelected = new Set(selectedGeneratedImages);
     if (isSelected) {
@@ -347,38 +347,38 @@ const [generateFilename, setGenerateFilename] = useState('vixynt_gen');
     const newSelection = new Set(selectedImageGroup);
     
     if (e.shiftKey && lastClickedIndex !== null) {
-        // Shift+click for range selection
+       
         const start = Math.min(lastClickedIndex, index); 
         const end = Math.max(lastClickedIndex, index);
         for (let i = start; i <= end; i++) {
             newSelection.add(filteredImages[i]);
         }
     } else if (e.ctrlKey || e.metaKey) {
-        // Ctrl/Cmd+click for toggle selection
+       
         if (newSelection.has(imgPath)) {
             newSelection.delete(imgPath);
         } else {
             newSelection.add(imgPath);
         }
     } else {
-        // Regular click - toggle if already selected, otherwise select only this one
+       
         if (selectedImageGroup.has(imgPath) && selectedImageGroup.size === 1) {
-            // If this is the only selected image, deselect it
+           
             newSelection.clear();
             setSelectedImage(null);
         } else {
-            // Otherwise, select only this image
+           
             newSelection.clear();
             newSelection.add(imgPath);
             setSelectedImage(imgPath);
         }
     }
     
-    // Update selection state
+   
     setSelectedImageGroup(newSelection);
     setLastClickedIndex(index);
     
-    // Update selected image if we have a selection
+   
     if (newSelection.size > 0 && !selectedImage) {
         setSelectedImage(imgPath);
     }
@@ -406,10 +406,10 @@ const [generateFilename, setGenerateFilename] = useState('vixynt_gen');
         
         await window.api?.renameFile?.(oldPath, newPath);
         
-        // Refresh images after rename
+       
         await loadImagesForAllSources(imageSources);
         
-        // Update selected image if it was the renamed one
+       
         if (selectedImage === renamingImage.path) {
             setSelectedImage(`media://${newPath}`);
         }
@@ -431,7 +431,7 @@ const handleDeleteSelected = async () => {
         const filesToDelete = Array.from(selectedImageGroup).map(path => path.replace('media://', ''));
         await Promise.all(filesToDelete.map(path => window.api?.deleteFile?.(path)));
         
-        // Clear selection and refresh
+       
         setSelectedImageGroup(new Set());
         setSelectedImage(null);
         await loadImagesForAllSources(imageSources);
@@ -461,7 +461,7 @@ const handleDeleteSelected = async () => {
   );
   
   
-  // History Management
+ 
   const pushHistory = (actionName) => { 
       console.log(`Pushing history: ${actionName}`);
       setEditHistory(h => [...h, { layers, adjustments, crop }]); 
@@ -491,12 +491,12 @@ const handleDeleteSelected = async () => {
      });
   };
 
-  // --- DarkRoom Editor Handlers ---
+ 
   const addDarkroomLayer = (type) => {
     const layerConfig = DARKROOM_LAYER_TYPES[type];
     if (!layerConfig) return;
 
-    // All layers get a transform property for positioning, scaling, and rotation.
+   
     const newLayer = { 
         id: `layer_${Date.now()}`, 
         type, 
@@ -550,17 +550,17 @@ const commitLayerParams = () => { pushHistory({ layers, selectedLayerId, adjustm
 
 const executeGenerativeFill = async (layerId, prompt) => { /* ... Unchanged ... */ };
 
-  // --- Hybrid Rendering Logic ---
+ 
 
-  const maskCanvasRef = useRef(null); // Ref for the mask drawing canvas
+  const maskCanvasRef = useRef(null);
 
   const calculateCombinedStyle = () => {
     console.log('Calculating combined style with adjustments:', adjustments);
     
-    // Start with the base adjustments state
+   
     let combined = { ...adjustments };
 
-    // Aggregate parameters from all active adjustment layers
+   
     layers
         .filter(l => l.type === 'ADJUSTMENTS' && l.visible)
         .forEach(layer => {
@@ -569,7 +569,7 @@ const executeGenerativeFill = async (layerId, prompt) => { /* ... Unchanged ... 
             });
         });
 
-    // Convert aggregated values into a complex CSS filter string
+   
     const brightness = 100 + combined.exposure + (combined.whites / 2.5) + (combined.shadows / -2.5);
     const contrast = 100 + combined.contrast + (combined.pop / 2) + (combined.highlights / 2.5) - (combined.shadows / 2.5);
     const saturate = combined.saturation + (combined.pop);
@@ -601,13 +601,13 @@ const handleCanvasMouseDown = (e) => {
             console.log('Adding text layer');
             addDarkroomLayer('TEXT');
             break;
-        // Add other cases
+       
     }
 };
 
 const handleCanvasMouseMove = (e) => {
     if (!isDrawing) return;
-    // Handle mouse move logic
+   
 };
 
 const handleCanvasMouseUp = () => {
@@ -625,7 +625,7 @@ const handleBaseAdjustmentChange = (key, value) => {
 const applySelectionAsMask = () => {
     if (!selectionPath || !selectedLayerId) return;
     updateLayer(selectedLayerId, { mask: selectionPath }, true);
-    setSelectionPath(null); // Clear selection after applying
+    setSelectionPath(null);
 };
 
 
@@ -636,7 +636,7 @@ useEffect(() => { setDisplayedImagesCount(IMAGES_PER_PAGE); }, [activeSourceId, 
 useEffect(() => {
     if (!selectedImage) return;
     
-    // Reset ALL editor states for the new image
+   
     setAdjustments({ exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0, saturation: 100, warmth: 0, tint: 0, pop: 0, vignette: 0, blur: 0 });
     setCrop({ x: 0, y: 0, width: 100, height: 100 });
     setLayers([]); 
@@ -647,15 +647,15 @@ useEffect(() => {
     setIsCropping(false);
     setEditorTool('select');
     
-    // In a real app, you would load saved settings for this image here.
-    // For now, we just load metadata.
+   
+   
     const fsPath = selectedImage.replace('media://', '');
     window.api?.getImageMetadata?.(fsPath).then(m => { setMetadata(m || {}); /* ... */ });
     window.api?.loadLabels?.(fsPath).then(ls => setLabels(Array.isArray(ls) ? ls : []));
 }, [selectedImage]);
 
   useEffect(() => {
-    // It will only run its logic when the editor is active and an image is selected
+   
     if (activeTab !== 'editor' || !selectedImage) return;
 
     const canvas = document.getElementById('editor-canvas');
@@ -663,9 +663,9 @@ useEffect(() => {
     const ctx = canvas.getContext('2d');
     
     const img = new Image();
-    img.src = selectedImage; // In a real app, use the actual file path
+    img.src = selectedImage;
     img.onload = () => {
-        // Fit canvas to image aspect ratio within the container
+       
         const container = canvas.parentElement;
         const hRatio = container.clientWidth / img.width;
         const vRatio = container.clientHeight / img.height;
@@ -676,7 +676,7 @@ useEffect(() => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        // TODO: Render layers and selection path here
+       
         console.log("Canvas ready for layer rendering.");
     };
 
@@ -687,7 +687,7 @@ useEffect(() => {
 
   useEffect(() => {
     if (currentPath && currentPath !== projectPath) {
-        setProjectPath(currentPath); // Update projectPath when currentPath changes
+        setProjectPath(currentPath);
     }
   }, [currentPath]);
   
@@ -702,7 +702,7 @@ useEffect(() => {
         ];
         loadImagesForAllSources(initialSources);
       } else {
-        // Reset everything on close
+       
         setActiveTab('gallery');
         setSelectedImage(null);
         setSelectedImageGroup(new Set());
@@ -717,7 +717,7 @@ useEffect(() => {
   
     useEffect(() => {
       const handleKeyDown = (e) => {
-          console.log('Key pressed:', e.key); // Add this for debugging
+          console.log('Key pressed:', e.key);
           if (e.key === 'Escape') {
               if (contextMenu.visible) {
                   setContextMenu({ visible: false });
@@ -748,9 +748,9 @@ useEffect(() => {
           }
       };
   
-      // Always attach listeners when the modal is open
+     
       if (isOpen) {
-          document.addEventListener('keydown', handleKeyDown); // Use document instead of window
+          document.addEventListener('keydown', handleKeyDown);
           document.addEventListener('click', handleClickOutside);
           
           return () => {
@@ -765,15 +765,15 @@ useEffect(() => {
   
     useEffect(() => {
       if (!selectedImage) return;
-      // Reset all editor/data states for the new image
+     
       setLayers([]); 
       setSelectedLayerId(null);
       setEditHistory([]); setRedoStack([]); setCompareMode(false);
       
-      // In a real app, you would load the saved pipeline for this image here.
-      // For now, we start fresh.
+     
+     
   
-      // Mock Metadata/Label loading
+     
       setMetadata({ iptc: { title: 'A beautiful landscape' }, exif: { camera: 'SONY ILCE-7RM3' } });
       setCustomTags(['landscape', 'sunset']);
       setLabels([]);
@@ -847,7 +847,7 @@ useEffect(() => {
     } catch (e) { setError('Invalid labels file'); }
   };
 
-  // --- Metadata ---
+ 
   const updateMetaField = (path, value) => {
     setMetadata((m) => {
       const clone = { ...(m || {}) };
@@ -895,7 +895,7 @@ useEffect(() => {
       await loadImagesForAllSources(imageSources);
     } catch (err) { setError('Upload failed: ' + err.message); }
   };
-  // --- Renderers ---
+ 
   const renderSidebar = () => (
     <div className="w-64 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
 
@@ -1090,9 +1090,9 @@ useEffect(() => {
 
 const handleUseForGeneration = () => {
   if (contextMenu.imagePath) {
-      // Switch to generator tab and set the image as a reference
+     
       setActiveTab('generator');
-      // You might want to add logic here to use the image as a reference for generation
+     
       setGeneratePrompt(prev => `${prev} ${prev ? '\n\n' : ''}Using reference image: ${contextMenu.imagePath.split('/').pop()}`);
   }
   setContextMenu({ visible: false });
@@ -1146,7 +1146,7 @@ const handleUseForGeneration = () => {
 
 
   const renderPathNavigator = () => {
-    const displayPath = currentPath || projectPath; // Show currentPath if available
+    const displayPath = currentPath || projectPath;
     
     return (
       <div className="flex items-center gap-2 text-sm text-gray-400 p-2 flex-grow min-w-0" onClick={() => setIsEditingPath(true)}>
@@ -1465,7 +1465,7 @@ const handleUseForGeneration = () => {
 
 
 const renderDarkRoom = () => {
-    // Add this at the start of renderDarkRoom:
+   
 console.log('Rendering DarkRoom, selectedImage:', selectedImage);
 console.log('Current adjustments:', adjustments);
 console.log('Current layers:', layers);

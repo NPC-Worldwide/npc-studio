@@ -2,14 +2,14 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
-    Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, // Import Edit icon
+    Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat
 } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import ForceGraph2D from 'react-force-graph-2d';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
-    BarElement, Title, Tooltip, Legend, Filler, TimeScale, TimeSeriesScale // Import TimeScale for date handling
+    BarElement, Title, Tooltip, Legend, Filler, TimeScale, TimeSeriesScale
   } from 'chart.js';
   
 import 'chartjs-adapter-date-fns'; 
@@ -19,9 +19,6 @@ import * as d3 from 'd3';
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler, TimeScale, TimeSeriesScale);
 
 const generateId = () => `widget_${Math.random().toString(36).substr(2, 9)}`;
-
-// --- Sub-components for Widget System (Encapsulated) ---
-
 const iconMap = {
     MessageSquare, BrainCircuit, Bot, LineChart, BarChartIcon, Settings2, Edit,
     Database, Table, GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat,
@@ -40,35 +37,181 @@ const WidgetContextMenu = ({ x, y, onSelect, onClose }) => {
     );
 };
 
-const AddDefaultWidgetModal = ({ isOpen, onClose, availableWidgets, onAddWidget }) => {
+
+
+const AddCustomWidgetModal = ({ isOpen, onClose, context, onAddWidget, dbTables, fetchSchema }) => {
+    const [title, setTitle] = useState('');
+    const [type, setType] = useState('table');
+    const [query, setQuery] = useState('');
+    const [selectedTable, setSelectedTable] = useState('');
+    const [availableColumns, setAvailableColumns] = useState([]);
+    const [xCol, setXCol] = useState('');
+    const [yCol, setYCol] = useState('');
+    const [chartType, setChartType] = useState('bar');
+
+    useEffect(() => {
+        if (context?.result?.[0]) {
+            const columns = Object.keys(context.result[0]);
+            setAvailableColumns(columns.map(name => ({ name, type: 'RESULT_COL' })));
+            setXCol(columns[0] || '');
+            setYCol(columns.length > 1 ? columns[1] : '');
+            setQuery(context.query || '');
+            setType('chart');
+        }
+    }, [context]);
+
+    useEffect(() => {
+        if (selectedTable && fetchSchema && !context?.result) {
+            fetchSchema(selectedTable).then(schema => {
+                setAvailableColumns(schema || []);
+            });
+        }
+    }, [selectedTable, fetchSchema, context]);
+
     if (!isOpen) return null;
+
+    const handleAdd = () => {
+        let finalQuery = query;
+        
+        if (!query && selectedTable) {
+            finalQuery = `SELECT * FROM ${selectedTable} LIMIT 100`;
+        }
+
+        const newWidget = {
+            id: generateId(),
+            title: title || 'Custom Widget',
+            type: type,
+            query: finalQuery,
+            iconName: 'Settings2',
+            iconColor: 'text-blue-400',
+            chartConfig: type === 'chart' ? {
+                x: xCol,
+                y: yCol,
+                type: chartType
+            } : null,
+            span: type === 'chart' ? 2 : 1
+        };
+
+        onAddWidget(newWidget);
+        onClose();
+        
+        setTitle('');
+        setQuery('');
+        setSelectedTable('');
+        setXCol('');
+        setYCol('');
+        setType('table');
+        setChartType('bar');
+        setAvailableColumns([]);
+    };
+
+    const chartTypeOptions = [
+        { value: 'bar', label: 'Bar Chart' },
+        { value: 'line', label: 'Line Chart' },
+        { value: 'scatter', label: 'Scatter Plot' }
+    ];
+
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]">
-            <div className="theme-bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-semibold">Add a Widget</h3><button onClick={onClose} className="p-1 rounded-full theme-hover"><X size={20}/></button></div>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {availableWidgets.length > 0 ? availableWidgets.map(widget => { const Icon = iconMap[widget.iconName]; return (<button key={widget.id} onClick={() => { onAddWidget(widget); onClose(); }} className="w-full theme-hover p-3 rounded flex items-center gap-3 text-left">{Icon && <Icon className={widget.iconColor || 'text-gray-400'}/>}<span>{widget.title}</span></button>)}) : (<p className="theme-text-secondary text-center p-4">All default widgets are on the dashboard.</p>)}
+            <div className="theme-bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+                <h3 className="text-lg font-semibold mb-4">Create New Widget</h3>
+                
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-sm theme-text-secondary">Widget Title</label>
+                        <input 
+                            type="text" 
+                            value={title} 
+                            onChange={e => setTitle(e.target.value)} 
+                            className="w-full theme-input mt-1" 
+                            placeholder="e.g., Daily Active Users"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-sm theme-text-secondary">Display As</label>
+                        <select value={type} onChange={e => setType(e.target.value)} className="w-full theme-input mt-1">
+                            <option value="table">Table</option>
+                            <option value="chart">Chart</option>
+                            <option value="stat">Single Stat</option>
+                            <option value="stat_list">Stat List</option>
+                        </select>
+                    </div>
+
+                    {!context?.result && (
+                        <div>
+                            <label className="text-sm theme-text-secondary">Quick Start - Select Table</label>
+                            <select 
+                                value={selectedTable} 
+                                onChange={e => {
+                                    setSelectedTable(e.target.value);
+                                    if (e.target.value) {
+                                        setQuery(`SELECT * FROM ${e.target.value} LIMIT 100`);
+                                    }
+                                }} 
+                                className="w-full theme-input mt-1"
+                            >
+                                <option value="">Choose a table...</option>
+                                {(dbTables || []).map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="text-sm theme-text-secondary">SQL Query</label>
+                        <textarea 
+                            value={query} 
+                            onChange={e => setQuery(e.target.value)} 
+                            rows={4} 
+                            className="w-full theme-input mt-1 font-mono text-sm" 
+                            placeholder="SELECT * FROM table_name LIMIT 100"
+                        />
+                    </div>
+
+                    {type === 'chart' && availableColumns.length > 0 && (
+                        <>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-sm theme-text-secondary">X-Axis Column</label>
+                                    <select value={xCol} onChange={e => setXCol(e.target.value)} className="w-full theme-input mt-1">
+                                        <option value="">Select column...</option>
+                                        {availableColumns.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-sm theme-text-secondary">Y-Axis Column</label>
+                                    <select value={yCol} onChange={e => setYCol(e.target.value)} className="w-full theme-input mt-1">
+                                        <option value="">Select column...</option>
+                                        {availableColumns.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-sm theme-text-secondary">Chart Type</label>
+                                <select value={chartType} onChange={e => setChartType(e.target.value)} className="w-full theme-input mt-1">
+                                    {chartTypeOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                                </select>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6">
+                    <button onClick={onClose} className="theme-button px-4 py-2 text-sm rounded">Cancel</button>
+                    <button onClick={handleAdd} className="theme-button-primary px-4 py-2 text-sm rounded">Create Widget</button>
                 </div>
             </div>
         </div>
     );
 };
-
-const AddCustomWidgetModal = ({ isOpen, onClose, context, onAddWidget }) => {
-    const [title, setTitle] = useState(''); const [type, setType] = useState('table'); const [xCol, setXCol] = useState(''); const [yCol, setYCol] = useState(''); const [chartType, setChartType] = useState('bar');
-    useEffect(() => { if (context?.result?.[0]) { const columns = Object.keys(context.result[0]); setXCol(columns[0] || ''); setYCol(columns.length > 1 ? columns[1] : ''); } }, [context]);
-    if (!isOpen) return null;
-    const handleAdd = () => { const newWidget = { id: generateId(), title: title || 'Custom Widget', type: type, query: context.query, iconName: 'Settings2', chartConfig: type === 'chart' ? { x: xCol, y: yCol, type: chartType } : null, span: 1 }; onAddWidget(newWidget); onClose(); };
-    return (<div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]"><div className="theme-bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md"><h3 className="text-lg font-semibold mb-4">Add Custom Widget</h3><div className="space-y-4"><div><label className="text-sm theme-text-secondary">Widget Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full theme-input mt-1" placeholder="e.g., Daily Active Users"/></div><div><label className="text-sm theme-text-secondary">Display As</label><select value={type} onChange={e => setType(e.target.value)} className="w-full theme-input mt-1"><option value="table">Table</option><option value="chart">Chart</option></select></div>{type === 'chart' && (<><div className="grid grid-cols-2 gap-3"><div><label className="text-sm theme-text-secondary">X-Axis</label><select value={xCol} onChange={e => setXCol(e.target.value)} className="w-full theme-input mt-1">{Object.keys(context.result[0] || {}).map(c => <option key={c} value={c}>{c}</option>)}</select></div><div><label className="text-sm theme-text-secondary">Y-Axis</label><select value={yCol} onChange={e => setYCol(e.target.value)} className="w-full theme-input mt-1">{Object.keys(context.result[0] || {}).map(c => <option key={c} value={c}>{c}</option>)}</select></div></div><div><label className="text-sm theme-text-secondary">Chart Type</label><select value={chartType} onChange={e => setChartType(e.target.value)} className="w-full theme-input mt-1"><option value="bar">Bar</option><option value="line">Line</option></select></div></>)}</div><div className="flex justify-end gap-3 mt-6"><button onClick={onClose} className="theme-button px-4 py-2 text-sm rounded">Cancel</button><button onClick={handleAdd} className="theme-button-primary px-4 py-2 text-sm rounded">Add Widget</button></div></div></div>);
-};
 const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchemaCache, fetchSchema }) => {
-    // --- ENHANCED: Better query parsing to extract actual columns/expressions being used ---
+   
     const parseQueryForBuilder = (query) => {
         if (!query) {
             return { isComplex: false, builderConfig: {} };
         }
 
-        // Only mark as complex for multi-table operations
+       
         const complexityPattern = /\bJOIN\b|\bUNION\b|\bWITH\b/i;
         const isComplex = complexityPattern.test(query);
         
@@ -76,40 +219,40 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
             return { isComplex: true, builderConfig: {} };
         }
 
-        // Extract table name
+       
         const fromMatch = query.match(/\bFROM\s+([a-zA-Z0-9_]+)/i);
         if (!fromMatch) {
             return { isComplex: true, builderConfig: {} };
         }
         const table = fromMatch[1];
         
-        // Extract SELECT clause expressions
+       
         const selectMatch = query.match(/\bSELECT\s+(.*?)(?=\bFROM)/is);
         let selectExpressions = selectMatch ? 
             selectMatch[1].split(',').map(s => s.trim()) : 
             ['*']; 
 
-        // Extract GROUP BY clause
+       
         const groupByMatch = query.match(/\bGROUP BY\s+(.*?)(?:\bHAVING|\bORDER BY|\bLIMIT|$)/is);
         const groupByExpression = groupByMatch ? groupByMatch[1].trim() : '';
 
-        // Extract base column names for initial checkbox selection (best effort)
+       
         const extractedBaseColumns = new Set();
         selectExpressions.forEach(expr => {
             const columnCandidates = expr.matchAll(/\b([a-zA-Z0-9_]+)\b/g);
             for (const match of columnCandidates) {
-                // Filter out common SQL keywords/functions that are not actual columns
+               
                 const keywordBlacklist = new Set(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'DISTINCT', 'FROM', 'WHERE', 'GROUP', 'ORDER', 'BY', 'LIMIT', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AS', 'IN', 'LIKE', 'IS', 'BETWEEN', 'AND', 'OR', 'NOT', 'NULL', 'STRFTIME', 'LENGTH']);
                 if (match[1] && !keywordBlacklist.has(match[1].toUpperCase())) {
                     extractedBaseColumns.add(match[1]);
                 }
             }
         });
-        // Also extract columns from WHERE clause if present
+       
         const whereMatch = query.match(/\bWHERE\s+(.*?)(?:\bGROUP BY\b|\bORDER BY\b|\bLIMIT\b|$)/is);
         if (whereMatch) {
             const whereClause = whereMatch[1];
-            // Look for standalone column names potentially used in conditions
+           
             const columnInWhere = whereClause.match(/\b[a-zA-Z0-9_]+\b/g);
             if(columnInWhere) {
                 columnInWhere.forEach(col => {
@@ -126,28 +269,28 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
             isComplex: isComplex, 
             builderConfig: { 
                 table, 
-                selectExpressions, // Full expressions from SELECT
+                selectExpressions,
                 groupByExpression,
-                selectedBaseColumns: Array.from(extractedBaseColumns) // Only actual base columns for checkboxes
+                selectedBaseColumns: Array.from(extractedBaseColumns)
             } 
         };
     };
 
     const parsedData = parseQueryForBuilder(widget.query);
     
-    // **CRITICAL FIX: Declare mode and isComplexQuery BEFORE config**
+   
     const [isComplexQuery, setIsComplexQuery] = useState(parsedData.isComplex);
     const [mode, setMode] = useState(parsedData.isComplex ? 'advanced' : 'builder');
 
-    // Initialize config state now that mode and isComplexQuery are defined
+   
     const [config, setConfig] = useState({ 
         ...widget, 
         builder: {
             table: parsedData.builderConfig.table || '',
-            selectedColumns: parsedData.builderConfig.selectedBaseColumns || [], // For checkboxes
-            selectExpressions: parsedData.builderConfig.selectExpressions || [] // For chart axis options
+            selectedColumns: parsedData.builderConfig.selectedBaseColumns || [],
+            selectExpressions: parsedData.builderConfig.selectExpressions || []
         },
-        chartConfig: { // Pre-fill chart config with parsed data
+        chartConfig: {
             ...widget.chartConfig,
             x: widget.chartConfig?.x || parsedData.builderConfig.selectExpressions[0] || '',
             y: widget.chartConfig?.y || parsedData.builderConfig.selectExpressions[1] || '',
@@ -156,20 +299,20 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
         }
     });
 
-    const [availableSchemaColumns, setAvailableSchemaColumns] = useState([]); // Columns from table schema
-    const [selectableOutputExpressions, setSelectableOutputExpressions] = useState([]); // Columns/expressions that are output of query (for chart axes)
+    const [availableSchemaColumns, setAvailableSchemaColumns] = useState([]);
+    const [selectableOutputExpressions, setSelectableOutputExpressions] = useState([]);
     const [testQueryStatus, setTestQueryStatus] = useState({ loading: false, error: null });
 
     const updateColumnsFromQuery = useCallback(async (query) => {
         if (!query) { setSelectableOutputExpressions([]); return; }
         setTestQueryStatus({ loading: true, error: null });
         try {
-            // Execute a LIMIT 1 query to get the actual output column names
+           
             const response = await window.api.executeSQL({ query: `${query.replace(/;$/, '')} LIMIT 1` });
             if (response.error) throw new Error(response.error);
             if (response.result && response.result.length > 0) {
                 const newCols = Object.keys(response.result[0]);
-                // These are the *result* column names, useful for chart axis dropdowns
+               
                 setSelectableOutputExpressions(newCols.map(c => ({ name: c, type: 'RESULT_COL' })));
             } else { 
                 setSelectableOutputExpressions([]); 
@@ -178,7 +321,7 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
     }, []);
 
     useEffect(() => {
-        // Builder -> SQL Sync for non-chart types (simple SELECT col1, col2)
+       
         if (mode === 'builder' && !config.type.includes('chart')) {
             const { table, selectedColumns = [] } = config.builder || {};
             if (table) {
@@ -190,21 +333,21 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
                 }
             }
         }
-        // For charts, query is built in handleSave using chartConfig fields
+       
     }, [config.builder?.table, config.builder?.selectedColumns, config.type, mode]);
 
     useEffect(() => {
         const table = config.builder?.table;
         if (mode === 'builder' && table) {
-            // When in builder mode and a table is selected, fetch its schema
+           
             fetchSchema(table).then(schema => {
                 setAvailableSchemaColumns(schema || []);
-                // Also, initialize selectable output expressions from schema for charts
+               
                 if (config.type.includes('chart')) {
-                    // Combine initial selectExpressions with schema columns for dropdown options
+                   
                     const initialChartOptions = new Set();
                     (config.builder.selectExpressions || []).forEach(expr => {
-                        // Attempt to extract base column name from expression for better dropdown options
+                       
                         const baseColMatch = expr.match(/\b([a-zA-Z0-9_]+)\b(?:\s+AS\s+|$)/i);
                         initialChartOptions.add(baseColMatch ? baseColMatch[1] : expr);
                     });
@@ -215,7 +358,7 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
                 }
             });
         } else if (mode === 'advanced' && config.query) {
-            // In advanced mode, get output columns from the current query
+           
             updateColumnsFromQuery(config.query);
         }
     }, [mode, config.builder?.table, config.query, config.type, fetchSchema, updateColumnsFromQuery, config.builder.selectExpressions]);
@@ -223,21 +366,21 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
     if (!isOpen) return null;
 
     const handleSave = () => {
-        let finalQuery = config.query; // Default to existing query for advanced mode
+        let finalQuery = config.query;
         let newConfig = { ...config };
 
         if (mode === 'builder') {
             const { table, selectedColumns = [] } = config.builder || {};
             
             if (newConfig.type.includes('chart')) {
-                // For charts, construct query using X, Y expressions and Group By
+               
                 let selectParts = [];
                 if (newConfig.chartConfig.x) selectParts.push(newConfig.chartConfig.x);
-                // Support multiple Y-axis expressions if comma-separated
+               
                 if (newConfig.chartConfig.y) {
                     newConfig.chartConfig.y.split(',').forEach(yExpr => {
                         yExpr = yExpr.trim();
-                        if (yExpr && !selectParts.includes(yExpr)) selectParts.push(yExpr); // Avoid duplicates
+                        if (yExpr && !selectParts.includes(yExpr)) selectParts.push(yExpr);
                     });
                 }
                 
@@ -245,21 +388,21 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
                     finalQuery = `SELECT ${selectParts.join(', ')} FROM ${table}`;
                     if (newConfig.chartConfig.groupBy) {
                         finalQuery += ` GROUP BY ${newConfig.chartConfig.groupBy}`;
-                    } else if (newConfig.chartConfig.x && selectParts.length > 1) { // If X is used and there are other select parts, group by X
-                        // Attempt to extract the "base" expression for GROUP BY from X-Axis expression
+                    } else if (newConfig.chartConfig.x && selectParts.length > 1) {
+                       
                         const xBaseForGroupBy = newConfig.chartConfig.x.split(/\s+AS\s+/i)[0].trim();
                         finalQuery += ` GROUP BY ${xBaseForGroupBy}`;
                     }
-                    if (newConfig.chartConfig.x) { // Always order by X-axis for charts
-                         // Attempt to extract the "base" expression for ORDER BY from X-Axis expression
+                    if (newConfig.chartConfig.x) {
+                        
                          const xBaseForOrderBy = newConfig.chartConfig.x.split(/\s+AS\s+/i)[0].trim();
                          finalQuery += ` ORDER BY ${xBaseForOrderBy}`;
                     }
-                } else if (table) { // Fallback for charts if no expressions are chosen
+                } else if (table) {
                     finalQuery = `SELECT * FROM ${table}`;
                 }
                 
-            } else { // Non-chart types (table, stat, stat_list) use simple selectedColumns
+            } else {
                 if (table) {
                     finalQuery = selectedColumns.length > 0 ? 
                                  `SELECT ${selectedColumns.join(', ')} FROM ${table}` : 
@@ -270,8 +413,8 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
         
         if (finalQuery) {
             newConfig.query = finalQuery;
-            delete newConfig.apiFn; // Clear apiFn as query is now custom SQL
-            delete newConfig.dataKey; // Clear dataKey as result structure might change
+            delete newConfig.apiFn;
+            delete newConfig.dataKey;
         }
         onSave(newConfig);
         onClose();
@@ -339,7 +482,7 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
                                         {(dbTables || []).map(t => <option key={t} value={t}>{t}</option>)}
                                     </select>
                                 </div>
-                                {config.builder?.table && !config.type.includes('chart') && ( // Only show basic column checkboxes for non-chart types
+                                {config.builder?.table && !config.type.includes('chart') && (
                                     <div>
                                         <label className="text-xs font-semibold theme-text-secondary uppercase tracking-wider">Columns</label>
                                         <div className="max-h-32 overflow-y-auto theme-bg-primary p-2 rounded mt-1">
@@ -507,9 +650,9 @@ const DashboardWidget = ({ config, onContextMenu }) => {
             try {
                 let finalQuery = config.query;
                 
-                // If there's an active toggle modifier, insert it into the base query
+               
                 if (activeToggle && activeToggle.modifier) {
-                    const baseQuery = config.query.replace(/;$/, ''); // Remove trailing semicolon
+                    const baseQuery = config.query.replace(/;$/, '');
                     let parts = {
                         select: '',
                         from: '',
@@ -519,7 +662,7 @@ const DashboardWidget = ({ config, onContextMenu }) => {
                         limit: ''
                     };
 
-                    // Simple regex-based parsing to insert WHERE clause
+                   
                     const regex = /SELECT\s+(.*?)\s+FROM\s+([a-zA-Z0-9_]+)\s*(?:WHERE\s+(.*?))?\s*(?:GROUP BY\s+(.*?))?\s*(?:ORDER BY\s+(.*?))?\s*(?:LIMIT\s+(.*?))?$/is;
                     const match = baseQuery.match(regex);
 
@@ -531,26 +674,26 @@ const DashboardWidget = ({ config, onContextMenu }) => {
                         parts.orderBy = match[5] ? `ORDER BY ${match[5]}` : '';
                         parts.limit = match[6] ? `LIMIT ${match[6]}` : '';
                     } else {
-                        // Fallback if parsing fails, just append (less safe but keeps current behavior)
+                       
                         console.warn("Could not fully parse base query for modifier insertion. Appending modifier.");
                         finalQuery = `${baseQuery} ${activeToggle.modifier}`;
                     }
 
                     if (match) {
-                        // Reconstruct query with the new WHERE clause
+                       
                         finalQuery = `SELECT ${parts.select} FROM ${parts.from}`;
                         
-                        // Add existing WHERE or new modifier
+                       
                         if (parts.where) {
-                            finalQuery += ` ${parts.where} AND (${activeToggle.modifier.replace(/^\s*WHERE\s*/i, '')})`; // Append with AND if existing WHERE
+                            finalQuery += ` ${parts.where} AND (${activeToggle.modifier.replace(/^\s*WHERE\s*/i, '')})`;
                         } else {
-                            finalQuery += ` ${activeToggle.modifier}`; // Just add new WHERE
+                            finalQuery += ` ${activeToggle.modifier}`;
                         }
                         
                         finalQuery += ` ${parts.groupBy}`;
                         finalQuery += ` ${parts.orderBy}`;
                         finalQuery += ` ${parts.limit}`;
-                        finalQuery = finalQuery.replace(/\s+/g, ' ').trim(); // Clean up extra spaces
+                        finalQuery = finalQuery.replace(/\s+/g, ' ').trim();
                     }
                 }
                 
@@ -588,24 +731,24 @@ const DashboardWidget = ({ config, onContextMenu }) => {
                 if (!Array.isArray(data) || data.length === 0 || !config.chartConfig) return <div className="theme-text-secondary text-sm">Not enough data or chart is misconfigured.</div>;
                 
                 const chartType = config.chartConfig.type || (config.type.includes('line') ? 'line' : 'bar');
-                // The X and Y axis values are now the column names returned by the query
-                // We assume the query for charts will return columns named 'x' and 'y', or the user will specify aliases in their expression
-                // To support multiple series, we need to map the output column names from the data
+               
+               
+               
                 const yAxisExpressions = config.chartConfig.y ? config.chartConfig.y.split(',').map(s => s.trim()) : [];
                 
-                // Extract actual column names from the data for labels and values
+               
                 const dataKeys = data.length > 0 ? Object.keys(data[0]) : [];
                 const xAxisKey = config.chartConfig.x ? (dataKeys.find(key => key.toLowerCase() === config.chartConfig.x.toLowerCase().split(' as ')[1]) || dataKeys.find(key => key.toLowerCase() === config.chartConfig.x.toLowerCase())) : dataKeys[0];
 
                 const chartDatasets = yAxisExpressions.map((yExpr, index) => {
                     const yAxisKey = dataKeys.find(key => key.toLowerCase() === yExpr.toLowerCase().split(' as ')[1]) || dataKeys.find(key => key.toLowerCase() === yExpr.toLowerCase()); 
                     const values = data.map(d => parseFloat(d[yAxisKey]));
-                    const colors = ['#8b5cf6', '#3b82f6', '#facc15', '#ef4444', '#22c55e']; // Some default colors
+                    const colors = ['#8b5cf6', '#3b82f6', '#facc15', '#ef4444', '#22c55e'];
 
                     return {
-                        label: yAxisKey || yExpr, // Use the alias for the label
+                        label: yAxisKey || yExpr,
                         data: values,
-                        backgroundColor: chartType === 'bar' ? colors[index % colors.length] : `${colors[index % colors.length]}33`, // Add opacity for line fills
+                        backgroundColor: chartType === 'bar' ? colors[index % colors.length] : `${colors[index % colors.length]}33`,
                         borderColor: colors[index % colors.length],
                         fill: chartType === 'line',
                         tension: 0.3
@@ -613,7 +756,7 @@ const DashboardWidget = ({ config, onContextMenu }) => {
                 });
                 
                 const labels = data.map(d => {
-                    // Check if the x-axis key looks like a date/time string, and parse it
+                   
                     const xValue = d[xAxisKey];
                     if (typeof xValue === 'string' && (xValue.includes('-') || xValue.includes(':'))) {
                         return new Date(xValue);
@@ -629,13 +772,13 @@ const DashboardWidget = ({ config, onContextMenu }) => {
                 const chartOptions = {
                     responsive: true, maintainAspectRatio: false, 
                     plugins: { 
-                        legend: { display: chartDatasets.length > 1, position: 'top', labels: { color: '#9ca3af' } }, // Show legend if multiple series
+                        legend: { display: chartDatasets.length > 1, position: 'top', labels: { color: '#9ca3af' } },
                         tooltip: { mode: 'index', intersect: false }
                     },
                     scales: {
-                        x: (labels.length > 0 && labels[0] instanceof Date && !isNaN(labels[0])) ? { // Auto-detect time series
+                        x: (labels.length > 0 && labels[0] instanceof Date && !isNaN(labels[0])) ? {
                             type: 'time', 
-                            time: { unit: 'day', tooltipFormat: 'MMM dd, yyyy' }, // Default unit, user can refine
+                            time: { unit: 'day', tooltipFormat: 'MMM dd, yyyy' },
                             ticks: { color: '#9ca3af' }, 
                             grid: { color: '#374151'} 
                         } : { 
@@ -659,7 +802,12 @@ const DashboardWidget = ({ config, onContextMenu }) => {
 };
 
 const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, currentProvider, currentNPC }) => {
-
+    const [chartExplorer, setChartExplorer] = useState({
+        xCol: '',
+        yCol: '',
+        chartType: 'bar',
+        showChart: false
+    });
     const defaultWidgets = [
         { id: 'total_convos', type: 'stat', title: 'Total Conversations', query: "SELECT COUNT(DISTINCT conversation_id) as total FROM conversation_history;", iconName: 'MessageSquare', iconColor: 'text-green-400', span: 1 },
         { id: 'total_msgs', type: 'stat', title: 'Total Messages', query: "SELECT COUNT(*) as total FROM conversation_history WHERE role = 'user' OR role = 'assistant';", iconName: 'MessageSquare', iconColor: 'text-green-400', span: 1 },
@@ -669,18 +817,18 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
             id: 'activity_chart', 
             type: 'line_chart', 
             title: 'Activity Over Time', 
-            query: "SELECT strftime('%Y-%m-%d', timestamp) as date, COUNT(*) as count FROM conversation_history GROUP BY strftime('%Y-%m-%d', timestamp) ORDER BY date ASC", // Base query now includes GROUP BY
+            query: "SELECT strftime('%Y-%m-%d', timestamp) as date, COUNT(*) as count FROM conversation_history GROUP BY strftime('%Y-%m-%d', timestamp) ORDER BY date ASC",
             iconName: 'LineChart', 
             iconColor: 'text-blue-400', 
             chartConfig: { 
-                x: "strftime('%Y-%m-%d', timestamp) as date", // Full expression with alias
-                y: "COUNT(*) as count", // Full expression with alias
+                x: "strftime('%Y-%m-%d', timestamp) as date",
+                y: "COUNT(*) as count",
                 type: 'line',
-                groupBy: "strftime('%Y-%m-%d', timestamp)" // Explicitly set groupBy to the base expression
+                groupBy: "strftime('%Y-%m-%d', timestamp)"
             }, 
             span: 2,
             toggleOptions: [
-                { label: '7d', modifier: "WHERE timestamp >= date('now', '-7 days')" }, // Modifier is just the WHERE clause
+                { label: '7d', modifier: "WHERE timestamp >= date('now', '-7 days')" },
                 { label: '30d', modifier: "WHERE timestamp >= date('now', '-30 days')" },
                 { label: '90d', modifier: "WHERE timestamp >= date('now', '-90 days')" }
             ]
@@ -696,14 +844,14 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
                 x: "CASE WHEN LENGTH(content) BETWEEN 0 AND 50 THEN '0-50' WHEN LENGTH(content) BETWEEN 51 AND 200 THEN '51-200' WHEN LENGTH(content) BETWEEN 201 AND 500 THEN '201-500' WHEN LENGTH(content) BETWEEN 501 AND 1000 THEN '501-1000' ELSE '1000+' END as bin", 
                 y: "COUNT(*) as count", 
                 type: 'bar',
-                groupBy: "CASE WHEN LENGTH(content) BETWEEN 0 AND 50 THEN '0-50' WHEN LENGTH(content) BETWEEN 51 AND 200 THEN '51-200' WHEN LENGTH(content) BETWEEN 201 AND 500 THEN '201-500' WHEN LENGTH(content) BETWEEN 501 AND 1000 THEN '501-1000' ELSE '1000+' END" // Explicitly set groupBy
+                groupBy: "CASE WHEN LENGTH(content) BETWEEN 0 AND 50 THEN '0-50' WHEN LENGTH(content) BETWEEN 51 AND 200 THEN '51-200' WHEN LENGTH(content) BETWEEN 201 AND 500 THEN '201-500' WHEN LENGTH(content) BETWEEN 501 AND 1000 THEN '501-1000' ELSE '1000+' END"
             }, 
             span: 2 
         },
     ];
     
     const [widgets, setWidgets] = useState([]);
-    const [isAddDefaultWidgetModalOpen, setIsAddDefaultWidgetModalOpen] = useState(false);
+
     const [isAddCustomWidgetModalOpen, setIsAddCustomWidgetModalOpen] = useState(false);
     const [customWidgetContext, setCustomWidgetContext] = useState(null);
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, widgetId: null });
@@ -712,7 +860,7 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
 
     const [tableSchemaCache, setTableSchemaCache] = useState({});
     
-    // Original states for SQL panel and KG are all preserved
+   
     const [sqlQuery, setSqlQuery] = useState('SELECT * FROM conversation_history LIMIT 10;');
     const [queryResult, setQueryResult] = useState(null);
     const [loadingQuery, setLoadingQuery] = useState(false);
@@ -737,29 +885,40 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
     const [kgError, setKgError] = useState(null);
     const graphRef = useRef();
 
-    // --- ADD THESE LINES RIGHT AFTER ---
-    const [kgViewMode, setKgViewMode] = useState('full'); // 'full', 'cooccurrence'
-    const [kgNodeFilter, setKgNodeFilter] = useState('all'); // 'all', 'high-degree'
+   const [csvExportSettings, setCsvExportSettings] = useState({
+    alwaysPrompt: true
+});
+    const [kgViewMode, setKgViewMode] = useState('full');
+    const [kgNodeFilter, setKgNodeFilter] = useState('all');
     const [networkStats, setNetworkStats] = useState(null);
     const [cooccurrenceData, setCooccurrenceData] = useState(null);
     const [centralityData, setCentralityData] = useState(null);
 
 
     useEffect(() => { const handleKeyDown = (event) => { if (event.key === 'Escape') onClose(); }; if (isOpen) document.addEventListener('keydown', handleKeyDown); return () => document.removeEventListener('keydown', handleKeyDown); }, [isOpen, onClose]);
-
-
     useEffect(() => {
-
         if (isOpen) {
-
+            const savedWidgets = localStorage.getItem('dataDashWidgets');
+            if (savedWidgets) {
+                try {
+                    setWidgets(JSON.parse(savedWidgets));
+                } catch (err) {
+                    setWidgets(defaultWidgets);
+                    saveWidgets(defaultWidgets);
+                }
+            } else {
+                setWidgets(defaultWidgets);
+                saveWidgets(defaultWidgets);
+            }
             fetchKgData(currentKgGeneration);
         }
-    }, [isOpen, currentKgGeneration]); // Re-run only when isOpen changes or the generation slider value changes.
+    }, [isOpen, currentKgGeneration]);
+
     const saveWidgets = (newWidgets) => { setWidgets(newWidgets); localStorage.setItem('dataDashWidgets', JSON.stringify(newWidgets)); };
     const handleAddWidget = (widgetConfig) => saveWidgets([...widgets, widgetConfig]);
     const handleRemoveWidget = (idToRemove) => saveWidgets(widgets.filter(w => w.id !== idToRemove));
     
-    // Handler for saving changes from the EditWidgetModal
+   
     const handleEditWidgetSave = (updatedWidget) => {
         console.log("[DataDash] Saving updated widget:", updatedWidget);
         saveWidgets(widgets.map(w => w.id === updatedWidget.id ? updatedWidget : w));
@@ -787,7 +946,7 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
                 handleRemoveWidget(contextMenu.widgetId);
                 console.log(`[DataDash] Deleted widget with ID: ${contextMenu.widgetId}`);
             } else if (action === 'edit') {
-                // Check if tables are loaded. If not, load them before opening the modal.
+               
                 if (dbTables.length === 0) {
                     try {
                         console.log("[DataDash] Edit clicked, fetching DB tables for the first time...");
@@ -816,10 +975,10 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
         } catch (err) { console.error(`Failed to get schema for ${tableName}:`, err); return null; }
     }, [tableSchemaCache]);
 
-    // --- RESTORED: fetchTables hook for SQL Schema ---
+   
     useEffect(() => {
         const fetchTables = async () => {
-            if (isQueryPanelOpen && dbTables.length === 0) { // Condition: panel open AND no tables loaded yet
+            if (isQueryPanelOpen && dbTables.length === 0) {
                 try {
                     const res = await window.api.listTables();
                     if (res.error) throw new Error(res.error);
@@ -830,12 +989,12 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
             }
         };
         fetchTables();
-    }, [isQueryPanelOpen, dbTables.length]); // Dependencies: panel state, tables array length
+    }, [isQueryPanelOpen, dbTables.length]);
 
-    // --- ORIGINAL KG FETCH HOOK ---
+   
     const fetchKgData = useCallback(async (generation) => {
         setKgLoading(true); setKgError(null);
-        // Use the passed generation, fallback to current state, finally to null for initial load
+       
         const genToFetch = generation !== undefined ? generation : (currentKgGeneration !== null ? currentKgGeneration : null);
         
         try {
@@ -850,7 +1009,7 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
             if (generationsRes.error) throw new Error(`Generations Error: ${generationsRes.error}`);
             setKgGenerations(generationsRes.generations || []);
             const gens = generationsRes.generations || [];
-            // If this is the very first load, set the generation to the latest one
+           
             if (currentKgGeneration === null && gens.length > 0) {
                 setCurrentKgGeneration(Math.max(...gens));
             }
@@ -867,11 +1026,114 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
         } finally {
             setKgLoading(false);
         }
-    }, [currentKgGeneration]); // Depend on currentKgGeneration to have the correct fallback
+    }, [currentKgGeneration]);
 
     useEffect(() => { if (isOpen) { fetchKgData(); } }, [isOpen, fetchKgData]);
 
-    // --- ORIGINAL SQL EXECUTION HOOKS AND HANDLERS ---
+   const generateCSVFilename = (query) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    
+    let description = 'query_results';
+    if (query) {
+        const tableMatch = query.match(/FROM\s+([a-zA-Z0-9_]+)/i);
+        if (tableMatch) {
+            description = tableMatch[1];
+        }
+        
+        if (query.toLowerCase().includes('count')) description += '_counts';
+        if (query.toLowerCase().includes('group by')) description += '_grouped';
+        if (query.toLowerCase().includes('where')) description += '_filtered';
+    }
+    
+    return `${description}_${timestamp}.csv`;
+};
+
+
+    const exportToCSV = (data, query) => {
+    if (!data || data.length === 0) return;
+    
+    const suggestedFilename = generateCSVFilename(query);
+    
+    if (csvExportSettings.alwaysPrompt) {
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-[80]';
+        modal.innerHTML = `
+            <div class="theme-bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md">
+                <h3 class="text-lg font-semibold mb-4">Export CSV</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-sm theme-text-secondary">Filename</label>
+                        <input type="text" id="csv-filename" value="${suggestedFilename}" class="w-full theme-input mt-1" />
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="dont-ask-again" class="theme-checkbox" />
+                        <label for="dont-ask-again" class="text-sm">Don't ask again, just save with auto-generated names</label>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 mt-6">
+                    <button id="csv-cancel" class="theme-button px-4 py-2 text-sm rounded">Cancel</button>
+                    <button id="csv-save" class="theme-button-primary px-4 py-2 text-sm rounded">Save CSV</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        const filenameInput = modal.querySelector('#csv-filename');
+        const dontAskAgain = modal.querySelector('#dont-ask-again');
+        const cancelBtn = modal.querySelector('#csv-cancel');
+        const saveBtn = modal.querySelector('#csv-save');
+        
+        const cleanup = () => document.body.removeChild(modal);
+        
+        cancelBtn.onclick = cleanup;
+        
+        saveBtn.onclick = () => {
+            const filename = filenameInput.value || suggestedFilename;
+            
+            if (dontAskAgain.checked) {
+                setCsvExportSettings({ alwaysPrompt: false });
+            }
+            
+            downloadCSV(data, filename);
+            cleanup();
+        };
+        
+        modal.onclick = (e) => {
+            if (e.target === modal) cleanup();
+        };
+    } else {
+        downloadCSV(data, suggestedFilename);
+    }
+};
+
+    const downloadCSV = (data, filename) => {
+        const headers = Object.keys(data[0]);
+        const csvContent = [
+            headers.join(','),
+            ...data.map(row => 
+                headers.map(header => {
+                    const value = row[header];
+                    const stringValue = String(value || '');
+                    return stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') 
+                        ? `"${stringValue.replace(/"/g, '""')}"` 
+                        : stringValue;
+                }).join(',')
+            )
+        ].join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
     const handleExecuteQuery = async () => {
         setLoadingQuery(true); setQueryError(null); setQueryResult(null);
         try {
@@ -908,7 +1170,7 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
         if (kgViewMode === 'cooccurrence' && cooccurrenceData) {
             sourceNodes = cooccurrenceData.nodes || [];
             sourceLinks = cooccurrenceData.links || [];
-        } else if (kgData && kgData.nodes) { // 'full' view
+        } else if (kgData && kgData.nodes) {
             sourceNodes = kgData.nodes;
             sourceLinks = kgData.links;
         }
@@ -953,10 +1215,10 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
             const targetGen = currentKgGeneration - 1;
             setKgLoading(true);
             try {
-                // The actual rollback happens in the main process
+               
                 await window.api.kg_rollback({ generation: targetGen });
-                // We just need to update the state. The useEffect above will automatically
-                // trigger a full data refetch for the new target generation.
+               
+               
                 setCurrentKgGeneration(targetGen); 
             } catch (err) {
                 setKgError(err.message);
@@ -968,14 +1230,23 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
     
     if (!isOpen) return null;
     
-        // Filter out any null/undefined widgets to prevent rendering errors
+       
         const filteredWidgets = widgets.filter(widget => widget && widget.id);
-        const availableWidgetsToAdd = defaultWidgets.filter(dw => !filteredWidgets.some(w => w.id === dw.id));
 
+        
     return (
         <div> 
-            <AddDefaultWidgetModal isOpen={isAddDefaultWidgetModalOpen} onClose={() => setIsAddDefaultWidgetModalOpen(false)} availableWidgets={availableWidgetsToAdd} onAddWidget={handleAddWidget} />
-            <AddCustomWidgetModal isOpen={isAddCustomWidgetModalOpen} onClose={() => setIsAddCustomWidgetModalOpen(false)} context={customWidgetContext} onAddWidget={handleAddWidget} />
+
+            <AddCustomWidgetModal 
+                isOpen={isAddCustomWidgetModalOpen} 
+                onClose={() => setIsAddCustomWidgetModalOpen(false)} 
+                context={customWidgetContext} 
+                onAddWidget={handleAddWidget}
+                dbTables={dbTables}
+                fetchSchema={fetchSchemaForTable}
+            />
+
+
             {isEditWidgetModalOpen && widgetToEdit && (
                 <EditWidgetModal 
                     isOpen={isEditWidgetModalOpen} 
@@ -1016,7 +1287,16 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
                                     </div>
                                 ))}
                                 <div className="flex items-center justify-center h-56 border-2 border-dashed theme-border rounded-lg hover:bg-gray-800/50 transition-colors">
-                                    <button onClick={() => setIsAddDefaultWidgetModalOpen(true)} className="theme-button text-sm flex flex-col items-center gap-2"><Plus size={16}/> Add Widget</button>
+                                    <button onClick={
+                                            () => setIsAddCustomWidgetModalOpen(true)
+                                            } 
+                                            className="theme-button text-sm flex flex-col items-center gap-2">
+                                                <Plus size={16}/>
+                                                 Add Widget
+                                                
+                                                </button>
+
+
                                 </div>
                              </div>
                         </section>
@@ -1027,17 +1307,230 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
                             {isQueryPanelOpen && (
                                 <div className="p-4 border-t theme-border">
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-                                        <div className="border theme-border rounded-lg p-3 flex flex-col"><h5 className="font-semibold mb-2 flex items-center gap-2"><Table size={16}/> Database Schema</h5><div className="grid grid-cols-2 gap-3 flex-1"><div className="space-y-1 max-h-48 overflow-y-auto pr-2">{dbTables.length > 0 ? dbTables.map(name => (<button key={name} onClick={() => handleViewSchema(name)} className={`w-full text-left px-2 py-1 rounded text-sm ${selectedTable === name ? 'theme-button-primary' : 'theme-hover'}`}>{name}</button>)) : <p className="text-sm theme-text-secondary">No tables found.</p>}</div><div className="max-h-48 overflow-y-auto">{loadingSchema ? <div className="flex items-center justify-center h-full"><Loader className="animate-spin" /></div> : tableSchema ? <ul className="text-sm font-mono space-y-1">{tableSchema.map(col => <li key={col.name}>- {col.name}: <span className="text-yellow-400">{col.type}</span></li>)}</ul> : <p className="text-sm theme-text-secondary">Select a table.</p> }</div></div></div>
-                                        <div className="border theme-border rounded-lg p-3 flex flex-col"><div className="flex border-b theme-border mb-2 items-center justify-between"><h5 className="font-semibold flex items-center gap-2">Query History</h5></div><ul className="space-y-1 max-h-48 overflow-y-auto text-sm font-mono flex-1">{queryHistory.map((h, i) => (<li key={i} className="flex items-center justify-between group p-1 rounded hover:theme-bg-tertiary"><span onClick={() => handleHistoryAction(i, 'run')} className="truncate cursor-pointer flex-1 pr-2" title={h.query}>{h.query}</span><div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => handleHistoryAction(i, 'run')} title="Run"><Play size={14}/></button><button onClick={() => handleHistoryAction(i, 'copy')} title="Copy"><Copy size={14}/></button><button onClick={() => handleHistoryAction(i, 'favorite')} title="Favorite"><Star size={14} className={h.favorited ? 'fill-yellow-400 text-yellow-400' : ''}/></button><button onClick={() => handleHistoryAction(i, 'delete')} title="Delete"><Trash2 size={14} className="text-red-400"/></button></div></li>))}</ul></div>
+                                        <div className="border theme-border rounded-lg p-3 flex flex-col">
+                                            <h5 className="font-semibold mb-2 flex items-center gap-2">
+                                                <Table size={16}/> 
+                                                Database Schema
+                                                </h5>
+                                                <div className="grid grid-cols-2 gap-3 flex-1">
+                                                    <div className="space-y-1 max-h-48 overflow-y-auto pr-2">
+                        {dbTables.length > 0 ? dbTables.map(name => (
+                            <button key={name} onClick={() => handleViewSchema(name)} 
+                            className={`w-full text-left px-2 py-1 rounded text-sm ${selectedTable === name ? 'theme-button-primary' : 'theme-hover'}`
+                        }>{name}</button>)
+                        ) 
+                            : <p className="text-sm theme-text-secondary">No tables found.</p>}
+                            </div>
+                            <div className="max-h-48 overflow-y-auto">
+                                {loadingSchema ? <div className="flex items-center justify-center h-full">
+                                    <Loader className="animate-spin" /></div> : tableSchema ? <ul className="text-sm font-mono space-y-1">{tableSchema.map(col => <li key={col.name}>- {col.name}: 
+                                        <span className="text-yellow-400">{col.type}</span></li>)}</ul> : <p className="text-sm theme-text-secondary">
+                                            Select a table.
+                                            </p> }</div></div></div>
+                                        <div className="border theme-border rounded-lg p-3 flex flex-col">
+                                            <div className="flex border-b theme-border mb-2 items-center justify-between">
+                                                <h5 className="font-semibold flex items-center gap-2">
+                                                    Query History
+                                                    </h5>
+                                                    </div>
+                                                    <ul className="space-y-1 max-h-48 overflow-y-auto text-sm font-mono flex-1">
+                                                        {queryHistory.map(
+                                                            (h, i) => 
+                                                            (<li key={i} className="flex items-center justify-between group p-1 rounded hover:theme-bg-tertiary">
+                                                                <span onClick={
+                                                                    () => handleHistoryAction(i, 'run')
+                                                                    } 
+                                                                    className="truncate cursor-pointer flex-1 pr-2" 
+                                                                    title={h.query}>{h.query}
+                                                                    </span>
+                                                                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <button onClick={() => handleHistoryAction(i, 'run')
+
+                                                                        } 
+                                                                        title="Run">
+                                                                            <Play size={14}/>
+                                                                            </button>
+                                                                            
+                                                                            <button onClick={
+                                                                                () => handleHistoryAction(i, 'copy')
+                                                                                } title="Copy">
+                                                                                    <Copy size={14}/>
+                                                                            </button>
+                                                                            <button onClick={
+                                                                                () => handleHistoryAction(i, 'favorite')
+                                                                                } 
+                                                                                title="Favorite">
+                                                                                    <Star size={14} 
+                                                                                className={h.favorited ? 'fill-yellow-400 text-yellow-400' : ''}/>
+                                                                                </button><button onClick={() => handleHistoryAction(i, 'delete')
+
+                                                                                } title="Delete">
+                                                                                    <Trash2 size={14} className="text-red-400"/>
+                                                                                    </button></div></li>
+                                                                                )
+                                                                                )
+                                                                                }
+                                                                                </ul>
+                                                                                </div>
                                     </div>
-                                    <textarea value={sqlQuery} onChange={(e) => setSqlQuery(e.target.value)} rows={5} className="w-full p-2 theme-input font-mono text-sm" placeholder="Enter your SQL query here..." />
-                                    <div className="flex justify-end mt-2"><button onClick={handleExecuteQuery} disabled={loadingQuery} className="px-4 py-2 theme-button-primary rounded text-sm disabled:opacity-50">{loadingQuery ? 'Executing...' : 'Execute Query'}</button></div>
+                                    <textarea value={sqlQuery} 
+                                    onChange={(e) => setSqlQuery(e.target.value)
+
+                                    } rows={5} 
+                                    className="w-full p-2 theme-input font-mono text-sm" 
+                                    placeholder="Enter your SQL query here..." />
+                                    <div className="flex justify-end mt-2">
+                                        <button onClick={handleExecuteQuery} 
+                                        disabled={loadingQuery} 
+                                        className="px-4 py-2 theme-button-primary rounded text-sm disabled:opacity-50">
+                                            {loadingQuery ? 'Executing...' : 'Execute Query'}
+                                            </button>
+                                            </div>
                                     {loadingQuery && <div className="flex justify-center p-4"><Loader className="animate-spin"/></div>}
                                     {queryError && <div className="text-red-400 p-3 mt-2 rounded theme-bg-tertiary">{queryError}</div>}
-                                    {queryResult && (queryResult.length > 0 && 
-                                        <div className="mt-4"><div className="flex justify-between items-center"><h5 className="font-semibold">Query Results</h5><div className="flex items-center gap-2"><button onClick={() => { setCustomWidgetContext({ query: sqlQuery, result: queryResult }); setIsAddCustomWidgetModalOpen(true); }} className="px-3 py-1 text-xs theme-button-primary rounded flex items-center gap-2"><Plus size={14} /> Add to Dashboard</button><button disabled={!queryResult || queryResult.length === 0} className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2 disabled:opacity-50"><Download size={14} /> Export to CSV</button></div></div><div className="mt-2 overflow-x-auto theme-border border rounded-lg max-h-96"><table className="w-full text-sm text-left"><thead className="theme-bg-tertiary sticky top-0"><tr>{Object.keys(queryResult[0]).map(h => <th key={h} className="p-2 font-semibold">{h}</th>)}</tr></thead><tbody className="theme-bg-primary divide-y theme-divide">{queryResult.map((row, rIndex) => (<tr key={rIndex}>{Object.keys(row).map(key => <td key={key} className="p-2 font-mono truncate max-w-xs">{String(row[key])}</td>)}</tr>))}</tbody></table></div></div>
+                                    {queryResult && queryResult.length > 0 && (
+                                        <div className="mt-4">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <h5 className="font-semibold">Query Results</h5>
+                                                <div className="flex items-center gap-2">
+                                                    <button onClick={() => { 
+                                                        setCustomWidgetContext({ query: sqlQuery, result: queryResult }); 
+                                                        setIsAddCustomWidgetModalOpen(true); 
+                                                    }} className="px-3 py-1 text-xs theme-button-primary rounded flex items-center gap-2">
+                                                        <Plus size={14} /> Add to Dashboard
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => exportToCSV(queryResult, sqlQuery)}
+                                                        disabled={!queryResult || queryResult.length === 0} 
+                                                        className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2 disabled:opacity-50"
+                                                    >
+                                                        <Download size={14} /> Export to CSV
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div className="border theme-border rounded-lg p-3 mb-4 theme-bg-tertiary">
+                                                <h6 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                                                    <BarChartIcon size={16} /> Chart Explorer
+                                                </h6>
+                                                <div className="grid grid-cols-4 gap-3 items-end">
+                                                    <div>
+                                                        <label className="text-xs theme-text-secondary">X-Axis</label>
+                                                        <select 
+                                                            value={chartExplorer.xCol}
+                                                            onChange={e => setChartExplorer({...chartExplorer, xCol: e.target.value})}
+                                                            className="w-full theme-input mt-1 text-sm"
+                                                        >
+                                                            <option value="">Select column...</option>
+                                                            {Object.keys(queryResult[0]).map(col => 
+                                                                <option key={col} value={col}>{col}</option>
+                                                            )}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs theme-text-secondary">Y-Axis</label>
+                                                        <select 
+                                                            value={chartExplorer.yCol}
+                                                            onChange={e => setChartExplorer({...chartExplorer, yCol: e.target.value})}
+                                                            className="w-full theme-input mt-1 text-sm"
+                                                        >
+                                                            <option value="">Select column...</option>
+                                                            {Object.keys(queryResult[0]).map(col => 
+                                                                <option key={col} value={col}>{col}</option>
+                                                            )}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs theme-text-secondary">Chart Type</label>
+                                                        <select 
+                                                            value={chartExplorer.chartType}
+                                                            onChange={e => setChartExplorer({...chartExplorer, chartType: e.target.value})}
+                                                            className="w-full theme-input mt-1 text-sm"
+                                                        >
+                                                            <option value="bar">Bar Chart</option>
+                                                            <option value="line">Line Chart</option>
+                                                            <option value="scatter">Scatter Plot</option>
+                                                        </select>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => setChartExplorer({...chartExplorer, showChart: !chartExplorer.showChart})}
+                                                        disabled={!chartExplorer.xCol || !chartExplorer.yCol}
+                                                        className="px-3 py-2 theme-button-primary rounded text-sm disabled:opacity-50"
+                                                    >
+                                                        {chartExplorer.showChart ? 'Hide Chart' : 'Plot Chart'}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {chartExplorer.showChart && chartExplorer.xCol && chartExplorer.yCol && (
+                                                <div className="border theme-border rounded-lg p-3 mb-4 h-80">
+                                                    <div className="h-full w-full">
+                                                        {(() => {
+                                                            const chartData = {
+                                                                labels: queryResult.map(d => d[chartExplorer.xCol]),
+                                                                datasets: [{
+                                                                    label: chartExplorer.yCol,
+                                                                    data: queryResult.map(d => parseFloat(d[chartExplorer.yCol]) || 0),
+                                                                    backgroundColor: chartExplorer.chartType === 'bar' ? '#8b5cf6' : '#8b5cf633',
+                                                                    borderColor: '#8b5cf6',
+                                                                    fill: chartExplorer.chartType === 'line',
+                                                                    tension: 0.3,
+                                                                    pointRadius: chartExplorer.chartType === 'scatter' ? 4 : 2
+                                                                }]
+                                                            };
+
+                                                            const chartOptions = {
+                                                                responsive: true, 
+                                                                maintainAspectRatio: false,
+                                                                plugins: { 
+                                                                    legend: { display: true, position: 'top', labels: { color: '#9ca3af' } },
+                                                                    tooltip: { mode: 'index', intersect: false }
+                                                                },
+                                                                scales: {
+                                                                    x: { 
+                                                                        type: chartExplorer.chartType === 'scatter' ? 'linear' : 'category',
+                                                                        ticks: { color: '#9ca3af' }, 
+                                                                        grid: { color: '#374151'} 
+                                                                    },
+                                                                    y: { 
+                                                                        ticks: { color: '#9ca3af' }, 
+                                                                        grid: { color: '#374151'} 
+                                                                    }
+                                                                }
+                                                            };
+
+                                                            if (chartExplorer.chartType === 'scatter') {
+                                                                chartOptions.scales.x.type = 'linear';
+                                                                chartData.datasets[0].showLine = false;
+                                                                chartData.datasets[0].pointRadius = 4;
+                                                            }
+
+                                                            const ChartComponent = chartExplorer.chartType === 'line' || chartExplorer.chartType === 'scatter' ? Line : Bar;
+                                                            return <ChartComponent options={chartOptions} data={chartData} />;
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div className="mt-2 overflow-x-auto theme-border border rounded-lg max-h-96">
+                                                <table className="w-full text-sm text-left">
+                                                    <thead className="theme-bg-tertiary sticky top-0">
+                                                        <tr>{Object.keys(queryResult[0]).map(h => <th key={h} className="p-2 font-semibold">{h}</th>)}</tr>
+                                                    </thead>
+                                                    <tbody className="theme-bg-primary divide-y theme-divide">
+                                                        {queryResult.map((row, rIndex) => (
+                                                            <tr key={rIndex}>
+                                                                {Object.keys(row).map(key => 
+                                                                    <td key={key} className="p-2 font-mono truncate max-w-xs">{String(row[key])}</td>
+                                                                )}
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
                                     )}
-                                </div>
+                                    </div>
                             )}
                         </section>
 

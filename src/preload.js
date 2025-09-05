@@ -13,11 +13,11 @@ contextBridge.exposeInMainWorld('api', {
     
     getAvailableImageModels: (currentPath) => ipcRenderer.invoke('getAvailableImageModels', currentPath),
 
-    // Updated: generateImages to accept model and provider
+   
     generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),
 
 
-    // Conversation operations
+   
     deleteConversation: (id) => ipcRenderer.invoke('deleteConversation', id),
     getConversations: (path) => ipcRenderer.invoke('getConversations', path),
     getConversationsInDirectory: (path) => ipcRenderer.invoke('getConversationsInDirectory', path),
@@ -28,12 +28,12 @@ contextBridge.exposeInMainWorld('api', {
     saveNPC: (data) => ipcRenderer.invoke('save-npc', data),
 
     readFile: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
-    // File operations
+   
     readFileContent: (filePath) => ipcRenderer.invoke('read-file-content', filePath),
     writeFileContent: (filePath, content) => ipcRenderer.invoke('write-file-content', filePath, content),
-    createDirectory: (path) => ipcRenderer.invoke('create-directory', path), // <-- ADD THIS LINE
-    deleteDirectory: (path) => ipcRenderer.invoke('delete-directory', path), // <-- ADD THIS LINE
-    getDirectoryContentsRecursive: (path) => ipcRenderer.invoke('get-directory-contents-recursive', path), // <-- ADD THIS LINE
+    createDirectory: (path) => ipcRenderer.invoke('create-directory', path),
+    deleteDirectory: (path) => ipcRenderer.invoke('delete-directory', path),
+    getDirectoryContentsRecursive: (path) => ipcRenderer.invoke('get-directory-contents-recursive', path),
     showPdf: (args) => ipcRenderer.send('show-pdf', args),
     updatePdfBounds: (bounds) => ipcRenderer.send('update-pdf-bounds', bounds),
     hidePdf: (filePath) => ipcRenderer.send('hide-pdf', filePath),
@@ -53,7 +53,7 @@ contextBridge.exposeInMainWorld('api', {
     browserClearHistory: (args) => ipcRenderer.invoke('browser:clearHistory', args),
     browserSetVisibility: (args) => ipcRenderer.invoke('browser:set-visibility', args),
 
-    // Browser event listeners
+   
     onBrowserLoaded: (callback) => {
         const handler = (_, data) => callback(data);
         ipcRenderer.on('browser-loaded', handler);
@@ -138,7 +138,7 @@ onTerminalClosed: (callback) => {
 },
     executeShellCommand: (args) => ipcRenderer.invoke('executeShellCommand', args),
 
-    // Command operations
+   
     executeCommand: (data) => ipcRenderer.invoke('executeCommand', {
         commandstr: data.commandstr,
         current_path: data.currentPath,
@@ -159,7 +159,7 @@ onTerminalClosed: (callback) => {
         }
     },
     
-    // Stream listeners
+   
     onStreamData: (callback) => {
         const handler = (_, data) => callback(_, data);
         ipcRenderer.on('stream-data', handler);
@@ -177,7 +177,7 @@ onTerminalClosed: (callback) => {
     },
     showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
 
-    // Jinx operations
+   
     getJinxsGlobal: async () => {
         try {
             const response = await fetch('http://127.0.0.1:5337/api/jinxs/global');
@@ -206,7 +206,7 @@ onTerminalClosed: (callback) => {
     },
     saveJinx: (data) => ipcRenderer.invoke('save-jinx', data),
     
-    // NPC operations
+   
     getNPCTeamProject: async (currentPath) => {
         if (!currentPath || typeof currentPath !== 'string') {
           throw new Error('currentPath must be a string');
@@ -220,13 +220,13 @@ onTerminalClosed: (callback) => {
         return () => ipcRenderer.removeListener('browser-show-context-menu', handler);
     },
     
-    // Attachment operations
+   
     getMessageAttachments: (messageId) => ipcRenderer.invoke('get-message-attachments', messageId),
     getAttachment: (attachmentId) => ipcRenderer.invoke('get-attachment', attachmentId),
     get_attachment_response: (attachmentData, conversationId) =>
         ipcRenderer.invoke('get_attachment_response', attachmentData, conversationId),
 
-    // Settings & Config
+   
     loadGlobalSettings: () => ipcRenderer.invoke('loadGlobalSettings'),
     saveGlobalSettings: (args) => ipcRenderer.invoke('saveGlobalSettings', args),
     loadProjectSettings: (path) => ipcRenderer.invoke('loadProjectSettings', path),
@@ -241,7 +241,7 @@ onTerminalClosed: (callback) => {
     pullOllamaModel: (args) => ipcRenderer.invoke('ollama:pullModel', args),
     deleteOllamaModel: (args) => ipcRenderer.invoke('ollama:deleteModel', args),
 
-    // Listeners for real-time progress updates from the main process
+   
     onOllamaPullProgress: (callback) => {
         const handler = (_, progress) => callback(progress);
         ipcRenderer.on('ollama-pull-progress', handler);
@@ -257,7 +257,7 @@ onTerminalClosed: (callback) => {
         return () => ipcRenderer.removeListener('ollama-pull-error', handler);
     },
 
-    // Screenshot & Macro
+   
     onShowMacroInput: (callback) => {
       ipcRenderer.on('show-macro-input', callback);
       return () => ipcRenderer.removeListener('show-macro-input', callback);

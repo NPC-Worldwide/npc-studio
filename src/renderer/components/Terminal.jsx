@@ -5,12 +5,12 @@ import '@xterm/xterm/css/xterm.css';
 
 const TerminalView = ({ terminalId, currentPath }) => {
   const terminalRef = useRef(null);
-  const xtermInstance = useRef(null); // The xterm.js object
-  const isSessionReady = useRef(false); // Flag for allowing input
+  const xtermInstance = useRef(null);
+  const isSessionReady = useRef(false);
 
   useEffect(() => {
-    // --- SETUP: Create xterm.js UI instance ---
-    // This part runs only once when the component first mounts.
+   
+   
     if (!xtermInstance.current) {
       console.log(`[Frontend] UI: Creating new xterm.js instance for ${terminalId}`);
       const term = new Terminal({
@@ -22,21 +22,21 @@ const TerminalView = ({ terminalId, currentPath }) => {
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(terminalRef.current);
-      xtermInstance.current = term; // Store it
+      xtermInstance.current = term;
       
-      // Attach a single, permanent resize observer
+     
       const resizeObserver = new ResizeObserver(() => fitAddon.fit());
       resizeObserver.observe(terminalRef.current);
     }
     
-    // --- LOGIC FOR A SINGLE SESSION LIFECYCLE ---
+   
     let isEffectCancelled = false;
-    isSessionReady.current = false; // Reset ready state on each effect run
-    xtermInstance.current.clear(); // Clear the terminal for the new session
+    isSessionReady.current = false;
+    xtermInstance.current.clear();
     xtermInstance.current.write('Initializing session...\r\n');
 
-    // --- THIS IS THE KEY FIX ---
-    // Listeners are now inside the effect and use the 'isEffectCancelled' flag.
+   
+   
     const dataCallback = (_, { id, data }) => {
       if (id === terminalId && !isEffectCancelled) {
         xtermInstance.current?.write(data);
@@ -50,7 +50,7 @@ const TerminalView = ({ terminalId, currentPath }) => {
       }
     };
     
-    // Attach the "local" listeners
+   
     const removeDataListener = window.api.onTerminalData(dataCallback);
     const removeClosedListener = window.api.onTerminalClosed(closedCallback);
     
@@ -86,17 +86,17 @@ const TerminalView = ({ terminalId, currentPath }) => {
 
     initBackendSession();
 
-    // The cleanup function for THIS specific effect run
+   
     return () => {
       console.log(`[Frontend] CLEANUP: Running for effect instance of ${terminalId}`);
       isEffectCancelled = true;
       
-      // Dispose of listeners created in this effect run
+     
       inputHandler.dispose();
       removeDataListener();
       removeClosedListener();
       
-      // Tell the backend to kill the PTY process tied to this effect run
+     
       window.api.closeTerminalSession(terminalId);
     };
   }, [terminalId, currentPath]);

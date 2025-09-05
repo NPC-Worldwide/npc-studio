@@ -11,12 +11,12 @@ import '@react-pdf-viewer/highlight/lib/styles/index.css';
 const normalizePath = (p) => (p || '').replace(/\\/g, '/');
 
 const PdfViewer = ({ filePath, onTextSelect, onContextMenu }) => {
-    // --- All hooks at the top level. No conditions before them. ---
+   
     const [pdfData, setPdfData] = useState(null);
     const [highlights, setHighlights] = useState([]);
     const latestSelectionData = useRef(null);
 
-    // --- Load PDF and Highlights ---
+   
     useEffect(() => {
         if (!filePath) {
             setPdfData(null);
@@ -46,7 +46,7 @@ const PdfViewer = ({ filePath, onTextSelect, onContextMenu }) => {
         loadFileAndHighlights();
     }, [filePath]);
 
-    // --- Create Plugins (Safely in the render body) ---
+   
     const highlightPluginInstance = highlightPlugin({
         highlights,
         onHighlightAdded: async (highlight) => {
@@ -74,9 +74,9 @@ const PdfViewer = ({ filePath, onTextSelect, onContextMenu }) => {
 
     const plugins = [defaultLayoutPlugin(), selectionModePlugin(), highlightPluginInstance];
 
-    // --- Restore Your Robust Selection Logic ---
+   
     const handleTextSelectionChange = (e) => {
-        // This is the official plugin event. We use it to get the most accurate data.
+       
         if (e?.selectedText?.trim()) {
             const selectionData = {
                 selectedText: e.selectedText,
@@ -84,37 +84,37 @@ const PdfViewer = ({ filePath, onTextSelect, onContextMenu }) => {
                 quads: e.selectionRegion?.rects || e.quads || [],
             };
             latestSelectionData.current = selectionData;
-            // Notify the parent immediately.
+           
             if (onTextSelect) onTextSelect(selectionData);
         }
     };
 
     const handleContextMenuWrapper = (e) => {
-        // This is the aggressive fallback from your working code.
-        // It ensures that even if onTextSelectionChange hasn't fired,
-        // we capture the selection right before showing the context menu.
+       
+       
+       
         const selection = window.getSelection();
         const selectedText = selection.toString().trim();
 
         if (selectedText) {
             latestSelectionData.current = {
-                ...latestSelectionData.current, // Keep pageIndex if we have it
+                ...latestSelectionData.current,
                 selectedText: selectedText,
             };
-            // Forcefully update the parent component. This fixes the bug.
+           
             if (onTextSelect) onTextSelect(latestSelectionData.current);
         }
         
-        // Now, call the parent's context menu handler.
+       
         if (onContextMenu) {
             onContextMenu(e);
         }
         
-        // Prevent the default browser menu.
+       
         e.preventDefault();
     };
 
-    // --- The only early return, safely after all hooks have been called. ---
+   
     if (!pdfData) {
         return <div>Loading PDF...</div>;
     }

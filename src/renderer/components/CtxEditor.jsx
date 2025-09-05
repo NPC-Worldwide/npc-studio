@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { FileJson, X, Save, Plus, Trash2 } from 'lucide-react';
-import AutosizeTextarea from './AutosizeTextarea'; // Import the new component
+import AutosizeTextarea from './AutosizeTextarea';
 
 const CtxEditor = ({ isOpen, onClose, currentPath }) => {
-    // ... (no changes to state or effects)
+   
     const [activeTab, setActiveTab] = useState('project');
     const [globalCtx, setGlobalCtx] = useState({});
     const [projectCtx, setProjectCtx] = useState({});
@@ -48,7 +48,7 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
         }
     };
     
-    // ... (no changes to handlers: handleSave, handleFieldChange, etc.)
+   
     const handleSave = async () => {
         setIsLoading(true);
         setError(null);

@@ -65,7 +65,7 @@ const CodeEditor = ({ value, onChange, filePath, onSave, onContextMenu, onSelect
     <CodeMirror
       ref={editorRef}
       value={value}
-      height="auto"  // Change this from "auto" to "100%"
+      height="auto" 
       extensions={extensions}
       onChange={onChange}
       onUpdate={handleUpdate}
