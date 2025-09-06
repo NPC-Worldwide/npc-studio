@@ -21,6 +21,7 @@ if not exist "pyinstaller_dist\npc_studio_serve.exe" (
   --distpath pyinstaller_dist ^
   --noupx ^
   --hidden-import=npcpy ^
+  --hidden-import=npcsh ^
   --hidden-import=flask ^
   --hidden-import=flask_cors ^
   --hidden-import=flask_sse ^
@@ -37,6 +38,8 @@ if not exist "pyinstaller_dist\npc_studio_serve.exe" (
   --hidden-import=sentence_transformers ^
   --hidden-import=chromadb ^
   --collect-data=litellm ^
+  --collect-data=npcpy
+  --collect-data=npcsh
   npc_studio_serve.py
 
     if %errorlevel% neq 0 (
