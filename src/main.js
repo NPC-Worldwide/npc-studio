@@ -2499,6 +2499,6 @@ ipcMain.handle('renameFile', async (_, oldPath, newPath) => {
       console.error('Error renaming file:', err);
       return { success: false, error: err.message };
     }
-  });
-  let currentPdfPath = null;
+  }
+);
 
