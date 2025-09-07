@@ -60,7 +60,7 @@ jobs:
      - name: Install macOS build dependencies
        if: runner.os == 'macOS'
        run: |
-         brew install xz liblzma pkg-config
+         brew install xz pkg-config
      
      - name: Install Node dependencies
        run: npm install
