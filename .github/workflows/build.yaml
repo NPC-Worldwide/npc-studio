@@ -42,8 +42,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: '20'
       
       - name: Setup Python
         uses: actions/setup-python@v4
