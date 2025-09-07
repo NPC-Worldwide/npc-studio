@@ -810,8 +810,8 @@ function createWindow() {
         responseHeaders: {
           ...details.responseHeaders,
   'Content-Security-Policy': [
-      "default-src 'self' 'unsafe-inline' media: http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 file: data: blob:; " +
-      "connect-src 'self' file: media: http://localhost:5173 http://localhost:5337 http://127.0.0.1:5337 blob:; " +
+      "default-src 'self' 'unsafe-inline' media: http://localhost:6337 http://localhost:5337 http://127.0.0.1:5337 file: data: blob:; " +
+      "connect-src 'self' file: media: http://localhost:6337 http://localhost:5337 http://127.0.0.1:5337 blob:; " +
       "script-src 'self' 'unsafe-inline' media: 'unsafe-eval' https://cdnjs.cloudflare.com; " +
       "style-src 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net ; " +
       "style-src-elem 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net; " +
@@ -828,7 +828,7 @@ function createWindow() {
     const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
     
     if (isDev) {
-      mainWindow.loadURL('http://localhost:5173');
+      mainWindow.loadURL('http://localhost:6337');
     } else {
       const htmlPath = path.join(app.getAppPath(), 'dist', 'index.html');
       mainWindow.loadFile(htmlPath);

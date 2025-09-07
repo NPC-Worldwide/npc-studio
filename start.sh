@@ -9,7 +9,7 @@ sleep 5
 
 
 
-npc serve -p 5337 -c "localhost:5173" &
+npc serve -p 5337 -c "localhost:6337" &
 FLASK_PID=$!
 
 # Start Electron app
