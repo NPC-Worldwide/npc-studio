@@ -20,13 +20,19 @@ jobs:
            arch: x64
          - os: ubuntu-latest
            platform: linux
-           arch: arm64
+           arch: x86
+         - os: ubuntu-latest
+           platform: linux
+           arch: amd64
          - os: windows-latest
            platform: windows
            arch: x64
          - os: windows-latest
            platform: windows
-           arch: arm64
+           arch: x86
+         - os: windows-latest
+           platform: windows
+           arch: amd64
          - os: macos-latest
            platform: macos
            arch: arm64
@@ -56,24 +62,6 @@ jobs:
      
      - name: Install Node dependencies
        run: npm install
-     
-     - name: Setup cross-compilation (Linux ARM64)
-       if: runner.os == 'Linux' && matrix.arch == 'arm64'
-       run: |
-         sudo dpkg --add-architecture arm64
-         sudo apt-get update
-         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-         sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
-         sudo apt-get install -y libcairo2-dev:arm64 libpango1.0-dev:arm64 libjpeg-dev:arm64 libgif-dev:arm64 librsvg2-dev:arm64
-         sudo apt-get install -y libpixman-1-dev:arm64 pkg-config
-         echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-         echo "CXX=aarch64-linux-gnu-g++" >> $GITHUB_ENV
-         echo "AR=aarch64-linux-gnu-ar" >> $GITHUB_ENV
-         echo "STRIP=aarch64-linux-gnu-strip" >> $GITHUB_ENV
-         echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> $GITHUB_ENV
-         echo "npm_config_target_arch=arm64" >> $GITHUB_ENV
-         echo "npm_config_target_platform=linux" >> $GITHUB_ENV
-         echo "npm_config_arch=arm64" >> $GITHUB_ENV
      
      - name: Install Windows Build Tools
        if: runner.os == 'Windows'
@@ -138,12 +126,6 @@ jobs:
      - name: Build frontend
        run: npm run build:vite
      
-     - name: Rebuild native dependencies for target architecture
-       if: runner.os != 'Windows'
-       run: npm rebuild
-       env:
-         npm_config_target_arch: ${{ matrix.arch }}
-     
      - name: Build Electron app
        run: npm run electron:build
        env:
@@ -157,31 +139,18 @@ jobs:
          VERSION="${{ steps.version.outputs.version }}"
          
          if [ "${{ runner.os }}" = "Linux" ]; then
-           if [ "${{ matrix.arch }}" = "arm64" ]; then
-             find dist-electron -name "*.deb" -exec cp {} upload/npc-studio_${VERSION}_arm64.deb \;
-             find dist-electron -name "*.AppImage" -exec cp {} upload/npc-studio_${VERSION}_arm64.AppImage \;
-             echo "files=upload/npc-studio_${VERSION}_arm64.deb upload/npc-studio_${VERSION}_arm64.AppImage" >> $GITHUB_OUTPUT
-             echo "gcs_path=linux-arm64" >> $GITHUB_OUTPUT
-           else
-             find dist-electron -name "*.deb" -exec cp {} upload/npc-studio_${VERSION}_amd64.deb \;
-             find dist-electron -name "*.AppImage" -exec cp {} upload/npc-studio_${VERSION}_amd64.AppImage \;
-             echo "files=upload/npc-studio_${VERSION}_amd64.deb upload/npc-studio_${VERSION}_amd64.AppImage" >> $GITHUB_OUTPUT
-             echo "gcs_path=linux-x64" >> $GITHUB_OUTPUT
-           fi
+           find dist-electron -name "*.deb" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb \;
+           find dist-electron -name "*.AppImage" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.AppImage \;
+           echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb upload/npc-studio_${VERSION}_${{ matrix.arch }}.AppImage" >> $GITHUB_OUTPUT
+           echo "gcs_path=linux-${{ matrix.arch }}" >> $GITHUB_OUTPUT
          elif [ "${{ runner.os }}" = "Windows" ]; then
-           if [ "${{ matrix.arch }}" = "arm64" ]; then
-             find dist-electron -name "*.exe" -exec cp {} upload/npc-studio_${VERSION}_arm64.exe \;
-             echo "files=upload/npc-studio_${VERSION}_arm64.exe" >> $GITHUB_OUTPUT
-             echo "gcs_path=windows-arm64" >> $GITHUB_OUTPUT
-           else
-             find dist-electron -name "*.exe" -exec cp {} upload/npc-studio_${VERSION}_amd64.exe \;
-             echo "files=upload/npc-studio_${VERSION}_amd64.exe" >> $GITHUB_OUTPUT
-             echo "gcs_path=windows-x64" >> $GITHUB_OUTPUT
-           fi
+           find dist-electron -name "*.exe" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe \;
+           echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe" >> $GITHUB_OUTPUT
+           echo "gcs_path=windows-${{ matrix.arch }}" >> $GITHUB_OUTPUT
          elif [ "${{ runner.os }}" = "macOS" ]; then
-           find dist-electron -name "*.dmg" -exec cp {} upload/npc-studio_${VERSION}_arm64.dmg \;
-           echo "files=upload/npc-studio_${VERSION}_arm64.dmg" >> $GITHUB_OUTPUT
-           echo "gcs_path=macos-arm64" >> $GITHUB_OUTPUT
+           find dist-electron -name "*.dmg" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.dmg \;
+           echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.dmg" >> $GITHUB_OUTPUT
+           echo "gcs_path=macos-${{ matrix.arch }}" >> $GITHUB_OUTPUT
          fi
        shell: bash
      
@@ -235,10 +204,13 @@ jobs:
          echo "**Version:** $VERSION" >> $GITHUB_STEP_SUMMARY
          echo "" >> $GITHUB_STEP_SUMMARY
          echo "### Download links:" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux x64:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_amd64.deb" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux x64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_amd64.AppImage" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux ARM64:** https://storage.googleapis.com/npc-studio-executables/linux-arm64/npc-studio_${VERSION}_arm64.deb" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux ARM64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-arm64/npc-studio_${VERSION}_arm64.AppImage" >> $GITHUB_STEP_SUMMARY
-         echo "- **Windows x64:** https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_amd64.exe" >> $GITHUB_STEP_SUMMARY
-         echo "- **Windows ARM64:** https://storage.googleapis.com/npc-studio-executables/windows-arm64/npc-studio_${VERSION}_arm64.exe" >> $GITHUB_STEP_SUMMARY
+         echo "- **Linux x64:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.deb" >> $GITHUB_STEP_SUMMARY
+         echo "- **Linux x64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.AppImage" >> $GITHUB_STEP_SUMMARY
+         echo "- **Linux x86:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.deb" >> $GITHUB_STEP_SUMMARY
+         echo "- **Linux x86 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.AppImage" >> $GITHUB_STEP_SUMMARY
+         echo "- **Linux amd64:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.deb" >> $GITHUB_STEP_SUMMARY
+         echo "- **Linux amd64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.AppImage" >> $GITHUB_STEP_SUMMARY
+         echo "- **Windows x64:** https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe" >> $GITHUB_STEP_SUMMARY
+         echo "- **Windows x86:** https://storage.googleapis.com/npc-studio-executables/windows-x86/npc-studio_${VERSION}_x86.exe" >> $GITHUB_STEP_SUMMARY
+         echo "- **Windows amd64:** https://storage.googleapis.com/npc-studio-executables/windows-amd64/npc-studio_${VERSION}_amd64.exe" >> $GITHUB_STEP_SUMMARY
          echo "- **macOS:** https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg" >> $GITHUB_STEP_SUMMARY
