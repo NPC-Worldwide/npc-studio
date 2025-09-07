@@ -60,12 +60,17 @@ jobs:
      - name: Setup cross-compilation (Linux ARM64)
        if: runner.os == 'Linux' && matrix.arch == 'arm64'
        run: |
+         sudo dpkg --add-architecture arm64
          sudo apt-get update
          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+         sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+         sudo apt-get install -y libcairo2-dev:arm64 libpango1.0-dev:arm64 libjpeg-dev:arm64 libgif-dev:arm64 librsvg2-dev:arm64
+         sudo apt-get install -y libpixman-1-dev:arm64 pkg-config
          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
          echo "CXX=aarch64-linux-gnu-g++" >> $GITHUB_ENV
          echo "AR=aarch64-linux-gnu-ar" >> $GITHUB_ENV
          echo "STRIP=aarch64-linux-gnu-strip" >> $GITHUB_ENV
+         echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> $GITHUB_ENV
          echo "npm_config_target_arch=arm64" >> $GITHUB_ENV
          echo "npm_config_target_platform=linux" >> $GITHUB_ENV
          echo "npm_config_arch=arm64" >> $GITHUB_ENV
