@@ -18,6 +18,12 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x86
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
           - os: windows-latest
             platform: windows
             arch: x64
@@ -54,12 +60,13 @@ jobs:
       - name: Setup Windows Build Environment
         if: runner.os == 'Windows'
         run: |
-          npm config set msvs_version 2022
-          npm config set python python3
+          npm config set target_arch ${{ matrix.arch }}
         shell: cmd
       
       - name: Install Node dependencies
         run: npm install
+        env:
+          npm_config_target_arch: ${{ matrix.arch }}
       
       - name: Build PyInstaller binary (Linux)
         if: runner.os == 'Linux'
@@ -202,6 +209,10 @@ jobs:
           echo "### Download links:" >> $GITHUB_STEP_SUMMARY
           echo "- **Linux x64:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.deb" >> $GITHUB_STEP_SUMMARY
           echo "- **Linux x64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.AppImage" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux x86:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.deb" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux x86 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.AppImage" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux amd64:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.deb" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux amd64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.AppImage" >> $GITHUB_STEP_SUMMARY
           echo "- **Windows x64:** https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe" >> $GITHUB_STEP_SUMMARY
           echo "- **Windows x86:** https://storage.googleapis.com/npc-studio-executables/windows-x86/npc-studio_${VERSION}_x86.exe" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS ARM64:** https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg" >> $GITHUB_STEP_SUMMARY
