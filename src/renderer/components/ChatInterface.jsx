@@ -4490,31 +4490,8 @@ const renderSidebarItemContextMenu = () => {
 
 
 
-
-// --- Internal Render Functions ---
 const renderSidebar = () => {
-    if (sidebarCollapsed) {
-        return (
-            <div className="w-8 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
-                <div className="flex-1 flex items-start justify-center pt-4" style={{height: '70%',}}>
-                </div>
-            <div className="p-2 border-b theme-border ">
-                <button 
-                        onClick={() => setSidebarCollapsed(false)} 
-                        className="p-2 theme-button theme-hover rounded-full transition-all group" 
-                        title="Open sidebar"
-                    >
-                        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                            <ChevronLeft size={14} className="transform rotate-180 group-hover:scale-75 transition-all duration-200" />
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                        </div>
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
+    // All these hooks MUST be called every render, regardless of collapsed state
     const getPlaceholderText = () => {
         if (isGlobalSearch) {
             return "Global search (Ctrl+Shift+F)...";
@@ -4533,16 +4510,18 @@ const renderSidebar = () => {
         return "Search (Ctrl+F)...";
     };
 
+    // Single return statement with conditional rendering inside
     return (
-        <div className="w-64 border-r theme-border flex flex-col flex-shrink-0 theme-sidebar">
-            <div className="p-4 border-b theme-border flex items-center justify-between flex-shrink-0" 
+        <div className={`border-r theme-border flex flex-col flex-shrink-0 theme-sidebar ${sidebarCollapsed ? 'w-8' : 'w-64'}`}>
+            {/* Always render this structure but hide sections when collapsed */}
+            
+            {/* Header - hidden when collapsed */}
+            <div className={`p-4 border-b theme-border flex items-center justify-between flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`} 
                   style={{ WebkitAppRegion: 'drag' }}>
                 <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
                 <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
                     <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
 
-                    
-                    
                     <div className="relative group">
                         <div className="flex">
                             <button onClick={createNewConversation} className="p-2 theme-button-primary rounded-full flex items-center gap-1 transition-all" aria-label="New Conversation">
@@ -4551,7 +4530,6 @@ const renderSidebar = () => {
                             </button>
                         </div>
                         
-
                         <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
                             <button onClick={createNewConversation} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
                                 <MessageSquare size={12} />
@@ -4575,11 +4553,9 @@ const renderSidebar = () => {
                             </button>
                             <button 
                                 onClick={() => {
-                                    // Open new window - this will depend on your app architecture
                                     if (window.api && window.api.openNewWindow) {
                                         window.api.openNewWindow(currentPath);
                                     } else {
-                                        // Fallback: open in new browser window/tab
                                         window.open(window.location.href, '_blank');
                                     }
                                 }}
@@ -4589,7 +4565,6 @@ const renderSidebar = () => {
                             >
                                 <Plus size={14} /> 
                             </button>
-
                         </div>
                     </div>
                     
@@ -4597,7 +4572,8 @@ const renderSidebar = () => {
                 </div>
             </div>
 
-            <div className="p-2 border-b theme-border flex items-center gap-2 flex-shrink-0">
+            {/* Path navigation - hidden when collapsed */}
+            <div className={`p-2 border-b theme-border flex items-center gap-2 flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
                 <button onClick={goUpDirectory} className="p-2 theme-hover rounded-full transition-all" title="Go Up" aria-label="Go Up Directory"><ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/></button>
                     {isEditingPath ? (
                         <input 
@@ -4607,7 +4583,7 @@ const renderSidebar = () => {
                             onKeyDown={(e) => { 
                                 if (e.key === 'Enter') { 
                                     setIsEditingPath(false); 
-                                    switchToPath(editedPath); // Use switchToPath instead of setCurrentPath
+                                    switchToPath(editedPath);
                                 } else if (e.key === 'Escape') { 
                                     setIsEditingPath(false); 
                                 } 
@@ -4625,12 +4601,11 @@ const renderSidebar = () => {
                         {currentPath || '...'}
                     </div>
                 )}
-
             </div>
             
-            <div className="p-2 border-b theme-border flex flex-col gap-2 flex-shrink-0">
+            {/* Search - hidden when collapsed */}
+            <div className={`p-2 border-b theme-border flex flex-col gap-2 flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
                 <div className="flex items-center gap-2">
-
                 <input
                     ref={searchInputRef}
                     type="text"
@@ -4647,7 +4622,6 @@ const renderSidebar = () => {
                     placeholder={getPlaceholderText()}
                     className="flex-grow theme-input text-xs rounded px-2 py-1 border focus:outline-none"
                 />
-
                     <button
                         onClick={() => {
                             setSearchTerm('');
@@ -4663,7 +4637,8 @@ const renderSidebar = () => {
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-2 py-2">
+            {/* Main content area - use flex-1 or fixed height to push buttons to bottom */}
+            <div className={`flex-1 overflow-y-auto px-2 py-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
                 {loading ? (
                     <div className="p-4 theme-text-muted">Loading...</div>
                 ) : isSearching ? (
@@ -4677,12 +4652,19 @@ const renderSidebar = () => {
                 {contextMenuPos && renderContextMenu()}
                 {sidebarItemContextMenuPos && renderSidebarItemContextMenu()}
                 {fileContextMenuPos && renderFileContextMenu()}
-            
             </div>
-            {renderActiveWindowsIndicator()}
-            {renderWorkspaceIndicator()}
+            
+            {/* When collapsed, show spacer to push button to bottom */}
+            {sidebarCollapsed && <div className="flex-1"></div>}
+            
+            {/* Window indicators - hidden when collapsed */}
+            <div className={sidebarCollapsed ? 'hidden' : ''}>
+                {renderActiveWindowsIndicator()}
+                {renderWorkspaceIndicator()}
+            </div>
 
-            <div className="flex justify-center">
+            {/* Delete button - hidden when collapsed */}
+            <div className={`flex justify-center ${sidebarCollapsed ? 'hidden' : ''}`}>
                 <button
                     onClick={deleteSelectedConversations}
                     className="p-2 theme-hover rounded-full text-red-400 transition-all"
@@ -4691,38 +4673,41 @@ const renderSidebar = () => {
                     <Trash size={24} />
                 </button>
             </div>
-
-
             
+            {/* Bottom actions - always shown, collapse button always at bottom */}
             <div className="p-4 border-t theme-border flex-shrink-0">
                 <div className="flex gap-2 justify-center">
-                <button onClick={() => setPhotoViewerOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Photo Viewer">
-                <Image size={16} />
-
-                    </button>
-                    <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
-                    <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
-                    <button onClick={() => setCtxEditorOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Context Editor">
-                        <FileJson size={16} />
-                    </button>
-                    <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
+                    {!sidebarCollapsed && (
+                        <>
+                            <button onClick={() => setPhotoViewerOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Photo Viewer">
+                                <Image size={16} />
+                            </button>
+                            <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
+                            <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
+                            <button onClick={() => setCtxEditorOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Context Editor">
+                                <FileJson size={16} />
+                            </button>
+                            <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
+                        </>
+                    )}
                     <button 
-                        onClick={() => setSidebarCollapsed(true)} 
+                        onClick={() => setSidebarCollapsed(!sidebarCollapsed)} 
                         className="p-2 theme-button theme-hover rounded-full transition-all group" 
-                        title="Collapse sidebar"
+                        title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                     >
                         <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
                             <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                            <ChevronRight size={14} className="transform rotate-180 group-hover:scale-75 transition-all duration-200" />
+                            <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
                             <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
                         </div>
                     </button>
-
                 </div>
             </div>
         </div>
     );
 };
+
+
     const renderFolderList = (structure) => {
         if (!structure || typeof structure !== 'object' || structure.error) { return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>; }
         if (Object.keys(structure).length === 0) { return <div className="p-2 text-xs text-gray-500">Empty directory</div>; }
