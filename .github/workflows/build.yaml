@@ -57,16 +57,13 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt pyinstaller
       
-      - name: Setup Windows Build Environment
-        if: runner.os == 'Windows'
-        run: |
-          npm config set target_arch ${{ matrix.arch }}
-        shell: cmd
-      
       - name: Install Node dependencies
         run: npm install
         env:
           npm_config_target_arch: ${{ matrix.arch }}
+          npm_config_disturl: https://electronjs.org/headers
+          npm_config_runtime: electron
+          npm_config_build_from_source: true
       
       - name: Build PyInstaller binary (Linux)
         if: runner.os == 'Linux'
