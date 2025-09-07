@@ -2149,19 +2149,14 @@ const closeContentPane = useCallback((paneId, nodePath) => {
    
 
 
-const handleConversationSelect = async (conversationId, skipMessageLoad = false, skipPaneUpdate = false) => {
+const handleConversationSelect = async (conversationId, skipMessageLoad = false) => {
     setActiveConversationId(conversationId);
     setCurrentFile(null);
 
-    const hasRestoredWorkspace = rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
-    const isCurrentlyRestoring = isLoadingWorkspace;
-    
-    if (hasRestoredWorkspace || isCurrentlyRestoring) {
-        console.log('Skipping pane update - workspace restoration detected');
-        return null;
-    }
-
-    if (skipPaneUpdate) {
+    // Only skip pane updates if we're currently in the process of loading a workspace
+    // Don't block ALL conversation selections!
+    if (isLoadingWorkspace) {
+        console.log('Skipping pane update - currently restoring workspace');
         return null;
     }
 
@@ -2187,6 +2182,7 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false,
     }
     return paneIdToUpdate;
 };
+
 
     const handleFileClick = async (filePath) => {
         setCurrentFile(filePath);
