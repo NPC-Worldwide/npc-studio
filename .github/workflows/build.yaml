@@ -64,7 +64,7 @@ jobs:
       
       - name: Delete package-lock.json (Windows fix)
         if: runner.os == 'Windows'
-        run: rm package-lock.json
+        run: rm -f package-lock.json
         shell: bash
       
       - name: Install Node dependencies (with updated node-pty)
