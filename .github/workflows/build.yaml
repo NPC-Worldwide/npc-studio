@@ -57,12 +57,6 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt pyinstaller
       
-      - name: Setup Windows Build Tools
-        if: runner.os == 'Windows'
-        run: |
-          npm install --global --production windows-build-tools --vs2015
-        continue-on-error: true
-      
       - name: Install macOS build dependencies
         if: runner.os == 'macOS'
         run: |
@@ -127,23 +121,10 @@ jobs:
       - name: Build frontend
         run: npm run build:vite
       
-      - name: Configure Windows build environment for electron-rebuild
-        if: runner.os == 'Windows'
-        run: |
-          $env:npm_config_node_gyp = "$(npm prefix -g)\node_modules\node-gyp\bin\node-gyp.js"
-          $env:npm_config_msvs_version = "2022"
-          $env:npm_config_target_arch = "${{ matrix.arch }}"
-        shell: pwsh
-      
-      - name: Rebuild native modules for Electron
-        run: npx electron-rebuild
+      - name: Install app dependencies for Electron
+        run: npx electron-builder install-app-deps
         env:
           npm_config_target_arch: ${{ matrix.arch }}
-          npm_config_disturl: https://electronjs.org/headers
-          npm_config_runtime: electron
-          npm_config_cache: /tmp/.npm
-          npm_config_build_from_source: true
-          ELECTRON_REBUILD_TESTS: false
       
       - name: Build Electron app
         run: npm run electron:build
