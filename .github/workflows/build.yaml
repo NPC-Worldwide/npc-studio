@@ -1,215 +1,234 @@
 name: Build and Release
 
 on:
- push:
-   branches:
-     - main
- pull_request:
-   branches:
-     - main
- workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
- build:
-   runs-on: ${{ matrix.os }}
-   strategy:
-     matrix:
-       include:
-         - os: ubuntu-latest
-           platform: linux
-           arch: x64
-         - os: ubuntu-latest
-           platform: linux
-           arch: x86
-         - os: ubuntu-latest
-           platform: linux
-           arch: amd64
-         - os: windows-latest
-           platform: windows
-           arch: x64
-         - os: windows-latest
-           platform: windows
-           arch: x86
-         - os: macos-latest
-           platform: macos
-           arch: arm64
-   
-   steps:
-     - uses: actions/checkout@v4
-     
-     - name: Get version from package.json
-       id: version
-       run: |
-         VERSION=$(node -p "require('./package.json').version")
-         echo "version=$VERSION" >> $GITHUB_OUTPUT
-       shell: bash
-     
-     - name: Setup Node.js
-       uses: actions/setup-node@v4
-       with:
-         node-version: '20'
-     
-     - name: Setup Python
-       uses: actions/setup-python@v4
-       with:
-         python-version: '3.11'
-   
-     - name: Install Python dependencies
-       run: pip install -r requirements.txt pyinstaller
-     
-     - name: Install macOS build dependencies
-       if: runner.os == 'macOS'
-       run: |
-         brew install xz pkg-config
-     
-     - name: Install Node dependencies
-       run: npm install
-     
-     - name: Build PyInstaller binary (Linux)
-       if: runner.os == 'Linux'
-       run: |
-         pyinstaller --onefile --clean --distpath pyinstaller_dist --noupx \
-           --hidden-import=npcpy --hidden-import=litellm --hidden-import=ollama \
-           --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse \
-           --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow \
-           --hidden-import=nltk --hidden-import=anthropic --hidden-import=openai \
-           --hidden-import=google-genai --hidden-import=tiktoken_ext.openai_public \
-           --hidden-import=tiktoken_ext --hidden-import=chromadb --hidden-import=pydantic \
-           --exclude-module=scipy --exclude-module=tensorflow --exclude-module=torch \
-           --exclude-module=sklearn --exclude-module=notebook --exclude-module=ipython \
-           --exclude-module=jupyter --exclude-module=nbconvert --exclude-module=cv2 \
-           --exclude-module=PIL.ImageTk --exclude-module=PIL.ImageQt --exclude-module=docx \
-           --exclude-module=pptx --exclude-module=cuda --exclude-module=cudnn \
-           --exclude-module=cudart --exclude-module=cublas --exclude-module=cupy \
-           --exclude-module=logfire --exclude-module=numba.cuda --exclude-module=torch.cuda \
-           --exclude-module=tensorflow.python.framework.cuda_util \
-           --collect-data=litellm --collect-data=npcpy npc_studio_serve.py
-         mkdir -p resources/backend
-         cp pyinstaller_dist/npc_studio_serve resources/backend/
-         chmod +x resources/backend/npc_studio_serve
-     
-     - name: Build PyInstaller binary (Windows)
-       if: runner.os == 'Windows'
-       run: |
-         python -m PyInstaller --onefile --clean --distpath pyinstaller_dist --noupx --hidden-import=npcpy --hidden-import=npcsh --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow --hidden-import=nltk --hidden-import=litellm --hidden-import=anthropic --hidden-import=openai --hidden-import=google-genai --hidden-import=tiktoken_ext.openai_public --hidden-import=tiktoken_ext --hidden-import=sentence_transformers --hidden-import=chromadb --collect-data=litellm --collect-data=npcpy --collect-data=npcsh npc_studio_serve.py
-         mkdir -p resources/backend
-         copy pyinstaller_dist\npc_studio_serve.exe resources\backend\npc_studio_serve.exe
-     
-     - name: Build PyInstaller binary (macOS)
-       if: runner.os == 'macOS'
-       run: |
-         pyinstaller --onefile --clean --distpath pyinstaller_dist --noupx \
-           --hidden-import=npcpy --hidden-import=litellm --hidden-import=ollama \
-           --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse \
-           --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow \
-           --hidden-import=anthropic --hidden-import=openai --hidden-import=google-genai \
-           --hidden-import=tiktoken_ext.openai_public --hidden-import=tiktoken_ext \
-           --hidden-import=chromadb --hidden-import=pydantic \
-           --exclude-module=scipy --exclude-module=tensorflow --exclude-module=torch \
-           --exclude-module=sklearn --exclude-module=notebook --exclude-module=ipython \
-           --exclude-module=jupyter --exclude-module=nbconvert --exclude-module=cv2 \
-           --exclude-module=PIL.ImageTk --exclude-module=PIL.ImageQt --exclude-module=docx \
-           --exclude-module=pptx --exclude-module=cuda --exclude-module=cudnn \
-           --exclude-module=cudart --exclude-module=cublas --exclude-module=cupy \
-           --exclude-module=logfire --exclude-module=numba.cuda --exclude-module=torch.cuda \
-           --exclude-module=nltk --exclude-module=tensorflow.python.framework.cuda_util \
-           --collect-data=litellm --collect-data=npcpy npc_studio_serve.py
-         mkdir -p resources/backend
-         cp pyinstaller_dist/npc_studio_serve resources/backend/npc_studio_serve
-         chmod +x resources/backend/npc_studio_serve
-     
-     - name: Build frontend
-       run: npm run build:vite
-     
-     - name: Rebuild native modules for Electron
-       run: npx electron-rebuild
-       env:
-         npm_config_target_arch: ${{ matrix.arch }}
-     
-     - name: Build Electron app
-       run: npm run electron:build
-       env:
-         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-         npm_config_target_arch: ${{ matrix.arch }}
-     
-     - name: Prepare files for upload
-       id: prepare
-       run: |
-         mkdir -p upload
-         VERSION="${{ steps.version.outputs.version }}"
-         
-         if [ "${{ runner.os }}" = "Linux" ]; then
-           find dist-electron -name "*.deb" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb \;
-           find dist-electron -name "*.AppImage" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.AppImage \;
-           echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb upload/npc-studio_${VERSION}_${{ matrix.arch }}.AppImage" >> $GITHUB_OUTPUT
-           echo "gcs_path=linux-${{ matrix.arch }}" >> $GITHUB_OUTPUT
-         elif [ "${{ runner.os }}" = "Windows" ]; then
-           find dist-electron -name "*.exe" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe \;
-           echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe" >> $GITHUB_OUTPUT
-           echo "gcs_path=windows-${{ matrix.arch }}" >> $GITHUB_OUTPUT
-         elif [ "${{ runner.os }}" = "macOS" ]; then
-           find dist-electron -name "*.dmg" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.dmg \;
-           echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.dmg" >> $GITHUB_OUTPUT
-           echo "gcs_path=macos-${{ matrix.arch }}" >> $GITHUB_OUTPUT
-         fi
-       shell: bash
-     
-     - name: Authenticate to Google Cloud
-       if: github.ref == 'refs/heads/main'
-       uses: google-github-actions/auth@v2
-       with:
-         credentials_json: ${{ secrets.GCP_SA_KEY }}
-     
-     - name: Set up Cloud SDK
-       if: github.ref == 'refs/heads/main'
-       uses: google-github-actions/setup-gcloud@v2
-     
-     - name: Upload to Google Cloud Storage
-       if: github.ref == 'refs/heads/main'
-       run: |
-         for file in ${{ steps.prepare.outputs.files }}; do
-           if [ -f "$file" ]; then
-             filename=$(basename "$file")
-             gsutil cp "$file" gs://npc-studio-executables/${{ steps.prepare.outputs.gcs_path }}/"$filename"
-             echo "Uploaded $filename to gs://npc-studio-executables/${{ steps.prepare.outputs.gcs_path }}/"
-           fi
-         done
-       shell: bash
-     
-     - name: Upload artifacts
-       uses: actions/upload-artifact@v4
-       with:
-         name: npc-studio-${{ matrix.platform }}-${{ matrix.arch }}
-         path: upload/*
-         retention-days: 30
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x86
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
+          - os: windows-latest
+            platform: windows
+            arch: x64
+          - os: windows-latest
+            platform: windows
+            arch: x86
+          - os: macos-latest
+            platform: macos
+            arch: arm64
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Get version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        shell: bash
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+    
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt pyinstaller
+      
+      - name: Setup Windows Build Tools
+        if: runner.os == 'Windows'
+        run: |
+          npm install --global --production windows-build-tools --vs2015
+        continue-on-error: true
+      
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install xz pkg-config
+      
+      - name: Install Node dependencies
+        run: npm install
+      
+      - name: Build PyInstaller binary (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pyinstaller --onefile --clean --distpath pyinstaller_dist --noupx \
+            --hidden-import=npcpy --hidden-import=litellm --hidden-import=ollama \
+            --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse \
+            --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow \
+            --hidden-import=nltk --hidden-import=anthropic --hidden-import=openai \
+            --hidden-import=google-genai --hidden-import=tiktoken_ext.openai_public \
+            --hidden-import=tiktoken_ext --hidden-import=chromadb --hidden-import=pydantic \
+            --exclude-module=scipy --exclude-module=tensorflow --exclude-module=torch \
+            --exclude-module=sklearn --exclude-module=notebook --exclude-module=ipython \
+            --exclude-module=jupyter --exclude-module=nbconvert --exclude-module=cv2 \
+            --exclude-module=PIL.ImageTk --exclude-module=PIL.ImageQt --exclude-module=docx \
+            --exclude-module=pptx --exclude-module=cuda --exclude-module=cudnn \
+            --exclude-module=cudart --exclude-module=cublas --exclude-module=cupy \
+            --exclude-module=logfire --exclude-module=numba.cuda --exclude-module=torch.cuda \
+            --exclude-module=tensorflow.python.framework.cuda_util \
+            --collect-data=litellm --collect-data=npcpy npc_studio_serve.py
+          mkdir -p resources/backend
+          cp pyinstaller_dist/npc_studio_serve resources/backend/
+          chmod +x resources/backend/npc_studio_serve
+      
+      - name: Build PyInstaller binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          python -m PyInstaller --onefile --clean --distpath pyinstaller_dist --noupx --hidden-import=npcpy --hidden-import=npcsh --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow --hidden-import=nltk --hidden-import=litellm --hidden-import=anthropic --hidden-import=openai --hidden-import=google-genai --hidden-import=tiktoken_ext.openai_public --hidden-import=tiktoken_ext --hidden-import=sentence_transformers --hidden-import=chromadb --collect-data=litellm --collect-data=npcpy --collect-data=npcsh npc_studio_serve.py
+          mkdir -p resources/backend
+          copy pyinstaller_dist\npc_studio_serve.exe resources\backend\npc_studio_serve.exe
+      
+      - name: Build PyInstaller binary (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --onefile --clean --distpath pyinstaller_dist --noupx \
+            --hidden-import=npcpy --hidden-import=litellm --hidden-import=ollama \
+            --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse \
+            --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow \
+            --hidden-import=anthropic --hidden-import=openai --hidden-import=google-genai \
+            --hidden-import=tiktoken_ext.openai_public --hidden-import=tiktoken_ext \
+            --hidden-import=chromadb --hidden-import=pydantic \
+            --exclude-module=scipy --exclude-module=tensorflow --exclude-module=torch \
+            --exclude-module=sklearn --exclude-module=notebook --exclude-module=ipython \
+            --exclude-module=jupyter --exclude-module=nbconvert --exclude-module=cv2 \
+            --exclude-module=PIL.ImageTk --exclude-module=PIL.ImageQt --exclude-module=docx \
+            --exclude-module=pptx --exclude-module=cuda --exclude-module=cudnn \
+            --exclude-module=cudart --exclude-module=cublas --exclude-module=cupy \
+            --exclude-module=logfire --exclude-module=numba.cuda --exclude-module=torch.cuda \
+            --exclude-module=nltk --exclude-module=tensorflow.python.framework.cuda_util \
+            --collect-data=litellm --collect-data=npcpy npc_studio_serve.py
+          mkdir -p resources/backend
+          cp pyinstaller_dist/npc_studio_serve resources/backend/npc_studio_serve
+          chmod +x resources/backend/npc_studio_serve
+      
+      - name: Build frontend
+        run: npm run build:vite
+      
+      - name: Configure Windows build environment for electron-rebuild
+        if: runner.os == 'Windows'
+        run: |
+          $env:npm_config_node_gyp = "$(npm prefix -g)\node_modules\node-gyp\bin\node-gyp.js"
+          $env:npm_config_msvs_version = "2022"
+          $env:npm_config_target_arch = "${{ matrix.arch }}"
+        shell: pwsh
+      
+      - name: Rebuild native modules for Electron
+        run: npx electron-rebuild
+        env:
+          npm_config_target_arch: ${{ matrix.arch }}
+          npm_config_disturl: https://electronjs.org/headers
+          npm_config_runtime: electron
+          npm_config_cache: /tmp/.npm
+          npm_config_build_from_source: true
+          ELECTRON_REBUILD_TESTS: false
+      
+      - name: Build Electron app
+        run: npm run electron:build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          npm_config_target_arch: ${{ matrix.arch }}
+      
+      - name: Prepare files for upload
+        id: prepare
+        run: |
+          mkdir -p upload
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            find dist-electron -name "*.deb" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb \;
+            find dist-electron -name "*.AppImage" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.AppImage \;
+            echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb upload/npc-studio_${VERSION}_${{ matrix.arch }}.AppImage" >> $GITHUB_OUTPUT
+            echo "gcs_path=linux-${{ matrix.arch }}" >> $GITHUB_OUTPUT
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            find dist-electron -name "*.exe" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe \;
+            echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe" >> $GITHUB_OUTPUT
+            echo "gcs_path=windows-${{ matrix.arch }}" >> $GITHUB_OUTPUT
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            find dist-electron -name "*.dmg" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.dmg \;
+            echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.dmg" >> $GITHUB_OUTPUT
+            echo "gcs_path=macos-${{ matrix.arch }}" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+      
+      - name: Authenticate to Google Cloud
+        if: github.ref == 'refs/heads/main'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Set up Cloud SDK
+        if: github.ref == 'refs/heads/main'
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Upload to Google Cloud Storage
+        if: github.ref == 'refs/heads/main'
+        run: |
+          for file in ${{ steps.prepare.outputs.files }}; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              gsutil cp "$file" gs://npc-studio-executables/${{ steps.prepare.outputs.gcs_path }}/"$filename"
+              echo "Uploaded $filename to gs://npc-studio-executables/${{ steps.prepare.outputs.gcs_path }}/"
+            fi
+          done
+        shell: bash
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: npc-studio-${{ matrix.platform }}-${{ matrix.arch }}
+          path: upload/*
+          retention-days: 30
 
- notify:
-   needs: build
-   runs-on: ubuntu-latest
-   if: github.ref == 'refs/heads/main'
-   
-   steps:
-     - uses: actions/checkout@v4
-     - name: Get version from package.json
-       id: version
-       run: |
-         VERSION=$(node -p "require('./package.json').version")
-         echo "version=$VERSION" >> $GITHUB_OUTPUT
-     
-     - name: Create download links summary
-       run: |
-         VERSION="${{ steps.version.outputs.version }}"
-         echo "## New npc-studio build available!" >> $GITHUB_STEP_SUMMARY
-         echo "" >> $GITHUB_STEP_SUMMARY
-         echo "**Version:** $VERSION" >> $GITHUB_STEP_SUMMARY
-         echo "" >> $GITHUB_STEP_SUMMARY
-         echo "### Download links:" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux x64:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.deb" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux x64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.AppImage" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux x86:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.deb" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux x86 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.AppImage" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux amd64:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.deb" >> $GITHUB_STEP_SUMMARY
-         echo "- **Linux amd64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.AppImage" >> $GITHUB_STEP_SUMMARY
-         echo "- **Windows x64:** https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe" >> $GITHUB_STEP_SUMMARY
-         echo "- **Windows x86:** https://storage.googleapis.com/npc-studio-executables/windows-x86/npc-studio_${VERSION}_x86.exe" >> $GITHUB_STEP_SUMMARY
-         echo "- **macOS ARM64:** https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg" >> $GITHUB_STEP_SUMMARY
+  notify:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Create download links summary
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "## New npc-studio build available!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Download links:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux x64:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.deb" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux x64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.AppImage" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux x86:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.deb" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux x86 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.AppImage" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux amd64:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.deb" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux amd64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.AppImage" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows x64:** https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows x86:** https://storage.googleapis.com/npc-studio-executables/windows-x86/npc-studio_${VERSION}_x86.exe" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS ARM64:** https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg" >> $GITHUB_STEP_SUMMARY
