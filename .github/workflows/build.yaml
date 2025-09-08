@@ -50,7 +50,7 @@ jobs:
           node-version: '20'
       
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
     
@@ -61,18 +61,17 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install xz pkg-config
-      
-      - name: Delete package-lock.json (Windows fix)
+
+      # --- Windows-specific setup fixes ---
+      - name: Setup MSBuild (Windows)
         if: runner.os == 'Windows'
-        run: rm -f package-lock.json
-        shell: bash
+        uses: microsoft/setup-msbuild@v2
       
       - name: Install Node dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          npm install
-          npx prebuild-install --runtime=electron --target=37.4.0 --arch=${{ matrix.arch }}
-        continue-on-error: true
+          npm install --build-from-source
+          npx electron-rebuild --force --arch=${{ matrix.arch }} --version=37.4.0
               
       - name: Install Node dependencies (other platforms)
         if: runner.os != 'Windows'
