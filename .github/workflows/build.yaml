@@ -67,14 +67,17 @@ jobs:
         run: rm -f package-lock.json
         shell: bash
       
-      - name: Install Node dependencies (with updated node-pty)
+      - name: Install Node dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          npm install --package-lock-only
-          npm ci --omit=dev
-        env:
-          npm_config_target_arch: ${{ matrix.arch }}
+          npm install --production
+          npx prebuild-install --runtime=electron --target=37.4.0 --arch=${{ matrix.arch }}
+        continue-on-error: true
       
+      - name: Install Node dependencies (other platforms)
+        if: runner.os != 'Windows'
+        run: npm install
+  
       - name: Install Node dependencies (normal)
         if: runner.os != 'Windows'
         run: npm install
