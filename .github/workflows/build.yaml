@@ -62,7 +62,21 @@ jobs:
         run: |
           brew install xz pkg-config
       
-      - name: Install Node dependencies
+      - name: Delete package-lock.json (Windows fix)
+        if: runner.os == 'Windows'
+        run: rm package-lock.json
+        shell: bash
+      
+      - name: Install Node dependencies (with updated node-pty)
+        if: runner.os == 'Windows'
+        run: |
+          npm install --package-lock-only
+          npm ci --omit=dev
+        env:
+          npm_config_target_arch: ${{ matrix.arch }}
+      
+      - name: Install Node dependencies (normal)
+        if: runner.os != 'Windows'
         run: npm install
       
       - name: Build PyInstaller binary (Linux)
@@ -120,11 +134,6 @@ jobs:
       
       - name: Build frontend
         run: npm run build:vite
-      
-      - name: Install app dependencies for Electron
-        run: npx electron-builder install-app-deps
-        env:
-          npm_config_target_arch: ${{ matrix.arch }}
       
       - name: Build Electron app
         run: npm run electron:build
