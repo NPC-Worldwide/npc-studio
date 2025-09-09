@@ -62,17 +62,29 @@ jobs:
         run: |
           brew install xz pkg-config
 
-      # --- Windows-specific setup fixes ---
       - name: Setup MSBuild (Windows)
         if: runner.os == 'Windows'
         uses: microsoft/setup-msbuild@v2
       
+      - name: Clean npm cache and node_modules (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          npm cache clean --force
+          if (Test-Path "node_modules") { Remove-Item -Recurse -Force "node_modules" }
+          if (Test-Path "package-lock.json") { Remove-Item -Force "package-lock.json" }
+        shell: powershell
+      
       - name: Install Node dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          npm install --build-from-source
-          npm install nan --save-dev
-          npx electron-rebuild --force --arch=${{ matrix.arch }} --version=37.4.0
+          npm config set msvs_version 2022
+          npm config set node_gyp "C:\hostedtoolcache\windows\node\20.19.4\x64\node_modules\npm\node_modules\node-gyp\bin\node-gyp.js"
+          npm install --no-optional --ignore-scripts
+          npm install node-gyp-build --save-dev
+          npm install @electron/rebuild --save-dev
+          npm install --build-from-source sharp --verbose
+          npm run rebuild
+        shell: cmd
               
       - name: Install Node dependencies (other platforms)
         if: runner.os != 'Windows'
