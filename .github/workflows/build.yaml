@@ -77,11 +77,11 @@ jobs:
       - name: Install Node dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          npm config set target_arch ${{ matrix.arch }}
           npm install --no-optional --ignore-scripts
           npm install @electron/rebuild --save-dev
           npm install --build-from-source sharp --verbose
           npm run rebuild
+
 
         shell: cmd
               
