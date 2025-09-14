@@ -84,6 +84,8 @@ jobs:
 
 
         shell: cmd
+        env:
+          npm_config_target_arch: ${{matrix.arch}}
               
       - name: Install Node dependencies (other platforms)
         if: runner.os != 'Windows'
