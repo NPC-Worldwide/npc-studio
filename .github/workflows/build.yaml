@@ -81,11 +81,11 @@ jobs:
           npm install @electron/rebuild --save-dev
           npm install --build-from-source sharp --verbose
           npm run rebuild
-
-
+          
         shell: cmd
         env:
           npm_config_target_arch: ${{matrix.arch}}
+          GYP_PYTHON: ${{ steps.setup-python-step.outputs.python-path }} 
               
       - name: Install Node dependencies (other platforms)
         if: runner.os != 'Windows'
