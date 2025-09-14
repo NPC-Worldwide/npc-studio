@@ -85,7 +85,7 @@ jobs:
         shell: cmd
         env:
           npm_config_target_arch: ${{matrix.arch}}
-          GYP_PYTHON: ${{ steps.setup-python-step.outputs.python-path }} 
+          GYP_PYTHON: ${{ steps.setup-python-step.outputs.python-executable }} 
               
       - name: Install Node dependencies (other platforms)
         if: runner.os != 'Windows'
