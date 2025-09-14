@@ -77,13 +77,12 @@ jobs:
       - name: Install Node dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          npm config set msvs_version 2022
-          npm config set node_gyp "C:\hostedtoolcache\windows\node\20.19.4\x64\node_modules\npm\node_modules\node-gyp\bin\node-gyp.js"
+          npm config set target_arch ${{ matrix.arch }}
           npm install --no-optional --ignore-scripts
-          npm install node-gyp-build --save-dev
           npm install @electron/rebuild --save-dev
           npm install --build-from-source sharp --verbose
           npm run rebuild
+
         shell: cmd
               
       - name: Install Node dependencies (other platforms)
