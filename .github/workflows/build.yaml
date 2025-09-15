@@ -68,9 +68,6 @@ jobs:
           npm cache clean --force
           npm install
           npm install @rollup/rollup-win32-x64-msvc sqlite3 --save
-          mkdir -p resources/electron-deps
-          copy node_modules\electron\dist\ffmpeg.dll resources\electron-deps\
-          copy node_modules\electron\dist\icudtl.dat resources\electron-deps\
         env:
           npm_config_optional: false
                 

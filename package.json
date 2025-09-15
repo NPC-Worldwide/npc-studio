@@ -55,24 +55,19 @@
         {
           "from": "resources/backend/npc_studio_serve.exe",
           "to": "backend/npc_studio_serve.exe"
-        } , 
-            {
-      "from": "resources/electron-deps/",
-      "to": "."
-    }
+        }
       ],
       "extraFiles": [
         {
           "from": "node_modules/electron/dist/icudtl.dat",
           "to": "icudtl.dat"
-        }
+        },
+        "node_modules/electron/dist/*.dll"
       ]
-  
     },
     "linux": {
       "target": [
-        "deb",
-        "AppImage"
+        "deb"
       ],
       "category": "Utility",
       "icon": "build/icons",
