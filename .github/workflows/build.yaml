@@ -75,7 +75,10 @@ jobs:
 
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
-        run: npm install --ignore-scripts
+        run:
+          npm cache clean --force
+          npm install --ignore-scripts
+          npm install @rollup/rollup-win32-x64-msvc --save-optional
         env:
           npm_config_optional: false
 
