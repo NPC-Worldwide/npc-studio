@@ -27,9 +27,6 @@ jobs:
           - os: windows-latest
             platform: windows
             arch: x64
-          - os: windows-latest
-            platform: windows
-            arch: x86
           - os: macos-latest
             platform: macos
             arch: arm64
