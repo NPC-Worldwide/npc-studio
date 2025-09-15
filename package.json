@@ -18,7 +18,7 @@
     "build:vite": "vite build",
     "build": "npm run build:vite && electron-builder",
     "preview": "vite preview",
-    "rebuild": "electron-rebuild || true",
+    "rebuild": "electron-rebuild",
     "electron:install-deps": "electron-builder install-app-deps",
     "electron:rebuild": "npx electron-rebuild --module-dir . --which-module sqlite3 --force",
     "electron:build": "electron-builder",
@@ -39,6 +39,44 @@
       "node_modules/sqlite3/**/*",
       "node_modules/sharp/**/*",
       "node_modules/node-pty/**/*"
+    ],
+    "mac": {
+      "icon": "assets/icon.png",
+      "extraResources": [
+        {
+          "from": "resources/backend/npc_studio_serve",
+          "to": "backend/npc_studio_serve"
+        }
+      ]
+    },
+    "win": {
+      "icon": "assets/icon.png",
+      "extraResources": [
+        {
+          "from": "resources/backend/npc_studio_serve.exe",
+          "to": "backend/npc_studio_serve.exe"
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "build/icons",
+      "extraResources": [
+        {
+          "from": "resources/backend/npc_studio_serve",
+          "to": "backend/npc_studio_serve"
+        }
+      ]
+    },
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets"
+      }
     ],
     "asarUnpack": [
       "node_modules/sqlite3/**/*",
@@ -94,6 +132,7 @@
     "node-pty": "^1.0.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
     "@tailwindcss/typography": "^0.5.16",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
