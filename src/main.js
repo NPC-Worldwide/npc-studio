@@ -1582,8 +1582,6 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
   }
 });
 
-
-
 ipcMain.handle('read-file-buffer', async (event, filePath) => {
   try {
     console.log(`[Main Process] Reading file buffer for: ${filePath}`);

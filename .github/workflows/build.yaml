@@ -62,10 +62,12 @@ jobs:
         run: |
           brew install xz pkg-config
 
-      - name: Install Node dependencies
-        run: npm install
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install @rollup/rollup-linux-x64-gnu sqlite3 --save-optional
         env:
-          npm_config_optional: false
+          npm_config_optional: true
   
       - name: Build PyInstaller binary (Linux)
         if: runner.os == 'Linux'
@@ -171,6 +173,31 @@ jobs:
               echo "Uploaded $filename to gs://npc-studio-executables/${{ steps.prepare.outputs.gcs_path }}/"
             fi
           done
+        shell: bash
+
+      - name: Update manifest
+        if: github.ref == 'refs/heads/main'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > manifest.json << EOF
+          {
+            "version": "$VERSION",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "downloads": {
+              "linux-x64-deb": "https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.deb",
+              "linux-x64-appimage": "https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.AppImage",
+              "linux-x86-deb": "https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.deb",
+              "linux-x86-appimage": "https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.AppImage",
+              "linux-amd64-deb": "https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.deb",
+              "linux-amd64-appimage": "https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.AppImage",
+              "windows-x64": "https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe",
+              "windows-x86": "https://storage.googleapis.com/npc-studio-executables/windows-x86/npc-studio_${VERSION}_x86.exe",
+              "macos-arm64": "https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg"
+            }
+          }
+          EOF
+          gsutil cp manifest.json gs://npc-studio-executables/manifest.json
+          gsutil setmeta -h "Cache-Control:no-cache,max-age=0" gs://npc-studio-executables/manifest.json
         shell: bash
       
       - name: Upload artifacts
