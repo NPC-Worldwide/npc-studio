@@ -79,8 +79,8 @@ jobs:
         run: |
           npm cache clean --force
           npm install
-          npm install @rollup/rollup-win32-x64-msvc sqlite3 --save-optional
-          npm rebuild
+          npm install @rollup/rollup-win32-x64-msvc sqlite3 --save
+
         env:
           npm_config_optional: false
 
@@ -89,8 +89,8 @@ jobs:
         run: |
           npm cache clean --force
           npm install
-          npm install @rollup/rollup-win32-ia32-msvc sqlite3 --save-optional
-          npm rebuild
+          npm install @rollup/rollup-win32-ia32-msvc sqlite3 --save
+
         env:
           npm_config_optional: false
                 
@@ -98,7 +98,7 @@ jobs:
         if: runner.os == 'macOS' && matrix.arch == 'arm64'
         run: |
           npm install
-          npm install @rollup/rollup-darwin-arm64 sqlite3 --save-optional
+          npm install @rollup/rollup-darwin-arm64 sqlite3 --save
         env:
           npm_config_optional: true
 
@@ -106,7 +106,7 @@ jobs:
         if: runner.os == 'macOS' && matrix.arch == 'x64'
         run: |
           npm install
-          npm install @rollup/rollup-darwin-x64 sqlite3 --save-optional
+          npm install @rollup/rollup-darwin-x64 sqlite3 --save
         env:
           npm_config_optional: true
           
