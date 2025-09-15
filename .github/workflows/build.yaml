@@ -62,8 +62,11 @@ jobs:
         run: |
           brew install xz pkg-config
 
-      - name: Install Node dependencies
-        run: npm install
+      - name: Clear npm cache and install dependencies
+        run: |
+          rm -rf node_modules package-lock.json
+          npm cache clean --force
+          npm install
         env:
           npm_config_optional: false
   
