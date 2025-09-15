@@ -1577,21 +1577,6 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
 });
 
 
-ipcMain.handle('resizeTerminal', (event, { id, cols, rows }) => {
-  const ptyProcess = ptySessions.get(id);
-  if (ptyProcess) {
-    try {
-      ptyProcess.resize(cols, rows);
-      return { success: true };
-    } catch (error) {
-      console.error(`Failed to resize terminal ${id}:`, error);
-      return { success: false, error: error.message };
-    }
-  } else {
-    return { success: false, error: 'Session not found' };
-  }
-});
-
 ipcMain.handle('read-file-buffer', async (event, filePath) => {
   try {
     console.log(`[Main Process] Reading file buffer for: ${filePath}`);
@@ -1679,19 +1664,19 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
 
 
 ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
+  if (!pty) {
+    return { success: false, error: 'Terminal functionality not available' };
+  }
+
   if (ptyKillTimers.has(id)) {
-    console.log(`[PTY] INFO: Re-creation request for ${id} received. Cancelling pending kill timer.`);
     clearTimeout(ptyKillTimers.get(id));
     ptyKillTimers.delete(id);
     
-   
     if (ptySessions.has(id)) {
-        console.log(`[PTY] INFO: Session ${id} already exists and is active. Re-attaching.`);
-        return { success: true };
+      return { success: true };
     }
   }
 
-  console.log(`[Main Process] INFO: Received request to create session ID=${id}`);
   const shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
   const args = os.platform() === 'win32' ? [] : ['-l'];
   
@@ -1713,65 +1698,71 @@ ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
     });
 
     ptyProcess.onExit(({ exitCode, signal }) => {
-      console.log(`[Main Process] INFO: PTY process ${id} has exited. Code: ${exitCode}, Signal: ${signal}.`);
       ptySessions.delete(id);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('terminal-closed', { id });
       }
     });
 
-    console.log(`[Main Process] SUCCESS: Session ${id} created.`);
     return { success: true };
     
   } catch (error) {
-    console.error(`[Main Process] FATAL: Failed to spawn PTY for session ${id}. Error: ${error.message}`);
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('closeTerminalSession', (event, id) => {
- 
- 
- 
+  if (!pty) {
+    return { success: false, error: 'Terminal functionality not available' };
+  }
+
   if (ptySessions.has(id)) {
-    console.log(`[PTY] INFO: Received request to close session ${id}. Setting a 100ms delayed kill timer.`);
-    
-   
     if (ptyKillTimers.has(id)) return { success: true };
 
     const timer = setTimeout(() => {
       if (ptySessions.has(id)) {
-        console.log(`[PTY] INFO: Executing delayed kill for session ${id}.`);
         ptySessions.get(id).kill();
-       
       }
       ptyKillTimers.delete(id);
     }, 100);
 
     ptyKillTimers.set(id, timer);
-  } else {
-    console.log(`[PTY] WARN: Close request for non-existent session ${id}.`);
   }
   return { success: true };
 });
 
 ipcMain.handle('writeToTerminal', (event, { id, data }) => {
+  if (!pty) {
+    return { success: false, error: 'Terminal functionality not available' };
+  }
+
   const ptyProcess = ptySessions.get(id);
-
-
-  console.log(`[Frontend -> PTY] Writing to session ${id}: ${JSON.stringify(data)}`);
 
   if (ptyProcess) {
     ptyProcess.write(data);
     return { success: true };
   } else {
-
-    console.error(`[PTY] ERROR: Write failed. No session found for ID: ${id}`);
-    console.error(`[PTY] DEBUG: Available sessions are: [${Array.from(ptySessions.keys()).join(', ')}]`);
     return { success: false, error: 'Session not found in backend' };
   }
 });
 
+ipcMain.handle('resizeTerminal', (event, { id, cols, rows }) => {
+  if (!pty) {
+    return { success: false, error: 'Terminal functionality not available' };
+  }
+
+  const ptyProcess = ptySessions.get(id);
+  if (ptyProcess) {
+    try {
+      ptyProcess.resize(cols, rows);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  } else {
+    return { success: false, error: 'Session not found' };
+  }
+});
 
 
 ipcMain.handle('executeShellCommand', async (event, { command, currentPath }) => {
