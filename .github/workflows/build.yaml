@@ -18,12 +18,6 @@ jobs:
           - os: ubuntu-22.04
             platform: linux
             arch: x64
-          - os: ubuntu-22.04
-            platform: linux
-            arch: x86
-          - os: ubuntu-22.04
-            platform: linux
-            arch: amd64
           - os: windows-latest
             platform: windows
             arch: x64
@@ -68,24 +62,15 @@ jobs:
         env:
           npm_config_optional: true
 
-
       - name: Install dependencies (Windows x64)
         if: runner.os == 'Windows' && matrix.arch == 'x64'
         run: |
           npm cache clean --force
           npm install
           npm install @rollup/rollup-win32-x64-msvc sqlite3 --save
-
-        env:
-          npm_config_optional: false
-
-      - name: Install dependencies (Windows x86)
-        if: runner.os == 'Windows' && matrix.arch == 'x86'
-        run: |
-          npm cache clean --force
-          npm install
-          npm install @rollup/rollup-win32-ia32-msvc sqlite3 --save
-
+          mkdir -p resources/electron-deps
+          copy node_modules\electron\dist\ffmpeg.dll resources\electron-deps\
+          copy node_modules\electron\dist\icudtl.dat resources\electron-deps\
         env:
           npm_config_optional: false
                 
@@ -94,14 +79,6 @@ jobs:
         run: |
           npm install
           npm install @rollup/rollup-darwin-arm64 sqlite3 --save
-        env:
-          npm_config_optional: true
-
-      - name: Install dependencies (macOS x64)
-        if: runner.os == 'macOS' && matrix.arch == 'x64'
-        run: |
-          npm install
-          npm install @rollup/rollup-darwin-x64 sqlite3 --save
         env:
           npm_config_optional: true
           
@@ -183,8 +160,7 @@ jobs:
           
           if [ "${{ runner.os }}" = "Linux" ]; then
             find dist-electron -name "*.deb" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb \;
-            find dist-electron -name "*.AppImage" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.AppImage \;
-            echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb upload/npc-studio_${VERSION}_${{ matrix.arch }}.AppImage" >> $GITHUB_OUTPUT
+            echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb" >> $GITHUB_OUTPUT
             echo "gcs_path=linux-${{ matrix.arch }}" >> $GITHUB_OUTPUT
           elif [ "${{ runner.os }}" = "Windows" ]; then
             find dist-electron -name "*npc-studio*.exe" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe \; 
@@ -218,32 +194,6 @@ jobs:
             fi
           done
         shell: bash
-
-      - name: Update manifest
-        if: github.ref == 'refs/heads/main'
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          cat > manifest.json << EOF
-          {
-            "version": "$VERSION",
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "downloads": {
-              "linux-x64-deb": "https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.deb",
-              "linux-x64-appimage": "https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.AppImage",
-              "linux-x86-deb": "https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.deb",
-              "linux-x86-appimage": "https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.AppImage",
-              "linux-amd64-deb": "https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.deb",
-              "linux-amd64-appimage": "https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.AppImage",
-              "windows-x64": "https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe",
-              "windows-x86": "https://storage.googleapis.com/npc-studio-executables/windows-x86/npc-studio_${VERSION}_x86.exe",
-              "macos-arm64": "https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg",
-              "macos-x64": "https://storage.googleapis.com/npc-studio-executables/macos-x64/npc-studio_${VERSION}_x64.dmg"
-            }
-          }
-          EOF
-          gsutil cp manifest.json gs://npc-studio-executables/manifest.json
-          gsutil setmeta -h "Cache-Control:no-cache,max-age=0" gs://npc-studio-executables/manifest.json
-        shell: bash
       
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -251,6 +201,44 @@ jobs:
           name: npc-studio-${{ matrix.platform }}-${{ matrix.arch }}
           path: upload/*
           retention-days: 30
+
+  update_manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Update manifest
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > manifest.json << EOF
+          {
+            "version": "$VERSION",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "downloads": {
+              "linux-x64": "https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.deb",
+              "windows-x64": "https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe",
+              "macos-arm64": "https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg"
+            }
+          }
+          EOF
+          gsutil cp manifest.json gs://npc-studio-executables/manifest.json
+          gsutil setmeta -h "Cache-Control:no-cache,max-age=0" gs://npc-studio-executables/manifest.json
 
   notify:
     needs: build
@@ -274,12 +262,5 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Download links:" >> $GITHUB_STEP_SUMMARY
           echo "- **Linux x64:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.deb" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux x64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x64/npc-studio_${VERSION}_x64.AppImage" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux x86:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.deb" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux x86 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-x86/npc-studio_${VERSION}_x86.AppImage" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux amd64:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.deb" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux amd64 AppImage:** https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.AppImage" >> $GITHUB_STEP_SUMMARY
           echo "- **Windows x64:** https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe" >> $GITHUB_STEP_SUMMARY
-          echo "- **Windows x86:** https://storage.googleapis.com/npc-studio-executables/windows-x86/npc-studio_${VERSION}_x86.exe" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS ARM64:** https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg" >> $GITHUB_STEP_SUMMARY
-          echo "- **macOS Intel:** https://storage.googleapis.com/npc-studio-executables/macos-x64/npc-studio_${VERSION}_x64.dmg" >> $GITHUB_STEP_SUMMARY
