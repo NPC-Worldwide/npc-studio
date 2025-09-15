@@ -5,7 +5,13 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs/promises');
 const os = require('os');
-const pty = require('node-pty');
+let pty;
+try {
+  pty = require('node-pty');
+} catch (error) {
+  pty = null;
+}
+
 
 const sqlite3 = require('sqlite3');
 const dbPath = path.join(os.homedir(), 'npcsh_history.db');
@@ -1576,7 +1582,6 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
   }
 });
 
-
 ipcMain.handle('read-file-buffer', async (event, filePath) => {
   try {
     console.log(`[Main Process] Reading file buffer for: ${filePath}`);
@@ -1661,6 +1666,7 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
       return { error: error.message || 'Image generation failed in main process' };
   }
 });
+
 
 
 ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
