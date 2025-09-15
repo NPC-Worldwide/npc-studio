@@ -18,7 +18,6 @@ const dbPath = path.join(os.homedir(), 'npcsh_history.db');
 const fetch = require('node-fetch');
 const { dialog } = require('electron');
 const crypto = require('crypto');
-const sharp = require('sharp');
 
 const logFilePath = path.join(os.homedir(), '.npc_studio', 'app.log');
 const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });

@@ -21,6 +21,9 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x86
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
           - os: windows-latest
             platform: windows
             arch: x64
@@ -30,6 +33,9 @@ jobs:
           - os: macos-latest
             platform: macos
             arch: arm64
+          - os: macos-latest
+            platform: macos
+            arch: x64
     
     steps:
       - uses: actions/checkout@v4
@@ -121,7 +127,9 @@ jobs:
       
       - name: Build frontend
         run: npm run build:vite
-      
+      - name: Rebuild native modules for Electron
+        run: |
+          npx electron-rebuild --force --module-dir . --which-module sqlite3
       - name: Build Electron app
         run: npm run electron:build
         env:
@@ -234,3 +242,4 @@ jobs:
           echo "- **Windows x64:** https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe" >> $GITHUB_STEP_SUMMARY
           echo "- **Windows x86:** https://storage.googleapis.com/npc-studio-executables/windows-x86/npc-studio_${VERSION}_x86.exe" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS ARM64:** https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS Intel:** https://storage.googleapis.com/npc-studio-executables/macos-x64/npc-studio_${VERSION}_x64.dmg" >> $GITHUB_STEP_SUMMARY
