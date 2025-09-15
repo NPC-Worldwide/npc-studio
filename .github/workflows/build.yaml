@@ -129,7 +129,7 @@ jobs:
         run: npm run electron:build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          npm_config_target_arch: ${{ matrix.arch }}
+          TARGET_ARCH: ${{ matrix.arch }}
       
       - name: Prepare files for upload
         id: prepare
