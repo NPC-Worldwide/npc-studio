@@ -64,7 +64,6 @@ jobs:
 
       - name: Clear npm cache and install dependencies
         run: |
-          rm -rf node_modules package-lock.json
           npm cache clean --force
           npm install
         env:
