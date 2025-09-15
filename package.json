@@ -55,7 +55,11 @@
         {
           "from": "resources/backend/npc_studio_serve.exe",
           "to": "backend/npc_studio_serve.exe"
-        } 
+        } , 
+            {
+      "from": "resources/electron-deps/",
+      "to": "."
+    }
       ],
       "extraFiles": [
         {
@@ -63,6 +67,7 @@
           "to": "icudtl.dat"
         }
       ]
+  
     },
     "linux": {
       "target": [
