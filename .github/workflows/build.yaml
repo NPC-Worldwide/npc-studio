@@ -65,10 +65,23 @@ jobs:
         run: |
           brew install xz pkg-config
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           npm install
           npm install @rollup/rollup-linux-x64-gnu sqlite3 --save-optional
+        env:
+          npm_config_optional: true
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: npm install --ignore-scripts
+        env:
+          npm_config_optional: false
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: npm install
         env:
           npm_config_optional: true
   
@@ -127,9 +140,15 @@ jobs:
       
       - name: Build frontend
         run: npm run build:vite
-      - name: Rebuild native modules for Electron
-        run: |
-          npx electron-rebuild --force --module-dir . --which-module sqlite3
+
+      - name: Rebuild native modules for Electron (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: npx electron-rebuild --force --module-dir . --which-module sqlite3
+
+      - name: Rebuild native modules for Electron (Windows)
+        if: runner.os == 'Windows'
+        run: npx electron-rebuild --force --module-dir . --which-module sqlite3
+
       - name: Build Electron app
         run: npm run electron:build
         env:
@@ -197,7 +216,8 @@ jobs:
               "linux-amd64-appimage": "https://storage.googleapis.com/npc-studio-executables/linux-amd64/npc-studio_${VERSION}_amd64.AppImage",
               "windows-x64": "https://storage.googleapis.com/npc-studio-executables/windows-x64/npc-studio_${VERSION}_x64.exe",
               "windows-x86": "https://storage.googleapis.com/npc-studio-executables/windows-x86/npc-studio_${VERSION}_x86.exe",
-              "macos-arm64": "https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg"
+              "macos-arm64": "https://storage.googleapis.com/npc-studio-executables/macos-arm64/npc-studio_${VERSION}_arm64.dmg",
+              "macos-x64": "https://storage.googleapis.com/npc-studio-executables/macos-x64/npc-studio_${VERSION}_x64.dmg"
             }
           }
           EOF
