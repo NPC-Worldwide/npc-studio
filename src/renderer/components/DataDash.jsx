@@ -851,7 +851,7 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
     ];
     
     const [widgets, setWidgets] = useState([]);
-
+    const [isMemoryPanelOpen, setIsMemoryPanelOpen] = useState(false);
     const [isAddCustomWidgetModalOpen, setIsAddCustomWidgetModalOpen] = useState(false);
     const [customWidgetContext, setCustomWidgetContext] = useState(null);
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, widgetId: null });
@@ -918,7 +918,51 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
     const handleAddWidget = (widgetConfig) => saveWidgets([...widgets, widgetConfig]);
     const handleRemoveWidget = (idToRemove) => saveWidgets(widgets.filter(w => w.id !== idToRemove));
     
-   
+
+    const [memories, setMemories] = useState([]);
+    const [memoryLoading, setMemoryLoading] = useState(false);
+    const [memoryFilter, setMemoryFilter] = useState('all');
+    const [memorySearchTerm, setMemorySearchTerm] = useState('');
+    const loadMemories = async () => {
+        setMemoryLoading(true);
+        try {
+            const response = await window.api.executeSQL({
+                query: `
+                    SELECT id, message_id, conversation_id, npc, team, directory_path, 
+                           initial_memory, final_memory, status, timestamp, model, provider
+                    FROM memory_lifecycle 
+                    ORDER BY timestamp DESC 
+                    LIMIT 500
+                `
+            });
+            console.log('FART', response);
+            if (response.error) throw new Error(response.error);
+            setMemories(response.result || []);
+        } catch (err) {
+            console.error('Error loading memories:', err);
+            setMemories([]);
+        } finally {
+            setMemoryLoading(false);
+        }
+    };
+
+    
+    // Load memories when panel opens
+    useEffect(() => {
+        if (isMemoryPanelOpen && memories.length === 0) {
+            loadMemories();
+        }
+    }, [isMemoryPanelOpen]);
+    
+    // Filter memories based on search and status
+    const filteredMemories = memories.filter(memory => {
+        const matchesStatus = memoryFilter === 'all' || memory.status === memoryFilter;
+        const matchesSearch = !memorySearchTerm || 
+            memory.initial_memory?.toLowerCase().includes(memorySearchTerm.toLowerCase()) ||
+            memory.final_memory?.toLowerCase().includes(memorySearchTerm.toLowerCase());
+        return matchesStatus && matchesSearch;
+    });
+      
     const handleEditWidgetSave = (updatedWidget) => {
         console.log("[DataDash] Saving updated widget:", updatedWidget);
         saveWidgets(widgets.map(w => w.id === updatedWidget.id ? updatedWidget : w));
@@ -1533,6 +1577,150 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
                                     </div>
                             )}
                         </section>
+
+                        <section id="memory-management" className="border theme-border rounded-lg">
+    <button 
+        onClick={() => setIsMemoryPanelOpen(!isMemoryPanelOpen)} 
+        className="w-full p-4 flex justify-between items-center theme-hover"
+    >
+        <h4 className="text-lg font-semibold flex items-center gap-3">
+            <Brain className="text-orange-400"/>
+            Memory Management ({memories.length} memories)
+        </h4>
+        {isMemoryPanelOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+    </button>
+    {isMemoryPanelOpen && (
+        <div className="p-4 border-t theme-border">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                <div>
+                    <label className="text-sm font-medium mb-2 block">Search Memories</label>
+                    <input 
+                        type="text"
+                        value={memorySearchTerm}
+                        onChange={(e) => setMemorySearchTerm(e.target.value)}
+                        placeholder="Search memory content..." 
+                        className="w-full theme-input text-sm" 
+                    />
+                </div>
+                <div>
+                    <label className="text-sm font-medium mb-2 block">Filter by Status</label>
+                    <select 
+                        value={memoryFilter}
+                        onChange={(e) => setMemoryFilter(e.target.value)}
+                        className="w-full theme-input text-sm"
+                    >
+                        <option value="all">All Statuses</option>
+                        <option value="pending_approval">Pending Approval</option>
+                        <option value="human-approved">Approved</option>
+                        <option value="human-edited">Edited</option>
+                        <option value="human-rejected">Rejected</option>
+                    </select>
+                </div>
+                <div className="flex items-end">
+                    <button 
+                        onClick={loadMemories}
+                        disabled={memoryLoading}
+                        className="px-4 py-2 theme-button rounded text-sm disabled:opacity-50"
+                    >
+                        {memoryLoading ? 'Loading...' : 'Refresh'}
+                    </button>
+                </div>
+            </div>
+
+            {memoryLoading ? (
+                <div className="flex items-center justify-center p-8">
+                    <Loader className="animate-spin text-orange-400" />
+                </div>
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead className="theme-bg-tertiary sticky top-0">
+                            <tr>
+                                <th className="p-2 text-left font-semibold">Memory Content</th>
+                                <th className="p-2 text-left font-semibold">Status</th>
+                                <th className="p-2 text-left font-semibold">NPC</th>
+                                <th className="p-2 text-left font-semibold">Date</th>
+                                <th className="p-2 text-left font-semibold">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y theme-divide">
+                            {filteredMemories.map(memory => (
+                                <tr key={memory.memory_id} className="theme-hover">
+                                    <td className="p-2">
+                                        <div className="max-w-md">
+                                            <div className="truncate font-medium">
+                                                {memory.final_memory || memory.initial_memory}
+                                            </div>
+                                            {memory.final_memory && memory.final_memory !== memory.initial_memory && (
+                                                <div className="text-xs theme-text-muted mt-1">
+                                                    Original: {memory.initial_memory}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td className="p-2">
+                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                            memory.status === 'human-approved' ? 'bg-green-900 text-green-300' :
+                                            memory.status === 'human-edited' ? 'bg-blue-900 text-blue-300' :
+                                            memory.status === 'human-rejected' ? 'bg-red-900 text-red-300' :
+                                            'bg-yellow-900 text-yellow-300'
+                                        }`}>
+                                            {memory.status}
+                                        </span>
+                                    </td>
+                                    <td className="p-2 text-xs">{memory.npc || 'N/A'}</td>
+                                    <td className="p-2 text-xs">
+                                        {memory.timestamp ? new Date(memory.timestamp.replace(' ', 'T')).toLocaleString() : 'N/A'}
+                                    </td>
+                                    <td className="p-2">
+                                        <div className="flex gap-1">
+                                            <button
+                                                onClick={() => {
+                                                    const edited = prompt('Edit memory:', memory.final_memory || memory.initial_memory);
+                                                    if (edited && edited !== (memory.final_memory || memory.initial_memory)) {
+                                                        // Update memory in database
+                                                        window.api.executeSQL({
+                                                            query: `UPDATE memory_lifecycle SET final_memory = ?, status = 'human-edited' WHERE id = ?`,
+                                                            params: [edited, memory.id]
+                                                        }).then(() => loadMemories());
+
+                                                        }
+                                                }}
+                                                className="p-1 theme-hover rounded"
+                                                title="Edit"
+                                            >
+                                                <Edit size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    if (confirm('Delete this memory?')) {
+                                                        window.api.executeSQL({
+                                                            query: `DELETE FROM memory_lifecycle WHERE id = ?`,
+                                                            params: [memory.id]
+                                                        }).then(() => loadMemories());
+                                                    }
+                                                }}
+                                                className="p-1 theme-hover rounded text-red-400"
+                                                title="Delete"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    {filteredMemories.length === 0 && (
+                        <div className="text-center p-8 theme-text-muted">
+                            No memories found matching the current filters.
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    )}
+</section>
 
                         {/* Original Knowledge Graph Section - Preserved as is */}
 <section id="knowledge-graph" className="border theme-border rounded-lg p-4">

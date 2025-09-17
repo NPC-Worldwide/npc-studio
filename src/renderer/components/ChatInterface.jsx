@@ -409,6 +409,11 @@ const ChatInterface = () => {
     const [browserUrlDialogOpen, setBrowserUrlDialogOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     
+    const [pendingMemories, setPendingMemories] = useState([]);
+    const [memoryApprovalModal, setMemoryApprovalModal] = useState({
+        isOpen: false,
+        memories: []
+    });    
 
 
     const [windowId] = useState(() => {
@@ -3373,6 +3378,7 @@ const deleteSelectedConversations = async () => {
         }
     }, [currentPath]);
 
+    
 
 useEffect(() => {
     if (!aiEditModal.isOpen || !aiEditModal.isLoading) return;
@@ -3390,6 +3396,16 @@ useEffect(() => {
                     if (dataContent === '[DONE]') return;
                     if (dataContent) {
                         const parsed = JSON.parse(dataContent);
+                        if (parsed.type === 'memory_approval') {
+                            setPendingMemories(prev => [...prev, ...parsed.memories]);
+                            setMemoryApprovalModal({
+                                isOpen: true,
+                                memories: parsed.memories
+                            });
+                            return;
+                        }
+    
+ 
                         content = parsed.choices?.[0]?.delta?.content || '';
                     }
                 } else {
@@ -3490,6 +3506,31 @@ useEffect(() => {
             setMacroText('');
         });
     }, []);
+
+    const handleMemoryDecision = async (memoryId, decision, finalMemory = null) => {
+        try {
+            await window.api.approveMemory({
+                memory_id: memoryId,
+                decision: decision,
+                final_memory: finalMemory
+            });
+            
+            setPendingMemories(prev => prev.filter(m => m.memory_id !== memoryId));
+        } catch (err) {
+            console.error('Error processing memory decision:', err);
+            setError(err.message);
+        }
+    };
+    
+    const handleBatchMemoryProcess = (memories, decisions) => {
+        memories.forEach(memory => {
+            const decision = decisions[memory.memory_id];
+            if (decision) {
+                handleMemoryDecision(memory.memory_id, decision.decision, decision.final_memory);
+            }
+        });
+        setMemoryApprovalModal({ isOpen: false, memories: [] });
+    };
 
     const toggleTheme = () => {
         setIsDarkMode((prev) => !prev);
@@ -5736,6 +5777,56 @@ const renderAttachmentThumbnails = () => {
                 </div>
             </div>
         )}
+        {memoryApprovalModal.isOpen && (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <h3 className="text-lg font-medium mb-4">New Memories Extracted</h3>
+            
+            <div className="space-y-4 mb-6">
+                {memoryApprovalModal.memories.map(memory => (
+                    <div key={memory.memory_id} className="p-3 theme-bg-tertiary rounded border">
+                        <p className="text-sm theme-text-primary mb-2">{memory.content}</p>
+                        <div className="text-xs theme-text-muted mb-3">{memory.context}</div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => handleMemoryDecision(memory.memory_id, 'human-approved')}
+                                className="px-3 py-1 theme-button-success rounded text-xs"
+                            >
+                                Approve
+                            </button>
+                            <button
+                                onClick={() => handleMemoryDecision(memory.memory_id, 'human-rejected')}
+                                className="px-3 py-1 theme-button-danger rounded text-xs"
+                            >
+                                Reject
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const edited = prompt('Edit memory:', memory.content);
+                                    if (edited && edited !== memory.content) {
+                                        handleMemoryDecision(memory.memory_id, 'human-edited', edited);
+                                    }
+                                }}
+                                className="px-3 py-1 theme-button rounded text-xs"
+                            >
+                                Edit
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            
+            <div className="flex justify-end gap-3">
+                <button
+                    onClick={() => setMemoryApprovalModal({ isOpen: false, memories: [] })}
+                    className="px-4 py-2 theme-button rounded text-sm"
+                >
+                    Ignore for Now
+                </button>
+            </div>
+        </div>
+    </div>
+)}
 {promptModal.isOpen && (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
         <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-lg w-full">

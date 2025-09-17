@@ -116,9 +116,14 @@ The long-awaited for activity dashboard: now with composable widgets, a setup fo
 
 ![Database Querying](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/db_query.png)
 
-## Explore your knowledge graph
+### Edit and manage memories
+
+![A database table showing user memories](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/memory_crud.png)
+ 
+### Explore your knowledge graph
 
 ![A knowledge graph showing nodes and edges and facts and concepts](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/kg_inspector.png)
+
 
 
 
