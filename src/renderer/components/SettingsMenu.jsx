@@ -4,7 +4,7 @@ import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Chec
 const HOME_DIR = '/home/caug/.npcsh'; 
 
 const defaultSettings = {
-    NPCSH_LICENSE_KEY: '',
+    NPC_STUDIO_LICENSE_KEY: '',
     model: 'llama3.2',
     provider: 'ollama',
     embedding_model: 'nomic-text-embed',
@@ -244,7 +244,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
 
     
     const handleLicenseValidation = async () => {
-        if (!globalSettings.NPCSH_LICENSE_KEY) {
+        if (!globalSettings.NPC_STUDIO_LICENSE_KEY) {
             setVerificationStatus({ isVerifying: false, status: 'error', message: 'Please enter a license key' });
             return;
         }
@@ -253,7 +253,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
             const response = await fetch('https://license-verification-120419531021.us-central1.run.app', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ license_key: globalSettings.NPCSH_LICENSE_KEY, timestamp: Date.now() })
+                body: JSON.stringify({ license_key: globalSettings.NPC_STUDIO_LICENSE_KEY, timestamp: Date.now() })
             });
             const data = await response.json();
             if (data.valid) {
@@ -269,7 +269,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
             setVerificationStatus({ isVerifying: false, status: 'error', message: 'Connection error during verification' });
         }
     };
-    
+
     useEffect(() => {
         if (isOpen) {
             loadGlobalSettings();
@@ -373,10 +373,10 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
                             <div className="relative">
                                 <input
                                     type={visibleFields.licenseKey ? "text" : "password"}
-                                    value={settings.NPCSH_LICENSE_KEY || ''}
-                                    onChange={(e) => setSettings({...settings, NPCSH_LICENSE_KEY: e.target.value})}
+                                    value={settings.NPC_STUDIO_LICENSE_KEY || ''}
+                                    onChange={(e) => setSettings({...settings, NPC_STUDIO_LICENSE_KEY: e.target.value})}
                                     className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 pr-10"
-                                    placeholder={placeholders.NPCSH_LICENSE_KEY || "Enter your license key"}
+                                    placeholder={placeholders.NPC_STUDIO_LICENSE_KEY || "Enter your license key"}
                                 />
                                 <button
                                     type="button"
