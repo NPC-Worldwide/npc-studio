@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2 } from 'lucide-react';
+import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Check } from 'lucide-react';
 
-// Note: In a real app, this should come from the main process.
 const HOME_DIR = '/home/caug/.npcsh'; 
 
 const defaultSettings = {
@@ -16,9 +15,41 @@ const defaultSettings = {
     lightThemeColor: "#FFFFFF"
 };
 
+const PricingSelection = ({ onClose }) => {
+    useEffect(() => {
+        const script = document.createElement('script');
+        script.src = 'https://js.stripe.com/v3/pricing-table.js';
+        script.async = true;
+        document.head.appendChild(script);
+        
+        return () => {
+            if (document.head.contains(script)) {
+                document.head.removeChild(script);
+            }
+        };
+    }, []);
 
-// +++ NEW COMPONENT: ModelManager +++
-// This component handles everything related to downloading and managing local Ollama models.
+    return (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+            <div className="bg-[#0b1017] rounded-lg w-full max-w-4xl text-white relative">
+                <div className="absolute top-4 right-4 z-10">
+                    <button onClick={onClose} 
+                            className="text-gray-400 hover:text-white bg-[#0b1017] p-2 rounded">
+                        <X size={24} />
+                    </button>
+                </div>
+                
+                <div className="p-6">
+                    <stripe-pricing-table 
+                        pricing-table-id="prctbl_1SBHU54hTG5LW2A0MHtyz7VW"
+                        publishable-key="pk_live_51RlDLN4hTG5LW2A0ZS9ZJSAOPVzfbHpaPNLmUQHr1bagBBTiZi6ZMTroYOj5YyUL8h55XgxY1CQpcQpjZzFCDgs300yaaTVkcL">
+                    </stripe-pricing-table>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const ModelManager = () => {
     const [ollamaStatus, setOllamaStatus] = useState('checking');
     const [localModels, setLocalModels] = useState([]);
@@ -28,31 +59,20 @@ const ModelManager = () => {
     const [isDeleting, setIsDeleting] = useState(null);
 
     const fetchLocalModels = async () => {
-        try {
-           
-            const models = await window.api.getLocalOllamaModels();
-            if (models && !models.error) {
-                setLocalModels(models);
-            } else {
-                setLocalModels([]);
-                console.error("Error fetching models:", models.error);
-            }
-        } catch (error) {
-            console.error("API error fetching models:", error);
+        const models = await window.api.getLocalOllamaModels();
+        if (models && !models.error) {
+            setLocalModels(models);
+        } else {
             setLocalModels([]);
+            console.error("Error fetching models:", models.error);
         }
     };
 
     const checkStatus = async () => {
-        try {
-            const status = await window.api.checkOllamaStatus();
-            setOllamaStatus(status.status);
-            if (status.status === 'running') {
-                fetchLocalModels();
-            }
-        } catch (error) {
-            console.error("Error checking Ollama status:", error);
-            setOllamaStatus('not_found');
+        const status = await window.api.checkOllamaStatus();
+        setOllamaStatus(status.status);
+        if (status.status === 'running') {
+            fetchLocalModels();
         }
     };
 
@@ -81,8 +101,6 @@ const ModelManager = () => {
         setIsPulling(false);
         setPullProgress({ status: 'Error', details: error });
     };
-
-
     
         const cleanupPullProgress = window.api.onOllamaPullProgress(handleProgress);
         const cleanupPullComplete = window.api.onOllamaPullComplete(handleComplete);
@@ -97,17 +115,12 @@ const ModelManager = () => {
 
     const handleInstallOllama = async () => {
         setOllamaStatus('installing');
-        try {
-            await window.api.installOllama();
-            checkStatus();
-        } catch (error) {
-            console.error("Ollama installation failed:", error);
-            setOllamaStatus('not_found');
-        }
+        await window.api.installOllama();
+        checkStatus();
     };
 
     const handlePullModel = async (e) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
         if (!pullModelName.trim() || isPulling) return;
         setIsPulling(true);
         setPullProgress({ status: 'Starting download...' });
@@ -117,14 +130,9 @@ const ModelManager = () => {
     const handleDeleteModel = async (modelName) => {
         if (isDeleting) return;
         setIsDeleting(modelName);
-        try {
-            await window.api.deleteOllamaModel({ model: modelName });
-            fetchLocalModels();
-        } catch (error) {
-            console.error(`Failed to delete model ${modelName}:`, error);
-        } finally {
-            setIsDeleting(null);
-        }
+        await window.api.deleteOllamaModel({ model: modelName });
+        fetchLocalModels();
+        setIsDeleting(null);
     };
     
     const renderContent = () => {
@@ -150,26 +158,27 @@ const ModelManager = () => {
             case 'running':
                 return (
                     <div className="space-y-6">
-                        <form onSubmit={handlePullModel}>
+                        <div>
                             <label className="block text-sm text-gray-400 mb-1">Pull Model from Ollama Hub</label>
                             <div className="flex gap-2">
                                 <input
                                     type="text"
                                     value={pullModelName}
                                     onChange={(e) => setPullModelName(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handlePullModel(e)}
                                     className="flex-1 bg-[#1a2634] border border-gray-700 rounded px-3 py-2 text-white"
                                     placeholder="e.g., llama3.1"
                                     disabled={isPulling}
                                 />
                                 <button
-                                    type="submit"
+                                    onClick={handlePullModel}
                                     disabled={isPulling || !pullModelName.trim()}
                                     className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
                                 >
                                     {isPulling ? 'Pulling...' : 'Pull'}
                                 </button>
                             </div>
-                        </form>
+                        </div>
 
                         {isPulling && pullProgress && (
                             <div className="p-3 bg-[#1a2634] rounded-lg border border-gray-700">
@@ -215,8 +224,6 @@ const ModelManager = () => {
 
     return <div className="space-y-4">{renderContent()}</div>;
 };
-// --- END of ModelManager Component ---
-
 
 const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
     const [activeTab, setActiveTab] = useState('global');
@@ -226,6 +233,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
     const [customEnvVars, setCustomEnvVars] = useState([{ key: '', value: '' }]);
     const [placeholders, setPlaceholders] = useState(defaultSettings);
     const [visibleFields, setVisibleFields] = useState({});
+    const [showPricing, setShowPricing] = useState(false);
 
     const [verificationStatus, setVerificationStatus] = useState({
         isVerifying: false,
@@ -233,6 +241,8 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
         message: null
     });
 
+
+    
     const handleLicenseValidation = async () => {
         if (!globalSettings.NPCSH_LICENSE_KEY) {
             setVerificationStatus({ isVerifying: false, status: 'error', message: 'Please enter a license key' });
@@ -259,7 +269,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
             setVerificationStatus({ isVerifying: false, status: 'error', message: 'Connection error during verification' });
         }
     };
-
+    
     useEffect(() => {
         if (isOpen) {
             loadGlobalSettings();
@@ -270,34 +280,23 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
     }, [isOpen, currentPath]);
 
     const loadGlobalSettings = async () => {
-        try {
-            const data = await window.api.loadGlobalSettings();
-            if (data.error) throw new Error(data.error);
-            setPlaceholders(data.global_settings || defaultSettings);
-            setGlobalSettings(data.global_settings || defaultSettings);
-            if (data.global_vars && Object.keys(data.global_vars).length > 0) {
-                setCustomGlobalVars(Object.entries(data.global_vars).map(([key, value]) => ({ key, value })));
-            } else {
-                setCustomGlobalVars([{ key: '', value: '' }]);
-            }
-        } catch (err) {
-            console.error('Error loading global settings:', err);
-            setGlobalSettings(defaultSettings);
+        const data = await window.api.loadGlobalSettings();
+        if (data.error) throw new Error(data.error);
+        setPlaceholders(data.global_settings || defaultSettings);
+        setGlobalSettings(data.global_settings || defaultSettings);
+        if (data.global_vars && Object.keys(data.global_vars).length > 0) {
+            setCustomGlobalVars(Object.entries(data.global_vars).map(([key, value]) => ({ key, value })));
+        } else {
             setCustomGlobalVars([{ key: '', value: '' }]);
         }
     };
 
     const loadProjectSettings = async () => {
-        try {
-            const data = await window.api.loadProjectSettings(currentPath);
-            if (data.error) throw new Error(data.error);
-            if (data.env_vars && Object.keys(data.env_vars).length > 0) {
-                setCustomEnvVars(Object.entries(data.env_vars).map(([key, value]) => ({ key, value })));
-            } else {
-                setCustomEnvVars([{ key: '', value: '' }]);
-            }
-        } catch (err) {
-            console.error('Error loading project settings:', err);
+        const data = await window.api.loadProjectSettings(currentPath);
+        if (data.error) throw new Error(data.error);
+        if (data.env_vars && Object.keys(data.env_vars).length > 0) {
+            setCustomEnvVars(Object.entries(data.env_vars).map(([key, value]) => ({ key, value })));
+        } else {
             setCustomEnvVars([{ key: '', value: '' }]);
         }
     };
@@ -308,27 +307,29 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
     };
 
     const handleSave = async () => {
-        try {
-            const globalVars = customGlobalVars.reduce((acc, { key, value }) => {
-                if (key && value) acc[key] = value;
-                return acc;
-            }, {});
-            await window.api.saveGlobalSettings({ global_settings: globalSettings, global_vars: globalVars });
+        const globalVars = customGlobalVars.reduce((acc, { key, value }) => {
+            if (key && value) acc[key] = value;
+            return acc;
+        }, {});
+        await window.api.saveGlobalSettings({ 
+            global_settings: globalSettings, 
+            global_vars: globalVars 
+        });
 
-            const envVars = customEnvVars.reduce((acc, { key, value }) => {
-                if (key && value) acc[key] = value;
-                return acc;
-            }, {});
-            if (currentPath) {
-                await window.api.saveProjectSettings({ path: currentPath, env_vars: envVars });
-            }
-            onClose();
-        } catch (err) {
-            console.error('Error saving settings:', err);
+        const envVars = customEnvVars.reduce((acc, { key, value }) => {
+            if (key && value) acc[key] = value;
+            return acc;
+        }, {});
+        if (currentPath) {
+            await window.api.saveProjectSettings({ 
+                path: currentPath, 
+                env_vars: envVars 
+            });
         }
+        onClose();
     };
 
-    const handlePurchase = () => window.api.openExternal('https://checkout.square.site/merchant/ML7E3AYFMJ76Q/checkout/YX35QHHFVWSAHUNNTKMNQBSV');
+    const handlePurchase = () => setShowPricing(true);
     
     const handleFolderPicker = async () => {
         const selectedPath = await window.api.open_directory_picker();
@@ -455,88 +456,100 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-[#0b1017] rounded-lg shadow-xl w-full max-w-2xl text-white">
-                <header className="p-4 flex justify-between items-center">
-                    <h3 className="text-lg flex items-center gap-2">
-                        <Settings className="text-blue-400" />
-                        Settings
-                    </h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-                        <X size={24} />
-                    </button>
-                </header>
+        <>
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="bg-[#0b1017] rounded-lg shadow-xl w-full max-w-2xl text-white">
+                    <header className="p-4 flex justify-between items-center">
+                        <h3 className="text-lg flex items-center gap-2">
+                            <Settings className="text-blue-400" />
+                            Settings
+                        </h3>
+                        <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+                            <X size={24} />
+                        </button>
+                    </header>
 
-                <div className="border-b border-gray-700">
-                    <div className="flex px-4">
-                        <button onClick={() => setActiveTab('global')} className={`px-4 py-2 text-sm ${activeTab === 'global' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400'}`}>
-                            Global Settings
-                        </button>
-                        <button onClick={() => setActiveTab('env')} className={`px-4 py-2 text-sm ${activeTab === 'env' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400'}`}>
-                            Folder Settings
-                        </button>
-                        <button onClick={() => setActiveTab('models')} className={`px-4 py-2 text-sm ${activeTab === 'models' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400'}`}>
-                            Model Management
-                        </button>
+                    <div className="border-b border-gray-700">
+                        <div className="flex px-4">
+                            <button onClick={() => setActiveTab('global')} className={`px-4 py-2 text-sm ${activeTab === 'global' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400'}`}>
+                                Global Settings
+                            </button>
+                            <button onClick={() => setActiveTab('env')} className={`px-4 py-2 text-sm ${activeTab === 'env' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400'}`}>
+                                Folder Settings
+                            </button>
+                            <button onClick={() => setActiveTab('models')} className={`px-4 py-2 text-sm ${activeTab === 'models' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400'}`}>
+                                Model Management
+                            </button>
+                        </div>
                     </div>
-                </div>
 
-                <main className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-                    {activeTab === 'global' && (
-                        <>
-                            {renderSettingsFields('global')}
-                            <div className="mt-6">
-                                <h4 className="text-sm text-gray-400 mb-2">Custom Global Variables</h4>
-                                {customGlobalVars.map((variable, index) => (
-                                    <div key={index} className="flex gap-2 mb-2">
-                                        <input type="text" value={variable.key} onChange={(e) => { const newVars = [...customGlobalVars]; newVars[index].key = e.target.value; setCustomGlobalVars(newVars); }} className="flex-1 bg-[#1a2634] border border-gray-700 rounded px-3 py-2" placeholder="Variable name" />
-                                        <div className="flex-1 relative">
-                                            <input type={visibleFields[`global_${index}`] || !isSensitiveField(variable.key) ? "text" : "password"} value={variable.value} onChange={(e) => { const newVars = [...customGlobalVars]; newVars[index].value = e.target.value; setCustomGlobalVars(newVars); }} className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 pr-10" placeholder="Value" />
-                                            {isSensitiveField(variable.key) && <button type="button" onClick={() => toggleFieldVisibility(`global_${index}`)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">{visibleFields[`global_${index}`] ? <EyeOff size={20} /> : <Eye size={20} />}</button>}
+                    <main className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                        {activeTab === 'global' && (
+                            <>
+                                {renderSettingsFields('global')}
+                                <div className="mt-6">
+                                    <h4 className="text-sm text-gray-400 mb-2">Custom Global Variables</h4>
+                                    {customGlobalVars.map((variable, index) => (
+                                        <div key={index} className="flex gap-2 mb-2">
+                                            <input type="text" value={variable.key} onChange={(e) => { const newVars = [...customGlobalVars]; newVars[index].key = e.target.value; setCustomGlobalVars(newVars); }} className="flex-1 bg-[#1a2634] border border-gray-700 rounded px-3 py-2" placeholder="Variable name" />
+                                            <div className="flex-1 relative">
+                                                <input type={visibleFields[`global_${index}`] || !isSensitiveField(variable.key) ? "text" : "password"} value={variable.value} onChange={(e) => { const newVars = [...customGlobalVars]; newVars[index].value = e.target.value; setCustomGlobalVars(newVars); }} className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 pr-10" placeholder="Value" />
+                                                {isSensitiveField(variable.key) && <button type="button" onClick={() => toggleFieldVisibility(`global_${index}`)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">{visibleFields[`global_${index}`] ? <EyeOff size={20} /> : <Eye size={20} />}</button>}
+                                            </div>
+                                            <button onClick={() => removeVariable('global', index)} className="p-2 text-gray-400 hover:text-white"><X size={20} /></button>
                                         </div>
-                                        <button onClick={() => removeVariable('global', index)} className="p-2 text-gray-400 hover:text-white"><X size={20} /></button>
+                                    ))}
+                                    <button onClick={() => addVariable('global')} className="w-full border border-gray-700 rounded py-2 hover:bg-[#1a2634] mt-2">Add Global Variable</button>
+                                </div>
+                            </>
+                        )}
+                        {activeTab === 'env' && (
+                            <div className="space-y-4">
+                                <div className="mb-4">
+                                    <label className="block text-sm text-gray-400 mb-1">Current Directory</label>
+                                    <div className="flex items-center gap-2">
+                                        <input type="text" value={currentPath} readOnly className="flex-1 bg-[#1a2634] border border-gray-700 rounded px-3 py-2" />
+                                        <button onClick={handleFolderPicker} className="p-2 bg-[#1a2634] rounded hover:bg-gray-600"><FolderOpen size={20} /></button>
                                     </div>
-                                ))}
-                                <button onClick={() => addVariable('global')} className="w-full border border-gray-700 rounded py-2 hover:bg-[#1a2634] mt-2">Add Global Variable</button>
-                            </div>
-                        </>
-                    )}
-                    {activeTab === 'env' && (
-                        <div className="space-y-4">
-                            <div className="mb-4">
-                                <label className="block text-sm text-gray-400 mb-1">Current Directory</label>
-                                <div className="flex items-center gap-2">
-                                    <input type="text" value={currentPath} readOnly className="flex-1 bg-[#1a2634] border border-gray-700 rounded px-3 py-2" />
-                                    <button onClick={handleFolderPicker} className="p-2 bg-[#1a2634] rounded hover:bg-gray-600"><FolderOpen size={20} /></button>
+                                </div>
+                                <div className="mt-6">
+                                    <h4 className="text-sm text-gray-400 mb-2">Custom Environment Variables</h4>
+                                    {customEnvVars.map((variable, index) => (
+                                        <div key={index} className="flex gap-2 mb-2">
+                                            <input type="text" value={variable.key} onChange={(e) => { const newVars = [...customEnvVars]; newVars[index].key = e.target.value; setCustomEnvVars(newVars); }} className="flex-1 bg-[#1a2634] border border-gray-700 rounded px-3 py-2" placeholder="Variable name" />
+                                            <div className="flex-1 relative">
+                                                <input type={visibleFields[`env_${index}`] || !isSensitiveField(variable.key) ? "text" : "password"} value={variable.value} onChange={(e) => { const newVars = [...customEnvVars]; newVars[index].value = e.target.value; setCustomEnvVars(newVars); }} className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 pr-10" placeholder="Value" />
+                                                {isSensitiveField(variable.key) && <button type="button" onClick={() => toggleFieldVisibility(`env_${index}`)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">{visibleFields[`env_${index}`] ? <EyeOff size={20} /> : <Eye size={20} />}</button>}
+                                            </div>
+                                            <button onClick={() => removeVariable('env', index)} className="p-2 text-gray-400 hover:text-white"><X size={20} /></button>
+                                        </div>
+                                    ))}
+                                    <button onClick={() => addVariable('env')} className="w-full border border-gray-700 rounded py-2 hover:bg-[#1a2634]">Add Environment Variable</button>
                                 </div>
                             </div>
-                            <div className="mt-6">
-                                <h4 className="text-sm text-gray-400 mb-2">Custom Environment Variables</h4>
-                                {customEnvVars.map((variable, index) => (
-                                    <div key={index} className="flex gap-2 mb-2">
-                                        <input type="text" value={variable.key} onChange={(e) => { const newVars = [...customEnvVars]; newVars[index].key = e.target.value; setCustomEnvVars(newVars); }} className="flex-1 bg-[#1a2634] border border-gray-700 rounded px-3 py-2" placeholder="Variable name" />
-                                        <div className="flex-1 relative">
-                                            <input type={visibleFields[`env_${index}`] || !isSensitiveField(variable.key) ? "text" : "password"} value={variable.value} onChange={(e) => { const newVars = [...customEnvVars]; newVars[index].value = e.target.value; setCustomEnvVars(newVars); }} className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 pr-10" placeholder="Value" />
-                                            {isSensitiveField(variable.key) && <button type="button" onClick={() => toggleFieldVisibility(`env_${index}`)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">{visibleFields[`env_${index}`] ? <EyeOff size={20} /> : <Eye size={20} />}</button>}
-                                        </div>
-                                        <button onClick={() => removeVariable('env', index)} className="p-2 text-gray-400 hover:text-white"><X size={20} /></button>
-                                    </div>
-                                ))}
-                                <button onClick={() => addVariable('env')} className="w-full border border-gray-700 rounded py-2 hover:bg-[#1a2634]">Add Environment Variable</button>
-                            </div>
-                        </div>
-                    )}
-                    {activeTab === 'models' && <ModelManager />}
-                </main>
+                        )}
+                        {activeTab === 'models' && <ModelManager />}
+                    </main>
 
-                <footer className="border-t border-gray-700 p-4 flex justify-end">
-                    <button onClick={handleSave} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm">
-                        <Save size={20} />
-                        Save Changes
-                    </button>
-                </footer>
+                    <footer className="border-t border-gray-700 p-4 flex justify-end">
+                        <button onClick={handleSave} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm">
+                            <Save size={20} />
+                            Save Changes
+                        </button>
+                    </footer>
+                </div>
             </div>
-        </div>
+
+            {showPricing && (
+                <PricingSelection 
+                    onPurchase={(planData) => {
+                        console.log('Selected plan:', planData);
+                        setShowPricing(false);
+                    }} 
+                    onClose={() => setShowPricing(false)} 
+                />
+            )}
+        </>
     );
 };
 

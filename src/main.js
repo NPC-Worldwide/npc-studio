@@ -814,18 +814,18 @@ function createWindow() {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-  'Content-Security-Policy': [
-      "default-src 'self' 'unsafe-inline' media: http://localhost:6337 http://localhost:5337 http://127.0.0.1:5337 file: data: blob:; " +
-      "connect-src 'self' file: media: http://localhost:6337 http://localhost:5337 http://127.0.0.1:5337 blob:; " +
-      "script-src 'self' 'unsafe-inline' media: 'unsafe-eval' https://cdnjs.cloudflare.com; " +
-      "style-src 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net ; " +
-      "style-src-elem 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net; " +
-      "font-src 'self' data: media: https://cdn.jsdelivr.net; " +
-      "frame-src 'self' file: data: blob: media: chrome-extension: ;"+
-      "img-src 'self' file: data: media: http: https: blob:; " +
-      "object-src 'self' file: data: blob: media: chrome-extension: 'unsafe-inline'; " +
-      "worker-src 'self' blob: data:; "
-  ]
+          'Content-Security-Policy': [
+            "default-src 'self' 'unsafe-inline' media: http://localhost:6337 http://localhost:5337 http://127.0.0.1:5337 file: data: blob:; " +
+            "connect-src 'self' file: media: http://localhost:6337 http://localhost:5337 http://127.0.0.1:5337 blob: https://merchant-ui-api.stripe.com https://errors.stripe.com https://r.stripe.com https://api.stripe.com https://js.stripe.com https://checkout-cookies.stripe.com https://m.stripe.com https://license-verification-120419531021.us-central1.run.app/; " +
+            "script-src 'self' 'unsafe-inline' media: 'unsafe-eval' https://cdnjs.cloudflare.com https://js.stripe.com; " +
+            "style-src 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net https://js.stripe.com; " +
+            "style-src-elem 'self' 'unsafe-inline' media: https://cdn.jsdelivr.net https://js.stripe.com; " +
+            "font-src 'self' data: media: https://cdn.jsdelivr.net; " +
+            "frame-src 'self' file: data: blob: media: chrome-extension: https://js.stripe.com https://m.stripe.network https://checkout.stripe.com; "+
+            "img-src 'self' file: data: media: http: https: blob:; " +
+            "object-src 'self' file: data: blob: media: chrome-extension: 'unsafe-inline'; " +
+            "worker-src 'self' blob: data:; "
+          ]
         },
       });
     });
