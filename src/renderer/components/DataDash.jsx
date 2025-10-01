@@ -1189,25 +1189,122 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
         } catch (err) { setQueryError(err.message); } finally { setLoadingQuery(false); }
     };
     
-    const handleViewSchema = async (tableName) => {
-        if (selectedTable === tableName) { setSelectedTable(null); setTableSchema(null); return; }
-        setSelectedTable(tableName); setLoadingSchema(true); setTableSchema(null);
-        try {
-            const res = await window.api.getTableSchema({ tableName });
-            if (res.error) throw new Error(res.error);
-            setTableSchema(res.schema);
-        } catch (err) { setQueryError(`Could not load schema for ${tableName}.`); } finally { setLoadingSchema(false); }
-    };
+const handleGenerateSql = async () => {
+    if (!nlQuery.trim()) return;
+    setGeneratingSql(true);
+    setGeneratedSql('');
+    setQueryError(null);
+    try {
+        const schemaInfo = await Promise.all(
+            dbTables.map(async (table) => {
+                const schemaRes = await window.api.getTableSchema(
+                    { tableName: table }
+                );
+                if (schemaRes.error) 
+                    return `/* Could not load schema for ${table} */`;
+                const columns = schemaRes.schema
+                    .map(col => `  ${col.name} ${col.type}`)
+                    .join(',\n');
+                return `TABLE ${table}(\n${columns}\n);`;
+            })
+        );
+        const prompt = `Given this database schema:
 
-    const handleHistoryAction = (index, action) => {
-        const updatedHistory = [...queryHistory]; const item = updatedHistory[index];
-        if (action === 'run') setSqlQuery(item.query);
-        else if (action === 'copy') navigator.clipboard.writeText(item.query);
-        else if (action === 'favorite') { item.favorited = !item.favorited; updatedHistory.splice(index, 1); updatedHistory.unshift(item); }
-        else if (action === 'delete') updatedHistory.splice(index, 1);
-        setQueryHistory(updatedHistory); localStorage.setItem('dataDashQueryHistory', JSON.stringify(updatedHistory));
+${schemaInfo.join('\n\n')}
+
+Generate a SQL query for: ${nlQuery}
+
+Please provide only the SQL query without any markdown formatting or explanations.`;
+
+        const newStreamId = generateId();
+        setNlToSqlStreamId(newStreamId);
+        const result = await window.api.executeCommandStream({
+            commandstr: prompt,
+            currentPath: '/',
+            conversationId: null,
+            model: currentModel,
+            provider: currentProvider,
+            npc: currentNPC,
+            streamId: newStreamId,
+            attachments: []
+        });
+        if (result && result.error) throw new Error(result.error);
+    } catch (err) {
+        setQueryError(err.message);
+        setGeneratingSql(false);
+        setNlToSqlStreamId(null);
+    }
+};
+
+const handleAcceptGeneratedSql = () => {
+    setSqlQuery(generatedSql);
+    setSqlInputMode('sql');
+};
+
+    useEffect(() => {
+    if (!nlToSqlStreamId) return;
+    const handleStreamData = (_, { streamId, chunk }) => {
+        if (streamId !== nlToSqlStreamId) return;
+        try {
+            let content = '';
+            if (typeof chunk === 'string') {
+                if (chunk.startsWith('data:')) {
+                    const dataContent = chunk
+                        .replace(/^data:\s*/, '')
+                        .trim();
+                    if (dataContent === '[DONE]') return;
+                    if (dataContent) {
+                        try {
+                            const parsed = JSON.parse(dataContent);
+                            content = parsed.choices?.[0]
+                                ?.delta?.content || '';
+                        } catch (e) {
+                            content = dataContent;
+                        }
+                    }
+                } else {
+                    content = chunk;
+                }
+            } else if (chunk?.choices) {
+                content = chunk.choices[0]?.delta?.content || '';
+            }
+            if (content) {
+                setGeneratedSql(prev => prev + content);
+            }
+        } catch (err) {
+            console.error(
+                'DataDash NL-to-SQL stream error:', 
+                err
+            );
+        }
     };
-        const processedGraphData = React.useMemo(() => {
+    const handleStreamComplete = (_, { streamId }) => {
+        if (streamId !== nlToSqlStreamId) return;
+        setGeneratingSql(false);
+        setGeneratedSql(prev => 
+            prev.replace(/```sql|```/g, '').trim()
+        );
+        setNlToSqlStreamId(null);
+    };
+    const handleStreamError = (_, { streamId, error }) => {
+        if (streamId !== nlToSqlStreamId) return;
+        setQueryError(`NL-to-SQL Error: ${error}`);
+        setGeneratingSql(false);
+        setNlToSqlStreamId(null);
+    };
+    const cleanupData = window.api.onStreamData(handleStreamData);
+    const cleanupComplete = window.api.onStreamComplete(
+        handleStreamComplete
+    );
+    const cleanupError = window.api.onStreamError(handleStreamError);
+    return () => {
+        cleanupData();
+        cleanupComplete();
+        cleanupError();
+    };
+}, [nlToSqlStreamId]);
+
+    const processedGraphData = React.useMemo(() => {
         let sourceNodes = [];
         let sourceLinks = [];
 
@@ -1417,19 +1514,93 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
                                                                                 </ul>
                                                                                 </div>
                                     </div>
-                                    <textarea value={sqlQuery} 
-                                    onChange={(e) => setSqlQuery(e.target.value)
+<div className="flex items-center gap-2 mb-2">
+    <span className="text-sm font-semibold">Query Mode:</span>
+    <button 
+        onClick={() => setSqlInputMode('sql')} 
+        className={`px-3 py-1 text-xs rounded ${
+            sqlInputMode === 'sql' 
+                ? 'theme-button-primary' 
+                : 'theme-button'
+        }`}
+    >
+        SQL
+    </button>
+    <button 
+        onClick={() => setSqlInputMode('nl')} 
+        className={`px-3 py-1 text-xs rounded ${
+            sqlInputMode === 'nl' 
+                ? 'theme-button-primary' 
+                : 'theme-button'
+        }`}
+    >
+        Natural Language
+    </button>
+</div>
 
-                                    } rows={5} 
-                                    className="w-full p-2 theme-input font-mono text-sm" 
-                                    placeholder="Enter your SQL query here..." />
-                                    <div className="flex justify-end mt-2">
-                                        <button onClick={handleExecuteQuery} 
-                                        disabled={loadingQuery} 
-                                        className="px-4 py-2 theme-button-primary rounded text-sm disabled:opacity-50">
-                                            {loadingQuery ? 'Executing...' : 'Execute Query'}
-                                            </button>
-                                            </div>
+{sqlInputMode === 'nl' ? (
+    <div className="grid grid-cols-2 gap-3 items-start">
+        <div>
+            <textarea 
+                value={nlQuery} 
+                onChange={(e) => setNlQuery(e.target.value)} 
+                rows={4}
+                className="w-full p-2 theme-input font-mono text-sm" 
+                placeholder="e.g., show me average message length per model..." 
+            />
+            <button 
+                onClick={handleGenerateSql} 
+                disabled={generatingSql} 
+                className="w-full mt-2 px-4 py-2 
+                    theme-button-primary rounded text-sm 
+                    disabled:opacity-50"
+            >
+                {generatingSql 
+                    ? 'Generating SQL...' 
+                    : 'Generate SQL'}
+            </button>
+        </div>
+        <div className="theme-bg-tertiary p-2 rounded-lg h-full 
+            flex flex-col">
+            <pre className="flex-1 text-xs font-mono p-2 
+                overflow-auto">
+                {generatedSql || 
+                    'Generated SQL will appear here...'}
+            </pre>
+            {generatedSql && (
+                <button 
+                    onClick={handleAcceptGeneratedSql} 
+                    className="mt-2 w-full theme-button-success 
+                        text-sm py-1 rounded"
+                >
+                    Use this SQL
+                </button>
+            )}
+        </div>
+    </div>
+) : (
+    <>
+        <textarea 
+            value={sqlQuery} 
+            onChange={(e) => setSqlQuery(e.target.value)} 
+            rows={5}
+            className="w-full p-2 theme-input font-mono text-sm" 
+            placeholder="Enter your SQL query here..." 
+        />
+        <div className="flex justify-end mt-2">
+            <button 
+                onClick={handleExecuteQuery} 
+                disabled={loadingQuery} 
+                className="px-4 py-2 theme-button-primary rounded 
+                    text-sm disabled:opacity-50"
+            >
+                {loadingQuery ? 'Executing...' : 'Execute Query'}
+            </button>
+        </div>
+    </>
+)}
+
+
                                     {loadingQuery && <div className="flex justify-center p-4"><Loader className="animate-spin"/></div>}
                                     {queryError && <div className="text-red-400 p-3 mt-2 rounded theme-bg-tertiary">{queryError}</div>}
                                     {queryResult && queryResult.length > 0 && (

@@ -118,7 +118,6 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
                     </div>
                     <div>
                         <label className="block text-sm theme-text-secondary mb-1">General Context</label>
-                        {/* MODIFICATION: Using AutosizeTextarea */}
                         <AutosizeTextarea
                             value={ctx.context || ''}
                             onChange={(e) => handleFieldChange(type, 'context', e.target.value)}
