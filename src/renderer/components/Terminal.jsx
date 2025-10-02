@@ -11,24 +11,52 @@ const TerminalView = ({ terminalId, currentPath }) => {
   useEffect(() => {
    
    
-    if (!xtermInstance.current) {
-      console.log(`[Frontend] UI: Creating new xterm.js instance for ${terminalId}`);
-      const term = new Terminal({
-        cursorBlink: true,
-        fontFamily: '"Fira Code", monospace',
-        fontSize: 14,
-        theme: { background: '#1a1b26', foreground: '#c0caf5', cursor: '#c0caf5' },
-      });
-      const fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(terminalRef.current);
-      xtermInstance.current = term;
-      
-     
-      const resizeObserver = new ResizeObserver(() => fitAddon.fit());
-      resizeObserver.observe(terminalRef.current);
-    }
+  if (!xtermInstance.current) {
+    const term = new Terminal({
+      cursorBlink: true,
+      fontFamily: '"Fira Code", monospace',
+      fontSize: 14,
+      theme: { 
+        background: '#1a1b26', 
+        foreground: '#c0caf5', 
+        cursor: '#c0caf5' 
+      },
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(terminalRef.current);
+    xtermInstance.current = term;
     
+    term.attachCustomKeyEventHandler((event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+        navigator.clipboard.readText().then(text => {
+          if (isSessionReady.current) {
+            window.api.writeToTerminal({ 
+              id: terminalId, 
+              data: text 
+            });
+          }
+        });
+        return false;
+      }
+      
+      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+        const selection = term.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection);
+          return false;
+        }
+      }
+      
+      return true;
+    });
+    
+    const resizeObserver = new ResizeObserver(() => fitAddon.fit());
+    resizeObserver.observe(terminalRef.current);
+  }
+  
+
+  
    
     let isEffectCancelled = false;
     isSessionReady.current = false;
