@@ -38,9 +38,6 @@ contextBridge.exposeInMainWorld('api', {
     showPdf: (args) => ipcRenderer.send('show-pdf', args),
     updatePdfBounds: (bounds) => ipcRenderer.send('update-pdf-bounds', bounds),
     hidePdf: (filePath) => ipcRenderer.send('hide-pdf', filePath),
-    showBrowser: (args) => ipcRenderer.invoke('show-browser', args),
-    updateBrowserBounds: (args) => ipcRenderer.invoke('update-browser-bounds', args),
-    hideBrowser: (args) => ipcRenderer.invoke('hide-browser', args),
     browserNavigate: (args) => ipcRenderer.invoke('browser-navigate', args),
     browserBack: (args) => ipcRenderer.invoke('browser-back', args),
     browserForward: (args) => ipcRenderer.invoke('browser-forward', args),
@@ -75,6 +72,13 @@ contextBridge.exposeInMainWorld('api', {
         ipcRenderer.on('browser-load-error', handler);
         return () => ipcRenderer.removeListener('browser-load-error', handler);
     },
+    onBrowserNavigationStateUpdated: (callback) => { // Expose new event
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-navigation-state-updated', handler);
+        return () => ipcRenderer.removeListener('browser-navigation-state-updated', handler);
+    },
+    
+
     
     onThumbnailCreated: (callback) => {
         const handler = (_, data) => callback(data);
@@ -177,7 +181,9 @@ onTerminalClosed: (callback) => {
         return () => ipcRenderer.removeListener('stream-error', handler);
     },
     showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
-
+showBrowser: (args) => ipcRenderer.invoke('show-browser', args),
+hideBrowser: (args) => ipcRenderer.invoke('hide-browser', args),
+updateBrowserBounds: (args) => ipcRenderer.invoke('update-browser-bounds', args),
    
     getJinxsGlobal: async () => {
         try {
@@ -220,6 +226,7 @@ onTerminalClosed: (callback) => {
         ipcRenderer.on('browser-show-context-menu', handler);
         return () => ipcRenderer.removeListener('browser-show-context-menu', handler);
     },
+    browserGetPageContent: (args) => ipcRenderer.invoke('browser-get-page-content', args),
     
    
     getMessageAttachments: (messageId) => ipcRenderer.invoke('get-message-attachments', messageId),

@@ -497,15 +497,19 @@ const ChatInterface = () => {
         setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
     };
     
-    const handleBrowserAddToChat = () => {
-        if (browserContextMenu.selectedText) {
-            setInput(prev => `${prev}${prev ? '\n\n' : ''}"${browserContextMenu.selectedText}"`);
-        }
-       
-        window.api.browserSetVisibility({ viewId: browserContextMenu.viewId, visible: true });
-        setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
-    };
+const handleBrowserAddToChat = () => {
+    if (browserContextMenu.selectedText) {
+        const citation = `[From ${browserContextMenu.pageTitle || 'webpage'}](${browserContextMenu.currentUrl})\n\n> ${browserContextMenu.selectedText}`;
+        setInput(prev => `${prev}${prev ? '\n\n' : ''}${citation}`);
+    }
     
+    setBrowserContextMenu({ 
+        isOpen: false, x: 0, y: 0, 
+        selectedText: '', viewId: null, 
+        currentUrl: '', pageTitle: '' 
+    });
+};
+
     const handleBrowserAiAction = (action) => {
         const { selectedText, viewId } = browserContextMenu;
         if (!selectedText) return;
@@ -521,7 +525,7 @@ const ChatInterface = () => {
         }
         setInput(prompt);
        
-        window.api.browserSetVisibility({ viewId, visible: true });
+
         setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '', viewId: null });
     };
     
@@ -1350,24 +1354,16 @@ const handleEditorContextMenu = (e) => {
     const end = textarea.selectionEnd;
     const selectedText = textarea.value.substring(start, end);
     
-    if (selectedText.length > 0) {
-        e.preventDefault();
-        setAiEditModal(prev => ({
-            ...prev,
-            selectedText,
-            selectionStart: start,
-            selectionEnd: end
-        }));
-        
-       
-        const rect = textarea.getBoundingClientRect();
-        const contextMenu = document.getElementById('editor-context-menu');
-        if (contextMenu) {
-            contextMenu.style.display = 'block';
-            contextMenu.style.left = `${e.clientX}px`;
-            contextMenu.style.top = `${e.clientY}px`;
-        }
-    }
+    e.preventDefault();
+    
+    setAiEditModal(prev => ({
+        ...prev,
+        selectedText,
+        selectionStart: start,
+        selectionEnd: end
+    }));
+    
+    setEditorContextMenuPos({ x: e.clientX, y: e.clientY });
 };
 
 
@@ -2094,31 +2090,42 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
    
 
 const closeContentPane = useCallback((paneId, nodePath) => {
+    console.log(`[closeContentPane] Attempting to close pane: ${paneId} with path:`, nodePath); // <--- LAVANZARO'S LOGGING!
+
     setRootLayoutNode(currentRoot => {
-        if (!currentRoot) return null;
+        if (!currentRoot) {
+            console.log('[closeContentPane] No root layout node, nothing to close.'); // <--- LAVANZARO'S LOGGING!
+            return null;
+        }
 
         let newRoot = JSON.parse(JSON.stringify(currentRoot));
 
         if (newRoot.id === paneId) {
+            console.log(`[closeContentPane] Closing root node with ID: ${paneId}`); // <--- LAVANZARO'S LOGGING!
             delete contentDataRef.current[paneId];
             setActiveContentPaneId(null);
             return null;
         }
 
-        if (!nodePath || nodePath.length === 0) return newRoot;
+        if (!nodePath || nodePath.length === 0) {
+            console.error('[closeContentPane] Cannot close pane: nodePath is null or empty.'); // <--- LAVANZARO'S LOGGING!
+            return newRoot;
+        }
 
         const parentPath = nodePath.slice(0, -1);
         const childIndex = nodePath[nodePath.length - 1];
         const parentNode = findNodeByPath(newRoot, parentPath);
 
         if (!parentNode || !parentNode.children) {
-            console.error("Cannot close pane: parent not found.");
+            console.error("[closeContentPane] Cannot close pane: parent not found or has no children.", { parentPath, childIndex, parentNode }); // <--- LAVANZARO'S LOGGING!
             return currentRoot;
         }
 
         parentNode.children.splice(childIndex, 1);
         parentNode.sizes.splice(childIndex, 1);
         delete contentDataRef.current[paneId];
+        console.log(`[closeContentPane] Removed pane ${paneId} from contentDataRef and layout.`); // <--- LAVANZARO'S LOGGING!
+
 
         if (parentNode.children.length === 1) {
            
@@ -2127,26 +2134,33 @@ const closeContentPane = useCallback((paneId, nodePath) => {
             if (parentPath.length === 0) {
                
                 newRoot = remainingChild;
+                console.log('[closeContentPane] Parent was root, new root is remaining child.'); // <--- LAVANZARO'S LOGGING!
             } else {
                
                 const grandParentNode = findNodeByPath(newRoot, parentPath.slice(0, -1));
                 if (grandParentNode) {
                     const parentIndex = parentPath[parentPath.length - 1];
                     grandParentNode.children[parentIndex] = remainingChild;
-                   
+                    console.log('[closeContentPane] Replaced parent with its single remaining child.'); // <--- LAVANZARO'S LOGGING!
+                } else {
+                    console.warn('[closeContentPane] Grandparent not found when trying to replace parent with single child.'); // <--- LAVANZARO'S LOGGING!
                 }
             }
         } else if (parentNode.children.length > 1) {
            
             const equalSize = 100 / parentNode.children.length;
             parentNode.sizes = new Array(parentNode.children.length).fill(equalSize);
+            console.log('[closeContentPane] Recalculated sizes for remaining siblings.'); // <--- LAVANZARO'S LOGGING!
         }
         
         if (activeContentPaneId === paneId) {
             const remainingPaneIds = Object.keys(contentDataRef.current);
-            setActiveContentPaneId(remainingPaneIds.length > 0 ? remainingPaneIds[0] : null);
+            const newActivePaneId = remainingPaneIds.length > 0 ? remainingPaneIds[0] : null;
+            setActiveContentPaneId(newActivePaneId);
+            console.log(`[closeContentPane] Active pane was closed, setting new active pane to: ${newActivePaneId}`); // <--- LAVANZARO'S LOGGING!
         }
 
+        console.log('[closeContentPane] Returning new root layout node.'); // <--- LAVANZARO'S LOGGING!
         return newRoot;
     });
 }, [activeContentPaneId, findNodeByPath]);
@@ -2258,10 +2272,12 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         if (!rootLayoutNode || !targetPaneId) {
             const newPaneId = generateId();
             const newLayout = { id: newPaneId, type: 'content' };
-            contentDataRef.current[newPaneId] = {};
-            setRootLayoutNode(newLayout);
-            setActiveContentPaneId(newPaneId);
-            targetPaneId = newPaneId;
+contentDataRef.current[newPaneId] = {};
+await updateContentPane(newPaneId, 'chat', conversationId);
+setRootLayoutNode({ id: newPaneId, type: 'content' }); // ADD THIS
+setActiveContentPaneId(newPaneId); // AND THIS
+
+targetPaneId = newPaneId;
         }
 
         await updateContentPane(targetPaneId, 'terminal', newTerminalId);
@@ -2356,6 +2372,20 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
             setBrowserUrlDialogOpen(true);
             return;
         }
+    const validPaneIds = new Set();
+    const collectPaneIds = (node) => {
+        if (!node) return;
+        if (node.type === 'content') validPaneIds.add(node.id);
+        if (node.type === 'split') node.children.forEach(collectPaneIds);
+    };
+    collectPaneIds(rootLayoutNode);
+    
+    Object.keys(contentDataRef.current).forEach(paneId => {
+        if (!validPaneIds.has(paneId)) {
+            console.log(`[CLEANUP] Removing phantom pane: ${paneId}`);
+            delete contentDataRef.current[paneId];
+        }
+    });
         
         let targetPaneId = activeContentPaneId;
         const newBrowserId = `browser_${generateId()}`;
@@ -2363,9 +2393,10 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         if (!rootLayoutNode || !targetPaneId) {
             const newPaneId = generateId();
             const newLayout = { id: newPaneId, type: 'content' };
-            contentDataRef.current[newPaneId] = {};
-            setRootLayoutNode(newLayout);
-            setActiveContentPaneId(newPaneId);
+contentDataRef.current[newPaneId] = {};
+await updateContentPane(newPaneId, 'chat', conversationId);
+setRootLayoutNode({ id: newPaneId, type: 'content' }); // ADD THIS
+setActiveContentPaneId(newPaneId); // AND THIS
             targetPaneId = newPaneId;
         }
     
@@ -2382,48 +2413,68 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         createNewBrowser(url);
         setBrowserUrlDialogOpen(false);
     };
-    const renderBrowserViewer = useCallback(({ nodeId }) => {
-        const paneData = contentDataRef.current[nodeId];
-        if (!paneData) return null;
+const renderBrowserViewer = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData) return null;
+
+    const { contentId: browserId, browserUrl } = paneData;
     
-        const { contentId: browserId, browserUrl } = paneData;
-        
-        return (
-            <div className="flex-1 flex flex-col theme-bg-secondary relative">
-                <div 
-    className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-    draggable="true"
-    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'browser', id: browserId }); }}
-    onDragEnd={handleGlobalDragEnd}
-
->
-                    <div className="flex items-center gap-2 truncate">
-                        <Globe size={14} />
-                        <span className="truncate">Browser</span>
-                    </div>
-                    <button 
-                        onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNodeRef.current, nodeId))} 
-                        className="p-1 theme-hover rounded-full"
-                        onMouseDown={(e) => e.stopPropagation()}
-                    >
-                        <X size={14} />
-                    </button>
+    // NO useMemo here - just use the values directly
+    const viewId = browserId;
+    const initialUrl = browserUrl;
+    
+    console.log('[renderBrowserViewer] Rendering with:', { 
+        viewId, 
+        initialUrl, 
+        key: `browser-${nodeId}-${browserId}` 
+    });
+    
+    return (
+        <div className="flex-1 flex flex-col theme-bg-secondary relative">
+            <div 
+                className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+                draggable="true"
+                onDragStart={(e) => { 
+                    e.dataTransfer.effectAllowed = 'copyMove'; 
+                    handleGlobalDragStart(e, { type: 'browser', id: browserId }); 
+                }}
+                onDragEnd={handleGlobalDragEnd}
+            >
+                <div className="flex items-center gap-2 truncate">
+                    <Globe size={14} />
+                    <span className="truncate">Browser</span>
                 </div>
-                <div className="flex-1 overflow-hidden min-h-0">
-                    {browserId && (
-                        <WebBrowserViewer 
-                            key={`browser-${nodeId}-${browserId}`} 
-                            initialUrl={browserUrl}
-                            viewId={browserId}
-                            currentPath={currentPath}
-                        />
-                    )}
-                </div>
+                <button 
+                    onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))}
+                    className="p-1 theme-hover rounded-full"
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <X size={14} />
+                </button>
             </div>
-        );
-    }, [closeContentPane, findNodePath, setDraggedItem]);
+            <div className="flex-1 overflow-hidden min-h-0">
+                {browserId && (
+                    <WebBrowserViewer 
+                        key={`browser-${nodeId}-${browserId}`} 
+                        initialUrl={initialUrl}
+                        viewId={viewId}
+                        currentPath={currentPath}
+                    />
+                )}
+            </div>
+        </div>
+    );
+}, [
+    contentDataRef,
+    closeContentPane,
+    findNodePath,
+    handleGlobalDragStart, 
+    handleGlobalDragEnd,
+    currentPath,
+    rootLayoutNode
+]);
 
-    useEffect(() => {
+useEffect(() => {
        
         const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText, viewId }) => {
             console.log(`[REACT BROWSER CONTEXT] Received event for viewId: ${viewId}`);
@@ -2544,125 +2595,166 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         );
     }, [rootLayoutNode, currentPath, activeContentPaneId,setDraggedItem]);
     
-    const renderFileEditor = useCallback(({ nodeId }) => {
-        const paneData = contentDataRef.current[nodeId];
-        if (!paneData) return null;
-    
-        const { contentId: filePath, fileContent, fileChanged } = paneData;
-        const fileName = filePath?.split('/').pop() || 'Untitled';
-        const isRenaming = renamingPaneId === nodeId;
-    
-        const onContentChange = (value) => {
-            if (contentDataRef.current[nodeId]) {
-                contentDataRef.current[nodeId].fileContent = value;
-                if (!contentDataRef.current[nodeId].fileChanged) {
-                    contentDataRef.current[nodeId].fileChanged = true;
-                    setRootLayoutNode(p => ({ ...p }));
-                }
-            }
-        };
-    
-        const onSave = async () => {
-            const currentPaneData = contentDataRef.current[nodeId];
-            if (currentPaneData?.contentId && currentPaneData.fileChanged) {
-                await window.api.writeFileContent(currentPaneData.contentId, currentPaneData.fileContent);
-                currentPaneData.fileChanged = false;
+const renderFileEditor = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData) return null;
+
+    const { contentId: filePath, fileContent, fileChanged } = paneData;
+    const fileName = filePath?.split('/').pop() || 'Untitled';
+    const isRenaming = renamingPaneId === nodeId;
+
+    const onContentChange = (value) => {
+        if (contentDataRef.current[nodeId]) {
+            contentDataRef.current[nodeId].fileContent = value;
+            if (!contentDataRef.current[nodeId].fileChanged) {
+                contentDataRef.current[nodeId].fileChanged = true;
                 setRootLayoutNode(p => ({ ...p }));
             }
-        };
-        
-        const onEditorContextMenu = (e) => {
-            if (activeContentPaneId === nodeId) {
-                e.preventDefault();
-                setEditorContextMenuPos({ x: e.clientX, y: e.clientY });
-            }
-        };
+        }
+    };
+
+    const onSave = async () => {
+        const currentPaneData = contentDataRef.current[nodeId];
+        if (currentPaneData?.contentId && currentPaneData.fileChanged) {
+            await window.api.writeFileContent(currentPaneData.contentId, currentPaneData.fileContent);
+            currentPaneData.fileChanged = false;
+            setRootLayoutNode(p => ({ ...p }));
+        }
+    };
     
-        return (
-            <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
-                <div 
-                    className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-                    draggable="true"
-                    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: filePath }); }}
-                    onDragEnd={handleGlobalDragEnd}
-                >
-                    <div className="flex items-center gap-2 truncate">
-                        {getFileIcon(fileName)}
-                        {isRenaming ? (
-                            <input
-                                type="text"
-                                value={editedFileName}
-                                onChange={(e) => setEditedFileName(e.target.value)}
-                                onBlur={() => handleRenameFile(nodeId, filePath)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleRenameFile(nodeId, filePath);
-                                    if (e.key === 'Escape') setRenamingPaneId(null);
-                                }}
-                                className="theme-input text-xs rounded px-2 py-1 border focus:outline-none"
-                                autoFocus
-                            />
-                        ) : (
-                            <span
-                                className="truncate cursor-pointer"
-                                title={filePath}
-                                onDoubleClick={() => {
-                                    setRenamingPaneId(nodeId);
-                                    setEditedFileName(fileName);
-                                }}
-                            >
-                                {fileName}{fileChanged ? '*' : ''}
-                            </span>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
-                        <button 
-                        onClick={() => closeContentPane(nodeId, path)} 
+    const onEditorContextMenu = (e) => {
+        if (activeContentPaneId === nodeId) {
+            e.preventDefault();
+            setEditorContextMenuPos({ x: e.clientX, y: e.clientY });
+        }
+    };
+
+    const path = findNodePath(rootLayoutNode, nodeId); // Get the path here!
+    console.log(`[renderFileEditor] Rendering pane ${nodeId}. Path for close button:`, path); // <--- LAVANZARO'S LOGGING!
+
+    return (
+        <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
+            <div 
+                className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+                draggable="true"
+                onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: filePath }); }}
+                onDragEnd={handleGlobalDragEnd}
+            >
+                <div className="flex items-center gap-2 truncate">
+                    {getFileIcon(fileName)}
+                    {isRenaming ? (
+                        <input
+                            type="text"
+                            value={editedFileName}
+                            onChange={(e) => setEditedFileName(e.target.value)}
+                            onBlur={() => handleRenameFile(nodeId, filePath)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleRenameFile(nodeId, filePath);
+                                if (e.key === 'Escape') setRenamingPaneId(null);
+                            }}
+                            className="theme-input text-xs rounded px-2 py-1 border focus:outline-none"
+                            autoFocus
+                        />
+                    ) : (
+                        <span
+                            className="truncate cursor-pointer"
+                            title={filePath}
+                            onDoubleClick={() => {
+                                setRenamingPaneId(nodeId);
+                                setEditedFileName(fileName);
+                            }}
+                        >
+                            {fileName}{fileChanged ? '*' : ''}
+                        </span>
+                    )}
+                </div>
+                <div className="flex items-center gap-2">
+                    <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
+                    <button 
+                        onClick={() => {
+                            console.log(`[renderFileEditor] X button clicked for pane ${nodeId}. Calling closeContentPane with path:`, path); // <--- LAVANZARO'S LOGGING!
+                            closeContentPane(nodeId, path);
+                        }} 
                         className="p-1 theme-hover rounded-full flex-shrink-0"
                         onMouseDown={(e) => e.stopPropagation()}
                     >
                         <X size={14} />
                     </button>
-                    </div>
                 </div>
-                <div className="flex-1 overflow-scroll min-h-0">
-                    <CodeEditor
-                        value={fileContent || ''}
-                        onChange={onContentChange}
-                        onSave={onSave}
-                        filePath={filePath}
-                        onSelect={handleTextSelection}
-                        onContextMenu={onEditorContextMenu}
-                        />
-                </div>
-                {editorContextMenuPos && activeContentPaneId === nodeId && (
-                    <>
-                        <div 
-                            className="fixed inset-0 z-40"
-                            onClick={() => setEditorContextMenuPos(null)}
-                            onContextMenu={(e) => {
-                                e.preventDefault();
-                                setEditorContextMenuPos(null);
-                            }}
-                        />
-                        <div 
-                            className="absolute theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
-                            style={{ top: editorContextMenuPos.y, left: editorContextMenuPos.x }}
-                        >
-                            <button onClick={handleEditorCopy} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">Copy</button>
-                            <button onClick={handleEditorPaste} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">Paste</button>
-                            <div className="border-t theme-border my-1"></div>
-                            <button onClick={handleAddToChat} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">Add to Chat</button>
-                            <div className="border-t theme-border my-1"></div>
-                            <button onClick={() => { handleAIEdit('ask'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50"><MessageSquare size={16} /><span>Ask AI</span></button>
-                            <button onClick={() => { handleAIEdit('document'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50"><FileText size={16} /><span>Document</span></button>
-                            <button onClick={() => { handleAIEdit('edit'); setEditorContextMenuPos(null); }} disabled={!aiEditModal.selectedText} className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50"><Edit size={16} /><span>Edit</span></button>
-                        </div>
-                    </>
-                )}
+            </div>
+            <div className="flex-1 overflow-scroll min-h-0">
+                <CodeEditor
+                    value={fileContent || ''}
+                    onChange={onContentChange}
+                    onSave={onSave}
+                    filePath={filePath}
+                    onSelect={handleTextSelection}
+                    onContextMenu={onEditorContextMenu}
+                    />
+            </div>
+
+{editorContextMenuPos && activeContentPaneId === nodeId && (
+    <>
+        <div 
+            className="fixed inset-0 z-40"
+            onClick={() => setEditorContextMenuPos(null)}
+        />
+        <div 
+            className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+            style={{ 
+                top: `${editorContextMenuPos.y}px`, 
+                left: `${editorContextMenuPos.x}px` 
+            }}
+        >
+            <button onClick={handleEditorCopy} disabled={!aiEditModal.selectedText} 
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
+                Copy
+            </button>
+            <button onClick={handleEditorPaste} 
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm">
+                Paste
+            </button>
+            <div className="border-t theme-border my-1"></div>
+            <button onClick={handleAddToChat} disabled={!aiEditModal.selectedText} 
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
+                Add to Chat
+            </button>
+            <div className="border-t theme-border my-1"></div>
+            <button onClick={() => { handleAIEdit('ask'); setEditorContextMenuPos(null); }} 
+                disabled={!aiEditModal.selectedText} 
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
+                <MessageSquare size={16} />Explain
+            </button>
+            <button onClick={() => { handleAIEdit('document'); setEditorContextMenuPos(null); }} 
+                disabled={!aiEditModal.selectedText} 
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
+                <FileText size={16} />Add Comments
+            </button>
+            <button onClick={() => { handleAIEdit('edit'); setEditorContextMenuPos(null); }} 
+                disabled={!aiEditModal.selectedText} 
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
+                <Edit size={16} />Refactor
+            </button>
+            <div className="border-t theme-border my-1"></div>
+            <button onClick={() => {
+                setEditorContextMenuPos(null);
+                setPromptModal({
+                    isOpen: true,
+                    title: 'Agentic Code Edit',
+                    message: 'What would you like AI to do with all open files?',
+                    defaultValue: 'Add error handling and improve code quality',
+                    onConfirm: (instruction) => startAgenticEdit(instruction)
+                });
+            }} 
+                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-blue-400 text-sm">
+                <BrainCircuit size={16} />Agentic Edit (All Files)
+            </button>
+        </div>
+    </>
+)}
             </div>
         );
-    }, [rootLayoutNode, activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setDraggedItem, searchTerm, isGlobalSearch]);
+}, [rootLayoutNode, activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setDraggedItem, searchTerm, isGlobalSearch, closeContentPane, findNodePath]); // <--- Added closeContentPane and findNodePath to dependencies!
 
     const InPaneSearchBar = ({
         searchTerm,       
@@ -2925,9 +3017,10 @@ const createNewConversation = async () => {
         if (!rootLayoutNode || !targetPaneId) {
             const newPaneId = generateId();
             const newLayout = { id: newPaneId, type: 'content' };
-            contentDataRef.current[newPaneId] = {};
-            setRootLayoutNode(newLayout);
-            setActiveContentPaneId(newPaneId);
+contentDataRef.current[newPaneId] = {};
+await updateContentPane(newPaneId, 'chat', conversationId);
+setRootLayoutNode({ id: newPaneId, type: 'content' }); // ADD THIS
+setActiveContentPaneId(newPaneId); // AND THIS
             targetPaneId = newPaneId;
         }
 
@@ -2958,73 +3051,156 @@ const createNewTextFile = async () => {
 
 
 
-    const handleInputSubmit = async (e) => {
-        e.preventDefault();
-        if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
-            return;
-        }
-        
-        const paneData = contentDataRef.current[activeContentPaneId];
-        if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) {
-            console.error("No active chat pane to send message to.");
-            return;
-        }
+const handleInputSubmit = async (e) => {  // Add async here
+    e.preventDefault();
+    if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
+        return;
+    }
     
-        const conversationId = paneData.contentId;
-        const newStreamId = generateId();
-        
-        streamToPaneRef.current[newStreamId] = activeContentPaneId;
-        setIsStreaming(true);
-    
-        const userMessage = { 
-            id: generateId(), 
-            role: 'user', 
-            content: input, 
-            timestamp: new Date().toISOString(), 
-            attachments: uploadedFiles 
-        };
-    
-        const assistantPlaceholder = { 
-            id: newStreamId, role: 'assistant', content: '', timestamp: new Date().toISOString(), 
-            isStreaming: true, streamId: newStreamId, npc: currentNPC, model: currentModel
-        };
-    
-        if (!paneData.chatMessages) {
-            paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-        }
-        paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
-        paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
-        paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
-    
-        setRootLayoutNode(prev => ({ ...prev }));
-        setInput('');
-        setUploadedFiles([]);
-    
-        try {
-            const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
-            await window.api.executeCommandStream({
-                commandstr: input, currentPath, conversationId, model: currentModel, provider: currentProvider,
-                npc: selectedNpc ? selectedNpc.name : currentNPC,
-                npcSource: selectedNpc ? selectedNpc.source : 'global',
-                attachments: uploadedFiles.map(f => {
-                    if (f.path) {
-                        return { name: f.name, path: f.path, size: f.size, type: f.type };
-                    } else if (f.data) {
-                        return { name: f.name, data: f.data, size: f.size, type: f.type };
-                    }
-                    return { name: f.name, type: f.type };
-                }),
-                streamId: newStreamId, 
-                executionMode: executionMode, 
-                jinxs: availableJinxs,
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) {
+        console.error("No active chat pane to send message to.");
+        return;
+    }
 
-            });
-        } catch (err) {
-            setError(err.message); setIsStreaming(false); delete streamToPaneRef.current[newStreamId];
+    const conversationId = paneData.contentId;
+    const newStreamId = generateId();
+    
+    streamToPaneRef.current[newStreamId] = activeContentPaneId;
+    setIsStreaming(true);
+
+    let finalPrompt = input;
+    
+    const contexts = gatherWorkspaceContext();
+    const fileContexts = contexts.filter(c => c.type === 'file');
+    const browserContexts = contexts.filter(c => c.type === 'browser');
+    let contextPrompt = '';
+    
+
+    if (fileContexts.length > 0 || browserContexts.length > 0) {
+        
+        if (fileContexts.length > 0) {
+            contextPrompt += fileContexts.map(ctx => 
+                `File: ${ctx.path}\n\`\`\`\n${ctx.content}\n\`\`\``
+            ).join('\n\n');
         }
+                        
+        if (browserContexts.length > 0) {
+            if (contextPrompt) contextPrompt += '\n\n';
+            
+            const browserContentPromises = browserContexts.map(async ctx => {
+                const result = await window.api.browserGetPageContent({ 
+                    viewId: ctx.viewId  // Use viewId, not paneId
+                });
+                if (result.success && result.content) {
+                    return `Webpage: ${result.title} (${result.url})\n\`\`\`\n${result.content}\n\`\`\``;
+                }
+                return `Currently viewing: ${ctx.url}`;
+            });
+            
+            const browserContents = await Promise.all(browserContentPromises);
+            contextPrompt += browserContents.join('\n\n');
+        }
+
+
+        if (executionMode === 'agent') {
+            finalPrompt = `${input}
+
+Available context:
+${contextPrompt}
+
+IMPORTANT: Propose changes as unified diffs, NOT full file contents.`;
+        } else {
+            finalPrompt = `${input}
+
+Context - currently open:
+${contextPrompt}`;
+        }
+    }
+
+    
+    if (executionMode === 'agent') {
+        finalPrompt = `${input}
+
+Available files in workspace:
+${contextPrompt}
+
+IMPORTANT: Propose changes as unified diffs, NOT full file contents. Use this exact format:
+
+FILE: <exact filepath from above>
+REASONING: <brief explanation>
+\`\`\`diff
+--- a/<filepath>
++++ b/<filepath>
+@@ -<line>,<count> +<line>,<count> @@
+ context line
+-removed line
++added line
+ context line
+\`\`\`
+
+Only show the lines that change, with a few lines of context. Multiple files = multiple FILE blocks.`;
+        } else {
+            finalPrompt = `${input}
+Context - currently open files:
+${contextPrompt}`;
+        }
+    
+
+                    
+    const userMessage = { 
+        id: generateId(), 
+        role: 'user', 
+        content: finalPrompt, 
+        timestamp: new Date().toISOString(), 
+        attachments: uploadedFiles,
+        executionMode: executionMode
     };
-    
-    
+
+    const assistantPlaceholder = { 
+        id: newStreamId, role: 'assistant', content: '', timestamp: new Date().toISOString(), 
+        isStreaming: true, streamId: newStreamId, npc: currentNPC, model: currentModel
+    };
+
+    if (!paneData.chatMessages) {
+        paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+    }
+    paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
+    paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+    paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
+
+    setRootLayoutNode(prev => ({ ...prev }));
+    setInput('');
+    setUploadedFiles([]);
+
+    try {
+        const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
+        await window.api.executeCommandStream({
+            commandstr: finalPrompt, 
+            currentPath, 
+            conversationId, 
+            model: currentModel, 
+            provider: currentProvider,
+            npc: selectedNpc ? selectedNpc.name : currentNPC,
+            npcSource: selectedNpc ? selectedNpc.source : 'global',
+            attachments: uploadedFiles.map(f => {
+                if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
+                else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
+                return { name: f.name, type: f.type };
+            }),
+            streamId: newStreamId, 
+            executionMode: 'chat',
+        });
+    } catch (err) {
+        setError(err.message); 
+        setIsStreaming(false); 
+        delete streamToPaneRef.current[newStreamId];
+    }
+};
+
+
+
+
 
     const [isSaving, setIsSaving] = useState(false);
 
@@ -3339,6 +3515,266 @@ const renderWorkspaceIndicator = () => {
 };
 
 const [activeWindowsExpanded, setActiveWindowsExpanded] = useState(false);
+const extractCodeFromMarkdown = (text) => {
+  const codeBlockRegex = /```(?:\w+)?\n([\s\S]*?)```/g;
+  const matches = [...text.matchAll(codeBlockRegex)];
+  if (matches.length > 0) return matches[matches.length - 1][1].trim();
+  const thinkingRegex = /<think>[\s\S]*?<\/think>/g;
+  return text.replace(thinkingRegex, '').trim();
+};
+
+const generateInlineDiff = (unifiedDiffText) => {
+    const diff = [];
+    const lines = unifiedDiffText.split('\n');
+    let originalLineNum = 0;
+    let modifiedLineNum = 0;
+
+    for (const line of lines) {
+        if (line.startsWith('---') || line.startsWith('+++')) {
+            continue;
+        }
+
+        if (line.startsWith('@@')) {
+            const match = line.match(/@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/);
+            if (match) {
+                originalLineNum = parseInt(match[1]); // Starting line number in original file
+                modifiedLineNum = parseInt(match[3]); // Starting line number in modified file
+            }
+            continue;
+        }
+
+        if (line.startsWith('-')) {
+            diff.push({ type: 'removed', content: line.substring(1), originalLine: originalLineNum, modifiedLine: null });
+            originalLineNum++;
+        } else if (line.startsWith('+')) {
+            diff.push({ type: 'added', content: line.substring(1), originalLine: null, modifiedLine: modifiedLineNum });
+            modifiedLineNum++;
+        } else if (line.startsWith(' ')) {
+            diff.push({ type: 'unchanged', content: line.substring(1), originalLine: originalLineNum, modifiedLine: modifiedLineNum });
+            originalLineNum++;
+            modifiedLineNum++;
+        }
+    }
+    console.log('generateInlineDiff output:', diff);
+    return diff;
+};
+const gatherWorkspaceContext = () => {
+    const contexts = [];
+    
+    Object.entries(contentDataRef.current).forEach(([paneId, paneData]) => {
+        if (paneData.contentType === 'editor' && paneData.fileContent) {
+            contexts.push({
+                type: 'file',
+                path: paneData.contentId,
+                content: paneData.fileContent,
+                paneId: paneId
+            });
+        } else if (paneData.contentType === 'chat' && paneData.chatMessages) {
+            const recentMessages = paneData.chatMessages.messages.slice(-5);
+            contexts.push({
+                type: 'conversation',
+                id: paneData.contentId,
+                messages: recentMessages,
+                paneId: paneId
+            });
+        } else if (paneData.contentType === 'browser' && paneData.browserUrl) {
+    contexts.push({
+        type: 'browser',
+        url: paneData.browserUrl,
+        viewId: paneData.contentId,  // This is the actual browser_xxx ID
+        paneId: paneId
+    });
+}
+
+    });
+    
+    return contexts;
+};
+// REVISED startAgenticEdit function to explicitly ask for unified diffs AND distinct blocks
+const startAgenticEdit = async (instruction) => {
+    const contexts = gatherWorkspaceContext();
+    
+    if (contexts.length === 0) {
+        setError("No open files or contexts to work with");
+        return;
+    }
+    
+    const fileContexts = contexts.filter(c => c.type === 'file');
+    
+    if (fileContexts.length === 0) {
+        setError("No open files to edit");
+        return;
+    }
+    
+    const contextPrompt = fileContexts.map(ctx => 
+        `File: ${ctx.path}\n\`\`\`\n${ctx.content}\n\`\`\``
+    ).join('\n\n');
+    
+    const fullPrompt = `${instruction}
+
+Available files in workspace:
+${contextPrompt}
+
+For each file you want to modify, respond with a unified diff. If there are multiple distinct logical changes within a single file, please provide a separate 'FILE: <filepath>\nREASONING: <why this change>\n\`\`\`diff\n...\`\`\`' block for each of them.
+
+Use this exact format:
+FILE: <filepath>
+REASONING: <why this change>
+\`\`\`diff
+--- a/<filepath>
++++ b/<filepath>
+@@ -<line>,<count> +<line>,<count> @@
+ context line
+-removed line
++added line
+ context line
+\`\`\`
+
+Only show the lines that change, with a few lines of context. Multiple files = multiple FILE blocks.`; // <-- EXPLICITLY ASKING FOR UNIFIED DIFFS AND DISTINCT BLOCKS!
+
+    const newStreamId = generateId();
+    
+    setAiEditModal({
+        isOpen: true,
+        type: 'agentic',
+        selectedText: '',
+        selectionStart: 0,
+        selectionEnd: 0,
+        aiResponse: '',
+        showDiff: false,
+        isLoading: true,
+        streamId: newStreamId,
+        modelForEdit: currentModel,
+        npcForEdit: currentNPC,
+        workspaceContexts: fileContexts,
+        proposedChanges: []
+    });
+
+    try {
+        const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
+        
+        await window.api.executeCommandStream({
+            commandstr: fullPrompt,
+            currentPath,
+            conversationId: null,
+            model: currentModel,
+            provider: currentProvider,
+            npc: selectedNpc ? selectedNpc.name : currentNPC,
+            npcSource: selectedNpc ? selectedNpc.source : 'global',
+            attachments: [],
+            streamId: newStreamId,
+            executionMode: 'chat'
+        });
+    } catch (err) {
+        console.error('Error starting agentic edit:', err);
+        setError(err.message);
+        setAiEditModal(prev => ({ ...prev, isLoading: false, isOpen: false }));
+    }
+};
+
+const parseAgenticResponse = (response, contexts) => {
+    const changes = [];
+    const fileRegex = /FILE:\s*(.+?)\s*\nREASONING:\s*(.+?)\s*\n```diff\n([\s\S]*?)```/gi;
+    
+    let match;
+    while ((match = fileRegex.exec(response)) !== null) {
+        const filePath = match[1].trim();
+        const reasoning = match[2].trim();
+        const rawUnifiedDiffText = match[3].trim();
+        
+        const context = contexts.find(c => 
+            c.path.includes(filePath) || filePath.includes(c.path.split('/').pop())
+        );
+        
+        if (context) {
+            const newCode = applyUnifiedDiff(context.content, rawUnifiedDiffText);
+            
+            changes.push({
+                paneId: context.paneId,
+                filePath: context.path,
+                reasoning: reasoning,
+                originalCode: context.content,
+                newCode: newCode,
+                diff: generateInlineDiff(rawUnifiedDiffText) || []
+            });
+        }
+    }
+    
+    console.log('Parsed agent changes:', changes);
+    return changes;
+};
+
+const applyUnifiedDiff = (originalContent, unifiedDiffText) => {
+    console.log('--- applyUnifiedDiff START ---'); // <--- LAVANZARO'S LOGGING!
+    console.log('Original Content (first 10 lines):\n', originalContent.split('\n').slice(0, 10).join('\n')); // <--- LAVANZARO'S LOGGING!
+    console.log('Unified Diff Text (first 10 lines):\n', unifiedDiffText.split('\n').slice(0, 10).join('\n')); // <--- LAVANZARO'S LOGGING!
+
+    const originalLines = originalContent.split('\n');
+    const diffLines = unifiedDiffText.split('\n');
+    const resultLines = [];
+    
+    let currentOriginalIndex = 0; // Pointer for originalLines
+    
+    for (const diffLine of diffLines) {
+        console.log(`Processing diffLine: "${diffLine}" (currentOriginalIndex: ${currentOriginalIndex})`); // <--- LAVANZARO'S LOGGING!
+
+        if (diffLine.startsWith('---') || diffLine.startsWith('+++')) {
+            continue;
+        }
+        
+        if (diffLine.startsWith('@@')) {
+            const match = diffLine.match(/@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/);
+            if (match) {
+                const originalHunkStart = parseInt(match[1]) - 1; // 0-indexed
+                
+                // Add lines from original that are *before* this hunk
+                while (currentOriginalIndex < originalHunkStart) {
+                    if (currentOriginalIndex < originalLines.length) { // Safety check
+                        resultLines.push(originalLines[currentOriginalIndex]);
+                        console.log(`  Added original context line (before hunk): ${originalLines[currentOriginalIndex]}`); // <--- LAVANZARO'S LOGGING!
+                    } else {
+                        console.warn("applyUnifiedDiff: Attempted to add original line beyond file bounds before hunk:", currentOriginalIndex); // <--- LAVANZARO'S LOGGING!
+                    }
+                    currentOriginalIndex++;
+                }
+            }
+            continue;
+        }
+        
+        if (diffLine.startsWith('-')) {
+            // Line removed. Just advance original index.
+            console.log(`  Removed line (original): ${originalLines[currentOriginalIndex]}`); // <--- LAVANZARO'S LOGGING!
+            currentOriginalIndex++;
+        } else if (diffLine.startsWith('+')) {
+            // Line added. Add to result.
+            resultLines.push(diffLine.substring(1));
+            console.log(`  Added new line: ${diffLine.substring(1)}`); // <--- LAVANZARO'S LOGGING!
+        } else if (diffLine.startsWith(' ')) {
+            // Context line. Add from original and advance both.
+            if (currentOriginalIndex < originalLines.length) {
+                resultLines.push(originalLines[currentOriginalIndex]);
+                console.log(`  Added unchanged context line: ${originalLines[currentOriginalIndex]}`); // <--- LAVANZARO'S LOGGING!
+                currentOriginalIndex++;
+            } else {
+                console.warn("applyUnifiedDiff: Context line references beyond original content, ignoring:", diffLine); // <--- LAVANZARO'S LOGGING!
+            }
+        }
+        console.log(`  resultLines length: ${resultLines.length}`); // <--- LAVANZARO'S LOGGING!
+    }
+    
+    // Add any remaining lines from the original content after the last hunk
+    while (currentOriginalIndex < originalLines.length) {
+        resultLines.push(originalLines[currentOriginalIndex]);
+        console.log(`Adding remaining original line: ${originalLines[currentOriginalIndex]}`); // <--- LAVANZARO'S LOGGING!
+        currentOriginalIndex++;
+    }
+    
+    const newContent = resultLines.join('\n');
+    console.log('New Content (first 10 lines):\n', newContent.split('\n').slice(0, 10).join('\n')); // <--- LAVANZARO'S LOGGING!
+    console.log('--- applyUnifiedDiff END ---'); // <--- LAVANZARO'S LOGGING!
+    return newContent;
+};
+
 
 const deleteSelectedConversations = async () => {
    const selectedConversationIds = Array.from(selectedConvos);
@@ -3405,7 +3841,6 @@ useEffect(() => {
                             return;
                         }
     
- 
                         content = parsed.choices?.[0]?.delta?.content || '';
                     }
                 } else {
@@ -3427,19 +3862,35 @@ useEffect(() => {
         }
     };
 
-    const handleAIStreamComplete = (_, { streamId }) => {
-        if (streamId !== currentStreamId) return;
+
+const handleAIStreamComplete = async (_, { streamId }) => {
+    if (streamId !== currentStreamId) return;
+    
+    // First, update isLoading to false, and keep the raw aiResponse
+    setAiEditModal(prev => ({
+        ...prev,
+        isLoading: false,
+    }));
+
+    // Now, parse the full aiResponse to get proposedChanges
+    // We need to ensure we're using the *latest* aiResponse state.
+    // A small delay or a separate useEffect might be more robust,
+    // but for now, let's assume the state is updated enough for this synchronous call.
+    const latestAiEditModal = aiEditModal; // Capture current state for parsing
+    console.log('handleAIStreamComplete: Full AI Response for parsing:', latestAiEditModal.aiResponse); // <--- LAVANZARO'S LOGGING!
+
+    if (latestAiEditModal.type === 'agentic' && latestAiEditModal.aiResponse) {
+        const contexts = gatherWorkspaceContext().filter(c => c.type === 'file');
+        const proposedChanges = parseAgenticResponse(latestAiEditModal.aiResponse, contexts);
         
-       
-        setAiEditModal(prev => {
-            const finalDiff = prev.showDiff ? generateDiff(prev.selectedText, prev.aiResponse) : [];
-            return {
-                ...prev,
-                isLoading: false,
-                aiResponseDiff: finalDiff
-            };
-        });
-    };
+        setAiEditModal(prev => ({
+            ...prev,
+            proposedChanges: proposedChanges,
+            showDiff: proposedChanges.length > 0,
+        }));
+        console.log('handleAIStreamComplete: Proposed changes set:', proposedChanges); // <--- LAVANZARO'S LOGGING!
+    }
+};
 
     const handleAIStreamError = (_, { streamId, error }) => {
         if (streamId !== currentStreamId) return;
@@ -3458,7 +3909,7 @@ useEffect(() => {
         cleanupStreamComplete();
         cleanupStreamError();
     };
-}, [aiEditModal.isOpen, aiEditModal.isLoading, aiEditModal.streamId]);
+}, [aiEditModal.isOpen, aiEditModal.isLoading, aiEditModal.streamId, aiEditModal.aiResponse]); // <--- Added aiEditModal.aiResponse to dependencies!
 
 
    
@@ -4127,32 +4578,62 @@ useEffect(() => {
     };
 
    
-    const handleStreamComplete = async (_, { streamId: completedStreamId } = {}) => {
-        const targetPaneId = streamToPaneRef.current[completedStreamId];
-        if (targetPaneId) {
-            const paneData = contentDataRef.current[targetPaneId];
-            if (paneData?.chatMessages) {
-                const msgIndex = paneData.chatMessages.allMessages.findIndex(m => m.id === completedStreamId);
-                if (msgIndex !== -1) {
-                    paneData.chatMessages.allMessages[msgIndex].isStreaming = false;
-                    paneData.chatMessages.allMessages[msgIndex].streamId = null;
-                }
+const handleStreamComplete = async (_, { streamId: completedStreamId } = {}) => {
+    const targetPaneId = streamToPaneRef.current[completedStreamId];
+    if (targetPaneId) {
+        const paneData = contentDataRef.current[targetPaneId];
+        if (paneData?.chatMessages) {
+            const msgIndex = paneData.chatMessages.allMessages.findIndex(m => m.id === completedStreamId);
+            if (msgIndex !== -1) {
+                const msg = paneData.chatMessages.allMessages[msgIndex];
+                msg.isStreaming = false;
+                msg.streamId = null;
                 
-               
-                paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
+                // Find the most recent user message to check mode
+                const recentUserMsgs = paneData.chatMessages.allMessages.filter(m => m.role === 'user').slice(-3);
+                const wasAgentMode = recentUserMsgs.some(m => m.executionMode === 'agent');
+                
+                console.log('Stream complete. Was agent mode?', wasAgentMode);
+                console.log('Assistant response:', msg.content.substring(0, 200));
+                
+                if (wasAgentMode) {
+                    const contexts = gatherWorkspaceContext().filter(c => c.type === 'file');
+                    console.log('Available file contexts:', contexts.map(c => c.path));
+                    
+                    const proposedChanges = parseAgenticResponse(msg.content, contexts);
+                    console.log('Proposed changes found:', proposedChanges.length);
+                    
+                    if (proposedChanges.length > 0) {
+                        setAiEditModal({
+                            isOpen: true,
+                            type: 'agentic',
+                            proposedChanges: proposedChanges,
+                            isLoading: false,
+                            selectedText: '',
+                            selectionStart: 0,
+                            selectionEnd: 0,
+                            aiResponse: '',
+                            showDiff: false
+                        });
+                    } else {
+                        console.warn('Agent mode but no changes detected. Response format may be wrong.');
+                    }
+                }
             }
-            delete streamToPaneRef.current[completedStreamId];
+            paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
         }
-    
-        if (Object.keys(streamToPaneRef.current).length === 0) {
-            setIsStreaming(false);
-        }
-    
-        setRootLayoutNode(prev => ({ ...prev }));
-        await refreshConversations();
-    };
-    
-   
+        delete streamToPaneRef.current[completedStreamId];
+    }
+
+    if (Object.keys(streamToPaneRef.current).length === 0) {
+        setIsStreaming(false);
+    }
+
+    setRootLayoutNode(prev => ({ ...prev }));
+    await refreshConversations();
+};
+
+
     const handleStreamError = (_, { streamId: errorStreamId, error } = {}) => {
         const targetPaneId = streamToPaneRef.current[errorStreamId];
         if (targetPaneId) {
@@ -5542,20 +6023,17 @@ const renderInputArea = () => {
 
                 <div className={`flex items-center gap-2 px-2 pb-2 ${isStreaming ? 'opacity-50' : ''}`}>
                     <div className="flex theme-border border rounded-md p-0.5">
-                        <button onClick={() => setExecutionMode('chat')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'chat' ? 'theme-button-primary' : 'theme-hover'}`}>
-                            <div className="flex items-center gap-1"><MessageCircle size={12}/> Chat</div>
-                        </button>
-                        <button onClick={() => setExecutionMode('npcsh')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'npcsh' ? 'theme-button-primary' : 'theme-hover'}`}>
-                            <div className="flex items-center gap-1"><BrainCircuit size={12}/> npcsh</div>
-                        </button>
-
-                        <button onClick={() => setExecutionMode('corca')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'corca' ? 'theme-button-primary' : 'theme-hover'}`}>
-                            <div className="flex items-center gap-1"><Origami size={12}/> corca</div>
-                        </button>
-
-                        <button onClick={() => setExecutionMode('guac')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'guac' ? 'theme-button-primary' : 'theme-hover'}`}>
-                            <div className="flex items-center gap-1"><Icon iconNode={avocado} size={12}/> guac</div>
-                        </button>
+                        <div className="flex theme-border border rounded-md p-0.5">
+                            <button onClick={() => setExecutionMode('chat')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'chat' ? 'theme-button-primary' : 'theme-hover'}`}>
+                                <div className="flex items-center gap-1"><MessageCircle size={12}/> Chat</div>
+                            </button>
+                            <button onClick={() => setExecutionMode('agent')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'agent' ? 'theme-button-primary' : 'theme-hover'}`}>
+                                <div className="flex items-center gap-1"><BrainCircuit size={12}/> Agent</div>
+                            </button>
+                            <button onClick={() => setExecutionMode('code')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'code' ? 'theme-button-primary' : 'theme-hover'}`}>
+                                <div className="flex items-center gap-1"><Code2 size={12}/> Code</div>
+                            </button>
+                        </div>
 
                     </div>
                     
@@ -5675,7 +6153,10 @@ const renderAttachmentThumbnails = () => {
 
 
 
-    const renderModals = () => (
+    const renderModals = () => 
+    {
+        
+    return     (
         <>
             <NPCTeamMenu isOpen={npcTeamMenuOpen} onClose={handleCloseNpcTeamMenu} currentPath={currentPath} startNewConversation={startNewConversationWithNpc}/>
             <JinxMenu isOpen={jinxMenuOpen} onClose={() => setJinxMenuOpen(false)} currentPath={currentPath}/>
@@ -5880,92 +6361,134 @@ const renderAttachmentThumbnails = () => {
         </div>
     </div>
 )}        
-    {aiEditModal.isOpen && (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden flex flex-col">
-            <h3 className="text-lg font-medium mb-4 theme-text-primary">
-                {aiEditModal.type === 'ask' ? 'AI Analysis' : 
-                 aiEditModal.type === 'document' ? 'Document Code' :
-                 'Edit Code'}
-            </h3>
-            
-            {/* Model/NPC Selectors (no changes needed) */}
-            
-            <div className="flex-1 overflow-hidden flex flex-col">
-                <div className="mb-2">
-                    <h4 className="text-sm font-medium theme-text-primary mb-2">Original Code:</h4>
-                    <pre className="theme-bg-primary p-3 rounded text-xs overflow-x-auto border max-h-24">
-                        <code>{aiEditModal.selectedText}</code>
-                    </pre>
-                </div>
-
-                {/* --- DYNAMIC CONTENT AREA --- */}
-                <div className="flex-1 overflow-y-auto mt-2 border theme-border rounded">
-                    {aiEditModal.isLoading ? (
-                       
-                        <div className="p-3">
-                            <h4 className="text-sm font-medium theme-text-primary mb-2">Generating...</h4>
-                            <pre className="text-xs whitespace-pre-wrap theme-text-secondary">
-                                {aiEditModal.aiResponse}
-                                <span className="inline-block w-2 h-4 bg-blue-400 animate-pulse ml-1"></span>
-                            </pre>
-                        </div>
-                    ) : (
-                       
-                        aiEditModal.aiResponse && (
-                            aiEditModal.showDiff ? (
-                               
-                                <div>
-                                    <h4 className="text-sm font-medium theme-text-primary p-3">Changes Preview:</h4>
-                                    <div className="theme-bg-primary">
-                                        {aiEditModal.aiResponseDiff.map((line, index) => (
-                                            <div key={index} className={`px-3 font-mono text-xs ${
-                                                line.type === 'added' ? 'bg-green-900/30' :
-                                                line.type === 'removed' ? 'bg-red-900/30' : ''
-                                            }`}>
-                                                <span className={`inline-block w-4 ${
-                                                    line.type === 'added' ? 'text-green-400' :
-                                                    line.type === 'removed' ? 'text-red-400' : 'text-gray-500'
-                                                }`}>
-                                                    {line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}
-                                                </span>
-                                                <span className="whitespace-pre-wrap">{line.content}</span>
+            {aiEditModal.isOpen && aiEditModal.type === 'agentic' && !aiEditModal.isLoading && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-6xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+                        <h3 className="text-lg font-medium mb-4">Proposed Changes ({aiEditModal.proposedChanges?.length || 0} files)</h3>
+                        
+                        <div className="flex-1 overflow-y-auto space-y-4">
+                            {aiEditModal.proposedChanges?.map((change, idx) => {
+                                console.log(`Rendering change for ${change.filePath}. Diff length: ${change.diff.length}`);
+                                return (
+                                    <div key={idx} className="border theme-border rounded p-4">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div>
+                                                <h4 className="font-semibold">{change.filePath.split('/').pop()}</h4>
+                                                <p className="text-xs theme-text-muted mt-1">{change.reasoning}</p>
                                             </div>
-                                        ))}
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={async () => {
+                                                        console.log(`Attempting to apply and save single change for: ${change.filePath}`); // <--- LAVANZARO'S LOGGING!
+                                                        const paneData = contentDataRef.current[change.paneId];
+                                                        if (paneData) {
+                                                            paneData.fileContent = change.newCode;
+                                                            paneData.fileChanged = true;
+                                                            setRootLayoutNode(p => ({...p}));
+                                                            try {
+                                                                await window.api.writeFileContent(change.filePath, change.newCode);
+                                                                paneData.fileChanged = false;
+                                                                setRootLayoutNode(p => ({...p}));
+                                                                console.log(`Successfully applied and saved file: ${change.filePath}`);
+                                                            } catch (saveError) {
+                                                                console.error(`Error saving file ${change.filePath} after agentic apply:`, saveError); // <--- LAVANZARO'S LOGGING!
+                                                                setError(`Failed to save ${change.filePath}: ${saveError.message}`);
+                                                            }
+                                                        }
+                                                        setAiEditModal(prev => ({
+                                                            ...prev,
+                                                            proposedChanges: prev.proposedChanges.filter((_, i) => i !== idx)
+                                                        }));
+                                                    }}
+                                                    className="px-3 py-1 theme-button-success rounded text-xs"
+                                                >
+                                                    Apply
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setAiEditModal(prev => ({
+                                                            ...prev,
+                                                            proposedChanges: prev.proposedChanges.filter((_, i) => i !== idx)
+                                                        }));
+                                                    }}
+                                                    className="px-3 py-1 theme-button-danger rounded text-xs"
+                                                >
+                                                    Reject
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="mt-2 text-xs font-mono overflow-x-auto border border-yellow-500 rounded p-2">
+                                            <div className="text-center theme-text-muted mb-2">--- DIFF CONTENT BELOW (IF AVAILABLE) ---</div>
+                                            {change.diff.length > 0 ? (
+                                                <table className="w-full">
+                                                    <tbody>
+                                                        {change.diff.map((line, lineIdx) => (
+                                                            <tr key={lineIdx} className={`
+                                                                ${line.type === 'added' ? 'bg-green-900/20' : ''}
+                                                                ${line.type === 'removed' ? 'bg-red-900/20' : ''}
+                                                            `}>
+                                                                <td className="px-2 text-gray-600 w-8">{line.originalLine || ''}</td>
+                                                                <td className="px-2 text-gray-600 w-8">{line.modifiedLine || ''}</td>
+                                                                <td className="px-2">
+                                                                    <span className={line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}>
+                                                                        {line.content}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            ) : (
+                                                <div className="text-center theme-text-muted">No diff content available for this file.</div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            ) : (
-                               
-                                <div className="p-3">
-                                    <h4 className="text-sm font-medium theme-text-primary mb-2">AI Analysis:</h4>
-                                    <div className="prose prose-sm prose-invert max-w-none theme-text-primary">
-                                        <MarkdownRenderer content={aiEditModal.aiResponse} />
-                                    </div>
-                                </div>
-                            )
-                        )
-                    )}
+                                );
+                            })}
+                        </div>
+                        
+                        <div className="flex justify-end gap-3 mt-4">
+                            <button onClick={() => setAiEditModal({ isOpen: false })} className="px-4 py-2 theme-button rounded">
+                                Close
+                            </button>
+                            <button 
+                                onClick={async () => {
+                                    console.log('Attempting to apply and save ALL changes.'); // <--- LAVANZARO'S LOGGING!
+                                    const savePromises = [];
+                                    aiEditModal.proposedChanges?.forEach(change => {
+                                        const paneData = contentDataRef.current[change.paneId];
+                                        if (paneData) {
+                                            paneData.fileContent = change.newCode;
+                                            paneData.fileChanged = true;
+                                            savePromises.push(
+                                                window.api.writeFileContent(change.filePath, change.newCode)
+                                                    .then(() => {
+                                                        paneData.fileChanged = false;
+                                                        console.log(`Successfully applied and saved file: ${change.filePath}`);
+                                                    })
+                                                    .catch(saveError => {
+                                                        console.error(`Error saving file ${change.filePath} after agentic apply all:`, saveError); // <--- LAVANZARO'S LOGGING!
+                                                        setError(`Failed to save ${change.filePath}: ${saveError.message}`);
+                                                    })
+                                            );
+                                        }
+                                    });
+                                    await Promise.allSettled(savePromises);
+                                    setRootLayoutNode(p => ({...p}));
+                                    setAiEditModal({ isOpen: false });
+                                }}
+                                className="px-4 py-2 theme-button-success rounded"
+                            >
+                                Apply All
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            
-            {/* --- Buttons --- */}
-            <div className="flex justify-end gap-3 mt-4">
-                <button
-                    className="px-4 py-2 theme-button theme-hover rounded text-sm"
-                    onClick={() => setAiEditModal({ ...aiEditModal, isOpen: false })}
-                    disabled={aiEditModal.isLoading}
-                >
-                    {aiEditModal.type === 'ask' || aiEditModal.isLoading ? 'Close' : 'Cancel'}
-                </button>
-                {(aiEditModal.type === 'document' || aiEditModal.type === 'edit') && !aiEditModal.isLoading && aiEditModal.aiResponse && (
-                    <button className="px-4 py-2 theme-button-primary rounded text-sm" onClick={applyAIEdit}>
-                        Apply Changes
-                    </button>
-                )}
-            </div>
-        </div>
-    </div>
-)}
+            )}
+
+
+
         {renderPdfContextMenu()}
         {renderBrowserContextMenu()}
         
@@ -5987,7 +6510,7 @@ const renderAttachmentThumbnails = () => {
             />               
         </>
     );
-
+};
 
    
     const handleOpenNpcTeamMenu = () => {

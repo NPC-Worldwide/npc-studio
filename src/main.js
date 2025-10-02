@@ -513,257 +513,14 @@ if (!gotTheLock) {
    
     mainWindow.webContents.send('show-macro-input');
   }
-  const browserViews = new Map();
-
- 
-  ipcMain.handle('show-browser', (event, { url, bounds, viewId }) => {
-      log(`[BROWSER VIEW] Received 'show-browser' for URL: ${url}, viewId: ${viewId}`);
-      if (!mainWindow) return { success: false, error: 'Main window not found' };
-  
-      if (browserViews.has(viewId)) {
-          const existing = browserViews.get(viewId);
-          mainWindow.removeBrowserView(existing.view);
-          existing.view.webContents.destroy();
-      }
-  
-      const newBrowserView = new BrowserView({
-          webPreferences: {
-              nodeIntegration: true,
-              contextIsolation: true,
-              webSecurity: true,
-          },
-      });
-  
-      mainWindow.addBrowserView(newBrowserView);
-      newBrowserView.setBounds(bounds);
-      
-     
-      browserViews.set(viewId, { view: newBrowserView, bounds, visible: true });
-  
-
-      newBrowserView.webContents.on('context-menu', (e, params) => {
-        const { x, y, selectionText } = params;
-
-        if (selectionText && selectionText.trim().length > 0) {
-            log(`[BROWSER CONTEXT] Selected text found, hiding view for menu.`);
-          
-           
-           
-            if (browserViews.has(viewId)) {
-                const browserState = browserViews.get(viewId);
-                
-               
-                browserState.view.setBounds({ x: -2000, y: -2000, width: 0, height: 0 });
-               
-                
-               
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send('browser-show-context-menu', {
-                        x,
-                        y,
-                        selectedText: selectionText.trim(),
-                        viewId
-                    });
-                }
-            }
-        }
-    });
-      
-      const finalURL = url.startsWith('http') ? url : `https://${url}`;
-      newBrowserView.webContents.loadURL(finalURL);
-      return { success: true, viewId };
-  });
-  
- 
-  ipcMain.handle('browser:set-visibility', (event, { viewId, visible }) => {
-      if (browserViews.has(viewId)) {
-          const browserState = browserViews.get(viewId);
-          if (visible) {
-              log(`[BROWSER VIEW] Setting visibility to TRUE for ${viewId}`);
-              browserState.view.setBounds(browserState.bounds);
-              browserState.visible = true;
-          } else {
-              log(`[BROWSER VIEW] Setting visibility to FALSE for ${viewId}`);
-             
-              browserState.view.setBounds({ x: -2000, y: -2000, width: 0, height: 0 });
-              browserState.visible = false;
-          }
-          return { success: true };
-      }
-      return { success: false, error: 'View not found' };
-  });
-  
- 
-  ipcMain.handle('update-browser-bounds', (event, { viewId, bounds }) => {
-      if (browserViews.has(viewId)) {
-          const browserState = browserViews.get(viewId);
-          browserState.bounds = bounds;
-          
-         
-          if (browserState.visible) {
-              browserState.view.setBounds(bounds);
-          }
-          return { success: true };
-      }
-      return { success: false, error: 'Browser view not found' };
-  });
-  
- 
-  ipcMain.handle('hide-browser', (event, { viewId }) => {
-      log(`[BROWSER VIEW] Received 'hide-browser' for viewId: ${viewId}`);
-      if (browserViews.has(viewId) && mainWindow && !mainWindow.isDestroyed()) {
-          log(`[BROWSER VIEW] Removing and destroying BrowserView for ${viewId}`);
-          const browserState = browserViews.get(viewId);
-          mainWindow.removeBrowserView(browserState.view);
-          browserState.view.webContents.destroy();
-          browserViews.delete(viewId);
-          return { success: true };
-      }
-      return { success: false, error: 'Browser view not found' };
-  });
-  
 
   
-  ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath }) => {
-    try {
-     
-      const existing = await dbQuery(
-        'SELECT id, visit_count FROM browser_history WHERE url = ? AND folder_path = ?', 
-        [url, folderPath]
-      );
-      
-      if (existing.length > 0) {
-       
-        await dbQuery(
-          'UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ? WHERE id = ?',
-          [title, existing[0].id]
-        );
-      } else {
-       
-        await dbQuery(
-          'INSERT INTO browser_history (url, title, folder_path) VALUES (?, ?, ?)',
-          [url, title, folderPath]
-        );
-      }
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  ipcMain.handle('browser:getHistory', async (event, { folderPath, limit = 50 }) => {
-    try {
-      const history = await dbQuery(
-        'SELECT * FROM browser_history WHERE folder_path = ? ORDER BY last_visited DESC LIMIT ?',
-        [folderPath, limit]
-      );
-      return { success: true, history };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  ipcMain.handle('browser:addBookmark', async (event, { url, title, folderPath, isGlobal = false }) => {
-    try {
-      await dbQuery(
-        'INSERT INTO bookmarks (url, title, folder_path, is_global) VALUES (?, ?, ?, ?)',
-        [url, title, isGlobal ? null : folderPath, isGlobal ? 1 : 0]
-      );
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  ipcMain.handle('browser:getBookmarks', async (event, { folderPath }) => {
-    try {
-     
-      const bookmarks = await dbQuery(
-        'SELECT * FROM bookmarks WHERE (folder_path = ? OR is_global = 1) ORDER BY is_global ASC, timestamp DESC',
-        [folderPath]
-      );
-      return { success: true, bookmarks };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  ipcMain.handle('browser:deleteBookmark', async (event, { bookmarkId }) => {
-    try {
-      await dbQuery('DELETE FROM bookmarks WHERE id = ?', [bookmarkId]);
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  ipcMain.handle('browser:clearHistory', async (event, { folderPath }) => {
-    try {
-      await dbQuery('DELETE FROM browser_history WHERE folder_path = ?', [folderPath]);
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  
-  ipcMain.handle('browser-navigate', (event, { viewId, url }) => {
-    if (browserViews.has(viewId)) {
-      const finalURL = url.startsWith('http') ? url : `https://${url}`;
-      log(`[BROWSER VIEW] Navigating ${viewId} to: ${finalURL}`);
-      browserViews.get(viewId).webContents.loadURL(finalURL);
-      return { success: true };
-    }
-    return { success: false, error: 'Browser view not found' };
-  });
-  
-  ipcMain.handle('browser-back', (event, { viewId }) => {
-    if (browserViews.has(viewId)) {
-      const webContents = browserViews.get(viewId).webContents;
-      if (webContents.canGoBack()) {
-        webContents.goBack();
-        return { success: true };
-      }
-      return { success: false, error: 'Cannot go back' };
-    }
-    return { success: false, error: 'Browser view not found' };
-  });
-  
-  ipcMain.handle('browser-forward', (event, { viewId }) => {
-    if (browserViews.has(viewId)) {
-      const webContents = browserViews.get(viewId).webContents;
-      if (webContents.canGoForward()) {
-        webContents.goForward();
-        return { success: true };
-      }
-      return { success: false, error: 'Cannot go forward' };
-    }
-    return { success: false, error: 'Browser view not found' };
-  });
-  
-  ipcMain.handle('browser-refresh', (event, { viewId }) => {
-    if (browserViews.has(viewId)) {
-      browserViews.get(viewId).webContents.reload();
-      return { success: true };
-    }
-    return { success: false, error: 'Browser view not found' };
-  });
-  
-  ipcMain.handle('browser-get-selected-text', (event, { viewId }) => {
-    if (browserViews.has(viewId)) {
-      return new Promise((resolve) => {
-        browserViews.get(viewId).webContents.executeJavaScript(`
-          window.getSelection().toString();
-        `).then(selectedText => {
-          resolve({ success: true, selectedText });
-        }).catch(error => {
-          resolve({ success: false, error: error.message });
-        });
-      });
-    }
-    return { success: false, error: 'Browser view not found' };
-  });
-  
+ 
+
+const browserViews = new Map();
+
+ 
+
   
 
 function createWindow() {
@@ -1077,6 +834,408 @@ ipcMain.handle('ollama:pullModel', async (event, { model }) => {
         return { success: false, error: err.message };
     }
 });
+
+ipcMain.handle('browser-get-page-content', async (event, { viewId }) => {
+    if (browserViews.has(viewId)) {
+        const browserState = browserViews.get(viewId);
+        try {
+            // Extract text content from the page
+            const pageContent = await browserState.view.webContents.executeJavaScript(`
+                (function() {
+                    // Get main content, skip nav/footer/ads
+                    const main = document.querySelector('main, article, .content, #content') || document.body;
+                    
+                    // Remove script, style, nav, footer elements
+                    const clone = main.cloneNode(true);
+                    clone.querySelectorAll('script, style, nav, footer, aside, .nav, .footer, .ads').forEach(el => el.remove());
+                    
+                    // Get text content
+                    let text = clone.innerText || clone.textContent;
+                    
+                    // Clean up whitespace
+                    text = text.replace(/\\s+/g, ' ').trim();
+                    
+                    // Limit to ~4000 chars to avoid token limits
+                    return text.substring(0, 4000);
+                })();
+            `);
+            
+            return { 
+                success: true, 
+                content: pageContent,
+                url: browserState.view.webContents.getURL(),
+                title: browserState.view.webContents.getTitle()
+            };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    return { success: false, error: 'Browser view not found' };
+});
+ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
+    log(`[BROWSER VIEW] show-browser for URL: ${url}, viewId: ${viewId}`);
+    log(`[BROWSER VIEW] Bounds received:`, JSON.stringify(bounds));
+    
+    if (!mainWindow) {
+        return { success: false, error: 'Main window not found' };
+    }
+  
+    // Clean up existing
+    if (browserViews.has(viewId)) {
+        log(`[BROWSER VIEW] Destroying existing view ${viewId}`);
+        const existingState = browserViews.get(viewId);
+        mainWindow.removeBrowserView(existingState.view);
+        existingState.view.webContents.destroy();
+        browserViews.delete(viewId);
+    }
+  
+    const newBrowserView = new BrowserView({
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            webSecurity: true,
+            allowPopups: true,
+            partition: `persist:${viewId}`,
+        },
+    });
+
+    log(`[BROWSER VIEW] Created BrowserView`);
+    
+    mainWindow.addBrowserView(newBrowserView);
+    log(`[BROWSER VIEW] Added to main window`);
+    
+    newBrowserView.setBounds(bounds);
+    log(`[BROWSER VIEW] Set bounds:`, newBrowserView.getBounds());
+    
+    newBrowserView.setBackgroundColor('#ff0000'); // RED so you can see it
+    log(`[BROWSER VIEW] Set background color`);
+    
+    browserViews.set(viewId, { 
+        view: newBrowserView, 
+        bounds, 
+        visible: true, 
+        webContents: newBrowserView.webContents 
+    });
+
+  
+    // Store state BEFORE adding to window
+    browserViews.set(viewId, { 
+        view: newBrowserView, 
+        bounds, 
+        visible: true, 
+        webContents: newBrowserView.webContents 
+    });
+
+    // Set up event listeners
+newBrowserView.webContents.on('context-menu', (e, params) => {
+    const { x, y, selectionText } = params;
+    if (selectionText && selectionText.trim().length > 0) {
+        log(`[BROWSER CONTEXT] Selected text found`);
+        
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('browser-show-context-menu', {
+                x, y,
+                selectedText: selectionText.trim(),
+                viewId,
+                currentUrl: newBrowserView.webContents.getURL(),
+                pageTitle: newBrowserView.webContents.getTitle()
+            });
+        }
+    }
+});
+    newBrowserView.webContents.on('did-start-loading', () => {
+        log(`[BROWSER VIEW ${viewId}] did-start-loading`);
+        mainWindow.webContents.send('browser-loading', { 
+            viewId, loading: true 
+        });
+    });
+
+    newBrowserView.webContents.on('did-stop-loading', () => {
+        log(`[BROWSER VIEW ${viewId}] did-stop-loading`);
+        mainWindow.webContents.send('browser-loading', { 
+            viewId, loading: false 
+        });
+        mainWindow.webContents.send('browser-navigation-state-updated', {
+            viewId,
+            canGoBack: newBrowserView.webContents.canGoBack(),
+            canGoForward: newBrowserView.webContents.canGoForward()
+        });
+    });
+
+    newBrowserView.webContents.on('did-finish-load', () => {
+        log(`[BROWSER VIEW ${viewId}] did-finish-load`);
+        mainWindow.webContents.send('browser-loaded', {
+            viewId,
+            url: newBrowserView.webContents.getURL(),
+            title: newBrowserView.webContents.getTitle()
+        });
+    });
+
+    newBrowserView.webContents.on('did-fail-load', 
+        (event, errorCode, errorDescription, validatedURL) => {
+        log(`[BROWSER VIEW ${viewId}] did-fail-load: ${errorCode}`);
+        mainWindow.webContents.send('browser-load-error', {
+            viewId,
+            url: validatedURL,
+            error: errorDescription,
+            errorCode: errorCode
+        });
+        mainWindow.webContents.send('browser-loading', { 
+            viewId, loading: false 
+        });
+    });
+
+    newBrowserView.webContents.on('page-title-updated', 
+        (event, title) => {
+        log(`[BROWSER VIEW ${viewId}] page-title-updated: ${title}`);
+        mainWindow.webContents.send('browser-title-updated', { 
+            viewId, title 
+        });
+    });
+
+    newBrowserView.webContents.on('did-navigate', (event, url) => {
+        log(`[BROWSER VIEW ${viewId}] did-navigate: ${url}`);
+        mainWindow.webContents.send('browser-loaded', {
+            viewId,
+            url: url,
+            title: newBrowserView.webContents.getTitle()
+        });
+    });
+      
+    // Load URL after everything is set up
+    const finalURL = url.startsWith('http') ? url : `https://${url}`;
+    log(`[BROWSER VIEW ${viewId}] Loading URL: ${finalURL}`);
+    
+
+    newBrowserView.webContents.loadURL(finalURL)
+        .then(() => {
+            log(`[BROWSER VIEW] loadURL promise resolved for ${finalURL}`);
+        })
+        .catch(err => {
+            log(`[BROWSER VIEW] loadURL promise rejected: ${err.message}`);
+            mainWindow.webContents.send('browser-load-error', {
+                viewId, url: finalURL, error: err.message, errorCode: -1
+            });
+        });
+    
+    // Check if it's actually loading after a delay
+    setTimeout(() => {
+        const currentURL = newBrowserView.webContents.getURL();
+        const isLoading = newBrowserView.webContents.isLoading();
+        log(`[BROWSER VIEW] After 1s - Current URL: ${currentURL}, isLoading: ${isLoading}`);
+    }, 1000);
+    
+    return { success: true, viewId };
+
+
+    
+    
+});
+
+ipcMain.handle('browser:set-visibility', (event, { viewId, visible }) => {
+    if (browserViews.has(viewId)) {
+        const browserState = browserViews.get(viewId);
+        if (visible) {
+            log(`[BROWSER VIEW] Setting visibility to TRUE for ${viewId}`);
+            browserState.view.setBounds(browserState.bounds); // Use stored bounds
+            browserState.visible = true;
+        } else {
+            log(`[BROWSER VIEW] Setting visibility to FALSE for ${viewId}`);
+           
+            browserState.view.setBounds({ x: -2000, y: -2000, width: 0, height: 0 });
+            browserState.visible = false;
+        }
+        return { success: true };
+    }
+    return { success: false, error: 'View not found' };
+});
+  
+ 
+ipcMain.handle('update-browser-bounds', (event, { viewId, bounds }) => {
+    if (browserViews.has(viewId)) {
+        const browserState = browserViews.get(viewId);
+        browserState.bounds = bounds;
+        
+       
+        if (browserState.visible) {
+            browserState.view.setBounds(bounds); // Apply new bounds to the actual BrowserView
+        }
+        return { success: true };
+    }
+    return { success: false, error: 'Browser view not found' };
+});
+  
+ 
+ipcMain.handle('hide-browser', (event, { viewId }) => {
+    log(`[BROWSER VIEW] Received 'hide-browser' for viewId: ${viewId}`);
+    if (browserViews.has(viewId) && mainWindow && !mainWindow.isDestroyed()) {
+        log(`[BROWSER VIEW] Removing and destroying BrowserView for ${viewId}`);
+        const browserState = browserViews.get(viewId);
+        mainWindow.removeBrowserView(browserState.view);
+        browserState.view.webContents.destroy();
+        browserViews.delete(viewId);
+        return { success: true };
+    }
+    return { success: false, error: 'Browser view not found' };
+});
+  
+ 
+ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath }) => {
+  try {
+    if (!url || url === 'about:blank') { // Don't add blank pages to history
+      log('[BROWSER HISTORY] Skipping add to history for blank or invalid URL:', url);
+      return { success: true, message: 'Skipped blank URL' };
+    }
+   
+    const existing = await dbQuery(
+      'SELECT id, visit_count FROM browser_history WHERE url = ? AND folder_path = ?', 
+      [url, folderPath]
+    );
+    
+    if (existing.length > 0) {
+     
+      await dbQuery(
+        'UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ? WHERE id = ?',
+        [title, existing[0].id]
+      );
+      log(`[BROWSER HISTORY] Updated history for ${url} in ${folderPath}`);
+    } else {
+     
+      await dbQuery(
+        'INSERT INTO browser_history (url, title, folder_path) VALUES (?, ?, ?)',
+        [url, title, folderPath]
+      );
+      log(`[BROWSER HISTORY] Added new history entry for ${url} in ${folderPath}`);
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+  
+ipcMain.handle('browser:getHistory', async (event, { folderPath, limit = 50 }) => {
+  try {
+    const history = await dbQuery(
+      'SELECT * FROM browser_history WHERE (folder_path = ? OR folder_path IS NULL) ORDER BY last_visited DESC LIMIT ?', // <--- LAVANZARO'S ADJUSTMENT: Include global history
+      [folderPath, limit]
+    );
+    log(`[BROWSER HISTORY] Retrieved ${history.length} history entries for ${folderPath}`);
+    return { success: true, history };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+  
+ipcMain.handle('browser:addBookmark', async (event, { url, title, folderPath, isGlobal = false }) => {
+  try {
+    if (!url || url === 'about:blank') { // Don't bookmark blank pages
+      log('[BROWSER BOOKMARKS] Skipping add bookmark for blank or invalid URL:', url);
+      return { success: false, error: 'Cannot bookmark a blank or invalid URL.' };
+    }
+    await dbQuery(
+      'INSERT INTO bookmarks (url, title, folder_path, is_global) VALUES (?, ?, ?, ?)',
+      [url, title, isGlobal ? null : folderPath, isGlobal ? 1 : 0]
+    );
+    log(`[BROWSER BOOKMARKS] Added bookmark: ${title} (${url})`);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+  
+ipcMain.handle('browser:getBookmarks', async (event, { folderPath }) => {
+  try {
+   
+    const bookmarks = await dbQuery(
+      'SELECT * FROM bookmarks WHERE (folder_path = ? OR is_global = 1) ORDER BY is_global ASC, timestamp DESC',
+      [folderPath]
+    );
+    log(`[BROWSER BOOKMARKS] Retrieved ${bookmarks.length} bookmarks for ${folderPath}`);
+    return { success: true, bookmarks };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+  
+ipcMain.handle('browser:deleteBookmark', async (event, { bookmarkId }) => {
+  try {
+    await dbQuery('DELETE FROM bookmarks WHERE id = ?', [bookmarkId]);
+    log(`[BROWSER BOOKMARKS] Deleted bookmark ID: ${bookmarkId}`);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+  
+ipcMain.handle('browser:clearHistory', async (event, { folderPath }) => {
+  try {
+    await dbQuery('DELETE FROM browser_history WHERE folder_path = ?', [folderPath]);
+    log(`[BROWSER HISTORY] Cleared history for ${folderPath}`);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+  
+  
+ipcMain.handle('browser-navigate', (event, { viewId, url }) => {
+  if (browserViews.has(viewId)) {
+    const finalURL = url.startsWith('http') ? url : `https://${url}`;
+    log(`[BROWSER VIEW] Navigating ${viewId} to: ${finalURL}`);
+    browserViews.get(viewId).view.webContents.loadURL(finalURL); // Access webContents via .view
+    return { success: true };
+  }
+  return { success: false, error: 'Browser view not found' };
+});
+  
+ipcMain.handle('browser-back', (event, { viewId }) => {
+  if (browserViews.has(viewId)) {
+    const webContents = browserViews.get(viewId).view.webContents; // Access webContents via .view
+    if (webContents.canGoBack()) {
+      webContents.goBack();
+      return { success: true };
+    }
+    return { success: false, error: 'Cannot go back' };
+  }
+  return { success: false, error: 'Browser view not found' };
+});
+  
+ipcMain.handle('browser-forward', (event, { viewId }) => {
+  if (browserViews.has(viewId)) {
+    const webContents = browserViews.get(viewId).view.webContents; // Access webContents via .view
+    if (webContents.canGoForward()) {
+      webContents.goForward();
+      return { success: true };
+    }
+    return { success: false, error: 'Cannot go forward' };
+  }
+  return { success: false, error: 'Browser view not found' };
+});
+  
+ipcMain.handle('browser-refresh', (event, { viewId }) => {
+  if (browserViews.has(viewId)) {
+    browserViews.get(viewId).view.webContents.reload(); // Access webContents via .view
+    return { success: true };
+  }
+  return { success: false, error: 'Browser view not found' };
+});
+  
+ipcMain.handle('browser-get-selected-text', (event, { viewId }) => {
+  if (browserViews.has(viewId)) {
+    return new Promise((resolve) => {
+      browserViews.get(viewId).view.webContents.executeJavaScript(` // Access webContents via .view
+        window.getSelection().toString();
+      `).then(selectedText => {
+        resolve({ success: true, selectedText });
+      }).catch(error => {
+        resolve({ success: false, error: error.message });
+      });
+    });
+  }
+  return { success: false, error: 'Browser view not found' };
+});
+
+
 ipcMain.handle('loadProjectSettings', async (event, currentPath) => {
     try {
         const url = `http://127.0.0.1:5337/api/settings/project?path=${encodeURIComponent(currentPath)}`;
