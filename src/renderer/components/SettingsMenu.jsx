@@ -278,6 +278,78 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
             }
         }
     }, [isOpen, currentPath]);
+const [customProviders, setCustomProviders] = useState([
+    { name: '', baseUrl: '', apiKeyVar: '', headers: '' }
+]);
+
+useEffect(() => {
+    if (isOpen) {
+        loadGlobalSettings();
+        loadCustomProviders();
+        if (currentPath) {
+            loadProjectSettings();
+        }
+    }
+}, [isOpen, currentPath]);
+
+const loadCustomProviders = async () => {
+    const data = await window.api.loadGlobalSettings();
+    const providers = [];
+    
+    if (data.global_vars) {
+        Object.keys(data.global_vars).forEach(key => {
+            if (key.startsWith('CUSTOM_PROVIDER_')) {
+                const providerName = key.replace('CUSTOM_PROVIDER_', '');
+                try {
+                    const config = JSON.parse(data.global_vars[key]);
+                    providers.push({
+                        name: providerName.toLowerCase(),
+                        baseUrl: config.base_url || '',
+                        apiKeyVar: config.api_key_var || '',
+                        headers: config.headers ? 
+                            JSON.stringify(config.headers) : ''
+                    });
+                } catch (e) {
+                    console.error(
+                        `Failed to parse custom provider ${providerName}:`, 
+                        e
+                    );
+                }
+            }
+        });
+    }
+    
+    if (providers.length === 0) {
+        providers.push({ 
+            name: '', 
+            baseUrl: '', 
+            apiKeyVar: '', 
+            headers: '' 
+        });
+    }
+    setCustomProviders(providers);
+};
+
+const addCustomProvider = () => {
+    setCustomProviders([
+        ...customProviders, 
+        { name: '', baseUrl: '', apiKeyVar: '', headers: '' }
+    ]);
+};
+
+const removeCustomProvider = (index) => {
+    const newProviders = [...customProviders];
+    newProviders.splice(index, 1);
+    if (newProviders.length === 0) {
+        newProviders.push({ 
+            name: '', 
+            baseUrl: '', 
+            apiKeyVar: '', 
+            headers: '' 
+        });
+    }
+    setCustomProviders(newProviders);
+};    
 
     const loadGlobalSettings = async () => {
         const data = await window.api.loadGlobalSettings();
@@ -306,29 +378,55 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
         return sensitiveWords.some(word => key.toLowerCase().includes(word));
     };
 
-    const handleSave = async () => {
-        const globalVars = customGlobalVars.reduce((acc, { key, value }) => {
-            if (key && value) acc[key] = value;
-            return acc;
-        }, {});
-        await window.api.saveGlobalSettings({ 
-            global_settings: globalSettings, 
-            global_vars: globalVars 
-        });
-
-        const envVars = customEnvVars.reduce((acc, { key, value }) => {
-            if (key && value) acc[key] = value;
-            return acc;
-        }, {});
-        if (currentPath) {
-            await window.api.saveProjectSettings({ 
-                path: currentPath, 
-                env_vars: envVars 
-            });
+const handleSave = async () => {
+    const globalVars = customGlobalVars.reduce((acc, { key, value }) => {
+        if (key && value) acc[key] = value;
+        return acc;
+    }, {});
+    
+    customProviders.forEach(provider => {
+        if (provider.name && provider.baseUrl) {
+            const config = {
+                base_url: provider.baseUrl,
+                api_key_var: provider.apiKeyVar || 
+                    `${provider.name.toUpperCase()}_API_KEY`,
+            };
+            
+            if (provider.headers) {
+                try {
+                    config.headers = JSON.parse(provider.headers);
+                } catch (e) {
+                    console.error(
+                        'Invalid JSON for headers:', 
+                        e
+                    );
+                }
+            }
+            
+            globalVars[`CUSTOM_PROVIDER_${provider.name.toUpperCase()}`] = 
+                JSON.stringify(config);
         }
-        onClose();
-    };
+    });
+    
+    await window.api.saveGlobalSettings({ 
+        global_settings: globalSettings, 
+        global_vars: globalVars 
+    });
 
+    const envVars = customEnvVars.reduce((acc, { key, value }) => {
+        if (key && value) acc[key] = value;
+        return acc;
+    }, {});
+    
+    if (currentPath) {
+        await window.api.saveProjectSettings({ 
+            path: currentPath, 
+            env_vars: envVars 
+        });
+    }
+    
+    onClose();
+};
     const handlePurchase = () => setShowPricing(true);
     
     const handleFolderPicker = async () => {
@@ -467,6 +565,16 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
                         <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
                             <X size={24} />
                         </button>
+<button 
+    onClick={() => setActiveTab('providers')} 
+    className={`px-4 py-2 text-sm ${
+        activeTab === 'providers' 
+            ? 'border-b-2 border-blue-500 text-white' 
+            : 'text-gray-400'
+    }`}
+>
+    Custom Providers
+</button>                        
                     </header>
 
                     <div className="border-b border-gray-700">
@@ -529,6 +637,123 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
                             </div>
                         )}
                         {activeTab === 'models' && <ModelManager />}
+{activeTab === 'providers' && (
+    <div className="space-y-4">
+        <div className="text-sm text-gray-400 mb-4">
+            Add custom API providers. These will appear 
+            in your model dropdown with a "custom-" prefix.
+        </div>
+        
+        {customProviders.map((provider, index) => (
+            <div key={index} 
+                 className="p-4 border theme-border rounded-lg space-y-3">
+                <div className="flex justify-between items-start">
+                    <h5 className="text-sm font-semibold">
+                        Provider {index + 1}
+                    </h5>
+                    <button 
+                        onClick={() => removeCustomProvider(index)} 
+                        className="p-1 text-gray-400 hover:text-white"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+                
+                <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                        Provider Name (lowercase, no spaces)
+                    </label>
+                    <input 
+                        type="text"
+                        value={provider.name}
+                        onChange={(e) => {
+                            const newProviders = [...customProviders];
+                            newProviders[index].name = 
+                                e.target.value.toLowerCase()
+                                    .replace(/[^a-z0-9_]/g, '');
+                            setCustomProviders(newProviders);
+                        }}
+                        className="w-full bg-[#1a2634] border 
+                            border-gray-700 rounded px-3 py-2 
+                            font-mono text-sm"
+                        placeholder="myapi"
+                    />
+                </div>
+                
+                <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                        Base URL
+                    </label>
+                    <input 
+                        type="text"
+                        value={provider.baseUrl}
+                        onChange={(e) => {
+                            const newProviders = [...customProviders];
+                            newProviders[index].baseUrl = e.target.value;
+                            setCustomProviders(newProviders);
+                        }}
+                        className="w-full bg-[#1a2634] border 
+                            border-gray-700 rounded px-3 py-2 
+                            font-mono text-sm"
+                        placeholder="https://api.example.com/v1"
+                    />
+                </div>
+                
+                <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                        API Key Environment Variable 
+                        (optional, defaults to PROVIDERNAME_API_KEY)
+                    </label>
+                    <input 
+                        type="text"
+                        value={provider.apiKeyVar}
+                        onChange={(e) => {
+                            const newProviders = [...customProviders];
+                            newProviders[index].apiKeyVar = e.target.value;
+                            setCustomProviders(newProviders);
+                        }}
+                        className="w-full bg-[#1a2634] border 
+                            border-gray-700 rounded px-3 py-2 
+                            font-mono text-sm"
+                        placeholder={
+                            provider.name ? 
+                            `${provider.name.toUpperCase()}_API_KEY` : 
+                            'MYAPI_API_KEY'
+                        }
+                    />
+                </div>
+                
+                <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                        Custom Headers (JSON format, optional)
+                    </label>
+                    <textarea 
+                        value={provider.headers}
+                        onChange={(e) => {
+                            const newProviders = [...customProviders];
+                            newProviders[index].headers = e.target.value;
+                            setCustomProviders(newProviders);
+                        }}
+                        rows={3}
+                        className="w-full bg-[#1a2634] border 
+                            border-gray-700 rounded px-3 py-2 
+                            font-mono text-xs"
+                        placeholder='{"X-Custom-Header": "value"}'
+                    />
+                </div>
+            </div>
+        ))}
+        
+        <button 
+            onClick={addCustomProvider} 
+            className="w-full border border-gray-700 rounded py-2 
+                hover:bg-[#1a2634] text-sm"
+        >
+            Add Custom Provider
+        </button>
+    </div>
+)}
+
                     </main>
 
                     <footer className="border-t border-gray-700 p-4 flex justify-end">
