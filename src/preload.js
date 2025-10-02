@@ -211,9 +211,10 @@ updateBrowserBounds: (args) => ipcRenderer.invoke('update-browser-bounds', args)
             return { jinxs: [], error: error.message };
         }
     },
-    saveJinx: (data) => ipcRenderer.invoke('save-jinx', data),
-    
-   
+    saveJinx: (data) => ipcRenderer.invoke('save-jinx', data),    
+    generativeFill: async (params) => {
+    return ipcRenderer.invoke('generative-fill', params);
+},
     getNPCTeamProject: async (currentPath) => {
         if (!currentPath || typeof currentPath !== 'string') {
           throw new Error('currentPath must be a string');

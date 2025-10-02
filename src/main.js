@@ -834,7 +834,25 @@ ipcMain.handle('ollama:pullModel', async (event, { model }) => {
         return { success: false, error: err.message };
     }
 });
-
+ipcMain.handle('generative-fill', async (event, params) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/generative_fill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Generative fill failed');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Generative fill error:', error);
+        return { error: error.message };
+    }
+});
 ipcMain.handle('browser-get-page-content', async (event, { viewId }) => {
     if (browserViews.has(viewId)) {
         const browserState = browserViews.get(viewId);

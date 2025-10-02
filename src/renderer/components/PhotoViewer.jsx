@@ -86,7 +86,13 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const [renamingImage, setRenamingImage] = useState({ path: null, newName: '' });
     
    
-   
+   const [selectionMode, setSelectionMode] = useState(null);
+const [selection, setSelection] = useState(null);
+const [drawingSelection, setDrawingSelection] = useState(false);
+const [selectionPoints, setSelectionPoints] = useState([]);
+const [textLayers, setTextLayers] = useState([]);
+const [editingTextId, setEditingTextId] = useState(null);
+
     const [adjustments, setAdjustments] = useState({ 
         exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
         saturation: 100, warmth: 0, tint: 0,
@@ -116,7 +122,10 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const [customTags, setCustomTags] = useState([]);
     const [rating, setRating] = useState(0);
     const [labels, setLabels] = useState([]);
-    
+    const [brushSize, setBrushSize] = useState(10);
+const [brushColor, setBrushColor] = useState('#000000');
+const canvasRef = useRef(null);
+const [isDrawingBrush, setIsDrawingBrush] = useState(false);
    
     const fileInputRef = useRef(null);
     const imageRef = useRef(null);
@@ -130,7 +139,8 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const [numImagesToGenerate, setNumImagesToGenerate] = useState(1);
     const [selectedGeneratedImages, setSelectedGeneratedImages] = useState(new Set());
 
-    
+    const [isDraggingSelection, setIsDraggingSelection] = useState(false);
+const [selectionDragStart, setSelectionDragStart] = useState(null);
     
     const [isDrawingSelection, setIsDrawingSelection] = useState(false);
     
@@ -548,7 +558,7 @@ const getRelativeCoords = (e) => {
 const commitLayerParams = () => { pushHistory({ layers, selectedLayerId, adjustments }); };
 
 
-const executeGenerativeFill = async (layerId, prompt) => { /* ... Unchanged ... */ };
+
 
  
 
@@ -586,34 +596,6 @@ const executeGenerativeFill = async (layerId, prompt) => { /* ... Unchanged ... 
 };
 
 // Add missing mouse handlers:
-const handleCanvasMouseDown = (e) => {
-    console.log('Canvas mouse down, tool:', editorTool);
-    if (e.target !== canvasContainerRef.current) return;
-    
-    setIsDrawing(true);
-    const startCoords = getRelativeCoords(e);
-    if (!startCoords) return;
-
-    console.log('Start coords:', startCoords);
-
-    switch(editorTool) {
-        case 'text':
-            console.log('Adding text layer');
-            addDarkroomLayer('TEXT');
-            break;
-       
-    }
-};
-
-const handleCanvasMouseMove = (e) => {
-    if (!isDrawing) return;
-   
-};
-
-const handleCanvasMouseUp = () => {
-    console.log('Canvas mouse up');
-    setIsDrawing(false);
-};
 
 // Fix the missing handleBaseAdjustmentChange:
 const handleBaseAdjustmentChange = (key, value) => {
@@ -1462,112 +1444,557 @@ const handleUseForGeneration = () => {
     setSelectedModel, setSelectedProvider, setGenerating, setGeneratedFilenames,
     generateFilename, setGenerateFilename, setError
 ]);
+const handleCanvasMouseDown = (e) => {
+    if (!canvasContainerRef.current) return;
+    const rect = canvasContainerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    if (editorTool === 'text') {
+        const newText = {
+            id: `text_${Date.now()}`,
+            content: 'Edit me',
+            x: x,
+            y: y,
+            fontSize: 32,
+            color: '#FFFFFF',
+            fontFamily: 'Arial'
+        };
+        setTextLayers(prev => [...prev, newText]);
+        setEditingTextId(newText.id);
+        return;
+    }
+    
+    if (editorTool === 'brush' || editorTool === 'eraser') {
+        setIsDrawingBrush(true);
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx.lineCap = 'round';
+        ctx.lineWidth = brushSize;
+        ctx.strokeStyle = editorTool === 'eraser' ? 'rgba(0,0,0,1)' : brushColor;
+        ctx.globalCompositeOperation = editorTool === 'eraser' ? 'destination-out' : 'source-over';
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        return;
+    }
+    
+    if (editorTool === 'select' && selection) {
+        const xPercent = (x / rect.width) * 100;
+        const yPercent = (y / rect.height) * 100;
+        
+        if (selection.type === 'rect') {
+            const inSelection = 
+                xPercent >= Math.min(selection.x1, selection.x2) &&
+                xPercent <= Math.max(selection.x1, selection.x2) &&
+                yPercent >= Math.min(selection.y1, selection.y2) &&
+                yPercent <= Math.max(selection.y1, selection.y2);
+            
+            if (inSelection) {
+                setIsDraggingSelection(true);
+                setSelectionDragStart({ x: xPercent, y: yPercent });
+                return;
+            }
+        }
+    }
+    
+    setDrawingSelection(true);
+    
+    if (selectionMode === 'rect') {
+        const xPercent = (x / rect.width) * 100;
+        const yPercent = (y / rect.height) * 100;
+        setSelection({ type: 'rect', x1: xPercent, y1: yPercent, x2: xPercent, y2: yPercent });
+    } else if (selectionMode === 'lasso') {
+        const xPercent = (x / rect.width) * 100;
+        const yPercent = (y / rect.height) * 100;
+        setSelectionPoints([{ x: xPercent, y: yPercent }]);
+    }
+};
+const handleCanvasMouseMove = (e) => {
+    if (!canvasContainerRef.current) return;
+    const rect = canvasContainerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    if (isDrawingBrush && (editorTool === 'brush' || editorTool === 'eraser')) {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        return;
+    }
+    
+    if (isDraggingSelection && selection && editorTool === 'select') {
+        const xPercent = (x / rect.width) * 100;
+        const yPercent = (y / rect.height) * 100;
+        
+        const dx = xPercent - selectionDragStart.x;
+        const dy = yPercent - selectionDragStart.y;
+        
+        setSelection(prev => ({
+            ...prev,
+            x1: prev.x1 + dx,
+            x2: prev.x2 + dx,
+            y1: prev.y1 + dy,
+            y2: prev.y2 + dy
+        }));
+        
+        setSelectionDragStart({ x: xPercent, y: yPercent });
+        return;
+    }
+    
+    if (!drawingSelection) return;
+    
+    const xPercent = (x / rect.width) * 100;
+    const yPercent = (y / rect.height) * 100;
+    
+    if (selectionMode === 'rect' && selection) {
+        setSelection(prev => ({ ...prev, x2: xPercent, y2: yPercent }));
+    } else if (selectionMode === 'lasso') {
+        setSelectionPoints(prev => [...prev, { x: xPercent, y: yPercent }]);
+    }
+};
 
+const handleCanvasMouseUp = () => {
+    console.log('Mouse up - selectionMode:', selectionMode);
+    console.log('selectionPoints length:', selectionPoints.length);
+    console.log('selectionPoints:', selectionPoints);
+    
+    setDrawingSelection(false);
+    setIsDrawingBrush(false);
+    setIsDraggingSelection(false);
+    
+    if (selectionMode === 'lasso' && selectionPoints.length > 2) {
+        console.log('Creating lasso selection!');
+        setSelection({ type: 'lasso', points: selectionPoints });
+    }
+};
+const executeGenerativeFill = async (layerId, prompt) => {
+    console.log('executeGenerativeFill called with prompt:', prompt);
+    console.log('selectedImage:', selectedImage);
+    console.log('selection:', selection);
+    
+    if (!selectedImage || !selection) {
+        setError('Need image and selection for generative fill');
+        return;
+    }
+    
+    try {
+        const maskData = await createMaskFromSelection(selection);
+        console.log('Mask data created:', maskData ? 'yes' : 'no');
+        
+        const imagePath = selectedImage.replace('media://', '');
+        console.log('Image path:', imagePath);
+        
+        const model = selectedModel || 'gemini-2.5-flash-image-preview';
+        const provider = selectedProvider || 'gemini';
+        console.log('Using model:', model, 'provider:', provider);
+        
+        const response = await window.api.generativeFill({
+            imagePath,
+            mask: maskData,
+            prompt: prompt,
+            model: model,
+            provider: provider
+        });
+        
+        console.log('Response from generativeFill:', response);
+        
+        if (response.error) throw new Error(response.error);
+        
+        if (response.resultPath) {
+            setSelectedImage(`media://${response.resultPath}`);
+            await loadImagesForAllSources(imageSources);
+        }
+        
+        setSelection(null);
+        
+    } catch (error) {
+        console.error('Fill error:', error);
+        setError('Generative fill failed: ' + error.message);
+    }
+};
 
+const createMaskFromSelection = async (sel) => {
+    const canvas = document.createElement('canvas');
+    const img = imageRef.current;
+    if (!img) return null;
+    
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.fillStyle = 'white';
+    
+    if (sel.type === 'rect') {
+        const x = Math.min(sel.x1, sel.x2) / 100 * canvas.width;
+        const y = Math.min(sel.y1, sel.y2) / 100 * canvas.height;
+        const w = Math.abs(sel.x2 - sel.x1) / 100 * canvas.width;
+        const h = Math.abs(sel.y2 - sel.y1) / 100 * canvas.height;
+        ctx.fillRect(x, y, w, h);
+    } else if (sel.type === 'lasso') {
+        ctx.beginPath();
+        sel.points.forEach((p, i) => {
+            const x = (p.x / 100) * canvas.width;
+            const y = (p.y / 100) * canvas.height;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+        ctx.fill();
+    }
+    
+    return canvas.toDataURL('image/png');
+};
 const renderDarkRoom = () => {
-   
-console.log('Rendering DarkRoom, selectedImage:', selectedImage);
-console.log('Current adjustments:', adjustments);
-console.log('Current layers:', layers);
-console.log('About to render image with src:', selectedImage);
-console.log('Image exists check:', selectedImage ? 'YES' : 'NO');
     return (
         <div className="flex-1 flex overflow-hidden">
-            {/* --- Left Toolbar --- */}
             <div className="w-16 border-r theme-border flex flex-col items-center p-2 gap-2 bg-gray-900">
                 <h4 className="text-xs font-semibold theme-text-secondary uppercase">Tools</h4>
-                <button onClick={() => { setEditorTool('crop'); setIsCropping(true); }} className={`p-2 rounded ${editorTool === 'crop' ? 'theme-button-primary' : 'theme-hover'}`} title="Crop Tool"><Crop size={20}/></button>
-                <button onClick={() => { setEditorTool('lasso'); setIsCropping(false); }} className={`p-2 rounded ${editorTool === 'lasso' ? 'theme-button-primary' : 'theme-hover'}`} title="Lasso Select"><Lasso size={20}/></button>
-                <button onClick={() => addDarkroomLayer('TEXT')} className={`p-2 rounded`} title="Text Tool"><Type size={20}/></button>
+                
+                <button 
+                    onClick={() => { setEditorTool('select'); setSelectionMode(null); }} 
+                    className={`p-2 rounded ${editorTool === 'select' ? 'theme-button-primary' : 'theme-hover'}`} 
+                    title="Select"
+                >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+                    </svg>
+                </button>
+                
+                <button 
+                    onClick={() => { setEditorTool('rect-select'); setSelectionMode('rect'); }} 
+                    className={`p-2 rounded ${editorTool === 'rect-select' ? 'theme-button-primary' : 'theme-hover'}`} 
+                    title="Rectangle Select"
+                >
+                    <RectangleHorizontal size={20}/>
+                </button>
+                
+                <button 
+                    onClick={() => { setEditorTool('lasso'); setSelectionMode('lasso'); }} 
+                    className={`p-2 rounded ${editorTool === 'lasso' ? 'theme-button-primary' : 'theme-hover'}`} 
+                    title="Lasso Select"
+                >
+                    <Lasso size={20}/>
+                </button>
+                
+                <button 
+                    onClick={() => { setEditorTool('text'); setSelectionMode(null); }} 
+                    className={`p-2 rounded ${editorTool === 'text' ? 'theme-button-primary' : 'theme-hover'}`} 
+                    title="Text Tool"
+                >
+                    <Type size={20}/>
+                </button>
 
+                <button 
+                    onClick={() => { setEditorTool('brush'); }} 
+                    className={`p-2 rounded ${editorTool === 'brush' ? 'theme-button-primary' : 'theme-hover'}`} 
+                    title="Brush"
+                >
+                    <Brush size={20}/>
+                </button>
+                
+                <button 
+                    onClick={() => { setEditorTool('eraser'); }} 
+                    className={`p-2 rounded ${editorTool === 'eraser' ? 'theme-button-primary' : 'theme-hover'}`} 
+                    title="Eraser"
+                >
+                    <Eraser size={20}/>
+                </button>
+                
+                <div className="border-t theme-border w-full my-2"/>
+                
+                <button 
+                    onClick={() => { setEditorTool('crop'); setIsCropping(true); }} 
+                    className={`p-2 rounded ${editorTool === 'crop' ? 'theme-button-primary' : 'theme-hover'}`} 
+                    title="Crop Tool"
+                >
+                    <Crop size={20}/>
+                </button>
             </div>
 
-            {/* --- Canvas Area --- */}
             <div 
-                    ref={canvasContainerRef}
-                    className="flex-1 flex items-center justify-center p-4 overflow-hidden relative bg-gray-800/30"
-                    onMouseDown={handleCanvasMouseDown}
-                    onMouseMove={handleCanvasMouseMove}
-                    onMouseUp={handleCanvasMouseUp}
-                >
-
-
-
+                ref={canvasContainerRef}
+                className="flex-1 flex items-center justify-center p-4 overflow-hidden relative bg-gray-800/30 select-none"
+                onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleCanvasMouseDown(e);
+                }}
+                onMouseMove={(e) => {
+                    e.preventDefault();
+                    handleCanvasMouseMove(e);
+                }}
+                onMouseUp={(e) => {
+                    e.preventDefault();
+                    handleCanvasMouseUp(e);
+                }}
+                style={{ cursor: editorTool === 'text' ? 'text' : editorTool === 'lasso' ? 'crosshair' : 'default' }}
+            >
                 {selectedImage ? (
-                    <div className="relative w-full h-full">
-                        <div className="absolute inset-0">
-                            <img 
+                    <div className="relative w-full h-full flex items-center justify-center">
+                        <img 
                             ref={imageRef} 
                             src={selectedImage} 
                             style={calculateCombinedStyle()} 
                             className="max-w-full max-h-full object-contain"
                             alt="Main preview"
-                            onLoad={() => console.log('Image loaded successfully:', selectedImage)}
-                            onError={(e) => console.log('Image failed to load:', selectedImage, e)}
+                            draggable={false}
+                            onDragStart={(e) => e.preventDefault()}
                         />
+<canvas
+    ref={canvasRef}
+    className="absolute inset-0 pointer-events-none"
+    width={canvasContainerRef.current?.offsetWidth || 800}
+    height={canvasContainerRef.current?.offsetHeight || 600}
+    style={{ 
+        pointerEvents: editorTool === 'brush' || editorTool === 'eraser' ? 'auto' : 'none',
+        zIndex: editorTool === 'brush' || editorTool === 'eraser' ? 20 : 1
+    }}
+/>
+                        {selection && selection.type === 'rect' && (
+                            <div 
+                                className="absolute border-2 border-dashed border-blue-400 pointer-events-none"
+                                style={{
+                                    left: `${Math.min(selection.x1, selection.x2)}%`,
+                                    top: `${Math.min(selection.y1, selection.y2)}%`,
+                                    width: `${Math.abs(selection.x2 - selection.x1)}%`,
+                                    height: `${Math.abs(selection.y2 - selection.y1)}%`
+                                }}
+                            />
+                        )}
+{selectionMode === 'lasso' && drawingSelection && selectionPoints.length > 1 && (
+    <svg 
+        className="absolute inset-0 pointer-events-none" 
+        style={{width: '100%', height: '100%', zIndex: 15}}
+    >
+        <polyline 
+            points={selectionPoints.map(p => {
+                const rect = canvasContainerRef.current?.getBoundingClientRect();
+                if (!rect) return '0,0';
+                return `${(p.x / 100) * rect.width},${(p.y / 100) * rect.height}`;
+            }).join(' ')}
+            fill="none"
+            stroke="rgb(59, 130, 246)"
+            strokeWidth="2"
+            strokeDasharray="5,5"
+        />
+    </svg>
+)}
 
-                            <div className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{boxShadow: `inset 0 0 ${adjustments.vignette * 2.5}px ${adjustments.vignette * 1.5}px rgba(0,0,0,0.9)`}}></div>
-                            
+{selection && selection.type === 'lasso' && (
+    <svg 
+        className="absolute inset-0 pointer-events-none" 
+        style={{width: '100%', height: '100%'}}
+    >
+        <polygon 
+            points={selection.points.map(p => {
+                const rect = canvasContainerRef.current?.getBoundingClientRect();
+                if (!rect) return '0,0';
+                return `${(p.x / 100) * rect.width},${(p.y / 100) * rect.height}`;
+            }).join(' ')}
+            fill="rgba(59, 130, 246, 0.1)"
+            stroke="rgb(59, 130, 246)"
+            strokeWidth="2"
+            strokeDasharray="5,5"
+        />
+    </svg>
+)}
+                        {textLayers.map(text => (
+                            <div
+                                key={text.id}
+                                className="absolute"
+                                style={{
+                                    left: `${text.x}px`,
+                                    top: `${text.y}px`,
+                                    fontSize: `${text.fontSize}px`,
+                                    color: text.color,
+                                    fontFamily: text.fontFamily,
+                                    cursor: editingTextId === text.id ? 'text' : 'move',
+                                    userSelect: editingTextId === text.id ? 'text' : 'none',
+                                    zIndex: 10
+                                }}
+                                onDoubleClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingTextId(text.id);
+                                }}
+                                onMouseDown={(e) => {
+                                    e.stopPropagation();
+                                    if (editingTextId === text.id) return;
+                                    
+                                    const startX = e.clientX;
+                                    const startY = e.clientY;
+                                    const origX = text.x;
+                                    const origY = text.y;
+                                    
+                                    const handleMove = (moveE) => {
+                                        const dx = moveE.clientX - startX;
+                                        const dy = moveE.clientY - startY;
+                                        setTextLayers(prev => prev.map(t => 
+                                            t.id === text.id ? {...t, x: origX + dx, y: origY + dy} : t
+                                        ));
+                                    };
+                                    
+                                    const handleUp = () => {
+                                        document.removeEventListener('mousemove', handleMove);
+                                        document.removeEventListener('mouseup', handleUp);
+                                    };
+                                    
+                                    document.addEventListener('mousemove', handleMove);
+                                    document.addEventListener('mouseup', handleUp);
+                                }}
+                            >
+                                {editingTextId === text.id ? (
+                                    <input
+                                        type="text"
+                                        value={text.content}
+                                        onChange={(e) => {
+                                            e.stopPropagation();
+                                            setTextLayers(prev => 
+                                                prev.map(t => t.id === text.id ? {...t, content: e.target.value} : t)
+                                            );
+                                        }}
+                                        onBlur={() => setEditingTextId(null)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') setEditingTextId(null);
+                                            e.stopPropagation();
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        autoFocus
+                                        className="bg-black/50 border border-blue-400 outline-none px-2"
+                                        style={{
+                                            fontSize: `${text.fontSize}px`,
+                                            color: text.color,
+                                            fontFamily: text.fontFamily,
+                                            minWidth: '100px'
+                                        }}
+                                    />
+                                ) : (
+                                    <span className="px-2 py-1 bg-black/30 rounded">{text.content}</span>
+                                )}
+                            </div>
+                        ))}
 
-                        </div>
+                        <div className="absolute top-0 left-0 w-full h-full pointer-events-none" 
+                             style={{boxShadow: `inset 0 0 ${adjustments.vignette * 2.5}px ${adjustments.vignette * 1.5}px rgba(0,0,0,0.9)`}}
+                        />
                     </div>
-                ) : ( <div className="text-center theme-text-muted"><Camera size={48} className="mx-auto mb-4" /><p>Select an image to open</p></div> )}
+                ) : (
+                    <div className="text-center theme-text-muted">
+                        <Camera size={48} className="mx-auto mb-4" />
+                        <p>Select an image to open</p>
+                    </div>
+                )}
             </div>
 
-            {/* --- Inspector Panel (Right) --- */}
-            <div className="w-80 border-l theme-border theme-bg-secondary flex flex-col">
-                <div className="p-4 border-b theme-border"><h4 className="text-lg font-semibold flex items-center gap-2"><Camera size={18}/> DarkRoom</h4></div>
-                
-                {/* BASE ADJUSTMENTS SECTION */}
-                <div className="p-4 border-b theme-border space-y-3 overflow-y-auto">
-                    <h5 className="font-semibold text-base">Base Adjustments</h5>
-                    <details open><summary className="font-semibold text-sm cursor-pointer">Light</summary>
-                        <div className="pt-2 space-y-2">
-                            <SliderControl label="Exposure" value={adjustments.exposure} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('exposure', v)} onCommit={pushHistory}/>
-                            <SliderControl label="Contrast" value={adjustments.contrast} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('contrast', v)} onCommit={pushHistory}/>
-                            <SliderControl label="Highlights" value={adjustments.highlights} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('highlights', v)} onCommit={pushHistory}/>
-                            <SliderControl label="Shadows" value={adjustments.shadows} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('shadows', v)} onCommit={pushHistory}/>
-                            <SliderControl label="Whites" value={adjustments.whites} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('whites', v)} onCommit={pushHistory}/>
-                            <SliderControl label="Blacks" value={adjustments.blacks} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('blacks', v)} onCommit={pushHistory}/>
-                        </div>
-                    </details>
-                    <details open><summary className="font-semibold text-sm cursor-pointer">Color</summary>
-                        <div className="pt-2 space-y-2">
-                            <SliderControl label="Saturation" value={adjustments.saturation} min={0} max={200} onChange={(v) => handleBaseAdjustmentChange('saturation', v)} onCommit={pushHistory}/>
-                            <SliderControl label="Warmth" value={adjustments.warmth} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('warmth', v)} onCommit={pushHistory}/>
-                            <SliderControl label="Tint" value={adjustments.tint} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('tint', v)} onCommit={pushHistory}/>
-                        </div>
-                    </details>
-                     <details open><summary className="font-semibold text-sm cursor-pointer">Effects</summary>
-                        <div className="pt-2 space-y-2">
-                            <SliderControl label="Pop" value={adjustments.pop} min={0} max={100} onChange={(v) => handleBaseAdjustmentChange('pop', v)} onCommit={pushHistory}/>
-                            <SliderControl label="Vignette" value={adjustments.vignette} min={0} max={100} onChange={(v) => handleBaseAdjustmentChange('vignette', v)} onCommit={pushHistory}/>
-                            <SliderControl label="Blur" value={adjustments.blur} min={0} max={20} onChange={(v) => handleBaseAdjustmentChange('blur', v)} onCommit={pushHistory}/>
-                        </div>
-                    </details>
+            <div className="w-80 border-l theme-border theme-bg-secondary flex flex-col overflow-hidden">
+                <div className="p-4 border-b theme-border">
+                    <h4 className="text-lg font-semibold flex items-center gap-2"><Camera size={18}/> DarkRoom</h4>
                 </div>
+                
+                <div className="flex-1 overflow-y-auto">
+                    <div className="p-4 border-b theme-border space-y-3">
+                        <h5 className="font-semibold text-base">Base Adjustments</h5>
+                        <details open><summary className="font-semibold text-sm cursor-pointer">Light</summary>
+                            <div className="pt-2 space-y-2">
+                                <SliderControl label="Exposure" value={adjustments.exposure} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('exposure', v)} onCommit={pushHistory}/>
+                                <SliderControl label="Contrast" value={adjustments.contrast} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('contrast', v)} onCommit={pushHistory}/>
+                                <SliderControl label="Highlights" value={adjustments.highlights} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('highlights', v)} onCommit={pushHistory}/>
+                                <SliderControl label="Shadows" value={adjustments.shadows} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('shadows', v)} onCommit={pushHistory}/>
+                                <SliderControl label="Whites" value={adjustments.whites} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('whites', v)} onCommit={pushHistory}/>
+                                <SliderControl label="Blacks" value={adjustments.blacks} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('blacks', v)} onCommit={pushHistory}/>
+                            </div>
+                        </details>
+                        <details open><summary className="font-semibold text-sm cursor-pointer">Color</summary>
+                            <div className="pt-2 space-y-2">
+                                <SliderControl label="Saturation" value={adjustments.saturation} min={0} max={200} onChange={(v) => handleBaseAdjustmentChange('saturation', v)} onCommit={pushHistory}/>
+                                <SliderControl label="Warmth" value={adjustments.warmth} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('warmth', v)} onCommit={pushHistory}/>
+                                <SliderControl label="Tint" value={adjustments.tint} min={-100} max={100} onChange={(v) => handleBaseAdjustmentChange('tint', v)} onCommit={pushHistory}/>
+                            </div>
+                        </details>
+                        <details open><summary className="font-semibold text-sm cursor-pointer">Effects</summary>
+                            <div className="pt-2 space-y-2">
+                                <SliderControl label="Pop" value={adjustments.pop} min={0} max={100} onChange={(v) => handleBaseAdjustmentChange('pop', v)} onCommit={pushHistory}/>
+                                <SliderControl label="Vignette" value={adjustments.vignette} min={0} max={100} onChange={(v) => handleBaseAdjustmentChange('vignette', v)} onCommit={pushHistory}/>
+                                <SliderControl label="Blur" value={adjustments.blur} min={0} max={20} onChange={(v) => handleBaseAdjustmentChange('blur', v)} onCommit={pushHistory}/>
+                            </div>
+                        </details>
+                    </div>
 
-                {/* LAYERS SECTION */}
-                <div className="flex-1 flex flex-col min-h-0">
-                    <div className="p-2 border-b theme-border flex items-center justify-between"><h5 className="font-semibold text-sm flex items-center gap-2"><Layers size={14}/> Layers</h5>
-                        <div className="flex gap-1">
-                            <button onClick={() => addDarkroomLayer('ADJUSTMENTS')} className="theme-button p-1" title="New Adjustment Layer"><Sliders size={14}/></button>
-                            <button onClick={() => addDarkroomLayer('GENERATIVE_FILL')} className="theme-button p-1" title="New Generative Fill Layer"><Sparkles size={14}/></button>
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                        <div className={`flex items-center gap-2 p-2 rounded bg-gray-900/50`}><ImageIcon size={14} className="theme-text-muted"/><span className="text-sm font-semibold flex-1">Base Image</span></div>
-                        {layers.map(layer => <LayerItem key={layer.id} layer={layer} isSelected={layer.id === selectedLayerId} onSelect={() => setSelectedLayerId(layer.id)} />)}
-                    </div>
-                    <div className="p-2 border-t theme-border flex-1 overflow-y-auto">
-                        <LayerInspector layer={layers.find(l => l.id === selectedLayerId)} onUpdate={updateLayerParams} onCommit={() => pushHistory('Update Layer')} />
-                    </div>
+{selection && (
+    <div className="p-4 border-b theme-border space-y-2">
+        <h5 className="font-semibold text-base">Selection</h5>
+        
+        <div>
+            <label className="text-xs">Model</label>
+            <select 
+                value={selectedModel} 
+                onChange={e => setSelectedModel(e.target.value)} 
+                className="w-full theme-input text-xs mt-1"
+            >
+                {availableModels.map(model => (
+                    <option key={model.value} value={model.value}>
+                        {model.display_name}
+                    </option>
+                ))}
+            </select>
+        </div>
+
+        <div>
+            <label className="text-xs">Provider</label>
+            <select 
+                value={selectedProvider} 
+                onChange={e => setSelectedProvider(e.target.value)}
+                className="w-full theme-input text-xs mt-1"
+            >
+                <option value="openai">OpenAI</option>
+                <option value="diffusers">Diffusers (Local)</option>
+                <option value="gemini">Gemini</option>
+            </select>
+        </div>
+        
+        <div>
+            <label className="text-xs">Fill Prompt</label>
+            <input 
+                type="text" 
+                placeholder="a realistic continuation..."
+                className="w-full theme-input text-xs mt-1"
+                id="fill-prompt-input"
+            />
+        </div>
+        
+        <div className="grid grid-cols-2 gap-2">
+            <button 
+                onClick={async () => {
+                    const prompt = document.getElementById('fill-prompt-input').value;
+                    if (!prompt) {
+                        setError('Need a prompt');
+                        return;
+                    }
+                    await executeGenerativeFill(null, prompt);
+                }}
+                className="theme-button-primary text-xs py-2"
+            >
+                <Sparkles size={14} className="inline mr-1"/> Fill
+            </button>
+            <button 
+                onClick={() => setSelection(null)}
+                className="theme-button text-xs py-2"
+            >
+                <X size={14} className="inline mr-1"/> Clear
+            </button>
+        </div>
+    </div>
+)}
                 </div>
             </div>
         </div>
     );
 };
-
 
 
 if (!isOpen) return null;
@@ -1698,12 +2125,6 @@ const LayerInspector = ({ layer, onUpdate, onCommit, onGenerativeFill }) => {
                         <button onClick={() => onUpdate(id, { scaleY: params.scaleY * -1 }, true)} className="theme-button text-sm">Flip V</button>
                     </div>
                 </div>
-            )}
-            {type === 'GENERATIVE_FILL' && (
-                <>
-                    <Field label="Prompt" multiline value={params.prompt} onChange={v => onUpdate(id, { prompt: v })} />
-                    <button onClick={() => onGenerativeFill(id, params.prompt)} className="w-full theme-button-primary flex items-center justify-center gap-2"><Sparkles size={14}/> Fill Selection</button>
-                </>
             )}
         </div>
     );
