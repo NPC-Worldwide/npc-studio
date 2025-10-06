@@ -69,7 +69,7 @@ const CodeEditor = ({ value, onChange, filePath, onSave, onContextMenu, onSelect
       extensions={extensions}
       onChange={onChange}
       onUpdate={handleUpdate}
-    />
+  />
   );
 };
 export default memo(CodeEditor);

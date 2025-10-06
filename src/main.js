@@ -2391,42 +2391,46 @@ ipcMain.handle('getConversations', async (_, path) => {
     }
   });
 
-  ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
-    const structure = {};
-    const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', 
-                               '.json', '.txt', '.yaml', '.yml', '.html', '.css', 
-                               '.npc', '.jinx', '.pdf', '.csv', '.sh',];
-   
-
-    try {
-      await fsPromises.access(dirPath, fs.constants.R_OK);
-      const items = await fsPromises.readdir(dirPath, { withFileTypes: true });
-     
-
-      for (const item of items) {
-        const itemPath = path.join(dirPath, item.name);
-        if (item.isDirectory()) {
-          structure[item.name] = { type: 'directory', path: itemPath };
-        } else if (item.isFile()) {
-          const ext = path.extname(item.name).toLowerCase();
-          if (allowedExtensions.includes(ext)) {
-           
-            structure[item.name] = { type: 'file', path: itemPath };
-          }
+ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
+  const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', 
+                             '.json', '.txt', '.yaml', '.yml', '.html', '.css', 
+                             '.npc', '.jinx', '.pdf', '.csv', '.sh'];
+  
+  async function readDirRecursive(currentPath) {
+    const result = {};
+    const items = await fsPromises.readdir(currentPath, { withFileTypes: true });
+    for (const item of items) {
+      const itemPath = path.join(currentPath, item.name);
+      if (item.isDirectory()) {
+        // Recursively read children
+        result[item.name] = {
+          type: 'directory',
+          path: itemPath,
+          children: await readDirRecursive(itemPath)
+        };
+      } else if (item.isFile()) {
+        const ext = path.extname(item.name).toLowerCase();
+        if (allowedExtensions.includes(ext)) {
+          result[item.name] = {
+            type: 'file',
+            path: itemPath
+          };
         }
       }
-     
-      return structure;
-
-    } catch (err) {
-      console.error(`[Main Process] Error in readDirectoryStructure for ${dirPath}:`, err);
-      if (err.code === 'ENOENT') return { error: 'Directory not found' };
-      if (err.code === 'EACCES') return { error: 'Permission denied' };
-      return { error: err.message || 'Failed to read directory contents' };
     }
-  });
+    return result;
+  }
 
-
+  try {
+    await fsPromises.access(dirPath, fs.constants.R_OK);
+    return await readDirRecursive(dirPath);
+  } catch (err) {
+    console.error(`[Main Process] Error in readDirectoryStructure for ${dirPath}:`, err);
+    if (err.code === 'ENOENT') return { error: 'Directory not found' };
+    if (err.code === 'EACCES') return { error: 'Permission denied' };
+    return { error: err.message || 'Failed to read directory contents' };
+  }
+});
   ipcMain.handle('goUpDirectory', async (_, currentPath) => {
    
     if (!currentPath) {

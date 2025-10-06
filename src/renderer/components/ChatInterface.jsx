@@ -96,29 +96,38 @@ const LayoutNode = memo(({ node, path, component }) => {
     }
 
     if (node.type === 'content') {
-        const { activeContentPaneId, setActiveContentPaneId, draggedItem, 
+        const { activeContentPaneId, setActiveContentPaneId, draggedItem,
             setDraggedItem, dropTarget, setDropTarget, contentDataRef,
-             updateContentPane, performSplit, renderChatView, 
-             renderFileEditor, renderTerminalView, 
-             renderPdfViewer, renderBrowserViewer } = component;
+            updateContentPane, performSplit, renderChatView,
+            renderFileEditor, renderTerminalView,
+            renderPdfViewer, renderBrowserViewer,
+            moveContentPane // Ensure moveContentPane is destructured here
+        } = component;
+
         const isActive = node.id === activeContentPaneId;
         const isTargeted = dropTarget?.nodePath.join('') === path.join('');
 
+        // --- CORRECTED onDrop FUNCTION ---
         const onDrop = (e, side) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (!draggedItem) return;
-            
+  e.preventDefault();
+  e.stopPropagation();
+  if (!component.draggedItem) return;
+
+  if (component.draggedItem.type === 'pane') {
+    if (component.draggedItem.id === node.id) return;
+    component.moveContentPane(component.draggedItem.id, component.draggedItem.nodePath, path, side);
+    component.setDraggedItem(null);
+    component.setDropTarget(null);
+    return;
+  }
+
+            // Existing logic for new items dropped from sidebar
             let contentType;
-            if (draggedItem.type === 'conversation') {
+            if (draggedItem.type === 'conversation') { // Use local draggedItem
                 contentType = 'chat';
             } else if (draggedItem.type === 'file') {
-                const extension = draggedItem.id.split('.').pop()?.toLowerCase();
-                if (extension === 'pdf') {
-                    contentType = 'pdf';
-                } else {
-                    contentType = 'editor';
-                }
+                const ext = draggedItem.id.split('.').pop()?.toLowerCase();
+                contentType = ext === 'pdf' ? 'pdf' : 'editor';
             } else if (draggedItem.type === 'browser') {
                 contentType = 'browser';
             } else if (draggedItem.type === 'terminal') {
@@ -126,7 +135,7 @@ const LayoutNode = memo(({ node, path, component }) => {
             } else {
                 return;
             }
-        
+
             if (side === 'center') {
                 updateContentPane(node.id, contentType, draggedItem.id);
             } else {
@@ -134,8 +143,10 @@ const LayoutNode = memo(({ node, path, component }) => {
             }
             setDraggedItem(null);
             setDropTarget(null);
-        };        
-        
+        };
+        // --- END CORRECTED onDrop FUNCTION ---
+
+        // --- RE-ADDED renderContent FUNCTION ---
         const renderContent = () => {
             const contentType = contentDataRef.current[node.id]?.contentType;
             switch (contentType) {
@@ -153,6 +164,7 @@ const LayoutNode = memo(({ node, path, component }) => {
                     return <div className="p-4 theme-text-muted">Empty pane.</div>;
             }
         };
+        // --- END RE-ADDED renderContent FUNCTION ---
 
         return (
             <div
@@ -160,7 +172,7 @@ const LayoutNode = memo(({ node, path, component }) => {
                 onClick={() => setActiveContentPaneId(node.id)}
                 onDragLeave={() => setDropTarget(null)}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
-                onDrop={(e) => onDrop(e, 'center')}
+                onDrop={(e) => onDrop(e, 'center')} // Call the corrected onDrop
             >
                 {draggedItem && (
                     <>
@@ -483,6 +495,7 @@ const ChatInterface = () => {
         viewId: null,
     });
     
+    const [expandedFolders, setExpandedFolders] = useState(new Set());
 
     const [browserContextMenuPos, setBrowserContextMenuPos] = useState(null);
 
@@ -571,75 +584,109 @@ const handleBrowserAddToChat = () => {
     });
 
     const generateId = () => Math.random().toString(36).substr(2, 9);
-    const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+    const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
+  if (!layoutNode) return null;
 
-        console.log(`[updateContentPane] Updating pane "${paneId}" to type "${newContentType}" with ID "${newContentId}"`);
-        
-        if (!contentDataRef.current[paneId]) {
-            contentDataRef.current[paneId] = {};
-        }
-        const paneData = contentDataRef.current[paneId];
-        
-        paneData.contentType = newContentType;
-        paneData.contentId = newContentId;
+  const collectPaneIds = (node) => {
+    if (!node) return new Set();
+    if (node.type === 'content') return new Set([node.id]);
+    if (node.type === 'split') {
+      return node.children.reduce((acc, child) => {
+        const childIds = collectPaneIds(child);
+        childIds.forEach(id => acc.add(id));
+        return acc;
+      }, new Set());
+    }
+    return new Set();
+  };
 
+  const paneIdsInLayout = collectPaneIds(layoutNode);
+  const missingPaneIds = Object.keys(contentData).filter(id => !paneIdsInLayout.has(id));
 
-        if (newContentType === 'editor') {
-            try {
-                const response = await window.api.readFileContent(newContentId);
-                paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
-                paneData.fileChanged = false;
-            } catch (err) {
-                paneData.fileContent = `Error loading file: ${err.message}`;
-            }
-        }
-        else if (newContentType === 'browser') {
-            paneData.chatMessages = null;
-            paneData.fileContent = null;
-            paneData.browserUrl = newContentId;
-        }
-        else if (newContentType === 'chat') {
-            if (!paneData.chatMessages) {
-                paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-            }
-            
-            if (skipMessageLoad) {
-                paneData.chatMessages.messages = [];
-                paneData.chatMessages.allMessages = [];
-                paneData.chatStats = getConversationStats([]);
-            } else {
-                try {
-                    const msgs = await window.api.getConversationMessages(newContentId);
-                    const formatted = (msgs && Array.isArray(msgs)) 
-                        ? msgs.map(m => ({ ...m, id: m.id || generateId() })) 
-                        : [];
+  if (missingPaneIds.length === 0) return layoutNode;
 
-                    paneData.chatMessages.allMessages = formatted;
-                    const count = paneData.chatMessages.displayedMessageCount || 20;
-                    paneData.chatMessages.messages = formatted.slice(-count);
-                    paneData.chatStats = getConversationStats(formatted);
-                } catch (err) {
-                    console.error(`Error loading messages for convo ${newContentId}:`, err);
-                    paneData.chatMessages.messages = [];
-                    paneData.chatMessages.allMessages = [];
-                    paneData.chatStats = getConversationStats([]);
-                }
-            }
-        } else if (newContentType === 'terminal') {
-           
-            paneData.chatMessages = null;
-            paneData.fileContent = null;
-        }
-        else if (newContentType === 'pdf') {
-           
-            console.log(`[updateContentPane] Setting up pane "${paneId}" for PDF viewer.`);
-            paneData.chatMessages = null;
-            paneData.fileContent = null;
-            }
+  let newRoot = JSON.parse(JSON.stringify(layoutNode));
 
+  missingPaneIds.forEach(paneId => {
+    const newPaneNode = { id: paneId, type: 'content' };
 
+    if (newRoot.type === 'content') {
+      newRoot = {
+        id: generateId(),
+        type: 'split',
+        direction: 'horizontal',
+        children: [newRoot, newPaneNode],
+        sizes: [50, 50],
+      };
+    } else if (newRoot.type === 'split') {
+      newRoot.children.push(newPaneNode);
+      const equalSize = 100 / newRoot.children.length;
+      newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+    }
+  });
+
+  return newRoot;
 }, []);
+const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+  if (!contentDataRef.current[paneId]) {
+    contentDataRef.current[paneId] = {};
+  }
+  const paneData = contentDataRef.current[paneId];
 
+  paneData.contentType = newContentType;
+  paneData.contentId = newContentId;
+
+  if (newContentType === 'editor') {
+    try {
+      const response = await window.api.readFileContent(newContentId);
+      paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
+      paneData.fileChanged = false;
+    } catch (err) {
+      paneData.fileContent = `Error loading file: ${err.message}`;
+    }
+  } else if (newContentType === 'browser') {
+    paneData.chatMessages = null;
+    paneData.fileContent = null;
+    paneData.browserUrl = newContentId;
+  } else if (newContentType === 'chat') {
+    if (!paneData.chatMessages) {
+      paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+    }
+
+    if (skipMessageLoad) {
+      paneData.chatMessages.messages = [];
+      paneData.chatMessages.allMessages = [];
+      paneData.chatStats = getConversationStats([]);
+    } else {
+      try {
+        const msgs = await window.api.getConversationMessages(newContentId);
+        const formatted = (msgs && Array.isArray(msgs))
+          ? msgs.map(m => ({ ...m, id: m.id || generateId() }))
+          : [];
+
+        paneData.chatMessages.allMessages = formatted;
+        const count = paneData.chatMessages.displayedMessageCount || 20;
+        paneData.chatMessages.messages = formatted.slice(-count);
+        paneData.chatStats = getConversationStats(formatted);
+      } catch (err) {
+        paneData.chatMessages.messages = [];
+        paneData.chatMessages.allMessages = [];
+        paneData.chatStats = getConversationStats([]);
+      }
+    }
+  } else if (newContentType === 'terminal') {
+    paneData.chatMessages = null;
+    paneData.fileContent = null;
+  } else if (newContentType === 'pdf') {
+    paneData.chatMessages = null;
+    paneData.fileContent = null;
+  }
+
+  setRootLayoutNode(oldRoot => {
+    const syncedRoot = syncLayoutWithContentData(oldRoot, contentDataRef.current);
+    return syncedRoot;
+  });
+}, [syncLayoutWithContentData]);
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
     useEffect(() => {
@@ -2040,75 +2087,129 @@ const renderMessageContextMenu = () => (
 
 
 const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
-        setRootLayoutNode(oldRoot => {
-            if (!oldRoot) return oldRoot;
+    setRootLayoutNode(oldRoot => {
+        if (!oldRoot) return oldRoot;
 
-            const newRoot = JSON.parse(JSON.stringify(oldRoot));
-            let parentNode = null;
-            let targetNode = newRoot;
-            let targetIndexInParent = -1;
+        const newRoot = JSON.parse(JSON.stringify(oldRoot));
+        let parentNode = null;
+        let targetNode = newRoot;
+        let targetIndexInParent = -1;
 
-            for (let i = 0; i < targetNodePath.length; i++) {
-                parentNode = targetNode;
-                targetIndexInParent = targetNodePath[i];
-                targetNode = targetNode.children[targetIndexInParent];
-            }
+        for (let i = 0; i < targetNodePath.length; i++) {
+            parentNode = targetNode;
+            targetIndexInParent = targetNodePath[i];
+            targetNode = targetNode.children[targetIndexInParent];
+        }
 
-            const newPaneId = generateId();
-            const newPaneNode = { id: newPaneId, type: 'content' };
+        const newPaneId = generateId();
+        const newPaneNode = { id: newPaneId, type: 'content' };
 
-            contentDataRef.current[newPaneId] = {};
-            updateContentPane(newPaneId, newContentType, newContentId);
+        contentDataRef.current[newPaneId] = {};
+        updateContentPane(newPaneId, newContentType, newContentId);
 
-            const isHorizontalSplit = side === 'left' || side === 'right';
-            const newSplitNode = {
-                id: generateId(),
-                type: 'split',
-                direction: isHorizontalSplit ? 'horizontal' : 'vertical',
-                children: [],
-                sizes: [50, 50]
-            };
+        const isHorizontalSplit = side === 'left' || side === 'right';
+        const newSplitNode = {
+            id: generateId(),
+            type: 'split',
+            direction: isHorizontalSplit ? 'horizontal' : 'vertical',
+            children: [],
+            sizes: [50, 50]
+        };
 
-            if (side === 'left' || side === 'top') {
-                newSplitNode.children = [newPaneNode, targetNode];
-            } else {
-                newSplitNode.children = [targetNode, newPaneNode];
-            }
+        if (side === 'left' || side === 'top') {
+            newSplitNode.children = [newPaneNode, targetNode];
+        } else {
+            newSplitNode.children = [targetNode, newPaneNode];
+        }
 
-            if (parentNode) {
-                parentNode.children[targetIndexInParent] = newSplitNode;
-            } else {
-               
-                return newSplitNode;
-            }
-            
-            setActiveContentPaneId(newPaneId);
-            return newRoot;
-        });
-    }, [updateContentPane]);
+        if (parentNode) {
+            parentNode.children[targetIndexInParent] = newSplitNode;
+        } else {
+            return newSplitNode;
+        }
 
+        setActiveContentPaneId(newPaneId);
+        return newRoot;
+    });
+}, [updateContentPane]);
    
+const createAndAddPaneNodeToLayout = useCallback(() => {
+  const newPaneId = generateId();
+  contentDataRef.current[newPaneId] = {};
 
+  setRootLayoutNode(oldRoot => {
+    if (!oldRoot) {
+      return { id: newPaneId, type: 'content' };
+    }
+
+    let newRoot = JSON.parse(JSON.stringify(oldRoot));
+    let targetParent = null;
+    let targetIndex = -1;
+    let pathToTarget = [];
+
+    if (activeContentPaneId) {
+      pathToTarget = findNodePath(newRoot, activeContentPaneId);
+      if (pathToTarget && pathToTarget.length > 0) {
+        targetParent = findNodeByPath(newRoot, pathToTarget.slice(0, -1));
+        targetIndex = pathToTarget[pathToTarget.length - 1];
+      }
+    }
+
+    if (!targetParent || targetIndex === -1) {
+      if (newRoot.type === 'content') {
+        const newSplitNode = {
+          id: generateId(),
+          type: 'split',
+          direction: 'horizontal',
+          children: [newRoot, { id: newPaneId, type: 'content' }],
+          sizes: [50, 50],
+        };
+        return newSplitNode;
+      } else if (newRoot.type === 'split') {
+        const newChildren = [...newRoot.children, { id: newPaneId, type: 'content' }];
+        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+        return { ...newRoot, children: newChildren, sizes: newSizes };
+      }
+    } else {
+      if (targetParent.type === 'split') {
+        const newChildren = [...targetParent.children];
+        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+        const actualTargetParentInNewRoot = findNodeByPath(newRoot, pathToTarget.slice(0, -1));
+        if (actualTargetParentInNewRoot) {
+          actualTargetParentInNewRoot.children = newChildren;
+          actualTargetParentInNewRoot.sizes = newSizes;
+        }
+        return newRoot;
+      }
+    }
+
+    return { id: newPaneId, type: 'content' };
+  });
+
+  setActiveContentPaneId(newPaneId);
+  return newPaneId;
+}, [activeContentPaneId, findNodePath, findNodeByPath]);
 const closeContentPane = useCallback((paneId, nodePath) => {
-    console.log(`[closeContentPane] Attempting to close pane: ${paneId} with path:`, nodePath); // <--- LAVANZARO'S LOGGING!
+    console.log(`[closeContentPane] Attempting to close pane: ${paneId} with path:`, nodePath);
 
     setRootLayoutNode(currentRoot => {
         if (!currentRoot) {
-            console.log('[closeContentPane] No root layout node, nothing to close.'); // <--- LAVANZARO'S LOGGING!
+            console.log('[closeContentPane] No root layout node, nothing to close.');
             return null;
         }
 
         let newRoot = JSON.parse(JSON.stringify(currentRoot));
 
         if (newRoot.id === paneId) {
-            console.log(`[closeContentPane] Closing root node with ID: ${paneId}`); // <--- LAVANZARO'S LOGGING!
+            console.log(`[closeContentPane] Closing root node with ID: ${paneId}`);
             delete contentDataRef.current[paneId];
             setActiveContentPaneId(null);
             return null;
         }
 
         if (!nodePath || nodePath.length === 0) {
-            console.error('[closeContentPane] Cannot close pane: nodePath is null or empty.'); // <--- LAVANZARO'S LOGGING!
+            console.error('[closeContentPane] Cannot close pane: nodePath is null or empty.');
             return newRoot;
         }
 
@@ -2117,54 +2218,49 @@ const closeContentPane = useCallback((paneId, nodePath) => {
         const parentNode = findNodeByPath(newRoot, parentPath);
 
         if (!parentNode || !parentNode.children) {
-            console.error("[closeContentPane] Cannot close pane: parent not found or has no children.", { parentPath, childIndex, parentNode }); // <--- LAVANZARO'S LOGGING!
+            console.error("[closeContentPane] Cannot close pane: parent not found or has no children.", { parentPath, childIndex, parentNode });
             return currentRoot;
         }
 
         parentNode.children.splice(childIndex, 1);
         parentNode.sizes.splice(childIndex, 1);
         delete contentDataRef.current[paneId];
-        console.log(`[closeContentPane] Removed pane ${paneId} from contentDataRef and layout.`); // <--- LAVANZARO'S LOGGING!
+        console.log(`[closeContentPane] Removed pane ${paneId} from contentDataRef and layout.`);
 
 
         if (parentNode.children.length === 1) {
-           
             const remainingChild = parentNode.children[0];
-            
+
             if (parentPath.length === 0) {
-               
                 newRoot = remainingChild;
-                console.log('[closeContentPane] Parent was root, new root is remaining child.'); // <--- LAVANZARO'S LOGGING!
+                console.log('[closeContentPane] Parent was root, new root is remaining child.');
             } else {
-               
                 const grandParentNode = findNodeByPath(newRoot, parentPath.slice(0, -1));
                 if (grandParentNode) {
                     const parentIndex = parentPath[parentPath.length - 1];
                     grandParentNode.children[parentIndex] = remainingChild;
-                    console.log('[closeContentPane] Replaced parent with its single remaining child.'); // <--- LAVANZARO'S LOGGING!
+                    console.log('[closeContentPane] Replaced parent with its single remaining child.');
                 } else {
-                    console.warn('[closeContentPane] Grandparent not found when trying to replace parent with single child.'); // <--- LAVANZARO'S LOGGING!
+                    console.warn('[closeContentPane] Grandparent not found when trying to replace parent with single child.');
                 }
             }
         } else if (parentNode.children.length > 1) {
-           
             const equalSize = 100 / parentNode.children.length;
             parentNode.sizes = new Array(parentNode.children.length).fill(equalSize);
-            console.log('[closeContentPane] Recalculated sizes for remaining siblings.'); // <--- LAVANZARO'S LOGGING!
+            console.log('[closeContentPane] Recalculated sizes for remaining siblings.');
         }
-        
+
         if (activeContentPaneId === paneId) {
             const remainingPaneIds = Object.keys(contentDataRef.current);
             const newActivePaneId = remainingPaneIds.length > 0 ? remainingPaneIds[0] : null;
             setActiveContentPaneId(newActivePaneId);
-            console.log(`[closeContentPane] Active pane was closed, setting new active pane to: ${newActivePaneId}`); // <--- LAVANZARO'S LOGGING!
+            console.log(`[closeContentPane] Active pane was closed, setting new active pane to: ${newActivePaneId}`);
         }
 
-        console.log('[closeContentPane] Returning new root layout node.'); // <--- LAVANZARO'S LOGGING!
+        console.log('[closeContentPane] Returning new root layout node.');
         return newRoot;
     });
 }, [activeContentPaneId, findNodeByPath]);
-
    
 
 
@@ -2203,37 +2299,19 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
 };
 
 
-    const handleFileClick = async (filePath) => {
-        setCurrentFile(filePath);
-        setActiveConversationId(null);
-    
-        const extension = filePath.split('.').pop()?.toLowerCase();
-        const contentType = extension === 'pdf' ? 'pdf' : 'editor';
-    
-       
-        if (!rootLayoutNode) {
-            const newPaneId = generateId();
-            const newLayout = { id: newPaneId, type: 'content' };
-            
-            contentDataRef.current[newPaneId] = {};
-            await updateContentPane(newPaneId, contentType, filePath);
-            
-            setRootLayoutNode(newLayout);
-            setActiveContentPaneId(newPaneId);
-        } 
-       
-    else {
-        const targetPaneId = activeContentPaneId || Object.keys(contentDataRef.current)[0];
-        if (targetPaneId) {
-           
-            console.log(`[handleFileClick] Updating pane "${targetPaneId}" with new content.`);
-            await updateContentPane(targetPaneId, contentType, filePath);
-            setRootLayoutNode(prev => ({...prev}));
-        }
-    }
+const handleFileClick = useCallback(async (filePath) => {
+    setCurrentFile(filePath);
+    setActiveConversationId(null);
 
+    const extension = filePath.split('.').pop()?.toLowerCase();
+    const contentType = extension === 'pdf' ? 'pdf' : 'editor';
 
-    };
+    // --- CORRECTED LINE HERE ---
+    const newPaneId = createAndAddPaneNodeToLayout();
+    await updateContentPane(newPaneId, contentType, filePath);
+    // --- END CORRECTED LINE ---
+
+}, [createAndAddPaneNodeToLayout, updateContentPane]);
 
 
     const handleCreateNewFolder = () => {
@@ -2265,26 +2343,19 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         });
     };
 
-    const createNewTerminal = async () => {
-        let targetPaneId = activeContentPaneId;
-        const newTerminalId = `term_${generateId()}`;
+    
+const createNewTerminal = useCallback(async () => {
+    const newTerminalId = `term_${generateId()}`;
 
-        if (!rootLayoutNode || !targetPaneId) {
-            const newPaneId = generateId();
-            const newLayout = { id: newPaneId, type: 'content' };
-contentDataRef.current[newPaneId] = {};
-await updateContentPane(newPaneId, 'chat', conversationId);
-setRootLayoutNode({ id: newPaneId, type: 'content' }); // ADD THIS
-setActiveContentPaneId(newPaneId); // AND THIS
+    // --- CORRECTED LINE HERE ---
+    const newPaneId = createAndAddPaneNodeToLayout();
+    await updateContentPane(newPaneId, 'terminal', newTerminalId);
+    // --- END CORRECTED LINE ---
 
-targetPaneId = newPaneId;
-        }
+    setActiveConversationId(null);
+    setCurrentFile(null);
+}, [createAndAddPaneNodeToLayout, updateContentPane]);
 
-        await updateContentPane(targetPaneId, 'terminal', newTerminalId);
-        setActiveConversationId(null);
-        setCurrentFile(null);
-        setRootLayoutNode(p => ({ ...p }));
-    };
     const renderPdfViewer = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
         if (!paneData?.contentId) return null;
@@ -2315,12 +2386,14 @@ targetPaneId = newPaneId;
     
         return (
             <div className="flex-1 flex flex-col theme-bg-secondary relative">
-                <div
-                    className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-                    draggable="true"
-                    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: paneData.contentId }); }}
-                    onDragEnd={handleGlobalDragEnd}
-                >
+<div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move" draggable="true" 
+ onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'; // Use 'move' for existing panes
+        const nodePath = findNodePath(rootLayoutNode, nodeId);
+        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+    }}
+onDragEnd={handleGlobalDragEnd}>
+
                 <div className="flex items-center gap-2 truncate">
                         {getFileIcon(paneData.contentId)}
                         <span className="truncate" title={paneData.contentId}>
@@ -2345,75 +2418,181 @@ targetPaneId = newPaneId;
             </div>
         );
     }, [rootLayoutNode, selectedPdfText, pdfHighlights,setDraggedItem]);
-    const handleGlobalDragStart = (e, item) => {
-        setDraggedItem(item);
-       
-        Object.values(contentDataRef.current).forEach(paneData => {
-            if (paneData.contentType === 'browser' && paneData.contentId) {
-                window.api.browserSetVisibility({ viewId: paneData.contentId, visible: false });
-            }
-        });
-    };
-    
-    const handleGlobalDragEnd = () => {
-        setDraggedItem(null);
-        setDropTarget(null);
-       
-        Object.values(contentDataRef.current).forEach(paneData => {
-            if (paneData.contentType === 'browser' && paneData.contentId) {
-                window.api.browserSetVisibility({ viewId: paneData.contentId, visible: true });
-            }
-        });
-    };
-    
-    const createNewBrowser = async (url = null) => {
-       
-        if (!url) {
-            setBrowserUrlDialogOpen(true);
-            return;
-        }
-    const validPaneIds = new Set();
-    const collectPaneIds = (node) => {
-        if (!node) return;
-        if (node.type === 'content') validPaneIds.add(node.id);
-        if (node.type === 'split') node.children.forEach(collectPaneIds);
-    };
-    collectPaneIds(rootLayoutNode);
-    
-    Object.keys(contentDataRef.current).forEach(paneId => {
-        if (!validPaneIds.has(paneId)) {
-            console.log(`[CLEANUP] Removing phantom pane: ${paneId}`);
-            delete contentDataRef.current[paneId];
-        }
-    });
-        
-        let targetPaneId = activeContentPaneId;
-        const newBrowserId = `browser_${generateId()}`;
-    
-        if (!rootLayoutNode || !targetPaneId) {
-            const newPaneId = generateId();
-            const newLayout = { id: newPaneId, type: 'content' };
-contentDataRef.current[newPaneId] = {};
-await updateContentPane(newPaneId, 'chat', conversationId);
-setRootLayoutNode({ id: newPaneId, type: 'content' }); // ADD THIS
-setActiveContentPaneId(newPaneId); // AND THIS
-            targetPaneId = newPaneId;
-        }
-    
-        await updateContentPane(targetPaneId, 'browser', newBrowserId);
-        
-       
-        contentDataRef.current[targetPaneId].browserUrl = url;
-        
-        setActiveConversationId(null);
-        setCurrentFile(null);
-        setRootLayoutNode(p => ({ ...p }));
-    };
-    const handleBrowserDialogNavigate = (url) => {
+const handleGlobalDragStart = useCallback((e, item) => {
+  Object.values(contentDataRef.current).forEach(paneData => {
+    if (paneData.contentType === 'browser' && paneData.contentId) {
+      window.api.browserSetVisibility({ viewId: paneData.contentId, visible: false });
+    }
+  });
+
+  if (item.type === 'pane') {
+    const paneNodePath = findNodePath(rootLayoutNode, item.id);
+    if (paneNodePath) {
+      setDraggedItem({ type: 'pane', id: item.id, nodePath: paneNodePath });
+    } else {
+      setDraggedItem(null);
+    }
+  } else {
+    setDraggedItem(item);
+  }
+}, [rootLayoutNode, findNodePath]);
+
+const handleGlobalDragEnd = () => {
+  setDraggedItem(null);
+  setDropTarget(null);
+
+  Object.values(contentDataRef.current).forEach(paneData => {
+    if (paneData.contentType === 'browser' && paneData.contentId) {
+      window.api.browserSetVisibility({ viewId: paneData.contentId, visible: true });
+    }
+  });
+};    
+const createNewBrowser = useCallback(async (url = null) => {
+    if (!url) {
+        setBrowserUrlDialogOpen(true);
+        return;
+    }
+
+    const newBrowserId = `browser_${generateId()}`;
+    // --- CORRECTED LINE HERE ---
+    const newPaneId = createAndAddPaneNodeToLayout();
+    await updateContentPane(newPaneId, 'browser', newBrowserId);
+    // --- END CORRECTED LINE ---
+
+    // Set the initial URL for the new browser pane
+    if (contentDataRef.current[newPaneId]) {
+        contentDataRef.current[newPaneId].browserUrl = url;
+    }
+
+    setActiveConversationId(null);
+    setCurrentFile(null);
+}, [createAndAddPaneNodeToLayout, updateContentPane]);
+
+const handleBrowserDialogNavigate = (url) => {
         createNewBrowser(url);
         setBrowserUrlDialogOpen(false);
     };
-const renderBrowserViewer = useCallback(({ nodeId }) => {
+const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSide) => {
+  setRootLayoutNode(oldRoot => {
+    if (!oldRoot) return oldRoot;
+
+    let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+    // Trova nodo e genitore sorgente
+    let draggedParent = null;
+    let draggedIndex = -1;
+    let draggedNode = newRoot;
+    for (const idx of draggedPath) {
+      draggedParent = draggedNode;
+      draggedIndex = idx;
+      draggedNode = draggedNode.children[draggedIndex];
+    }
+
+    // Trova nodo e genitore destinazione
+    let targetParent = null;
+    let targetIndex = -1;
+    let targetNode = newRoot;
+    for (const idx of targetPath) {
+      targetParent = targetNode;
+      targetIndex = idx;
+      targetNode = targetNode.children[targetIndex];
+    }
+
+    if (!draggedParent || !targetParent) return oldRoot;
+
+    // Rimuovi nodo sorgente
+    draggedParent.children.splice(draggedIndex, 1);
+    draggedParent.sizes.splice(draggedIndex, 1);
+
+    // Pulisci genitore sorgente se ha 0 o 1 figli
+    if (draggedParent.children.length === 0) {
+      const grandParentPath = draggedPath.slice(0, -1);
+      if (grandParentPath.length === 0) {
+        newRoot = null;
+      } else {
+        const grandParent = findNodeByPath(newRoot, grandParentPath);
+        const parentIndex = grandParentPath[grandParentPath.length - 1];
+        if (grandParent && grandParent.children) {
+          grandParent.children.splice(parentIndex, 1);
+          grandParent.sizes.splice(parentIndex, 1);
+        }
+      }
+    } else if (draggedParent.children.length === 1) {
+      const remaining = draggedParent.children[0];
+      const grandParentPath = draggedPath.slice(0, -1);
+      if (grandParentPath.length === 0) {
+        newRoot = remaining;
+      } else {
+        const grandParent = findNodeByPath(newRoot, grandParentPath);
+        const parentIndex = grandParentPath[grandParentPath.length - 1];
+        if (grandParent && grandParent.children) {
+          grandParent.children[parentIndex] = remaining;
+        }
+      }
+    } else {
+      const equalSize = 100 / draggedParent.children.length;
+      draggedParent.sizes = new Array(draggedParent.children.length).fill(equalSize);
+    }
+
+    // Trova genitore e nodo destinazione aggiornati nel nuovo albero
+    let finalTargetParent = null;
+    let finalTargetIndex = -1;
+    let finalTargetNode = newRoot;
+    for (const idx of targetPath) {
+      finalTargetParent = finalTargetNode;
+      finalTargetIndex = idx;
+      finalTargetNode = finalTargetNode.children[finalTargetIndex];
+    }
+
+    if (!finalTargetParent || finalTargetIndex === -1) {
+      // Se il genitore destinazione non esiste, il nodo trascinato diventa la radice
+      newRoot = draggedNode;
+    } else if (dropSide === 'center') {
+      // Scambio: sostituisci il nodo destinazione con quello trascinato
+      const tempTargetNode = finalTargetNode;
+      finalTargetParent.children[finalTargetIndex] = draggedNode;
+
+      // Reinserisci il nodo destinazione nella posizione originale del nodo trascinato
+      let originalDraggedParent = findNodeByPath(newRoot, draggedPath.slice(0, -1));
+      let originalDraggedIndex = draggedPath[draggedPath.length - 1];
+
+      if (originalDraggedParent && originalDraggedParent.children && originalDraggedIndex !== -1) {
+        originalDraggedParent.children.splice(originalDraggedIndex, 0, tempTargetNode);
+        const equalSize = 100 / originalDraggedParent.children.length;
+        originalDraggedParent.sizes = new Array(originalDraggedParent.children.length).fill(equalSize);
+      }
+    } else {
+      // Split: crea un nuovo nodo split con i due nodi
+      const isHorizontal = dropSide === 'left' || dropSide === 'right';
+      const newSplit = {
+        id: generateId(),
+        type: 'split',
+        direction: isHorizontal ? 'horizontal' : 'vertical',
+        children: [],
+        sizes: [50, 50],
+      };
+
+      if (dropSide === 'left' || dropSide === 'top') {
+        newSplit.children = [draggedNode, finalTargetNode];
+      } else {
+        newSplit.children = [finalTargetNode, draggedNode];
+      }
+
+      finalTargetParent.children[finalTargetIndex] = newSplit;
+    }
+
+    // Ricalcola le dimensioni del genitore aggiornato
+    if (finalTargetParent && finalTargetParent.type === 'split' && finalTargetParent.children.length > 1) {
+      const equalSize = 100 / finalTargetParent.children.length;
+      finalTargetParent.sizes = new Array(finalTargetParent.children.length).fill(equalSize);
+    }
+
+    setActiveContentPaneId(draggedId);
+    return newRoot;
+  });
+}, [findNodeByPath, findNodePath]);
+
+    const renderBrowserViewer = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
     if (!paneData) return null;
 
@@ -2431,15 +2610,17 @@ const renderBrowserViewer = useCallback(({ nodeId }) => {
     
     return (
         <div className="flex-1 flex flex-col theme-bg-secondary relative">
-            <div 
-                className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-                draggable="true"
-                onDragStart={(e) => { 
-                    e.dataTransfer.effectAllowed = 'copyMove'; 
-                    handleGlobalDragStart(e, { type: 'browser', id: browserId }); 
-                }}
-                onDragEnd={handleGlobalDragEnd}
-            >
+<div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+    draggable="true"
+    onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        const nodePath = findNodePath(rootLayoutNode, nodeId);
+        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+    }}
+    onDragEnd={() => setDraggedItem(null)}
+>
+
+
                 <div className="flex items-center gap-2 truncate">
                     <Globe size={14} />
                     <span className="truncate">Browser</span>
@@ -2575,7 +2756,16 @@ useEffect(() => {
     
         return (
             <div className="flex-1 flex flex-col theme-bg-secondary relative">
-                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+<div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+    draggable="true"
+    onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        const nodePath = findNodePath(rootLayoutNode, nodeId);
+        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+    }}
+    onDragEnd={() => setDraggedItem(null)}
+>
+
                     <div className="flex items-center gap-2 truncate">
                         <Terminal size={14} />
                         <span className="truncate" title={terminalId}>Terminal</span>
@@ -2634,12 +2824,17 @@ const renderFileEditor = useCallback(({ nodeId }) => {
 
     return (
         <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
-            <div 
-                className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-                draggable="true"
-                onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: filePath }); }}
-                onDragEnd={handleGlobalDragEnd}
-            >
+<div
+  draggable="true"
+  onDragStart={(e) => {
+    e.dataTransfer.effectAllowed = 'move';
+    const nodePath = findNodePath(rootLayoutNode, nodeId);
+    setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+  }}
+  onDragEnd={() => setDraggedItem(null)}
+  className="cursor-move"
+>
+
                 <div className="flex items-center gap-2 truncate">
                     {getFileIcon(fileName)}
                     {isRenaming ? (
@@ -2908,7 +3103,16 @@ const renderFileEditor = useCallback(({ nodeId }) => {
     
         return (
             <div ref={paneRef} className="flex-1 flex flex-col min-h-0 overflow-hidden relative focus:outline-none" tabIndex={-1}>
-                <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move">
+<div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+    draggable="true"
+    onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        const nodePath = findNodePath(rootLayoutNode, nodeId);
+        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+    }}
+    onDragEnd={() => setDraggedItem(null)}
+>
+
                     <div className="flex justify-between items-center min-h-[28px]">
                         <span className="truncate min-w-0 font-semibold" title={paneData.contentId}>
                             Conversation: {paneData.contentId?.slice(-8) || 'None'}
@@ -2995,7 +3199,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
     }, [rootLayoutNode, messageSelectionMode, selectedMessages, autoScrollEnabled, localSearch]);
         
     
-const createNewConversation = async () => {
+const createNewConversation = useCallback(async (skipMessageLoad = false) => {
     try {
         const conversation = await window.api.createConversation({ directory_path: currentPath });
         if (!conversation || !conversation.id) {
@@ -3008,34 +3212,25 @@ const createNewConversation = async () => {
             preview: 'No content',
             timestamp: conversation.timestamp || new Date().toISOString()
         };
-        
+
+        setDirectoryConversations(prev => [formattedNewConversation, ...prev]);
+
+        // --- CORRECTED LINE HERE ---
+        const newPaneId = createAndAddPaneNodeToLayout();
+        await updateContentPane(newPaneId, 'chat', conversation.id, skipMessageLoad);
+        // --- END CORRECTED LINE ---
+
         setActiveConversationId(conversation.id);
         setCurrentFile(null);
-        setDirectoryConversations(prev => [formattedNewConversation, ...prev]);
-        
-        let targetPaneId = activeContentPaneId;
-        if (!rootLayoutNode || !targetPaneId) {
-            const newPaneId = generateId();
-            const newLayout = { id: newPaneId, type: 'content' };
-contentDataRef.current[newPaneId] = {};
-await updateContentPane(newPaneId, 'chat', conversationId);
-setRootLayoutNode({ id: newPaneId, type: 'content' }); // ADD THIS
-setActiveContentPaneId(newPaneId); // AND THIS
-            targetPaneId = newPaneId;
-        }
 
-        await updateContentPane(targetPaneId, 'chat', conversation.id, true);
-
-        setRootLayoutNode(p => ({ ...p }));
-
-        return { conversation, paneId: targetPaneId };
+        return { conversation, paneId: newPaneId };
 
     } catch (err) {
         console.error("Error creating new conversation:", err);
         setError(err.message);
         return { conversation: null, paneId: null };
     }
-};
+}, [currentPath, createAndAddPaneNodeToLayout, updateContentPane]);
 
 const createNewTextFile = async () => {
         try {
@@ -5202,204 +5397,186 @@ const renderSidebar = () => {
 };
 
 
-    const renderFolderList = (structure) => {
-        if (!structure || typeof structure !== 'object' || structure.error) { return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>; }
-        if (Object.keys(structure).length === 0) { return <div className="p-2 text-xs text-gray-500">Empty directory</div>; }
-        
-       
-        const header = (
-            <div className="flex items-center justify-between px-4 py-2 mt-4">
-                <div className="text-xs text-gray-500 font-medium">Files and Folders</div>
-                <div className="flex items-center gap-1">
-                    {/* --- ADD THIS NEW BUTTON --- */}
-                    <button 
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleRefreshFilesAndFolders();
-                        }}
-                        className="p-1 theme-hover rounded-full transition-all"
-                        title="Refresh file and folder list"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
-                        </svg>
-                    </button>
-                    {/* --- END NEW BUTTON --- */}
-                    <button 
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setFilesCollapsed(!filesCollapsed);
-                        }}
-                        className="p-1 theme-hover rounded-full transition-all"
-                        title={filesCollapsed ? "Expand files" : "Collapse files"}
-                    >
-                        <ChevronRight
-                            size={16}
-                            className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`}
-                        />
-                    </button>
-                </div>
+const renderFolderList = (structure) => {
+    if (!structure || typeof structure !== 'object' || structure.error) {
+        return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>;
+    }
+    if (Object.keys(structure).length === 0) {
+        return <div className="p-2 text-xs text-gray-500">Empty directory</div>;
+    }
+
+    const header = (
+        <div className="flex items-center justify-between px-4 py-2 mt-4">
+            <div className="text-xs text-gray-500 font-medium">Files and Folders</div>
+            <div className="flex items-center gap-1">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleRefreshFilesAndFolders();
+                    }}
+                    className="p-1 theme-hover rounded-full transition-all"
+                    title="Refresh file and folder list"
+                >
+                    {/* Refresh icon SVG */}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5" />
+                    </svg>
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setFilesCollapsed(!filesCollapsed);
+                    }}
+                    className="p-1 theme-hover rounded-full transition-all"
+                    title={filesCollapsed ? "Expand files" : "Collapse files"}
+                >
+                    <ChevronRight
+                        size={16}
+                        className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`}
+                    />
+                </button>
+            </div>
+        </div>
+    );
+
+    if (filesCollapsed) {
+        // Show only current file button when collapsed
+        const findCurrentFile = (struct) => {
+            for (const [name, content] of Object.entries(struct)) {
+                if (content?.path === currentFile && content?.type === 'file') {
+                    return { name, content };
+                }
+            }
+            return null;
+        };
+        const activeFile = currentFile ? findCurrentFile(structure) : null;
+        return (
+            <div className="mt-4">
+                {header}
+                {activeFile && (
+                    <div className="px-1 mt-1">
+                        <button
+                            onClick={() => handleFileClick(activeFile.content.path)}
+                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
+                            title={`Edit ${activeFile.name}`}
+                        >
+                            {getFileIcon(activeFile.name)}
+                            <span className="text-gray-300 truncate">{activeFile.name}</span>
+                        </button>
+                    </div>
+                )}
             </div>
         );
-        
-       
-        if (filesCollapsed) {
-           
-            const findCurrentFile = (struct) => {
-                for (const [name, content] of Object.entries(struct)) {
-                    if (content?.path === currentFile && content?.type === 'file') {
-                                                                                                                                                                                                                                                                                            
+    }
 
-                       
-                        return { name, content };
-                    }
-                }
-                return null;
-            };
-            
-            const activeFile = currentFile ? findCurrentFile(structure) : null;
-            
-            return (
-                <div className="mt-4">
-                    {header}
-                    {activeFile && (
-                        <div className="px-1 mt-1">
-                            <button
+    // Recursive renderer for folders and files
+    const renderFolderContents = (currentStructure, parentPath = '') => {
+        if (!currentStructure) return null;
 
-                                onClick={() => handleFileClick(activeFile.content.path)}
-                                className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded" title={`Edit ${activeFile.name}`}
-                            >
-                                {getFileIcon(activeFile.name)}
-                                <span className="text-gray-300 truncate">{activeFile.name}</span>
-                            </button>
-                        </div>
-                    )}
-                </div>
-            );
+        // Normalize children: accept array or object
+        let items = [];
+        if (Array.isArray(currentStructure)) {
+            items = currentStructure;
+        } else if (typeof currentStructure === 'object') {
+            items = Object.values(currentStructure);
         }
- 
-        
-        const entries = [];
-        const sortedEntries = Object.entries(structure).sort(([nameA, contentA], [nameB, contentB]) => { 
-            const typeA = contentA?.type; 
-            const typeB = contentB?.type; 
-            if (typeA === 'directory' && typeB !== 'directory') return -1; 
-            if (typeA !== 'directory' && typeB === 'directory') return 1; 
-            return nameA.localeCompare(nameB); 
+
+        // Sort: folders first, then files, alphabetically
+        items = items.filter(Boolean).sort((a, b) => {
+            if (a.type === 'directory' && b.type !== 'directory') return -1;
+            if (a.type !== 'directory' && b.type === 'directory') return 1;
+            return (a.name || '').localeCompare(b.name || '');
         });
-        
-        sortedEntries.forEach(([name, content], index) => {
-            const fullPath = content?.path; 
-            const isFolder = content?.type === 'directory'; 
-            const isFile = content?.type === 'file'; 
-            if (!fullPath) return;
 
+        return items.map(content => {
+            const name = content.name || content.path?.split('/').pop() || 'Unknown';
+            const fullPath = content.path || (parentPath ? `${parentPath}/${name}` : name);
+            const isFolder = content.type === 'directory';
+            const isFile = content.type === 'file';
 
-        const isRenamingThisItem = renamingPath === fullPath;
-
-        if (isRenamingThisItem) {
-            entries.push(
-                <div key={`renaming-${fullPath}`} className="px-2 py-1">
-                    <input
-                        type="text"
-                        value={editedSidebarItemName}
-                        onChange={(e) => setEditedSidebarItemName(e.target.value)}
-                        onBlur={handleSidebarRenameSubmit}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSidebarRenameSubmit();
-                            if (e.key === 'Escape') setRenamingPath(null);
-                        }}
-                        className="theme-input text-sm w-full rounded px-2 py-1 border"
-                        autoFocus
-                    />
-                </div>
-            );
-        } else {
-
-            if (isFolder) { 
-                entries.push(
-                    <div key={`folder-${fullPath}`}>
-                        <button 
-                            onDoubleClick={() => switchToPath(fullPath)} 
-                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')} 
-                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded" 
-                            title={`Double-click to open ${name}`}
+            if (isFolder) {
+                return (
+                    <div key={fullPath} className="pl-4">
+                        <button
+                            onClick={() => {
+                                setExpandedFolders(prev => {
+                                    const newSet = new Set(prev);
+                                    if (newSet.has(fullPath)) newSet.delete(fullPath);
+                                    else newSet.add(fullPath);
+                                    return newSet;
+                                });
+                            }}
+                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')}
+                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
+                            title={`Click to expand/collapse ${name}`}
                         >
                             <Folder size={16} className="text-blue-400 flex-shrink-0" />
                             <span className="text-gray-300 truncate">{name}</span>
+                            <ChevronRight
+                                size={14}
+                                className={`ml-auto transition-transform ${expandedFolders.has(fullPath) ? 'rotate-90' : ''}`}
+                            />
                         </button>
+                        {expandedFolders.has(fullPath) && renderFolderContents(content.children || content.contents || [], fullPath)}
                     </div>
                 );
-            }
-             else if (isFile) { 
-                const fileIcon = getFileIcon(name); 
+            } else if (isFile) {
+                const fileIcon = getFileIcon(name);
                 const isActiveFile = currentFile === fullPath;
                 const isSelected = selectedFiles.has(fullPath);
-                
-               
-               
-                const fileEntries = sortedEntries.filter(([, content]) => content?.type === 'file');
-                const currentFileIndex = fileEntries.findIndex(([, content]) => content?.path === fullPath);
-               
-                entries.push(
-                    <div key={`file-${fullPath}`}>
-                        <button 
-                            draggable="true"
-                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: fullPath }); }}
-                            onDragEnd={handleGlobalDragEnd}
-                            onClick={(e) => {
-                                if (e.ctrlKey || e.metaKey) {
-                                   
-                                    const newSelected = new Set(selectedFiles);
-                                    if (newSelected.has(fullPath)) {
-                                        newSelected.delete(fullPath);
-                                    } else {
-                                        newSelected.add(fullPath);
-                                    }
-                                    setSelectedFiles(newSelected);
-                                    setLastClickedFileIndex(currentFileIndex);
-                                } else if (e.shiftKey && lastClickedFileIndex !== null) {
-                                   
-                                    const newSelected = new Set();
-                                    
-                                    const start = Math.min(lastClickedFileIndex, currentFileIndex);
-                                    const end = Math.max(lastClickedFileIndex, currentFileIndex);
-                                    
-                                    for (let i = start; i <= end; i++) {
-                                        if (fileEntries[i]) {
-                                            newSelected.add(fileEntries[i][1].path);
-                                        }
-                                    }
-                                    setSelectedFiles(newSelected);
-                                } else {
-                                   
-                                    setSelectedFiles(new Set([fullPath]));
-                                    handleFileClick(fullPath);
-                                    setLastClickedFileIndex(currentFileIndex);
+                return (
+                    <button
+                        key={fullPath}
+                        draggable="true"
+                        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: fullPath }); }}
+                        onDragEnd={handleGlobalDragEnd}
+                        onClick={(e) => {
+                            if (e.ctrlKey || e.metaKey) {
+                                const newSelected = new Set(selectedFiles);
+                                if (newSelected.has(fullPath)) newSelected.delete(fullPath);
+                                else newSelected.add(fullPath);
+                                setSelectedFiles(newSelected);
+                            } else if (e.shiftKey && lastClickedFileIndex !== null) {
+                                // Get file entries at this level for shift selection
+                                const fileEntries = items.filter(item => item.type === 'file');
+                                const currentFileIndex = fileEntries.findIndex(item => item.path === fullPath);
+                                const newSelected = new Set();
+                                const start = Math.min(lastClickedFileIndex, currentFileIndex);
+                                const end = Math.max(lastClickedFileIndex, currentFileIndex);
+                                for (let i = start; i <= end; i++) {
+                                    if (fileEntries[i]) newSelected.add(fileEntries[i].path);
                                 }
-                            }}
-                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'file')}
-                            className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all duration-200
-                                ${isActiveFile ? 'conversation-selected border-l-2 border-blue-500' : 
-                                  isSelected ? 'conversation-selected' : 'hover:bg-gray-800'}`} 
-                            title={`Edit ${name}`}
-                        >
-                            {fileIcon}
-                            <span className="text-gray-300 truncate">{name}</span>
-                        </button>
-                    </div>
-                ); }
+                                setSelectedFiles(newSelected);
+                            } else {
+                                setSelectedFiles(new Set([fullPath]));
+                                handleFileClick(fullPath);
+                                // Update lastClickedFileIndex for shift selections
+                                const fileEntries = items.filter(item => item.type === 'file');
+                                setLastClickedFileIndex(fileEntries.findIndex(item => item.path === fullPath));
+                            }
+                        }}
+                        onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'file')}
+                        className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all duration-200
+                            ${isActiveFile ? 'conversation-selected border-l-2 border-blue-500' : 
+                              isSelected ? 'conversation-selected' : 'hover:bg-gray-800'}`}
+                        title={`Edit ${name}`}
+                    >
+                        {fileIcon}
+                        <span className="text-gray-300 truncate">{name}</span>
+                    </button>
+                );
             }
-
+            return null;
         });
-        
-        return (
-            <div>
-                {header}
-                <div className="px-1">{entries}</div>
-            </div>
-        );
     };
+
+    return (
+        <div>
+            {header}
+            <div className="px-1">{renderFolderContents(structure)}</div>
+        </div>
+    );
+};
     const handleAttachFileClick = async () => {
         try {
             const fileData = await window.api.showOpenDialog({
@@ -6528,20 +6705,23 @@ const handleSearchResultSelect = async (conversationId, searchTerm) => {
     }, 100);
 };
 const layoutComponentApi = useMemo(() => ({
-    rootLayoutNode, 
+    rootLayoutNode,
     setRootLayoutNode,
     findNodeByPath,
     findNodePath,
     activeContentPaneId, setActiveContentPaneId,
     draggedItem, setDraggedItem, dropTarget, setDropTarget,
     contentDataRef, updateContentPane, performSplit,
-    closeContentPane,    
-    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer, 
+    closeContentPane,
+    moveContentPane, // Pass the moveContentPane function
+    createAndAddPaneNodeToLayout, // Pass the pane creation helper
+    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer,
 }), [
-    rootLayoutNode, 
-    findNodeByPath, findNodePath, activeContentPaneId, 
+    rootLayoutNode,
+    findNodeByPath, findNodePath, activeContentPaneId,
     draggedItem, dropTarget, updateContentPane, performSplit, closeContentPane,
-    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer, 
+    moveContentPane, createAndAddPaneNodeToLayout, // Ensure these are in the dependency array
+    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer,
     setActiveContentPaneId, setDraggedItem, setDropTarget
 ]);
 
