@@ -3051,7 +3051,40 @@ const createNewTextFile = async () => {
 
 
 
-const handleInputSubmit = async (e) => {  // Add async here
+const [contextHash, setContextHash] = useState('');
+
+const hashContext = (contexts) => {
+    const contentString = contexts
+        .map(ctx => `${ctx.type}:${ctx.path || ctx.url}:${ctx.content?.substring(0, 100)}`)
+        .join('|');
+    return btoa(contentString);
+};
+
+const gatherWorkspaceContext = () => {
+    const contexts = [];
+    
+    Object.entries(contentDataRef.current).forEach(([paneId, paneData]) => {
+        if (paneData.contentType === 'editor' && paneData.fileContent) {
+            contexts.push({
+                type: 'file',
+                path: paneData.contentId,
+                content: paneData.fileContent,
+                paneId: paneId
+            });
+        } else if (paneData.contentType === 'browser' && paneData.browserUrl) {
+            contexts.push({
+                type: 'browser',
+                url: paneData.browserUrl,
+                viewId: paneData.contentId,
+                paneId: paneId
+            });
+        }
+    });
+    
+    return contexts;
+};
+
+const handleInputSubmit = async (e) => {
     e.preventDefault();
     if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
         return;
@@ -3072,12 +3105,13 @@ const handleInputSubmit = async (e) => {  // Add async here
     let finalPrompt = input;
     
     const contexts = gatherWorkspaceContext();
-    const fileContexts = contexts.filter(c => c.type === 'file');
-    const browserContexts = contexts.filter(c => c.type === 'browser');
-    let contextPrompt = '';
+    const newHash = hashContext(contexts);
+    const contextChanged = newHash !== contextHash;
     
-
-    if (fileContexts.length > 0 || browserContexts.length > 0) {
+    if (contexts.length > 0 && contextChanged) {
+        const fileContexts = contexts.filter(c => c.type === 'file');
+        const browserContexts = contexts.filter(c => c.type === 'browser');
+        let contextPrompt = '';
         
         if (fileContexts.length > 0) {
             contextPrompt += fileContexts.map(ctx => 
@@ -3090,7 +3124,7 @@ const handleInputSubmit = async (e) => {  // Add async here
             
             const browserContentPromises = browserContexts.map(async ctx => {
                 const result = await window.api.browserGetPageContent({ 
-                    viewId: ctx.viewId  // Use viewId, not paneId
+                    viewId: ctx.viewId
                 });
                 if (result.success && result.content) {
                     return `Webpage: ${result.title} (${result.url})\n\`\`\`\n${result.content}\n\`\`\``;
@@ -3101,7 +3135,6 @@ const handleInputSubmit = async (e) => {  // Add async here
             const browserContents = await Promise.all(browserContentPromises);
             contextPrompt += browserContents.join('\n\n');
         }
-
 
         if (executionMode === 'agent') {
             finalPrompt = `${input}
@@ -3116,38 +3149,10 @@ IMPORTANT: Propose changes as unified diffs, NOT full file contents.`;
 Context - currently open:
 ${contextPrompt}`;
         }
+        
+        setContextHash(newHash);
     }
-
     
-    if (executionMode === 'agent') {
-        finalPrompt = `${input}
-
-Available files in workspace:
-${contextPrompt}
-
-IMPORTANT: Propose changes as unified diffs, NOT full file contents. Use this exact format:
-
-FILE: <exact filepath from above>
-REASONING: <brief explanation>
-\`\`\`diff
---- a/<filepath>
-+++ b/<filepath>
-@@ -<line>,<count> +<line>,<count> @@
- context line
--removed line
-+added line
- context line
-\`\`\`
-
-Only show the lines that change, with a few lines of context. Multiple files = multiple FILE blocks.`;
-        } else {
-            finalPrompt = `${input}
-Context - currently open files:
-${contextPrompt}`;
-        }
-    
-
-                    
     const userMessage = { 
         id: generateId(), 
         role: 'user', 
@@ -3197,7 +3202,6 @@ ${contextPrompt}`;
         delete streamToPaneRef.current[newStreamId];
     }
 };
-
 
 
 
@@ -3558,39 +3562,7 @@ const generateInlineDiff = (unifiedDiffText) => {
     console.log('generateInlineDiff output:', diff);
     return diff;
 };
-const gatherWorkspaceContext = () => {
-    const contexts = [];
-    
-    Object.entries(contentDataRef.current).forEach(([paneId, paneData]) => {
-        if (paneData.contentType === 'editor' && paneData.fileContent) {
-            contexts.push({
-                type: 'file',
-                path: paneData.contentId,
-                content: paneData.fileContent,
-                paneId: paneId
-            });
-        } else if (paneData.contentType === 'chat' && paneData.chatMessages) {
-            const recentMessages = paneData.chatMessages.messages.slice(-5);
-            contexts.push({
-                type: 'conversation',
-                id: paneData.contentId,
-                messages: recentMessages,
-                paneId: paneId
-            });
-        } else if (paneData.contentType === 'browser' && paneData.browserUrl) {
-    contexts.push({
-        type: 'browser',
-        url: paneData.browserUrl,
-        viewId: paneData.contentId,  // This is the actual browser_xxx ID
-        paneId: paneId
-    });
-}
 
-    });
-    
-    return contexts;
-};
-// REVISED startAgenticEdit function to explicitly ask for unified diffs AND distinct blocks
 const startAgenticEdit = async (instruction) => {
     const contexts = gatherWorkspaceContext();
     
