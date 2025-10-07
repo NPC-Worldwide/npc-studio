@@ -1003,6 +1003,89 @@ ipcMain.handle('browser-get-page-content', async (event, { viewId }) => {
     }
     return { success: false, error: 'Browser view not found' };
 });
+
+
+ipcMain.handle('gitStatus', async (event, repoPath) => {
+  log(`[Git] Getting status for: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const status = await git.status();
+    return {
+      success: true,
+      branch: status.current,
+      ahead: status.ahead,
+      behind: status.behind,
+      staged: status.files.filter(f => f.index !== ' ').map(f => f.path),
+      unstaged: status.files.filter(f => f.working_dir !== ' ' && f.index === ' ').map(f => f.path),
+      untracked: status.not_added,
+      hasChanges: status.files.length > 0 || status.not_added.length > 0
+    };
+  } catch (err) {
+    console.error(`[Git] Error getting status for ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitStageFile', async (event, repoPath, file) => {
+  log(`[Git] Staging file: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.add(file);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error staging file ${file} in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitUnstageFile', async (event, repoPath, file) => {
+  log(`[Git] Unstaging file: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.reset([file]); // 'git reset <file>' unstages it
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error unstaging file ${file} in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitCommit', async (event, repoPath, message) => {
+  log(`[Git] Committing with message: "${message}" in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const commitResult = await git.commit(message);
+    return { success: true, commit: commitResult.commit };
+  } catch (err) {
+    console.error(`[Git] Error committing in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitPull', async (event, repoPath) => {
+  log(`[Git] Pulling changes for: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const pullResult = await git.pull();
+    return { success: true, summary: pullResult };
+  } catch (err) {
+    console.error(`[Git] Error pulling in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitPush', async (event, repoPath) => {
+  log(`[Git] Pushing changes for: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const pushResult = await git.push();
+    return { success: true, summary: pushResult };
+  } catch (err) {
+    console.error(`[Git] Error pushing in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
     log(`[BROWSER VIEW] show-browser for URL: ${url}, viewId: ${viewId}`);
     log(`[BROWSER VIEW] Bounds received:`, JSON.stringify(bounds));

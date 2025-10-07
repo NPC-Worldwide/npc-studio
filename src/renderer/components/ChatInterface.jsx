@@ -426,8 +426,29 @@ const ChatInterface = () => {
         isOpen: false,
         memories: []
     });    
-
-
+    const [gitStatus, setGitStatus] = useState(null);
+    const [gitCommitMessage, setGitCommitMessage] = useState('');
+    const [gitLoading, setGitLoading] = useState(false);
+    const [gitError, setGitError] = useState(null);
+    
+    const loadGitStatus = useCallback(async () => {
+      setGitLoading(true);
+      setGitError(null);
+      try {
+        const response = await window.api.gitStatus(currentPath);
+        setGitStatus(response); // { staged: [], unstaged: [], untracked: [], branch: "", ahead: 0, behind: 0 }
+      } catch (err) {
+        setGitError(err.message || 'Failed to get git status');
+      } finally {
+        setGitLoading(false);
+      }
+    }, [currentPath]);
+    useEffect(() => {
+        if (currentPath) {
+          loadGitStatus();
+        }
+      }, [currentPath, loadGitStatus]);
+      
     const [windowId] = useState(() => {
         // Generate unique window ID on component mount
         return `window_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -561,7 +582,157 @@ const handleBrowserAddToChat = () => {
     const [activeSearchResult, setActiveSearchResult] = useState(null);
     const searchInputRef = useRef(null);
    
-   
+    const renderGitPanel = () => {
+        if (!gitStatus) return null;
+    
+        const staged = Array.isArray(gitStatus.staged) ? gitStatus.staged : [];
+        const unstaged = Array.isArray(gitStatus.unstaged) ? gitStatus.unstaged : [];
+        const untracked = Array.isArray(gitStatus.untracked) ? gitStatus.untracked : [];
+    
+        return (
+          <div className="p-4 border-t theme-border text-xs theme-text-muted overflow-auto max-h-64">
+            <div className="mb-2 font-semibold">
+              Git Branch: {gitStatus.branch} {gitStatus.ahead > 0 && <span>↑{gitStatus.ahead}</span>} {gitStatus.behind > 0 && <span>↓{gitStatus.behind}</span>}
+            </div>
+    
+            <div>
+              <div className="mb-1 font-semibold">Staged Files</div>
+              {(staged.length === 0) ? <div className="text-gray-600">No staged files</div> :
+                staged.map(file => (
+                  <div key={file.path} className="flex justify-between items-center text-green-300">
+                    <span title={file.path}>{file.path} (<span className="text-green-500 font-medium">{file.status}</span>)</span>
+                    <button 
+                      onClick={() => gitUnstageFile(file.path)} 
+                      className="text-red-400 px-1 rounded hover:bg-red-600"
+                    >
+                      Unstage
+                    </button>
+                  </div>
+                ))
+              }
+            </div>
+    
+            <div className="mt-3">
+              <div className="mb-1 font-semibold">Unstaged / Untracked Files</div>
+              {(unstaged.length + untracked.length === 0) ? <div className="text-gray-600">No unstaged or untracked files</div> :
+                [...unstaged, ...untracked].map(file => (
+                  <div key={file.path} className="flex justify-between items-center">
+                    <span title={file.path} className={file.isUntracked ? "text-gray-400" : "text-yellow-300"}>
+                      {file.path} (<span className="font-medium">{file.status}</span>)
+                    </span>
+                    <button 
+                      onClick={() => gitStageFile(file.path)} 
+                      className="text-green-400 px-1 rounded hover:bg-green-600"
+                    >
+                      Stage
+                    </button>
+                  </div>
+                ))
+              }
+            </div>
+    
+            <div className="mt-4">
+              <input 
+                type="text"
+                className="w-full theme-input text-xs rounded px-2 py-1 mb-2"
+                placeholder="Commit message"
+                value={gitCommitMessage}
+                onChange={e => setGitCommitMessage(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <button 
+                  disabled={gitLoading || !gitCommitMessage.trim()}
+                  onClick={gitCommitChanges}
+                  className="theme-button-primary px-3 py-1 rounded text-xs flex-1 disabled:opacity-50"
+                >
+                  Commit
+                </button>
+                <button 
+                  disabled={gitLoading}
+                  onClick={gitPullChanges}
+                  className="theme-button px-3 py-1 rounded text-xs flex-1"
+                >
+                  Pull
+                </button>
+                <button 
+                  disabled={gitLoading}
+                  onClick={gitPushChanges}
+                  className="theme-button px-3 py-1 rounded text-xs flex-1"
+                >
+                  Push
+                </button>
+              </div>
+              {gitError && <div className="mt-2 text-red-500 text-xs">{gitError}</div>}
+            </div>
+          </div>
+        );
+    };
+        const gitStageFile = async (file) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitStageFile(currentPath, file);
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to stage file');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+      
+      const gitUnstageFile = async (file) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitUnstageFile(currentPath, file);
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to unstage file');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+      
+      const gitCommitChanges = async () => {
+        if (!gitCommitMessage.trim()) return;
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitCommit(currentPath, gitCommitMessage.trim());
+          setGitCommitMessage('');
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to commit');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+      
+      const gitPullChanges = async () => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitPull(currentPath);
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to pull');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+      
+      const gitPushChanges = async () => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitPush(currentPath);
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to push');
+        } finally {
+          setGitLoading(false);
+        }
+      };
     const [rootLayoutNode, setRootLayoutNode] = useState(null);
    
     const [activeContentPaneId, setActiveContentPaneId] = useState(null);
@@ -5370,6 +5541,7 @@ const renderSidebar = () => {
                     <>
                         {renderFolderList(folderStructure)}
                         {renderConversationList(directoryConversations)}
+                        {renderGitPanel()} {/* <--- ADDED THE GIT PANEL HERE! */}
                     </>
                 )}
                 {contextMenuPos && renderContextMenu()}
