@@ -10,7 +10,9 @@ contextBridge.exposeInMainWorld('api', {
     readDirectoryImages: (dirPath) => ipcRenderer.invoke('readDirectoryImages', dirPath),
     open_directory_picker: () => ipcRenderer.invoke('open_directory_picker'),
 
-    
+    getAvailableJinxs: (params) => ipcRenderer.invoke('getAvailableJinxs', params),
+executeJinx: (params) => ipcRenderer.invoke('executeJinx', params),
+
     getAvailableImageModels: (currentPath) => ipcRenderer.invoke('getAvailableImageModels', currentPath),
 
    

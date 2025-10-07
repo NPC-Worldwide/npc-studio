@@ -607,7 +607,120 @@ function createWindow() {
     mainWindow.hide();
   });
 
+// Add these handlers near your other ipcMain.handle calls
 
+ipcMain.handle('getAvailableJinxs', async (event, { currentPath, npc }) => {
+  try {
+      const params = new URLSearchParams();
+      if (currentPath) params.append('currentPath', currentPath);
+      if (npc) params.append('npc', npc);
+      
+      const url = `http://127.0.0.1:5337/api/jinxs/available?${params.toString()}`;
+      log('Fetching available jinxs from:', url);
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error ${response.status}: ${errorText}`);
+      }
+      
+      const data = await response.json();
+      log('Received jinxs:', data.jinxs?.length);
+      return data;
+  } catch (err) {
+      log('Error in getAvailableJinxs handler:', err);
+      return { jinxs: [], error: err.message };
+  }
+});
+
+ipcMain.handle('executeJinx', async (event, data) => {
+  const currentStreamId = data.streamId || generateId();
+  log(`[Main Process] executeJinx: Starting stream with ID: ${currentStreamId}`);
+  
+  try {
+      const apiUrl = 'http://127.0.0.1:5337/api/jinx/execute';
+      
+      const payload = {
+          streamId: currentStreamId,
+          jinxName: data.jinxName,
+          jinxArgs: data.jinxArgs || [],
+          currentPath: data.currentPath,
+          conversationId: data.conversationId,
+          model: data.model,
+          provider: data.provider,
+          npc: data.npc,
+          npcSource: data.npcSource || 'global',
+      };
+      
+      const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+      });
+
+      log(`[Main Process] Backend response status for jinx ${data.jinxName}: ${response.status}`);
+      if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! Status: ${response.status}. Body: ${errorText}`);
+      }
+
+      const stream = response.body;
+      if (!stream) {
+          event.sender.send('stream-error', { 
+              streamId: currentStreamId, 
+              error: 'Backend returned no stream data for jinx execution.' 
+          });
+          return { error: 'Backend returned no stream data.', streamId: currentStreamId };
+      }
+      
+      activeStreams.set(currentStreamId, { stream, eventSender: event.sender });
+      
+      (function(capturedStreamId) {
+          stream.on('data', (chunk) => {
+              if (event.sender.isDestroyed()) {
+                  stream.destroy();
+                  activeStreams.delete(capturedStreamId);
+                  return;
+              }
+              event.sender.send('stream-data', {
+                  streamId: capturedStreamId,
+                  chunk: chunk.toString()
+              });
+          });
+
+          stream.on('end', () => {
+              log(`[Main Process] Jinx stream ${capturedStreamId} ended.`);
+              if (!event.sender.isDestroyed()) {
+                  event.sender.send('stream-complete', { streamId: capturedStreamId });
+              }
+              activeStreams.delete(capturedStreamId);
+          });
+
+          stream.on('error', (err) => {
+              log(`[Main Process] Jinx stream ${capturedStreamId} error:`, err.message);
+              if (!event.sender.isDestroyed()) {
+                  event.sender.send('stream-error', {
+                      streamId: capturedStreamId,
+                      error: err.message
+                  });
+              }
+              activeStreams.delete(capturedStreamId);
+          });
+      })(currentStreamId);
+
+      return { streamId: currentStreamId };
+
+  } catch (err) {
+      log(`[Main Process] Error setting up jinx stream ${currentStreamId}:`, err.message);
+      if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('stream-error', {
+              streamId: currentStreamId,
+              error: `Failed to execute jinx: ${err.message}`
+          });
+      }
+      return { error: `Failed to execute jinx: ${err.message}`, streamId: currentStreamId };
+  }
+});
 
     ipcMain.handle('getAvailableModels', async (event, currentPath) => {
      

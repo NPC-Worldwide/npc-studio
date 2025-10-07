@@ -3278,7 +3278,6 @@ const gatherWorkspaceContext = () => {
     
     return contexts;
 };
-
 const handleInputSubmit = async (e) => {
     e.preventDefault();
     if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
@@ -3298,12 +3297,32 @@ const handleInputSubmit = async (e) => {
     setIsStreaming(true);
 
     let finalPrompt = input;
+    let isJinxCall = false;
+    let jinxName = null;
+    let jinxArgs = [];
+    
+    const trimmedInput = input.trim();
+    if (trimmedInput.startsWith('/')) {
+        const parts = trimmedInput.slice(1).split(/\s+/);
+        const potentialJinx = parts[0];
+        
+        const availableJinxs = await window.api.getAvailableJinxs({
+            currentPath,
+            npc: currentNPC
+        });
+        
+        if (availableJinxs.jinxs && availableJinxs.jinxs.includes(potentialJinx)) {
+            isJinxCall = true;
+            jinxName = potentialJinx;
+            jinxArgs = parts.slice(1);
+        }
+    }
     
     const contexts = gatherWorkspaceContext();
     const newHash = hashContext(contexts);
     const contextChanged = newHash !== contextHash;
     
-    if (contexts.length > 0 && contextChanged) {
+    if (contexts.length > 0 && contextChanged && !isJinxCall) {
         const fileContexts = contexts.filter(c => c.type === 'file');
         const browserContexts = contexts.filter(c => c.type === 'browser');
         let contextPrompt = '';
@@ -3351,10 +3370,11 @@ ${contextPrompt}`;
     const userMessage = { 
         id: generateId(), 
         role: 'user', 
-        content: finalPrompt, 
+        content: isJinxCall ? `/${jinxName} ${jinxArgs.join(' ')}` : finalPrompt, 
         timestamp: new Date().toISOString(), 
         attachments: uploadedFiles,
-        executionMode: executionMode
+        executionMode: executionMode,
+        isJinxCall: isJinxCall
     };
 
     const assistantPlaceholder = { 
@@ -3375,29 +3395,43 @@ ${contextPrompt}`;
 
     try {
         const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
-        await window.api.executeCommandStream({
-            commandstr: finalPrompt, 
-            currentPath, 
-            conversationId, 
-            model: currentModel, 
-            provider: currentProvider,
-            npc: selectedNpc ? selectedNpc.name : currentNPC,
-            npcSource: selectedNpc ? selectedNpc.source : 'global',
-            attachments: uploadedFiles.map(f => {
-                if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
-                else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
-                return { name: f.name, type: f.type };
-            }),
-            streamId: newStreamId, 
-            executionMode: 'chat',
-        });
+        
+        if (isJinxCall) {
+            await window.api.executeJinx({
+                jinxName,
+                jinxArgs,
+                currentPath,
+                conversationId,
+                model: currentModel,
+                provider: currentProvider,
+                npc: selectedNpc ? selectedNpc.name : currentNPC,
+                npcSource: selectedNpc ? selectedNpc.source : 'global',
+                streamId: newStreamId,
+            });
+        } else {
+            await window.api.executeCommandStream({
+                commandstr: finalPrompt, 
+                currentPath, 
+                conversationId, 
+                model: currentModel, 
+                provider: currentProvider,
+                npc: selectedNpc ? selectedNpc.name : currentNPC,
+                npcSource: selectedNpc ? selectedNpc.source : 'global',
+                attachments: uploadedFiles.map(f => {
+                    if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
+                    else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
+                    return { name: f.name, type: f.type };
+                }),
+                streamId: newStreamId, 
+                executionMode: 'chat',
+            });
+        }
     } catch (err) {
         setError(err.message); 
         setIsStreaming(false); 
         delete streamToPaneRef.current[newStreamId];
     }
 };
-
 
 
 
