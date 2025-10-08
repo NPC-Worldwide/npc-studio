@@ -33,6 +33,8 @@
   --theme-selected-text-light: #ffffff;
   --theme-selected-border-light: #1d4ed8;
   --theme-selected-shadow-light: rgba(37, 99, 235, 0.5);
+  --theme-primary-rgb: 59, 130, 246; /* blue-500 */
+  --theme-success-rgb: 16, 185, 129; /* green-500 */
 
   /* Dark Mode Colors */
   --theme-bg-dark: #0f172a;
@@ -161,6 +163,9 @@ body.light-mode {
   --theme-selected-text: var(--theme-selected-text-light);
   --theme-selected-border: var(--theme-selected-border-light);
   --theme-selected-shadow: var(--theme-selected-shadow-light);
+  --theme-primary-rgb: 37, 99, 235; /* blue-600 */
+  --theme-success-rgb: 5, 150, 105; /* green-700 */
+
 }
 
 /* Theme-aware utility classes that override Tailwind defaults */
@@ -1079,4 +1084,226 @@ body.dark-mode .cm-activeLineGutter {
   margin: 2px 0;
   z-index: 10;
   position: relative;
+}
+
+
+/* Modal overlay: full-screen, dark translucent background */
+.cron-daemon-panel-overlay {
+    position: fixed;
+    inset: 0; /* top:0; left:0; right:0; bottom:0 */
+    background-color: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999; /* must be above main UI */
+    padding: 1rem;
+}
+
+/* Panel container styles—dark background, rounded corners */
+.cron-daemon-panel-container {
+    background-color: var(--theme-bg-secondary);
+    border: 1px solid var(--theme-border);
+    border-radius: 0.75rem;
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
+    max-width: 900px;
+    width: 100%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Header with title and close button */
+.cron-daemon-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--theme-border);
+    color: var(--theme-primary);
+    font-weight: 600;
+}
+
+.cron-daemon-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--theme-text-muted);
+    cursor: pointer;
+    font-size: 1.25rem;
+    padding: 0.25rem;
+    transition: color 0.2s ease;
+}
+
+.cron-daemon-close-btn:hover {
+    color: var(--theme-primary-hover);
+}
+
+/* Content area scrolls if overflow */
+.cron-daemon-panel-content {
+    padding: 1rem 1.5rem;
+    overflow-y: auto;
+    flex-grow: 1;   
+    color: var(--theme-text);
+}
+
+/* Scrollbar styling for modern browsers */
+.cron-daemon-panel-content::-webkit-scrollbar {
+    width: 10px;
+}
+
+.cron-daemon-panel-content::-webkit-scrollbar-track {
+    background: var(--theme-bg-tertiary);
+}
+
+.cron-daemon-panel-content::-webkit-scrollbar-thumb {
+    background-color: var(--theme-primary);
+    border-radius: 10px;
+    border: 2px solid var(--theme-bg-tertiary);
+}
+/* Icon colors - adjust as needed to fit the retro aesthetic */
+.action-grid-button .lucide-clock {
+    color: var(--theme-primary); 
+}
+.action-grid-button .lucide-image {
+    color: #a855f7; /* Purple for retro pop */
+}
+.action-grid-button .lucide-bar-chart-3 {
+    color: var(--theme-success);
+}
+.action-grid-button .lucide-wrench {
+    color: #f59e0b; /* Amber/Orange for retro pop */
+}
+.action-grid-button .lucide-file-json {
+    color: #ef4444; /* Red for retro pop */
+}
+.action-grid-button .lucide-users {
+    color: #6366f1; /* Indigo for retro pop */
+}
+
+/* Styles for the sidebar collapse/expand button - ensures it's centered and visually clear */
+.p-4.border-t.theme-border.flex-shrink-0 > div > button.group {
+    height: 40px; /* Fixed height for consistency */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Ensure no text overflow when collapsed if content is too wide */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.action-grid-button {
+    /* Base styles: fill the cell, center content (icon), smooth transitions */
+    width: 100%;
+    height: 100%;
+    padding: 12px; /* p-3 is 0.75rem = 12px */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition-property: background-color, color, transform, box-shadow; /* Added box-shadow for transition */
+    transition-duration: 0.15s; /* Faster transition for responsiveness */
+    transition-timing-function: ease-out; /* default ease */
+
+    /* Theme colors */
+    background-color: var(--theme-bg-secondary); /* Darker base for buttons for depth */
+    color: var(--theme-text-muted); /* Muted text color by default */
+    
+    /* Retro box effect - initial state */
+    border: 1px solid var(--theme-border-secondary); /* Softer inner border for depth */
+    border-radius: 4px; /* More squarish, less rounded */
+    box-shadow: 
+        inset 0 1px 4px rgba(0, 0, 0, 0.4), /* Darker inner shadow for depth */
+        0 1px 1px rgba(0, 0, 0, 0.2), /* Subtle outer shadow */
+        0 2px 4px rgba(0, 0, 0, 0.15); /* More pronounced outer shadow for lift */
+
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500; /* font-medium */
+    cursor: pointer;
+    position: relative; /* For detailed hover effects */
+    overflow: hidden; /* Ensures shadows/gradients stay within bounds */
+    text-decoration: none; /* Ensure no underline on icons */
+}
+body.light-mode .action-grid-button {
+    background-color: var(--theme-bg-tertiary-light);
+    color: var(--theme-text-muted-light);
+    border: 1px solid var(--theme-border-light);
+    box-shadow: 
+        inset 0 1px 4px rgba(0, 0, 0, 0.15), 
+        0 1px 1px rgba(0, 0, 0, 0.1), 
+        0 2px 4px rgba(0, 0, 0, 0.08);
+}
+.action-grid-button:hover {
+    background-color: var(--theme-hover); /* Brighter on hover */
+    color: var(--theme-text); /* Brighter icon on hover */
+    transform: translateY(-2px); /* More pronounced lift */
+    
+    /* Retro hover glow and stronger shadow */
+    box-shadow: 
+        inset 0 1px 4px rgba(0, 0, 0, 0.5), /* Stronger inner shadow */
+        0 5px 10px rgba(0, 0, 0, 0.3), /* Stronger outer shadow for lift */
+        0 0 15px rgba(var(--theme-primary-rgb), 0.4); /* Primary color outer glow */
+}
+
+body.light-mode .action-grid-button:active {
+    box-shadow: 
+        inset 0 2px 5px rgba(0, 0, 0, 0.25), 
+        0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* When sidebar is collapsed, adjust the toggle button for visibility */
+.sidebar-collapsed-true button.group { /* Assuming you can target the button when sidebarCollapsed is true */
+    width: 100%; /* Spans the narrow width */
+    /* Adjust padding or icon size to fit */
+    padding: 0.5rem; /* p-2 */
+}/* Optional: Active/Pressed state for a click feedback */
+.action-grid-button:active {
+    transform: translateY(0); /* "Presses" the button down */
+    box-shadow: 
+        inset 0 2px 5px rgba(0, 0, 0, 0.5), /* Deep inner shadow */
+        0 1px 2px rgba(0, 0, 0, 0.1); /* Minimal outer shadow */
+}
+
+.action-grid-button .lucide-clock {
+    color: var(--theme-primary); 
+}
+.action-grid-button .lucide-image {
+    color: #a855f7; /* Purple for retro pop */
+}
+.action-grid-button .lucide-bar-chart-3 {
+    color: var(--theme-success);
+}
+.action-grid-button .lucide-wrench {
+    color: #f59e0b; /* Amber/Orange for retro pop */
+}
+.action-grid-button .lucide-file-json {
+    color: #ef4444; /* Red for retro pop */
+}
+.action-grid-button .lucide-users {
+    color: #6366f1; /* Indigo for retro pop */
+}
+
+/* Styles for the sidebar collapse/expand button - ensures it's centered and visually clear */
+.p-4.border-t.theme-border.flex-shrink-0 > div > button.group {
+    height: 40px; /* Fixed height for consistency */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Ensure no text overflow when collapsed if content is too wide */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* When sidebar is collapsed, adjust the toggle button for visibility */
+.sidebar-collapsed-true button.group { /* Assuming you can target the button when sidebarCollapsed is true */
+    width: 100%; /* Spans the narrow width */
+    /* Adjust padding or icon size to fit */
+    padding: 0.5rem; /* p-2 */
+}
+
+@media (max-width: 640px) {
+    .cron-daemon-panel-container {
+        max-width: 100%;
+        max-height: 90vh;
+        border-radius: 0.5rem;
+    }
 }

@@ -4,10 +4,13 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, 
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami,
+    Clock, // Add Clock icon for cron jobs
+
 } from 'lucide-react';
 
 import { Icon } from 'lucide-react';
 import { avocado } from '@lucide/lab';
+import CronDaemonPanel from './CronDaemonPanel'; // <--- NEW IMPORT
 
 import MacroInput from './MacroInput';
 import SettingsMenu from './SettingsMenu';
@@ -360,6 +363,8 @@ const ChatMessage = memo(({
 
 
 const ChatInterface = () => {
+    const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true); // <--- NEW STATE: Default to collapsed
+
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [editedPath, setEditedPath] = useState('');
     const [isHovering, setIsHovering] = useState(false);
@@ -369,7 +374,8 @@ const ChatInterface = () => {
     const [selectedConvos, setSelectedConvos] = useState(new Set());
     const [lastClickedIndex, setLastClickedIndex] = useState(null);
     const [contextMenuPos, setContextMenuPos] = useState(null);
-   
+    const [cronDaemonPanelOpen, setCronDaemonPanelOpen] = useState(false); // <--- NEW STATE
+
     const [selectedFiles, setSelectedFiles] = useState(new Set());
     const [lastClickedFileIndex, setLastClickedFileIndex] = useState(null);
     const [fileContextMenuPos, setFileContextMenuPos] = useState(null);
@@ -583,6 +589,7 @@ const handleBrowserAddToChat = () => {
     const searchInputRef = useRef(null);
    
     const renderGitPanel = () => {
+        // Only render the panel if gitStatus is available
         if (!gitStatus) return null;
     
         const staged = Array.isArray(gitStatus.staged) ? gitStatus.staged : [];
@@ -590,84 +597,106 @@ const handleBrowserAddToChat = () => {
         const untracked = Array.isArray(gitStatus.untracked) ? gitStatus.untracked : [];
     
         return (
-          <div className="p-4 border-t theme-border text-xs theme-text-muted overflow-auto max-h-64">
-            <div className="mb-2 font-semibold">
-              Git Branch: {gitStatus.branch} {gitStatus.ahead > 0 && <span>↑{gitStatus.ahead}</span>} {gitStatus.behind > 0 && <span>↓{gitStatus.behind}</span>}
-            </div>
-    
-            <div>
-              <div className="mb-1 font-semibold">Staged Files</div>
-              {(staged.length === 0) ? <div className="text-gray-600">No staged files</div> :
-                staged.map(file => (
-                  <div key={file.path} className="flex justify-between items-center text-green-300">
-                    <span title={file.path}>{file.path} (<span className="text-green-500 font-medium">{file.status}</span>)</span>
-                    <button 
-                      onClick={() => gitUnstageFile(file.path)} 
-                      className="text-red-400 px-1 rounded hover:bg-red-600"
-                    >
-                      Unstage
-                    </button>
-                  </div>
-                ))
-              }
-            </div>
-    
-            <div className="mt-3">
-              <div className="mb-1 font-semibold">Unstaged / Untracked Files</div>
-              {(unstaged.length + untracked.length === 0) ? <div className="text-gray-600">No unstaged or untracked files</div> :
-                [...unstaged, ...untracked].map(file => (
-                  <div key={file.path} className="flex justify-between items-center">
-                    <span title={file.path} className={file.isUntracked ? "text-gray-400" : "text-yellow-300"}>
-                      {file.path} (<span className="font-medium">{file.status}</span>)
-                    </span>
-                    <button 
-                      onClick={() => gitStageFile(file.path)} 
-                      className="text-green-400 px-1 rounded hover:bg-green-600"
-                    >
-                      Stage
-                    </button>
-                  </div>
-                ))
-              }
-            </div>
-    
-            <div className="mt-4">
-              <input 
-                type="text"
-                className="w-full theme-input text-xs rounded px-2 py-1 mb-2"
-                placeholder="Commit message"
-                value={gitCommitMessage}
-                onChange={e => setGitCommitMessage(e.target.value)}
-              />
-              <div className="flex gap-2">
-                <button 
-                  disabled={gitLoading || !gitCommitMessage.trim()}
-                  onClick={gitCommitChanges}
-                  className="theme-button-primary px-3 py-1 rounded text-xs flex-1 disabled:opacity-50"
+            <div className="p-4 border-t theme-border text-xs theme-text-muted">
+                {/* Header for the Git Panel with a toggle */}
+                <div 
+                    className="flex items-center justify-between cursor-pointer py-1"
+                    onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)} // <--- TOGGLE CLICK HANDLER
                 >
-                  Commit
-                </button>
-                <button 
-                  disabled={gitLoading}
-                  onClick={gitPullChanges}
-                  className="theme-button px-3 py-1 rounded text-xs flex-1"
-                >
-                  Pull
-                </button>
-                <button 
-                  disabled={gitLoading}
-                  onClick={gitPushChanges}
-                  className="theme-button px-3 py-1 rounded text-xs flex-1"
-                >
-                  Push
-                </button>
-              </div>
-              {gitError && <div className="mt-2 text-red-500 text-xs">{gitError}</div>}
+                    <div className="text-xs text-gray-500 font-medium flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-git-branch"><circle cx="6" cy="18" r="3"/><path d="M18 6V3"/><path d="M18 18v-4"/><path d="M6 18v-2"/><path d="M6 6v4a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/></svg>
+                        Git Status
+                        {gitStatus.hasChanges && <span className="text-yellow-400 ml-2">(Changes!)</span>} {/* Indicate changes */}
+                    </div>
+                    <ChevronRight 
+                        size={14} 
+                        className={`transform transition-transform ${gitPanelCollapsed ? "" : "rotate-90"}`} // <--- ROTATE ICON
+                    />
+                </div>
+    
+                {/* Conditional rendering of the Git panel content */}
+                {!gitPanelCollapsed && ( // <--- CONDITIONAL RENDERING
+                    <div className="overflow-auto max-h-64 mt-2"> {/* Added mt-2 for spacing */}
+                        <div className="mb-2 font-semibold">
+                            Git Branch: {gitStatus.branch} {gitStatus.ahead > 0 && <span>↑{gitStatus.ahead}</span>} {gitStatus.behind > 0 && <span>↓{gitStatus.behind}</span>}
+                        </div>
+        
+                        <div>
+                            <div className="mb-1 font-semibold">Staged Files</div>
+                            {(staged.length === 0) ? <div className="text-gray-600">No staged files</div> :
+                            staged.map(file => (
+                                <div key={file.path} className="flex justify-between items-center text-green-300">
+                                <span title={file.path}>{file.path} (<span className="text-green-500 font-medium">{file.status}</span>)</span>
+                                <button
+                                    onClick={() => gitUnstageFile(file.path)}
+                                    className="p-1 text-red-400 hover:bg-red-600"
+                                >
+                                    Unstage
+                                </button>
+                                </div>
+                            ))
+                            }
+                        </div>
+        
+                        <div className="mt-3">
+                            <div className="mb-1 font-semibold">Unstaged / Untracked Files</div>
+                            {(unstaged.length + untracked.length === 0) ? <div className="text-gray-600">No unstaged or untracked files</div> :
+                            [...unstaged, ...untracked].map(file => (
+                                <div key={file.path} className="flex justify-between items-center">
+                                <span title={file.path} className={file.isUntracked ? "text-gray-400" : "text-yellow-300"}>
+                                    {file.path} (<span className="font-medium">{file.status}</span>)
+                                </span>
+                                <button
+                                    onClick={() => gitStageFile(file.path)}
+                                    className="p-1 text-green-400 px-1 rounded hover:bg-green-600"
+                                >
+                                    Stage
+                                </button>
+                                </div>
+                            ))
+                            }
+                        </div>
+        
+                        <div className="mt-4">
+                            <input
+                                type="text"
+                                className="w-full theme-input text-xs rounded px-2 py-1 mb-2"
+                                placeholder="Commit message"
+                                value={gitCommitMessage}
+                                onChange={e => setGitCommitMessage(e.target.value)}
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                disabled={gitLoading || !gitCommitMessage.trim()}
+                                onClick={gitCommitChanges}
+                                className="theme-button-primary px-3 py-1 rounded text-xs flex-1 disabled:opacity-50"
+                                >
+                                Commit
+                                </button>
+                                <button
+                                disabled={gitLoading}
+                                onClick={gitPullChanges}
+                                className="theme-button px-3 py-1 rounded text-xs flex-1"
+                                >
+                                Pull
+                                </button>
+                                <button
+                                disabled={gitLoading}
+                                onClick={gitPushChanges}
+                                className="theme-button px-3 py-1 rounded text-xs flex-1"
+                                >
+                                Push
+                                </button>
+                            </div>
+                            {gitError && <div className="mt-2 text-red-500 text-xs">{gitError}</div>}
+                        </div>
+                    </div>
+                )}
             </div>
-          </div>
         );
     };
-        const gitStageFile = async (file) => {
+
+    const gitStageFile = async (file) => {
         setGitLoading(true);
         setGitError(null);
         try {
@@ -5370,6 +5399,7 @@ const renderSidebarItemContextMenu = () => {
                     <Edit size={16} />
                     <span>Rename</span>
                 </button>
+                
                 <button
                     onClick={handleSidebarItemDelete}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400"
@@ -5377,6 +5407,7 @@ const renderSidebarItemContextMenu = () => {
                     <Trash size={16} />
                     <span>Delete</span>
                 </button>
+
             </div>
         </>
     );
@@ -5567,38 +5598,45 @@ const renderSidebar = () => {
                 >
                     <Trash size={24} />
                 </button>
+
             </div>
             
             {/* Bottom actions - always shown, collapse button always at bottom */}
             <div className="p-4 border-t theme-border flex-shrink-0">
-                <div className="flex gap-2 justify-center">
-                    {!sidebarCollapsed && (
-                        <>
-                            <button onClick={() => setPhotoViewerOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Photo Viewer">
-                                <Image size={16} />
-                            </button>
-                            <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
-                            <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
-                            <button onClick={() => setCtxEditorOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Context Editor">
-                                <FileJson size={16} />
-                            </button>
-                            <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
-                        </>
-                    )}
-                    <button 
-                        onClick={() => setSidebarCollapsed(!sidebarCollapsed)} 
-                        className="p-2 theme-button theme-hover rounded-full transition-all group" 
-                        title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                    >
-                        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                            <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                        </div>
-                    </button>
-                </div>
-            </div>
+
+{/* This container holds the 6 action buttons, displayed as a 3x2 grid */}
+{!sidebarCollapsed && (
+    <div className="grid grid-cols-3 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
+        {/* First row of 3 buttons */}
+        <button onClick={() => setCronDaemonPanelOpen(true)} className="action-grid-button" aria-label="Open Cron/Daemon Panel"><Clock size={16} /></button>
+        <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer"><Image size={16} /></button>
+        <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
+
+        {/* Second row of 3 buttons */}
+        <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
+        <button onClick={() => setCtxEditorOpen(true)} className="action-grid-button" aria-label="Open Context Editor"><FileJson size={16} /></button>
+        <button onClick={handleOpenNpcTeamMenu} className="action-grid-button" aria-label="Open NPC Team Menu"><Users size={16} /></button>
+    </div>
+)}
+
+{/* The sidebar toggle button - always visible, spans full width */}
+{/* Add mt-4 for spacing when action buttons are visible (not collapsed) */}
+<div className={`flex justify-center ${!sidebarCollapsed ? 'mt-4' : ''}`}>
+    <button
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        className="p-2 w-full theme-button theme-hover rounded-full transition-all group" // This button remains full-width and rounded
+        title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+    >
+        {/* Content of the collapse button, centered */}
+        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
+            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+            <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
+            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
         </div>
+    </button>
+</div>
+</div>
+    </div>
     );
 };
 
@@ -6843,7 +6881,7 @@ const renderAttachmentThumbnails = () => {
             )}
 
 
-
+            
         {renderPdfContextMenu()}
         {renderBrowserContextMenu()}
         
@@ -6851,6 +6889,21 @@ const renderAttachmentThumbnails = () => {
         {renderMessageContextMenu()}
 
             {isMacroInputOpen && (<MacroInput isOpen={isMacroInputOpen} currentPath={currentPath} onClose={() => { setIsMacroInputOpen(false); window.api?.hideMacro?.(); }} onSubmit={({ macro, conversationId, result }) => { setActiveConversationId(conversationId); setCurrentConversation({ id: conversationId, title: macro.trim().slice(0, 50) }); if (!result) { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: 'Processing...', timestamp: new Date().toISOString(), type: 'message' }]); } else { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: result?.output || 'No response', timestamp: new Date().toISOString(), type: 'message' }]); } refreshConversations(); }}/> )}
+            {cronDaemonPanelOpen &&(
+            <CronDaemonPanel // <--- NEW PANEL
+            isOpen={cronDaemonPanelOpen}
+            onClose={() => setCronDaemonPanelOpen(false)}
+            currentPath={currentPath}
+            npcList={availableNPCs.map(npc => ({ name: npc.name, display_name: npc.display_name }))} // Pass available NPCs
+            jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.jinx_name, description: jinx.description }))} // Pass available Jinxs
+            onAddCronJob={window.api.addCronJob}
+            onAddDaemon={window.api.addDaemon}
+            onRemoveCronJob={window.api.removeCronJob}
+            onRemoveDaemon={window.api.removeDaemon}
+        />
+)
+            }
+
             <PhotoViewer 
     isOpen={photoViewerOpen}
     onClose={() => setPhotoViewerOpen(false)}
@@ -6864,6 +6917,7 @@ const renderAttachmentThumbnails = () => {
                 currentPath={currentPath}
             />               
         </>
+
     );
 };
 

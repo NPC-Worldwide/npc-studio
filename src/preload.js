@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld('api', {
     executeJinx: (params) => ipcRenderer.invoke('executeJinx', params),
 
     getAvailableImageModels: (currentPath) => ipcRenderer.invoke('getAvailableImageModels', currentPath),
+    getCronDaemons: (currentPath) => ipcRenderer.invoke('getCronDaemons', currentPath),
+    addCronJob: (params) => ipcRenderer.invoke('addCronJob', params),
+    removeCronJob: (jobId) => ipcRenderer.invoke('removeCronJob', jobId),
+    addDaemon: (params) => ipcRenderer.invoke('addDaemon', params),
+    removeDaemon: (daemonId) => ipcRenderer.invoke('removeDaemon', daemonId),
 
    
     generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),

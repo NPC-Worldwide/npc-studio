@@ -12,6 +12,13 @@ try {
   pty = null;
 }
 
+const cron = require('node-cron');
+
+
+const cronJobs = new Map();  // id => {id, schedule, command, npc, jinx, task}
+const daemons = new Map();   // id => {id, name, command, npc, jinx, process}
+
+
 
 const sqlite3 = require('sqlite3');
 const dbPath = path.join(os.homedir(), 'npcsh_history.db');
@@ -174,6 +181,19 @@ async function waitForServer(maxAttempts = 120, delay = 1000) {
   log('Backend server failed to start in the allocated time');
   return false;
 }
+function scheduleCronJob(job) {
+  if (job.task) job.task.stop();
+  job.task = cron.schedule(job.schedule, () => {
+    // Here you can execute the command, maybe via npc/jinx logic or shell exec
+    console.log(`Executing cron job ${job.id}: ${job.command}`);
+    // Example: spawn a shell command
+    const child = spawn(job.command, { shell: true });
+    child.stdout.on('data', data => console.log(`Cron job output: ${data}`));
+    child.stderr.on('data', data => console.error(`Cron job error: ${data}`));
+  }, { scheduled: true });
+  return job.task;
+}
+
 
 async function ensureBaseDir() {
   try {
@@ -791,7 +811,77 @@ ipcMain.handle('executeJinx', async (event, data) => {
         timestamp: data.timestamp
     }, '*');
 });
- 
+
+
+ipcMain.handle('getCronDaemons', () => {
+  return {
+    cronJobs: Array.from(cronJobs.values()).map(({task, ...rest}) => rest),
+    daemons: Array.from(daemons.values()).map(({process, ...rest}) => rest)
+  };
+});
+
+ipcMain.handle('addCronJob', (event, { path, schedule, command, npc, jinx }) => {
+  const id = generateId();
+  const job = { id, path, schedule, command, npc, jinx, task: null };
+  scheduleCronJob(job);
+  cronJobs.set(id, job);
+  return { success: true, id };
+});
+
+ipcMain.handle('removeCronJob', (event, id) => {
+  if (cronJobs.has(id)) {
+    const job = cronJobs.get(id);
+    if (job.task) job.task.stop();
+    cronJobs.delete(id);
+    return { success: true };
+  } else {
+    return { success: false, error: 'Cron job not found' };
+  }
+});
+
+ipcMain.handle('addDaemon', (event, { path, name, command, npc, jinx }) => {
+  const id = generateId();
+
+  try {
+    // Spawn daemon process, e.g., continuous process for your NPC jinxs or commands
+    const proc = spawn(command, {
+      shell: true,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    proc.unref();
+
+    proc.stdout.on('data', data => {
+      console.log(`[Daemon ${name} stdout]: ${data.toString()}`);
+    });
+    proc.stderr.on('data', data => {
+      console.error(`[Daemon ${name} stderr]: ${data.toString()}`);
+    });
+    proc.on('exit', (code, signal) => {
+      console.log(`[Daemon ${name}] exited with code ${code}, signal ${signal}`);
+      // You may want to remove or restart
+    });
+
+    daemons.set(id, { id, path, name, command, npc, jinx, process: proc });
+    return { success: true, id };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('removeDaemon', (event, id) => {
+  if (daemons.has(id)) {
+    const daemon = daemons.get(id);
+    if (daemon.process) {
+      daemon.process.kill();
+    }
+    daemons.delete(id);
+    return { success: true };
+  }
+  return { success: false, error: 'Daemon not found' };
+});
+
+
   ipcMain.handle('update-shortcut', (event, newShortcut) => {
     const rcPath = path.join(os.homedir(), '.npcshrc');
     try {
