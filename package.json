@@ -117,6 +117,7 @@
     "electron-store": "^10.0.1",
     "install": "^0.13.0",
     "lucide-react": "^0.471.1",
+    "node-cron": "^4.2.1",
     "node-fetch": "^2.7.0",
     "npm": "^11.3.0",
     "os": "^0.1.2",
