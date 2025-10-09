@@ -3,6 +3,7 @@ const { desktopCapturer } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const simpleGit = require('simple-git');
 const fsPromises = require('fs/promises');
 const os = require('os');
 let pty;
@@ -1093,22 +1094,56 @@ ipcMain.handle('browser-get-page-content', async (event, { viewId }) => {
     }
     return { success: false, error: 'Browser view not found' };
 });
-
-
 ipcMain.handle('gitStatus', async (event, repoPath) => {
   log(`[Git] Getting status for: ${repoPath}`);
   try {
     const git = simpleGit(repoPath);
     const status = await git.status();
+
+    const allChangedFiles = status.files.map(f => {
+      let fileStatus = '';
+      let isStaged = false;
+      let isUntracked = false;
+
+      // Determine the primary status for display
+      if (f.index === 'M') {
+        fileStatus = 'Staged Modified'; // Modified in index
+        isStaged = true;
+      } else if (f.index === 'A') {
+        fileStatus = 'Staged Added'; // Added to index
+        isStaged = true;
+      } else if (f.index === 'D') {
+        fileStatus = 'Staged Deleted'; // Deleted from index
+        isStaged = true;
+      } else if (f.working_dir === 'M') {
+        fileStatus = 'Modified'; // Modified in working directory, not staged
+      } else if (f.working_dir === 'D') {
+        fileStatus = 'Deleted'; // Deleted in working directory, not staged
+      } else if (f.index === '??') {
+        fileStatus = 'Untracked'; // Untracked file
+        isUntracked = true;
+      } else {
+        fileStatus = 'Unknown Change'; // Fallback for any other types
+      }
+
+      return {
+        path: f.path,
+        status: fileStatus,
+        isStaged: isStaged,
+        isUntracked: isUntracked,
+      };
+    });
+
     return {
       success: true,
       branch: status.current,
       ahead: status.ahead,
       behind: status.behind,
-      staged: status.files.filter(f => f.index !== ' ').map(f => f.path),
-      unstaged: status.files.filter(f => f.working_dir !== ' ' && f.index === ' ').map(f => f.path),
-      untracked: status.not_added,
-      hasChanges: status.files.length > 0 || status.not_added.length > 0
+      // Filter based on the new structured 'allChangedFiles'
+      staged: allChangedFiles.filter(f => f.isStaged),
+      unstaged: allChangedFiles.filter(f => !f.isStaged && !f.isUntracked),
+      untracked: allChangedFiles.filter(f => f.isUntracked),
+      hasChanges: allChangedFiles.length > 0
     };
   } catch (err) {
     console.error(`[Git] Error getting status for ${repoPath}:`, err);
