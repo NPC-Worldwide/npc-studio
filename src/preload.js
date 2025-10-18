@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld('api', {
     getActivityData: (options) => ipcRenderer.invoke('getActivityData', options),
     getHistogramData: () => ipcRenderer.invoke('getHistogramData'),
     executeSQL: (options) => ipcRenderer.invoke('executeSQL', options),
+    deleteMessage: (params) => ipcRenderer.invoke('deleteMessage', params),
 
     listTables: () => ipcRenderer.invoke('db:listTables'),
     getTableSchema: (args) => ipcRenderer.invoke('db:getTableSchema', args),

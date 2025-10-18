@@ -839,7 +839,51 @@ ipcMain.handle('removeCronJob', (event, id) => {
     return { success: false, error: 'Cron job not found' };
   }
 });
-
+ipcMain.handle('deleteMessage', async (_, { conversationId, messageId }) => {
+  try {
+    const db = new sqlite3.Database(dbPath);
+    
+    // Delete by message_id column (which is what the backend actually uses)
+    const deleteMessageQuery = `
+      DELETE FROM conversation_history 
+      WHERE conversation_id = ? 
+      AND message_id = ?
+    `;
+    
+    let rowsAffected = 0;
+    await new Promise((resolve, reject) => {
+      db.run(deleteMessageQuery, [conversationId, messageId], function(err) {
+        if (err) {
+          reject(err);
+        } else {
+          rowsAffected = this.changes;
+          log(`[DB] Deleted message ${messageId} from conversation ${conversationId}. Rows affected: ${this.changes}`);
+          resolve();
+        }
+      });
+    });
+    
+    // Also delete associated attachments
+    if (rowsAffected > 0) {
+      const deleteAttachmentsQuery = 'DELETE FROM message_attachments WHERE message_id = ?';
+      await new Promise((resolve) => {
+        db.run(deleteAttachmentsQuery, [messageId], function(err) {
+          if (err) {
+            log(`[DB] Warning: Failed to delete attachments for message ${messageId}:`, err.message);
+          }
+          resolve();
+        });
+      });
+    }
+    
+    db.close();
+    
+    return { success: rowsAffected > 0, rowsAffected };
+  } catch (err) {
+    console.error('Error deleting message:', err);
+    return { success: false, error: err.message, rowsAffected: 0 };
+  }
+});
 ipcMain.handle('addDaemon', (event, { path, name, command, npc, jinx }) => {
   const id = generateId();
 

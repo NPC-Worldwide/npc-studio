@@ -1450,12 +1450,14 @@ const toggleMessageSelectionMode = () => {
 const handleMessageContextMenu = useCallback((e, messageId) => {
     e.preventDefault();
     e.stopPropagation();
-   
+    
+    // Capture any selected text from the window
+    const selectedText = window.getSelection()?.toString() || '';
+    
     if (!messageSelectionMode) {
         setMessageSelectionMode(true);
         setSelectedMessages(new Set([messageId]));
     } else {
-       
         setSelectedMessages(prev => {
             const newSelected = new Set(prev);
             if (!newSelected.has(messageId)) {
@@ -1464,8 +1466,11 @@ const handleMessageContextMenu = useCallback((e, messageId) => {
             return newSelected;
         });
     }
-    setMessageContextMenuPos({ x: e.clientX, y: e.clientY, messageId });
+    
+    // Store selected text in context menu position state
+    setMessageContextMenuPos({ x: e.clientX, y: e.clientY, messageId, selectedText });
 }, [messageSelectionMode]);
+
 const handlePathChange = useCallback(async (newPath) => {
     // Save current workspace before switching
     if (currentPath && rootLayoutNode) {
@@ -2236,6 +2241,23 @@ const renderMessageContextMenu = () => (
                 style={{ top: messageContextMenuPos.y, left: messageContextMenuPos.x }}
                 onMouseLeave={() => setMessageContextMenuPos(null)}
             >
+                {/* Show copy option if there's selected text */}
+                {messageContextMenuPos.selectedText && (
+                    <>
+                        <button
+                            onClick={() => {
+                                navigator.clipboard.writeText(messageContextMenuPos.selectedText);
+                                setMessageContextMenuPos(null);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+                        >
+                            <Edit size={14} />
+                            <span>Copy Selected Text</span>
+                        </button>
+                        <div className="border-t theme-border my-1"></div>
+                    </>
+                )}
+                
                 <button
                     onClick={() => handleApplyPromptToMessages('summarize')}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
@@ -2280,11 +2302,20 @@ const renderMessageContextMenu = () => (
                     <Edit size={14} />
                     <span>Extract in Input Field ({selectedMessages.size})</span>
                 </button>
+                
+                {/* Delete option */}
+                <div className="border-t theme-border my-1"></div>
+                <button
+                    onClick={handleDeleteSelectedMessages}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400 text-xs"
+                >
+                    <Trash size={14} />
+                    <span>Delete Messages ({selectedMessages.size})</span>
+                </button>
             </div>
         </>
     )
 );
-
 
 const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
     setRootLayoutNode(oldRoot => {
@@ -2602,7 +2633,7 @@ onDragEnd={handleGlobalDragEnd}>
                     </div>
                     <button 
                         onClick={() => closeContentPane(nodeId, path)} 
-                        className="p-1 theme-hover rounded-full flex-shrink-0"
+  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
                     >
                         <X size={14} />
                     </button>
@@ -2827,7 +2858,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
                 </div>
                 <button 
                     onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))}
-                    className="p-1 theme-hover rounded-full"
+  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
                     onMouseDown={(e) => e.stopPropagation()}
                 >
                     <X size={14} />
@@ -2970,7 +3001,10 @@ useEffect(() => {
                         <Terminal size={14} />
                         <span className="truncate" title={terminalId}>Terminal</span>
                     </div>
-                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full">
+                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))}
+  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
+                     
+                     >
                         <X size={14} />
                     </button>
                 </div>
@@ -3070,7 +3104,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
                             console.log(`[renderFileEditor] X button clicked for pane ${nodeId}. Calling closeContentPane with path:`, path); // <--- LAVANZARO'S LOGGING!
                             closeContentPane(nodeId, path);
                         }} 
-                        className="p-1 theme-hover rounded-full flex-shrink-0"
+  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
                         onMouseDown={(e) => e.stopPropagation()}
                     >
                         <X size={14} />
@@ -3225,7 +3259,51 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             </div>
         );
     };    
+const [paneContextMenu, setPaneContextMenu] = useState(null);
 
+const renderPaneContextMenu = () => {
+  if (!paneContextMenu?.isOpen) return null;
+  const { x, y, nodeId, nodePath } = paneContextMenu;
+
+  const closePane = () => {
+    closeContentPane(nodeId, nodePath);
+    setPaneContextMenu(null);
+  };
+
+  const splitPane = (side) => {
+    performSplit(nodePath, side, 'chat', null); // or appropriate contentType and contentId
+    setPaneContextMenu(null);
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={() => setPaneContextMenu(null)} />
+      <div
+        className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
+        style={{ top: y, left: x }}
+        onMouseLeave={() => setPaneContextMenu(null)}
+      >
+        <button onClick={closePane} className="block px-4 py-2 w-full text-left theme-hover">
+          Close Pane
+        </button>
+        <div className="border-t theme-border my-1" />
+        <button onClick={() => splitPane('left')} className="block px-4 py-2 w-full text-left theme-hover">
+          Split Left
+        </button>
+        <button onClick={() => splitPane('right')} className="block px-4 py-2 w-full text-left theme-hover">
+          Split Right
+        </button>
+        <button onClick={() => splitPane('top')} className="block px-4 py-2 w-full text-left theme-hover">
+          Split Top
+        </button>
+        <button onClick={() => splitPane('bottom')} className="block px-4 py-2 w-full text-left theme-hover">
+          Split Bottom
+        </button>
+        {/* You can add Move options or drag instructions here */}
+      </div>
+    </>
+  );
+};
     const renderChatView = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
         if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
@@ -3303,14 +3381,34 @@ const renderFileEditor = useCallback(({ nodeId }) => {
     
         return (
             <div ref={paneRef} className="flex-1 flex flex-col min-h-0 overflow-hidden relative focus:outline-none" tabIndex={-1}>
-<div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+<div 
+  className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+
     draggable="true"
     onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move';
         const nodePath = findNodePath(rootLayoutNode, nodeId);
         setDraggedItem({ type: 'pane', id: nodeId, nodePath });
     }}
-    onDragEnd={() => setDraggedItem(null)}
+    onDragEnd={() => setDraggedItem(null)
+        
+        
+        
+    }
+      onContextMenu={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log(`[Pane Header] Right-click at (${e.clientX},${e.clientY}) on pane ${nodeId}`);
+    setPaneContextMenu({
+      isOpen: true,
+      x: e.clientX,
+      y: e.clientY,
+      nodeId,
+      nodePath: findNodePath(rootLayoutNode, nodeId)
+    });
+  }}
+
+    
 >
 
                     <div className="flex justify-between items-center min-h-[28px]">
@@ -3333,7 +3431,9 @@ const renderFileEditor = useCallback(({ nodeId }) => {
                             <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`}>
                                 <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
                             </button>
-                            <button onClick={() => closeContentPane(nodeId, path)} className="p-1 theme-hover rounded-full flex-shrink-0">
+                            <button onClick={() => closeContentPane(nodeId, path)}
+  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
+                             >
                                 <X size={14} />
                             </button>
                         </div>
@@ -5166,8 +5266,73 @@ const getConversationStats = (messages) => {
         ...stats
     };
 };
-
-
+const handleDeleteSelectedMessages = async () => {
+    const selectedIds = Array.from(selectedMessages);
+    if (selectedIds.length === 0) return;
+    
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData || !activePaneData.chatMessages) {
+        console.error("No active chat pane data found for message deletion.");
+        return;
+    }
+    
+    const conversationId = activePaneData.contentId;
+    
+    try {
+        // Get the actual message_id from the message object
+        const messagesToDelete = activePaneData.chatMessages.allMessages.filter(
+            msg => selectedIds.includes(msg.id || msg.timestamp)
+        );
+        
+        console.log('Attempting to delete messages:', messagesToDelete.map(m => ({
+            frontendId: m.id,
+            message_id: m.message_id,
+            timestamp: m.timestamp
+        })));
+        
+        // Delete using message_id if available, otherwise use id
+        const deleteResults = await Promise.all(
+            messagesToDelete.map(async msg => {
+                const idToUse = msg.message_id || msg.id || msg.timestamp;
+                console.log(`Deleting message with ID: ${idToUse}`);
+                const result = await window.api.deleteMessage({ 
+                    conversationId, 
+                    messageId: idToUse 
+                });
+                return { ...result, frontendId: msg.id };
+            })
+        );
+        
+        console.log('Delete results:', deleteResults);
+        
+        // Check if any actually deleted
+        const successfulDeletes = deleteResults.filter(r => r.success && r.rowsAffected > 0);
+        if (successfulDeletes.length === 0) {
+            setError("Failed to delete messages from database");
+            console.error("No messages were deleted from DB");
+            return;
+        }
+        
+        // Remove from local state
+        activePaneData.chatMessages.allMessages = activePaneData.chatMessages.allMessages.filter(
+            msg => !selectedIds.includes(msg.id || msg.timestamp)
+        );
+        activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
+            -activePaneData.chatMessages.displayedMessageCount
+        );
+        activePaneData.chatStats = getConversationStats(activePaneData.chatMessages.allMessages);
+        
+        setRootLayoutNode(prev => ({ ...prev }));
+        setSelectedMessages(new Set());
+        setMessageContextMenuPos(null);
+        setMessageSelectionMode(false);
+        
+        console.log(`Successfully deleted ${successfulDeletes.length} of ${selectedIds.length} messages`);
+    } catch (err) {
+        console.error('Error deleting messages:', err);
+        setError(err.message);
+    }
+};
 const handleSummarizeAndStart = async () => {
         const selectedIds = Array.from(selectedConvos);
         if (selectedIds.length === 0) return;
@@ -6881,12 +7046,14 @@ const renderAttachmentThumbnails = () => {
             )}
 
 
-            
+                    {renderPaneContextMenu()}
+
         {renderPdfContextMenu()}
         {renderBrowserContextMenu()}
         
 
         {renderMessageContextMenu()}
+
 
             {isMacroInputOpen && (<MacroInput isOpen={isMacroInputOpen} currentPath={currentPath} onClose={() => { setIsMacroInputOpen(false); window.api?.hideMacro?.(); }} onSubmit={({ macro, conversationId, result }) => { setActiveConversationId(conversationId); setCurrentConversation({ id: conversationId, title: macro.trim().slice(0, 50) }); if (!result) { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: 'Processing...', timestamp: new Date().toISOString(), type: 'message' }]); } else { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: result?.output || 'No response', timestamp: new Date().toISOString(), type: 'message' }]); } refreshConversations(); }}/> )}
             {cronDaemonPanelOpen &&(

@@ -1085,6 +1085,17 @@ body.dark-mode .cm-activeLineGutter {
   z-index: 10;
   position: relative;
 }
+.pane-header-close-button {
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 20;
+  transition: color 0.2s ease;
+}
+
+.pane-header-close-button:hover {
+  color: var(--theme-danger) !important; /* Red on hover */
+  cursor: pointer;
+}
 
 
 /* Modal overlay: full-screen, dark translucent background */
