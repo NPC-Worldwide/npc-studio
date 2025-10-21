@@ -41,6 +41,7 @@ const ensureTablesExist = async () => {
           file_path TEXT NOT NULL,
           highlighted_text TEXT NOT NULL,
           position_json TEXT NOT NULL,
+          annotation TEXT DEFAULT '', -- <--- CRITICAL FIX: ADDED ANNOTATION COLUMN
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       );
   `;
@@ -85,6 +86,7 @@ const ensureTablesExist = async () => {
       console.error('[DB] FATAL: Could not create tables.', error);
   }
 };
+
 app.setAppUserModelId('com.npc_studio.chat');
 app.name = 'npc-studio';
 app.setName('npc-studio');
@@ -772,29 +774,8 @@ ipcMain.handle('executeJinx', async (event, data) => {
       }
   });
 
-  ipcMain.handle('db:getHighlightsForFile', async (event, { filePath }) => {
-    try {
-      ensureTablesExist();
-      const rows = await dbQuery('SELECT * FROM pdf_highlights WHERE file_path = ? ORDER BY id ASC', [filePath]);
-     
-      return { highlights: rows.map(r => ({ ...r, position: JSON.parse(r.position_json) })) };
-    } catch (error) {
-      return { error: error.message };
-    }
-  });
-  
-  ipcMain.handle('db:addPdfHighlight', async (event, { filePath, text, position }) => {
-    try {
-      const positionJson = JSON.stringify(position);
-      await dbQuery(
-        'INSERT INTO pdf_highlights (file_path, highlighted_text, position_json) VALUES (?, ?, ?)',
-        [filePath, text, positionJson]
-      );
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
+
+
   
   ipcMain.handle('open_directory_picker', async () => {
     const result = await dialog.showOpenDialog({
@@ -1910,6 +1891,68 @@ app.on('will-quit', () => {
         return { jinxs: [], error: err.message };
     }
 });
+ipcMain.handle('db:addPdfHighlight', async (event, { filePath, text, position, annotation = '' }) => {
+  console.log('[DB_ADD_HIGHLIGHT] Received request:', {
+    filePath,
+    textLength: text?.length,
+    positionType: typeof position,
+    position: position,
+    annotation
+  });
+  
+  try {
+    const positionJson = JSON.stringify(position);
+    console.log('[DB_ADD_HIGHLIGHT] Stringified position:', positionJson.substring(0, 100));
+    
+    const result = await dbQuery(
+      'INSERT INTO pdf_highlights (file_path, highlighted_text, position_json, annotation) VALUES (?, ?, ?, ?)',
+      [filePath, text, positionJson, annotation]
+    );
+    
+    console.log('[DB_ADD_HIGHLIGHT] Insert result:', result);
+    return { success: true, lastID: result.lastID };
+  } catch (error) {
+    console.error('[DB_ADD_HIGHLIGHT] Error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('db:getHighlightsForFile', async (event, { filePath }) => {
+  console.log('[DB_GET_HIGHLIGHTS] Fetching for file:', filePath);
+  
+  try {
+    await ensureTablesExist();
+    const rows = await dbQuery('SELECT * FROM pdf_highlights WHERE file_path = ? ORDER BY id ASC', [filePath]);
+    
+    console.log('[DB_GET_HIGHLIGHTS] Found rows:', rows.length);
+    
+    const highlights = rows.map(r => {
+      console.log('[DB_GET_HIGHLIGHTS] Raw row:', r);
+      
+      let position = {};
+      try {
+        position = JSON.parse(r.position_json);
+        console.log('[DB_GET_HIGHLIGHTS] Parsed position:', position);
+      } catch (e) {
+        console.error('[DB_GET_HIGHLIGHTS] Error parsing position_json:', e, r.position_json);
+      }
+      
+      return {
+        ...r,
+        position: position,
+        annotation: r.annotation || ''
+      };
+    });
+    
+    console.log('[DB_GET_HIGHLIGHTS] Returning highlights:', highlights);
+    return { highlights };
+  } catch (error) {
+    console.error('[DB_GET_HIGHLIGHTS] Error:', error);
+    return { error: error.message };
+  }
+});
+
+
 ipcMain.handle('db:listTables', async () => {
   try {
     const rows = await dbQuery("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
