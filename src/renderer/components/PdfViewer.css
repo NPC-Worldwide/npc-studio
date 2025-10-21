@@ -1,0 +1,267 @@
+/* PdfViewer.css - COMPLETE FIXED VERSION */
+
+/* ============================================
+   FORCE NATIVE TEXT SELECTION TO SHOW BLUE
+   ============================================ */
+
+.pdf-viewer-container .rpv-core__text-layer {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    pointer-events: auto !important;
+    cursor: text !important;
+    z-index: 2 !important;
+}
+
+.pdf-viewer-container .rpv-core__text-layer * {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    pointer-events: auto !important;
+}
+
+.pdf-viewer-container .rpv-core__text-layer span {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    pointer-events: auto !important;
+}
+
+/* ============================================
+   BLUE SELECTION HIGHLIGHT
+   ============================================ */
+
+.pdf-viewer-container ::selection {
+    background: #3b82f6 !important;
+    color: white !important;
+    text-shadow: none !important;
+}
+
+.pdf-viewer-container ::-moz-selection {
+    background: #3b82f6 !important;
+    color: white !important;
+    text-shadow: none !important;
+}
+
+.pdf-viewer-container .rpv-core__text-layer ::selection {
+    background: #3b82f6 !important;
+    color: white !important;
+}
+
+.pdf-viewer-container .rpv-core__text-layer ::-moz-selection {
+    background: #3b82f6 !important;
+    color: white !important;
+}
+
+.pdf-viewer-container .rpv-core__text-layer * ::selection {
+    background: #3b82f6 !important;
+    color: white !important;
+}
+
+.pdf-viewer-container .rpv-core__text-layer * ::-moz-selection {
+    background: #3b82f6 !important;
+    color: white !important;
+}
+
+.pdf-viewer-container .rpv-core__text-layer span::selection {
+    background: #3b82f6 !important;
+    color: white !important;
+}
+
+.pdf-viewer-container .rpv-core__text-layer span::-moz-selection {
+    background: #3b82f6 !important;
+    color: white !important;
+}
+
+/* ============================================
+   CANVAS BEHIND TEXT
+   ============================================ */
+
+.pdf-viewer-container .rpv-core__canvas-layer {
+    pointer-events: none !important;
+    z-index: 1 !important;
+}
+
+.pdf-viewer-container .rpv-core__canvas-layer canvas {
+    pointer-events: none !important;
+}
+
+/* ============================================
+   VIEWER
+   ============================================ */
+
+.pdf-viewer-container .rpv-core__viewer {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+}
+
+.pdf-viewer-container {
+    cursor: text !important;
+}
+
+/* ============================================
+   HIDE ONLY POPUPS/TOOLTIPS
+   ============================================ */
+
+.pdf-viewer-container .rpv-core__popover {
+    display: none !important;
+}
+
+.pdf-viewer-container .rpv-core__tooltip {
+    display: none !important;
+}
+
+/* ============================================
+   ANNOTATION LAYER
+   ============================================ */
+
+.pdf-viewer-container .rpv-core__annotation-layer {
+    pointer-events: none !important;
+    z-index: 3 !important;
+}
+
+.pdf-viewer-container .rpv-core__annotation-layer > * {
+    pointer-events: auto !important;
+}
+
+/* ============================================
+   PAGE LAYERS
+   ============================================ */
+
+.pdf-viewer-container .rpv-core__page-layer {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+}
+
+.pdf-viewer-container .rpv-core__inner-page {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    pointer-events: auto !important;
+}
+
+/* ============================================
+   DARK MODE
+   ============================================ */
+
+.dark-mode .pdf-viewer-container ::selection {
+    background: #06b6d4 !important;
+    color: white !important;
+}
+
+.dark-mode .pdf-viewer-container ::-moz-selection {
+    background: #06b6d4 !important;
+    color: white !important;
+}
+
+.dark-mode .pdf-viewer-container .rpv-core__text-layer ::selection {
+    background: #06b6d4 !important;
+    color: white !important;
+}
+
+.dark-mode .pdf-viewer-container .rpv-core__text-layer ::-moz-selection {
+    background: #06b6d4 !important;
+    color: white !important;
+}
+
+/* ============================================
+   LIGHT MODE
+   ============================================ */
+
+.light-mode .pdf-viewer-container ::selection {
+    background: #1e40af !important;
+    color: white !important;
+}
+
+.light-mode .pdf-viewer-container ::-moz-selection {
+    background: #1e40af !important;
+    color: white !important;
+}
+
+.light-mode .pdf-viewer-container .rpv-core__text-layer ::selection {
+    background: #1e40af !important;
+    color: white !important;
+}
+
+.light-mode .pdf-viewer-container .rpv-core__text-layer ::-moz-selection {
+    background: #1e40af !important;
+    color: white !important;
+}
+
+/* ============================================
+   TOOLBAR
+   ============================================ */
+
+.pdf-viewer-container .rpv-default-layout__toolbar {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+
+/* ============================================
+   SCROLLBAR
+   ============================================ */
+
+.pdf-viewer-container::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.pdf-viewer-container::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.pdf-viewer-container::-webkit-scrollbar-thumb {
+    background: rgba(59, 130, 246, 0.5);
+    border-radius: 5px;
+}
+
+.pdf-viewer-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(59, 130, 246, 0.7);
+}
+
+/* ============================================
+   LOADING/ERROR
+   ============================================ */
+
+.pdf-viewer-container .rpv-core__spinner {
+    user-select: none !important;
+}
+
+.pdf-viewer-container .rpv-core__error {
+    user-select: text !important;
+    color: #ef4444;
+    padding: 1rem;
+}
+
+/* ============================================
+   FOCUS
+   ============================================ */
+
+.pdf-viewer-container:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* ============================================
+   SCALE FACTOR
+   ============================================ */
+
+.rpv-core__text-layer {
+    --scale-factor: 1;
+}
+
+/* ============================================
+   PERFORMANCE
+   ============================================ */
+
+.pdf-viewer-container .rpv-core__text-layer {
+    will-change: transform;
+    transform: translateZ(0);
+}
+.pdf-viewer-container .rpv-core__selection-layer {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: none !important;
+    z-index: 5 !important;
+}
