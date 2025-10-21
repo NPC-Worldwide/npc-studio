@@ -364,6 +364,7 @@ const ChatMessage = memo(({
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true); // <--- NEW STATE: Default to collapsed
+const [pdfHighlightsTrigger, setPdfHighlightsTrigger] = useState(0);
 
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [editedPath, setEditedPath] = useState('');
@@ -765,7 +766,54 @@ const handleBrowserAddToChat = () => {
     const [rootLayoutNode, setRootLayoutNode] = useState(null);
    
     const [activeContentPaneId, setActiveContentPaneId] = useState(null);
-   
+const loadPdfHighlightsForActivePane = useCallback(async () => {
+    console.log('[LOAD_HIGHLIGHTS] Starting load for pane:', activeContentPaneId);
+    
+    if (activeContentPaneId) {
+        const paneData = contentDataRef.current[activeContentPaneId];
+        console.log('[LOAD_HIGHLIGHTS] Pane data:', paneData);
+        
+        if (paneData && paneData.contentType === 'pdf') {
+            console.log('[LOAD_HIGHLIGHTS] Fetching highlights for:', paneData.contentId);
+            
+            const response = await window.api.getHighlightsForFile(paneData.contentId);
+            console.log('[LOAD_HIGHLIGHTS] Response:', response);
+            
+            if (response.highlights) {
+                console.log('[LOAD_HIGHLIGHTS] Raw highlights count:', response.highlights.length);
+                
+                const transformedHighlights = response.highlights.map(h => {
+                    console.log('[LOAD_HIGHLIGHTS] Transforming highlight:', h);
+                    
+                    const positionObject = typeof h.position === 'string' 
+                        ? JSON.parse(h.position) 
+                        : h.position;
+
+                    return {
+                        id: h.id,
+                        position: positionObject,
+                        content: {
+                            text: h.highlighted_text,
+                            annotation: h.annotation || ''
+                        }
+                    };
+                });
+                
+                console.log('[LOAD_HIGHLIGHTS] Setting highlights:', transformedHighlights);
+                setPdfHighlights(transformedHighlights);
+            } else {
+                console.log('[LOAD_HIGHLIGHTS] No highlights in response');
+                setPdfHighlights([]);
+            }
+        } else {
+            console.log('[LOAD_HIGHLIGHTS] Not a PDF pane or no pane data');
+            setPdfHighlights([]);
+        }
+    } else {
+        console.log('[LOAD_HIGHLIGHTS] No active content pane');
+    }
+}, [activeContentPaneId]);
+
     const [draggedItem, setDraggedItem] = useState(null);
     const [dropTarget, setDropTarget] = useState(null);
    
@@ -1495,31 +1543,41 @@ const validateWorkspaceData = (workspaceData) => {
     return true;
 };
 
+
+const [pdfSelectionIndicator, setPdfSelectionIndicator] = useState(null);
+
 const handlePdfTextSelect = (selectionEvent) => {
-    console.log('[PDF_SELECT] handlePdfTextSelect called with:', selectionEvent);
+    console.log('[PDF_SELECT] handlePdfTextSelect called:', selectionEvent);
     
-    if (selectionEvent && selectionEvent.selectedText && selectionEvent.selectedText.trim()) {
+    if (selectionEvent?.selectedText?.trim()) {
         console.log('[PDF_SELECT] Setting selectedPdfText:', {
-            text: selectionEvent.selectedText.substring(0, 50) + '...',
-            textLength: selectionEvent.selectedText.length,
-            pageIndex: selectionEvent.pageIndex,
-            hasQuads: !!selectionEvent.quads
+            text: selectionEvent.selectedText.substring(0, 50),
+            length: selectionEvent.selectedText.length
         });
         
         setSelectedPdfText({
             text: selectionEvent.selectedText,
             position: {
-                pageIndex: selectionEvent.pageIndex,
-                quads: selectionEvent.quads
+                pageIndex: selectionEvent.pageIndex || 0,
+                quads: selectionEvent.quads || []
             }
         });
-    } else {
-        console.log('[PDF_SELECT] No valid selection event or empty text:', {
-            hasEvent: !!selectionEvent,
-            hasSelectedText: !!(selectionEvent?.selectedText),
-            textLength: selectionEvent?.selectedText?.length || 0,
-            trimmedLength: selectionEvent?.selectedText?.trim()?.length || 0
+        
+        // Add visual indicator that text is selected
+        setPdfSelectionIndicator({
+            text: selectionEvent.selectedText.substring(0, 100),
+            timestamp: Date.now()
         });
+        
+        // Clear indicator after 2 seconds
+        setTimeout(() => {
+            if (Date.now() - selectionEvent.timestamp < 2100) {
+                setPdfSelectionIndicator(null);
+            }
+        }, 2000);
+    } else {
+        console.log('[PDF_SELECT] Clearing selectedPdfText');
+        setSelectedPdfText(null);
     }
 };
 
@@ -1529,27 +1587,40 @@ const handleCopyPdfText = () => {
     }
     setPdfContextMenuPos(null);
 };
+
+
 const handleHighlightPdfSelection = async () => {
     if (!selectedPdfText) return;
     const paneData = contentDataRef.current[activeContentPaneId];
     if (!paneData || paneData.contentType !== 'pdf') return;
 
     const filePath = paneData.contentId;
-    
-   
-    const highlightData = {
-        filePath: filePath,
-        text: selectedPdfText.text,
-        position: selectedPdfText.position 
-    };
+    const { text, position } = selectedPdfText;
 
-    await window.api.addPdfHighlight(highlightData);
-    const response = await window.api.getHighlightsForFile(filePath);
-    if (response.highlights) {
-        setPdfHighlights(response.highlights);
+    try {
+        // LOGGING: See what is being sent
+        console.log('[SAVE HIGHLIGHT] Sending data:', { filePath, text, position });
+
+        const saveResult = await window.api.addPdfHighlight({
+            filePath,
+            text,
+            position: position, // FIX: Send the raw position object, NOT a string
+            annotation: ''
+        });
+
+        if (saveResult.success) {
+            console.log('[PDF] Highlight saved successfully');
+            await loadPdfHighlightsForActivePane();
+        } else {
+            console.error('[PDF] Failed to save highlight:', saveResult.error);
+        }
+    } catch (err) {
+        console.error('[PDF] Error saving highlight:', err);
     }
+
     setPdfContextMenuPos(null);
 };
+
 
 const handleApplyPromptToPdfText = (promptType) => {
     if (!selectedPdfText?.text) return;
@@ -1566,39 +1637,10 @@ const handleApplyPromptToPdfText = (promptType) => {
     setInput(prompt);
     setPdfContextMenuPos(null);
 };
-
-
 useEffect(() => {
-    const loadHighlights = async () => {
-        if (activeContentPaneId) {
-            const paneData = contentDataRef.current[activeContentPaneId];
-            if (paneData && paneData.contentType === 'pdf') {
-                const response = await window.api.getHighlightsForFile(paneData.contentId);
-                if (response.highlights) {
-                   
-                   
-                    const transformedHighlights = response.highlights.map(h => ({
-                        id: h.id,
-                        position: {
-                            pageIndex: h.position.pageIndex,
-                            rects: h.position.quads,        
-                        },
-                        content: {
-                            text: h.highlighted_text,
-                        }
-                    }));
-                    setPdfHighlights(transformedHighlights);
-                   
-                } else {
-                    setPdfHighlights([]);
-                }
-            } else {
-                setPdfHighlights([]);
-            }
-        }
-    };
-    loadHighlights();
-}, [activeContentPaneId, contentDataRef.current[activeContentPaneId]?.contentId]);
+    loadPdfHighlightsForActivePane();
+}, [activeContentPaneId, pdfHighlightsTrigger, loadPdfHighlightsForActivePane]);
+
 
 const handleEditorContextMenu = (e) => {
     const textarea = e.target;
@@ -2587,68 +2629,7 @@ const createNewTerminal = useCallback(async () => {
     setCurrentFile(null);
 }, [createAndAddPaneNodeToLayout, updateContentPane]);
 
-    const renderPdfViewer = useCallback(({ nodeId }) => {
-        const paneData = contentDataRef.current[nodeId];
-        if (!paneData?.contentId) return null;
-        const path = findNodePath(rootLayoutNode, nodeId);
-    
-        console.log('[PDF_RENDER] Rendering PDF viewer for pane:', nodeId, 'with selectedPdfText:', {
-            hasSelection: !!selectedPdfText,
-            textPreview: selectedPdfText?.text?.substring(0, 30) + '...' || 'none'
-        });
-    
-        const handlePdfContextMenu = (e) => {
-            console.log('[PDF_CONTEXT] Context menu handler called from PdfViewer');
-            console.log('[PDF_CONTEXT] Event details:', {
-                clientX: e.clientX,
-                clientY: e.clientY,
-                hasSelectedPdfText: !!selectedPdfText,
-                selectedTextPreview: selectedPdfText?.text?.substring(0, 50) || 'none'
-            });
-            
-           
-            if (selectedPdfText && selectedPdfText.text) {
-                console.log('[PDF_CONTEXT] Showing context menu at:', { x: e.clientX, y: e.clientY });
-                setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
-            } else {
-                console.log('[PDF_CONTEXT] Not showing context menu - no selected text');
-            }
-        };
-    
-        return (
-            <div className="flex-1 flex flex-col theme-bg-secondary relative">
-<div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move" draggable="true" 
- onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = 'move'; // Use 'move' for existing panes
-        const nodePath = findNodePath(rootLayoutNode, nodeId);
-        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
-    }}
-onDragEnd={handleGlobalDragEnd}>
 
-                <div className="flex items-center gap-2 truncate">
-                        {getFileIcon(paneData.contentId)}
-                        <span className="truncate" title={paneData.contentId}>
-                            {paneData.contentId.split('/').pop()}
-                        </span>
-                    </div>
-                    <button 
-                        onClick={() => closeContentPane(nodeId, path)} 
-  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
-                    >
-                        <X size={14} />
-                    </button>
-                </div>
-                <div className="flex-1 min-h-0">
-                <PdfViewer
-                        filePath={paneData.contentId}
-                        highlights={pdfHighlights}
-                        onTextSelect={handlePdfTextSelect}
-                        onContextMenu={handlePdfContextMenu}
-                    />
-                </div>
-            </div>
-        );
-    }, [rootLayoutNode, selectedPdfText, pdfHighlights,setDraggedItem]);
 const handleGlobalDragStart = useCallback((e, item) => {
   Object.values(contentDataRef.current).forEach(paneData => {
     if (paneData.contentType === 'browser' && paneData.contentId) {
@@ -2977,7 +2958,73 @@ useEffect(() => {
         );
     };
     
+const handlePdfContextMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     
+    console.log('[PDF_CONTEXT] Context menu handler called');
+    
+    // The selected text should now be in selectedPdfText from handlePdfTextSelect
+    if (selectedPdfText?.text && selectedPdfText.text.trim()) {
+        console.log('[PDF_CONTEXT] Showing context menu with text:', selectedPdfText.text.substring(0, 50));
+        setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
+    } else {
+        console.log('[PDF_CONTEXT] No valid text selected, showing menu anyway');
+        // Show menu even without text - user might want other options
+        setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
+    }
+};
+    const renderPdfViewer = useCallback(({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData?.contentId) return null;
+        const path = findNodePath(rootLayoutNode, nodeId);
+
+        const handlePdfContextMenu = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (selectedPdfText?.text) {
+                setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
+            }
+        };
+
+        return (
+            <div className="flex-1 flex flex-col theme-bg-secondary relative">
+                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move" 
+                    draggable="true" 
+                    onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        const nodePath = findNodePath(rootLayoutNode, nodeId);
+                        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+                    }}
+                    onDragEnd={handleGlobalDragEnd}>
+
+                    <div className="flex items-center gap-2 truncate">
+                        {getFileIcon(paneData.contentId)}
+                        <span className="truncate" title={paneData.contentId}>
+                            {paneData.contentId.split('/').pop()}
+                        </span>
+                    </div>
+                    <button 
+                        onClick={() => closeContentPane(nodeId, path)} 
+                        className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+
+                <div className="flex-1 min-h-0">
+                    <PdfViewer
+                        filePath={paneData.contentId}
+                        highlights={pdfHighlights}
+                        onTextSelect={handlePdfTextSelect}
+                        onContextMenu={handlePdfContextMenu}
+                        onHighlightAddedCallback={loadPdfHighlightsForActivePane}
+                    />
+                </div>
+            </div>
+        );
+    }, [rootLayoutNode, selectedPdfText, pdfHighlights, setDraggedItem, closeContentPane, findNodePath, handleGlobalDragEnd, handlePdfTextSelect, loadPdfHighlightsForActivePane]);
 
     const renderTerminalView = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
@@ -3260,6 +3307,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
         );
     };    
 const [paneContextMenu, setPaneContextMenu] = useState(null);
+
 
 const renderPaneContextMenu = () => {
   if (!paneContextMenu?.isOpen) return null;
