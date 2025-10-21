@@ -10,8 +10,15 @@ contextBridge.exposeInMainWorld('api', {
     readDirectoryImages: (dirPath) => ipcRenderer.invoke('readDirectoryImages', dirPath),
     open_directory_picker: () => ipcRenderer.invoke('open_directory_picker'),
 
-    
+    getAvailableJinxs: (params) => ipcRenderer.invoke('getAvailableJinxs', params),
+    executeJinx: (params) => ipcRenderer.invoke('executeJinx', params),
+
     getAvailableImageModels: (currentPath) => ipcRenderer.invoke('getAvailableImageModels', currentPath),
+    getCronDaemons: (currentPath) => ipcRenderer.invoke('getCronDaemons', currentPath),
+    addCronJob: (params) => ipcRenderer.invoke('addCronJob', params),
+    removeCronJob: (jobId) => ipcRenderer.invoke('removeCronJob', jobId),
+    addDaemon: (params) => ipcRenderer.invoke('addDaemon', params),
+    removeDaemon: (daemonId) => ipcRenderer.invoke('removeDaemon', daemonId),
 
    
     generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),
@@ -27,6 +34,12 @@ contextBridge.exposeInMainWorld('api', {
     sendMessage: (data) => ipcRenderer.invoke('sendMessage', data),
     waitForScreenshot: (path) => ipcRenderer.invoke('wait-for-screenshot', path),
     saveNPC: (data) => ipcRenderer.invoke('save-npc', data),
+    gitStatus: (repoPath) => ipcRenderer.invoke('gitStatus', repoPath),
+    gitStageFile: (repoPath, file) => ipcRenderer.invoke('gitStageFile', repoPath, file),
+    gitUnstageFile: (repoPath, file) => ipcRenderer.invoke('gitUnstageFile', repoPath, file),
+    gitCommit: (repoPath, message) => ipcRenderer.invoke('gitCommit', repoPath, message),
+    gitPull: (repoPath) => ipcRenderer.invoke('gitPull', repoPath),
+    gitPush: (repoPath) => ipcRenderer.invoke('gitPush', repoPath),
 
     readFile: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
    
@@ -110,6 +123,7 @@ contextBridge.exposeInMainWorld('api', {
     getActivityData: (options) => ipcRenderer.invoke('getActivityData', options),
     getHistogramData: () => ipcRenderer.invoke('getHistogramData'),
     executeSQL: (options) => ipcRenderer.invoke('executeSQL', options),
+    deleteMessage: (params) => ipcRenderer.invoke('deleteMessage', params),
 
     listTables: () => ipcRenderer.invoke('db:listTables'),
     getTableSchema: (args) => ipcRenderer.invoke('db:getTableSchema', args),

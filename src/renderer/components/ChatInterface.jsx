@@ -4,10 +4,13 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, 
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami,
+    Clock, // Add Clock icon for cron jobs
+
 } from 'lucide-react';
 
 import { Icon } from 'lucide-react';
 import { avocado } from '@lucide/lab';
+import CronDaemonPanel from './CronDaemonPanel'; // <--- NEW IMPORT
 
 import MacroInput from './MacroInput';
 import SettingsMenu from './SettingsMenu';
@@ -96,29 +99,38 @@ const LayoutNode = memo(({ node, path, component }) => {
     }
 
     if (node.type === 'content') {
-        const { activeContentPaneId, setActiveContentPaneId, draggedItem, 
+        const { activeContentPaneId, setActiveContentPaneId, draggedItem,
             setDraggedItem, dropTarget, setDropTarget, contentDataRef,
-             updateContentPane, performSplit, renderChatView, 
-             renderFileEditor, renderTerminalView, 
-             renderPdfViewer, renderBrowserViewer } = component;
+            updateContentPane, performSplit, renderChatView,
+            renderFileEditor, renderTerminalView,
+            renderPdfViewer, renderBrowserViewer,
+            moveContentPane // Ensure moveContentPane is destructured here
+        } = component;
+
         const isActive = node.id === activeContentPaneId;
         const isTargeted = dropTarget?.nodePath.join('') === path.join('');
 
+        // --- CORRECTED onDrop FUNCTION ---
         const onDrop = (e, side) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (!draggedItem) return;
-            
+  e.preventDefault();
+  e.stopPropagation();
+  if (!component.draggedItem) return;
+
+  if (component.draggedItem.type === 'pane') {
+    if (component.draggedItem.id === node.id) return;
+    component.moveContentPane(component.draggedItem.id, component.draggedItem.nodePath, path, side);
+    component.setDraggedItem(null);
+    component.setDropTarget(null);
+    return;
+  }
+
+            // Existing logic for new items dropped from sidebar
             let contentType;
-            if (draggedItem.type === 'conversation') {
+            if (draggedItem.type === 'conversation') { // Use local draggedItem
                 contentType = 'chat';
             } else if (draggedItem.type === 'file') {
-                const extension = draggedItem.id.split('.').pop()?.toLowerCase();
-                if (extension === 'pdf') {
-                    contentType = 'pdf';
-                } else {
-                    contentType = 'editor';
-                }
+                const ext = draggedItem.id.split('.').pop()?.toLowerCase();
+                contentType = ext === 'pdf' ? 'pdf' : 'editor';
             } else if (draggedItem.type === 'browser') {
                 contentType = 'browser';
             } else if (draggedItem.type === 'terminal') {
@@ -126,7 +138,7 @@ const LayoutNode = memo(({ node, path, component }) => {
             } else {
                 return;
             }
-        
+
             if (side === 'center') {
                 updateContentPane(node.id, contentType, draggedItem.id);
             } else {
@@ -134,8 +146,10 @@ const LayoutNode = memo(({ node, path, component }) => {
             }
             setDraggedItem(null);
             setDropTarget(null);
-        };        
-        
+        };
+        // --- END CORRECTED onDrop FUNCTION ---
+
+        // --- RE-ADDED renderContent FUNCTION ---
         const renderContent = () => {
             const contentType = contentDataRef.current[node.id]?.contentType;
             switch (contentType) {
@@ -153,6 +167,7 @@ const LayoutNode = memo(({ node, path, component }) => {
                     return <div className="p-4 theme-text-muted">Empty pane.</div>;
             }
         };
+        // --- END RE-ADDED renderContent FUNCTION ---
 
         return (
             <div
@@ -160,7 +175,7 @@ const LayoutNode = memo(({ node, path, component }) => {
                 onClick={() => setActiveContentPaneId(node.id)}
                 onDragLeave={() => setDropTarget(null)}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
-                onDrop={(e) => onDrop(e, 'center')}
+                onDrop={(e) => onDrop(e, 'center')} // Call the corrected onDrop
             >
                 {draggedItem && (
                     <>
@@ -348,6 +363,9 @@ const ChatMessage = memo(({
 
 
 const ChatInterface = () => {
+    const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true); // <--- NEW STATE: Default to collapsed
+const [pdfHighlightsTrigger, setPdfHighlightsTrigger] = useState(0);
+
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [editedPath, setEditedPath] = useState('');
     const [isHovering, setIsHovering] = useState(false);
@@ -357,7 +375,8 @@ const ChatInterface = () => {
     const [selectedConvos, setSelectedConvos] = useState(new Set());
     const [lastClickedIndex, setLastClickedIndex] = useState(null);
     const [contextMenuPos, setContextMenuPos] = useState(null);
-   
+    const [cronDaemonPanelOpen, setCronDaemonPanelOpen] = useState(false); // <--- NEW STATE
+
     const [selectedFiles, setSelectedFiles] = useState(new Set());
     const [lastClickedFileIndex, setLastClickedFileIndex] = useState(null);
     const [fileContextMenuPos, setFileContextMenuPos] = useState(null);
@@ -414,8 +433,29 @@ const ChatInterface = () => {
         isOpen: false,
         memories: []
     });    
-
-
+    const [gitStatus, setGitStatus] = useState(null);
+    const [gitCommitMessage, setGitCommitMessage] = useState('');
+    const [gitLoading, setGitLoading] = useState(false);
+    const [gitError, setGitError] = useState(null);
+    
+    const loadGitStatus = useCallback(async () => {
+      setGitLoading(true);
+      setGitError(null);
+      try {
+        const response = await window.api.gitStatus(currentPath);
+        setGitStatus(response); // { staged: [], unstaged: [], untracked: [], branch: "", ahead: 0, behind: 0 }
+      } catch (err) {
+        setGitError(err.message || 'Failed to get git status');
+      } finally {
+        setGitLoading(false);
+      }
+    }, [currentPath]);
+    useEffect(() => {
+        if (currentPath) {
+          loadGitStatus();
+        }
+      }, [currentPath, loadGitStatus]);
+      
     const [windowId] = useState(() => {
         // Generate unique window ID on component mount
         return `window_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -483,6 +523,7 @@ const ChatInterface = () => {
         viewId: null,
     });
     
+    const [expandedFolders, setExpandedFolders] = useState(new Set());
 
     const [browserContextMenuPos, setBrowserContextMenuPos] = useState(null);
 
@@ -548,11 +589,231 @@ const handleBrowserAddToChat = () => {
     const [activeSearchResult, setActiveSearchResult] = useState(null);
     const searchInputRef = useRef(null);
    
-   
+    const renderGitPanel = () => {
+        // Only render the panel if gitStatus is available
+        if (!gitStatus) return null;
+    
+        const staged = Array.isArray(gitStatus.staged) ? gitStatus.staged : [];
+        const unstaged = Array.isArray(gitStatus.unstaged) ? gitStatus.unstaged : [];
+        const untracked = Array.isArray(gitStatus.untracked) ? gitStatus.untracked : [];
+    
+        return (
+            <div className="p-4 border-t theme-border text-xs theme-text-muted">
+                {/* Header for the Git Panel with a toggle */}
+                <div 
+                    className="flex items-center justify-between cursor-pointer py-1"
+                    onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)} // <--- TOGGLE CLICK HANDLER
+                >
+                    <div className="text-xs text-gray-500 font-medium flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-git-branch"><circle cx="6" cy="18" r="3"/><path d="M18 6V3"/><path d="M18 18v-4"/><path d="M6 18v-2"/><path d="M6 6v4a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/></svg>
+                        Git Status
+                        {gitStatus.hasChanges && <span className="text-yellow-400 ml-2">(Changes!)</span>} {/* Indicate changes */}
+                    </div>
+                    <ChevronRight 
+                        size={14} 
+                        className={`transform transition-transform ${gitPanelCollapsed ? "" : "rotate-90"}`} // <--- ROTATE ICON
+                    />
+                </div>
+    
+                {/* Conditional rendering of the Git panel content */}
+                {!gitPanelCollapsed && ( // <--- CONDITIONAL RENDERING
+                    <div className="overflow-auto max-h-64 mt-2"> {/* Added mt-2 for spacing */}
+                        <div className="mb-2 font-semibold">
+                            Git Branch: {gitStatus.branch} {gitStatus.ahead > 0 && <span>↑{gitStatus.ahead}</span>} {gitStatus.behind > 0 && <span>↓{gitStatus.behind}</span>}
+                        </div>
+        
+                        <div>
+                            <div className="mb-1 font-semibold">Staged Files</div>
+                            {(staged.length === 0) ? <div className="text-gray-600">No staged files</div> :
+                            staged.map(file => (
+                                <div key={file.path} className="flex justify-between items-center text-green-300">
+                                <span title={file.path}>{file.path} (<span className="text-green-500 font-medium">{file.status}</span>)</span>
+                                <button
+                                    onClick={() => gitUnstageFile(file.path)}
+                                    className="p-1 text-red-400 hover:bg-red-600"
+                                >
+                                    Unstage
+                                </button>
+                                </div>
+                            ))
+                            }
+                        </div>
+        
+                        <div className="mt-3">
+                            <div className="mb-1 font-semibold">Unstaged / Untracked Files</div>
+                            {(unstaged.length + untracked.length === 0) ? <div className="text-gray-600">No unstaged or untracked files</div> :
+                            [...unstaged, ...untracked].map(file => (
+                                <div key={file.path} className="flex justify-between items-center">
+                                <span title={file.path} className={file.isUntracked ? "text-gray-400" : "text-yellow-300"}>
+                                    {file.path} (<span className="font-medium">{file.status}</span>)
+                                </span>
+                                <button
+                                    onClick={() => gitStageFile(file.path)}
+                                    className="p-1 text-green-400 px-1 rounded hover:bg-green-600"
+                                >
+                                    Stage
+                                </button>
+                                </div>
+                            ))
+                            }
+                        </div>
+        
+                        <div className="mt-4">
+                            <input
+                                type="text"
+                                className="w-full theme-input text-xs rounded px-2 py-1 mb-2"
+                                placeholder="Commit message"
+                                value={gitCommitMessage}
+                                onChange={e => setGitCommitMessage(e.target.value)}
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                disabled={gitLoading || !gitCommitMessage.trim()}
+                                onClick={gitCommitChanges}
+                                className="theme-button-primary px-3 py-1 rounded text-xs flex-1 disabled:opacity-50"
+                                >
+                                Commit
+                                </button>
+                                <button
+                                disabled={gitLoading}
+                                onClick={gitPullChanges}
+                                className="theme-button px-3 py-1 rounded text-xs flex-1"
+                                >
+                                Pull
+                                </button>
+                                <button
+                                disabled={gitLoading}
+                                onClick={gitPushChanges}
+                                className="theme-button px-3 py-1 rounded text-xs flex-1"
+                                >
+                                Push
+                                </button>
+                            </div>
+                            {gitError && <div className="mt-2 text-red-500 text-xs">{gitError}</div>}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const gitStageFile = async (file) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitStageFile(currentPath, file);
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to stage file');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+      
+      const gitUnstageFile = async (file) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitUnstageFile(currentPath, file);
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to unstage file');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+      
+      const gitCommitChanges = async () => {
+        if (!gitCommitMessage.trim()) return;
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitCommit(currentPath, gitCommitMessage.trim());
+          setGitCommitMessage('');
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to commit');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+      
+      const gitPullChanges = async () => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitPull(currentPath);
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to pull');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+      
+      const gitPushChanges = async () => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          await window.api.gitPush(currentPath);
+          await loadGitStatus();
+        } catch (err) {
+          setGitError(err.message || 'Failed to push');
+        } finally {
+          setGitLoading(false);
+        }
+      };
     const [rootLayoutNode, setRootLayoutNode] = useState(null);
    
     const [activeContentPaneId, setActiveContentPaneId] = useState(null);
-   
+const loadPdfHighlightsForActivePane = useCallback(async () => {
+    console.log('[LOAD_HIGHLIGHTS] Starting load for pane:', activeContentPaneId);
+    
+    if (activeContentPaneId) {
+        const paneData = contentDataRef.current[activeContentPaneId];
+        console.log('[LOAD_HIGHLIGHTS] Pane data:', paneData);
+        
+        if (paneData && paneData.contentType === 'pdf') {
+            console.log('[LOAD_HIGHLIGHTS] Fetching highlights for:', paneData.contentId);
+            
+            const response = await window.api.getHighlightsForFile(paneData.contentId);
+            console.log('[LOAD_HIGHLIGHTS] Response:', response);
+            
+            if (response.highlights) {
+                console.log('[LOAD_HIGHLIGHTS] Raw highlights count:', response.highlights.length);
+                
+                const transformedHighlights = response.highlights.map(h => {
+                    console.log('[LOAD_HIGHLIGHTS] Transforming highlight:', h);
+                    
+                    const positionObject = typeof h.position === 'string' 
+                        ? JSON.parse(h.position) 
+                        : h.position;
+
+                    return {
+                        id: h.id,
+                        position: positionObject,
+                        content: {
+                            text: h.highlighted_text,
+                            annotation: h.annotation || ''
+                        }
+                    };
+                });
+                
+                console.log('[LOAD_HIGHLIGHTS] Setting highlights:', transformedHighlights);
+                setPdfHighlights(transformedHighlights);
+            } else {
+                console.log('[LOAD_HIGHLIGHTS] No highlights in response');
+                setPdfHighlights([]);
+            }
+        } else {
+            console.log('[LOAD_HIGHLIGHTS] Not a PDF pane or no pane data');
+            setPdfHighlights([]);
+        }
+    } else {
+        console.log('[LOAD_HIGHLIGHTS] No active content pane');
+    }
+}, [activeContentPaneId]);
+
     const [draggedItem, setDraggedItem] = useState(null);
     const [dropTarget, setDropTarget] = useState(null);
    
@@ -571,75 +832,109 @@ const handleBrowserAddToChat = () => {
     });
 
     const generateId = () => Math.random().toString(36).substr(2, 9);
-    const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+    const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
+  if (!layoutNode) return null;
 
-        console.log(`[updateContentPane] Updating pane "${paneId}" to type "${newContentType}" with ID "${newContentId}"`);
-        
-        if (!contentDataRef.current[paneId]) {
-            contentDataRef.current[paneId] = {};
-        }
-        const paneData = contentDataRef.current[paneId];
-        
-        paneData.contentType = newContentType;
-        paneData.contentId = newContentId;
+  const collectPaneIds = (node) => {
+    if (!node) return new Set();
+    if (node.type === 'content') return new Set([node.id]);
+    if (node.type === 'split') {
+      return node.children.reduce((acc, child) => {
+        const childIds = collectPaneIds(child);
+        childIds.forEach(id => acc.add(id));
+        return acc;
+      }, new Set());
+    }
+    return new Set();
+  };
 
+  const paneIdsInLayout = collectPaneIds(layoutNode);
+  const missingPaneIds = Object.keys(contentData).filter(id => !paneIdsInLayout.has(id));
 
-        if (newContentType === 'editor') {
-            try {
-                const response = await window.api.readFileContent(newContentId);
-                paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
-                paneData.fileChanged = false;
-            } catch (err) {
-                paneData.fileContent = `Error loading file: ${err.message}`;
-            }
-        }
-        else if (newContentType === 'browser') {
-            paneData.chatMessages = null;
-            paneData.fileContent = null;
-            paneData.browserUrl = newContentId;
-        }
-        else if (newContentType === 'chat') {
-            if (!paneData.chatMessages) {
-                paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-            }
-            
-            if (skipMessageLoad) {
-                paneData.chatMessages.messages = [];
-                paneData.chatMessages.allMessages = [];
-                paneData.chatStats = getConversationStats([]);
-            } else {
-                try {
-                    const msgs = await window.api.getConversationMessages(newContentId);
-                    const formatted = (msgs && Array.isArray(msgs)) 
-                        ? msgs.map(m => ({ ...m, id: m.id || generateId() })) 
-                        : [];
+  if (missingPaneIds.length === 0) return layoutNode;
 
-                    paneData.chatMessages.allMessages = formatted;
-                    const count = paneData.chatMessages.displayedMessageCount || 20;
-                    paneData.chatMessages.messages = formatted.slice(-count);
-                    paneData.chatStats = getConversationStats(formatted);
-                } catch (err) {
-                    console.error(`Error loading messages for convo ${newContentId}:`, err);
-                    paneData.chatMessages.messages = [];
-                    paneData.chatMessages.allMessages = [];
-                    paneData.chatStats = getConversationStats([]);
-                }
-            }
-        } else if (newContentType === 'terminal') {
-           
-            paneData.chatMessages = null;
-            paneData.fileContent = null;
-        }
-        else if (newContentType === 'pdf') {
-           
-            console.log(`[updateContentPane] Setting up pane "${paneId}" for PDF viewer.`);
-            paneData.chatMessages = null;
-            paneData.fileContent = null;
-            }
+  let newRoot = JSON.parse(JSON.stringify(layoutNode));
 
+  missingPaneIds.forEach(paneId => {
+    const newPaneNode = { id: paneId, type: 'content' };
 
+    if (newRoot.type === 'content') {
+      newRoot = {
+        id: generateId(),
+        type: 'split',
+        direction: 'horizontal',
+        children: [newRoot, newPaneNode],
+        sizes: [50, 50],
+      };
+    } else if (newRoot.type === 'split') {
+      newRoot.children.push(newPaneNode);
+      const equalSize = 100 / newRoot.children.length;
+      newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+    }
+  });
+
+  return newRoot;
 }, []);
+const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+  if (!contentDataRef.current[paneId]) {
+    contentDataRef.current[paneId] = {};
+  }
+  const paneData = contentDataRef.current[paneId];
 
+  paneData.contentType = newContentType;
+  paneData.contentId = newContentId;
+
+  if (newContentType === 'editor') {
+    try {
+      const response = await window.api.readFileContent(newContentId);
+      paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
+      paneData.fileChanged = false;
+    } catch (err) {
+      paneData.fileContent = `Error loading file: ${err.message}`;
+    }
+  } else if (newContentType === 'browser') {
+    paneData.chatMessages = null;
+    paneData.fileContent = null;
+    paneData.browserUrl = newContentId;
+  } else if (newContentType === 'chat') {
+    if (!paneData.chatMessages) {
+      paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+    }
+
+    if (skipMessageLoad) {
+      paneData.chatMessages.messages = [];
+      paneData.chatMessages.allMessages = [];
+      paneData.chatStats = getConversationStats([]);
+    } else {
+      try {
+        const msgs = await window.api.getConversationMessages(newContentId);
+        const formatted = (msgs && Array.isArray(msgs))
+          ? msgs.map(m => ({ ...m, id: m.id || generateId() }))
+          : [];
+
+        paneData.chatMessages.allMessages = formatted;
+        const count = paneData.chatMessages.displayedMessageCount || 20;
+        paneData.chatMessages.messages = formatted.slice(-count);
+        paneData.chatStats = getConversationStats(formatted);
+      } catch (err) {
+        paneData.chatMessages.messages = [];
+        paneData.chatMessages.allMessages = [];
+        paneData.chatStats = getConversationStats([]);
+      }
+    }
+  } else if (newContentType === 'terminal') {
+    paneData.chatMessages = null;
+    paneData.fileContent = null;
+  } else if (newContentType === 'pdf') {
+    paneData.chatMessages = null;
+    paneData.fileContent = null;
+  }
+
+  setRootLayoutNode(oldRoot => {
+    const syncedRoot = syncLayoutWithContentData(oldRoot, contentDataRef.current);
+    return syncedRoot;
+  });
+}, [syncLayoutWithContentData]);
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
     useEffect(() => {
@@ -1203,12 +1498,14 @@ const toggleMessageSelectionMode = () => {
 const handleMessageContextMenu = useCallback((e, messageId) => {
     e.preventDefault();
     e.stopPropagation();
-   
+    
+    // Capture any selected text from the window
+    const selectedText = window.getSelection()?.toString() || '';
+    
     if (!messageSelectionMode) {
         setMessageSelectionMode(true);
         setSelectedMessages(new Set([messageId]));
     } else {
-       
         setSelectedMessages(prev => {
             const newSelected = new Set(prev);
             if (!newSelected.has(messageId)) {
@@ -1217,8 +1514,11 @@ const handleMessageContextMenu = useCallback((e, messageId) => {
             return newSelected;
         });
     }
-    setMessageContextMenuPos({ x: e.clientX, y: e.clientY, messageId });
+    
+    // Store selected text in context menu position state
+    setMessageContextMenuPos({ x: e.clientX, y: e.clientY, messageId, selectedText });
 }, [messageSelectionMode]);
+
 const handlePathChange = useCallback(async (newPath) => {
     // Save current workspace before switching
     if (currentPath && rootLayoutNode) {
@@ -1243,31 +1543,41 @@ const validateWorkspaceData = (workspaceData) => {
     return true;
 };
 
+
+const [pdfSelectionIndicator, setPdfSelectionIndicator] = useState(null);
+
 const handlePdfTextSelect = (selectionEvent) => {
-    console.log('[PDF_SELECT] handlePdfTextSelect called with:', selectionEvent);
+    console.log('[PDF_SELECT] handlePdfTextSelect called:', selectionEvent);
     
-    if (selectionEvent && selectionEvent.selectedText && selectionEvent.selectedText.trim()) {
+    if (selectionEvent?.selectedText?.trim()) {
         console.log('[PDF_SELECT] Setting selectedPdfText:', {
-            text: selectionEvent.selectedText.substring(0, 50) + '...',
-            textLength: selectionEvent.selectedText.length,
-            pageIndex: selectionEvent.pageIndex,
-            hasQuads: !!selectionEvent.quads
+            text: selectionEvent.selectedText.substring(0, 50),
+            length: selectionEvent.selectedText.length
         });
         
         setSelectedPdfText({
             text: selectionEvent.selectedText,
             position: {
-                pageIndex: selectionEvent.pageIndex,
-                quads: selectionEvent.quads
+                pageIndex: selectionEvent.pageIndex || 0,
+                quads: selectionEvent.quads || []
             }
         });
-    } else {
-        console.log('[PDF_SELECT] No valid selection event or empty text:', {
-            hasEvent: !!selectionEvent,
-            hasSelectedText: !!(selectionEvent?.selectedText),
-            textLength: selectionEvent?.selectedText?.length || 0,
-            trimmedLength: selectionEvent?.selectedText?.trim()?.length || 0
+        
+        // Add visual indicator that text is selected
+        setPdfSelectionIndicator({
+            text: selectionEvent.selectedText.substring(0, 100),
+            timestamp: Date.now()
         });
+        
+        // Clear indicator after 2 seconds
+        setTimeout(() => {
+            if (Date.now() - selectionEvent.timestamp < 2100) {
+                setPdfSelectionIndicator(null);
+            }
+        }, 2000);
+    } else {
+        console.log('[PDF_SELECT] Clearing selectedPdfText');
+        setSelectedPdfText(null);
     }
 };
 
@@ -1277,27 +1587,40 @@ const handleCopyPdfText = () => {
     }
     setPdfContextMenuPos(null);
 };
+
+
 const handleHighlightPdfSelection = async () => {
     if (!selectedPdfText) return;
     const paneData = contentDataRef.current[activeContentPaneId];
     if (!paneData || paneData.contentType !== 'pdf') return;
 
     const filePath = paneData.contentId;
-    
-   
-    const highlightData = {
-        filePath: filePath,
-        text: selectedPdfText.text,
-        position: selectedPdfText.position 
-    };
+    const { text, position } = selectedPdfText;
 
-    await window.api.addPdfHighlight(highlightData);
-    const response = await window.api.getHighlightsForFile(filePath);
-    if (response.highlights) {
-        setPdfHighlights(response.highlights);
+    try {
+        // LOGGING: See what is being sent
+        console.log('[SAVE HIGHLIGHT] Sending data:', { filePath, text, position });
+
+        const saveResult = await window.api.addPdfHighlight({
+            filePath,
+            text,
+            position: position, // FIX: Send the raw position object, NOT a string
+            annotation: ''
+        });
+
+        if (saveResult.success) {
+            console.log('[PDF] Highlight saved successfully');
+            await loadPdfHighlightsForActivePane();
+        } else {
+            console.error('[PDF] Failed to save highlight:', saveResult.error);
+        }
+    } catch (err) {
+        console.error('[PDF] Error saving highlight:', err);
     }
+
     setPdfContextMenuPos(null);
 };
+
 
 const handleApplyPromptToPdfText = (promptType) => {
     if (!selectedPdfText?.text) return;
@@ -1314,39 +1637,10 @@ const handleApplyPromptToPdfText = (promptType) => {
     setInput(prompt);
     setPdfContextMenuPos(null);
 };
-
-
 useEffect(() => {
-    const loadHighlights = async () => {
-        if (activeContentPaneId) {
-            const paneData = contentDataRef.current[activeContentPaneId];
-            if (paneData && paneData.contentType === 'pdf') {
-                const response = await window.api.getHighlightsForFile(paneData.contentId);
-                if (response.highlights) {
-                   
-                   
-                    const transformedHighlights = response.highlights.map(h => ({
-                        id: h.id,
-                        position: {
-                            pageIndex: h.position.pageIndex,
-                            rects: h.position.quads,        
-                        },
-                        content: {
-                            text: h.highlighted_text,
-                        }
-                    }));
-                    setPdfHighlights(transformedHighlights);
-                   
-                } else {
-                    setPdfHighlights([]);
-                }
-            } else {
-                setPdfHighlights([]);
-            }
-        }
-    };
-    loadHighlights();
-}, [activeContentPaneId, contentDataRef.current[activeContentPaneId]?.contentId]);
+    loadPdfHighlightsForActivePane();
+}, [activeContentPaneId, pdfHighlightsTrigger, loadPdfHighlightsForActivePane]);
+
 
 const handleEditorContextMenu = (e) => {
     const textarea = e.target;
@@ -1989,6 +2283,23 @@ const renderMessageContextMenu = () => (
                 style={{ top: messageContextMenuPos.y, left: messageContextMenuPos.x }}
                 onMouseLeave={() => setMessageContextMenuPos(null)}
             >
+                {/* Show copy option if there's selected text */}
+                {messageContextMenuPos.selectedText && (
+                    <>
+                        <button
+                            onClick={() => {
+                                navigator.clipboard.writeText(messageContextMenuPos.selectedText);
+                                setMessageContextMenuPos(null);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+                        >
+                            <Edit size={14} />
+                            <span>Copy Selected Text</span>
+                        </button>
+                        <div className="border-t theme-border my-1"></div>
+                    </>
+                )}
+                
                 <button
                     onClick={() => handleApplyPromptToMessages('summarize')}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
@@ -2033,82 +2344,145 @@ const renderMessageContextMenu = () => (
                     <Edit size={14} />
                     <span>Extract in Input Field ({selectedMessages.size})</span>
                 </button>
+                
+                {/* Delete option */}
+                <div className="border-t theme-border my-1"></div>
+                <button
+                    onClick={handleDeleteSelectedMessages}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400 text-xs"
+                >
+                    <Trash size={14} />
+                    <span>Delete Messages ({selectedMessages.size})</span>
+                </button>
             </div>
         </>
     )
 );
 
-
 const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
-        setRootLayoutNode(oldRoot => {
-            if (!oldRoot) return oldRoot;
+    setRootLayoutNode(oldRoot => {
+        if (!oldRoot) return oldRoot;
 
-            const newRoot = JSON.parse(JSON.stringify(oldRoot));
-            let parentNode = null;
-            let targetNode = newRoot;
-            let targetIndexInParent = -1;
+        const newRoot = JSON.parse(JSON.stringify(oldRoot));
+        let parentNode = null;
+        let targetNode = newRoot;
+        let targetIndexInParent = -1;
 
-            for (let i = 0; i < targetNodePath.length; i++) {
-                parentNode = targetNode;
-                targetIndexInParent = targetNodePath[i];
-                targetNode = targetNode.children[targetIndexInParent];
-            }
+        for (let i = 0; i < targetNodePath.length; i++) {
+            parentNode = targetNode;
+            targetIndexInParent = targetNodePath[i];
+            targetNode = targetNode.children[targetIndexInParent];
+        }
 
-            const newPaneId = generateId();
-            const newPaneNode = { id: newPaneId, type: 'content' };
+        const newPaneId = generateId();
+        const newPaneNode = { id: newPaneId, type: 'content' };
 
-            contentDataRef.current[newPaneId] = {};
-            updateContentPane(newPaneId, newContentType, newContentId);
+        contentDataRef.current[newPaneId] = {};
+        updateContentPane(newPaneId, newContentType, newContentId);
 
-            const isHorizontalSplit = side === 'left' || side === 'right';
-            const newSplitNode = {
-                id: generateId(),
-                type: 'split',
-                direction: isHorizontalSplit ? 'horizontal' : 'vertical',
-                children: [],
-                sizes: [50, 50]
-            };
+        const isHorizontalSplit = side === 'left' || side === 'right';
+        const newSplitNode = {
+            id: generateId(),
+            type: 'split',
+            direction: isHorizontalSplit ? 'horizontal' : 'vertical',
+            children: [],
+            sizes: [50, 50]
+        };
 
-            if (side === 'left' || side === 'top') {
-                newSplitNode.children = [newPaneNode, targetNode];
-            } else {
-                newSplitNode.children = [targetNode, newPaneNode];
-            }
+        if (side === 'left' || side === 'top') {
+            newSplitNode.children = [newPaneNode, targetNode];
+        } else {
+            newSplitNode.children = [targetNode, newPaneNode];
+        }
 
-            if (parentNode) {
-                parentNode.children[targetIndexInParent] = newSplitNode;
-            } else {
-               
-                return newSplitNode;
-            }
-            
-            setActiveContentPaneId(newPaneId);
-            return newRoot;
-        });
-    }, [updateContentPane]);
+        if (parentNode) {
+            parentNode.children[targetIndexInParent] = newSplitNode;
+        } else {
+            return newSplitNode;
+        }
 
+        setActiveContentPaneId(newPaneId);
+        return newRoot;
+    });
+}, [updateContentPane]);
    
+const createAndAddPaneNodeToLayout = useCallback(() => {
+  const newPaneId = generateId();
+  contentDataRef.current[newPaneId] = {};
 
+  setRootLayoutNode(oldRoot => {
+    if (!oldRoot) {
+      return { id: newPaneId, type: 'content' };
+    }
+
+    let newRoot = JSON.parse(JSON.stringify(oldRoot));
+    let targetParent = null;
+    let targetIndex = -1;
+    let pathToTarget = [];
+
+    if (activeContentPaneId) {
+      pathToTarget = findNodePath(newRoot, activeContentPaneId);
+      if (pathToTarget && pathToTarget.length > 0) {
+        targetParent = findNodeByPath(newRoot, pathToTarget.slice(0, -1));
+        targetIndex = pathToTarget[pathToTarget.length - 1];
+      }
+    }
+
+    if (!targetParent || targetIndex === -1) {
+      if (newRoot.type === 'content') {
+        const newSplitNode = {
+          id: generateId(),
+          type: 'split',
+          direction: 'horizontal',
+          children: [newRoot, { id: newPaneId, type: 'content' }],
+          sizes: [50, 50],
+        };
+        return newSplitNode;
+      } else if (newRoot.type === 'split') {
+        const newChildren = [...newRoot.children, { id: newPaneId, type: 'content' }];
+        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+        return { ...newRoot, children: newChildren, sizes: newSizes };
+      }
+    } else {
+      if (targetParent.type === 'split') {
+        const newChildren = [...targetParent.children];
+        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+        const actualTargetParentInNewRoot = findNodeByPath(newRoot, pathToTarget.slice(0, -1));
+        if (actualTargetParentInNewRoot) {
+          actualTargetParentInNewRoot.children = newChildren;
+          actualTargetParentInNewRoot.sizes = newSizes;
+        }
+        return newRoot;
+      }
+    }
+
+    return { id: newPaneId, type: 'content' };
+  });
+
+  setActiveContentPaneId(newPaneId);
+  return newPaneId;
+}, [activeContentPaneId, findNodePath, findNodeByPath]);
 const closeContentPane = useCallback((paneId, nodePath) => {
-    console.log(`[closeContentPane] Attempting to close pane: ${paneId} with path:`, nodePath); // <--- LAVANZARO'S LOGGING!
+    console.log(`[closeContentPane] Attempting to close pane: ${paneId} with path:`, nodePath);
 
     setRootLayoutNode(currentRoot => {
         if (!currentRoot) {
-            console.log('[closeContentPane] No root layout node, nothing to close.'); // <--- LAVANZARO'S LOGGING!
+            console.log('[closeContentPane] No root layout node, nothing to close.');
             return null;
         }
 
         let newRoot = JSON.parse(JSON.stringify(currentRoot));
 
         if (newRoot.id === paneId) {
-            console.log(`[closeContentPane] Closing root node with ID: ${paneId}`); // <--- LAVANZARO'S LOGGING!
+            console.log(`[closeContentPane] Closing root node with ID: ${paneId}`);
             delete contentDataRef.current[paneId];
             setActiveContentPaneId(null);
             return null;
         }
 
         if (!nodePath || nodePath.length === 0) {
-            console.error('[closeContentPane] Cannot close pane: nodePath is null or empty.'); // <--- LAVANZARO'S LOGGING!
+            console.error('[closeContentPane] Cannot close pane: nodePath is null or empty.');
             return newRoot;
         }
 
@@ -2117,54 +2491,49 @@ const closeContentPane = useCallback((paneId, nodePath) => {
         const parentNode = findNodeByPath(newRoot, parentPath);
 
         if (!parentNode || !parentNode.children) {
-            console.error("[closeContentPane] Cannot close pane: parent not found or has no children.", { parentPath, childIndex, parentNode }); // <--- LAVANZARO'S LOGGING!
+            console.error("[closeContentPane] Cannot close pane: parent not found or has no children.", { parentPath, childIndex, parentNode });
             return currentRoot;
         }
 
         parentNode.children.splice(childIndex, 1);
         parentNode.sizes.splice(childIndex, 1);
         delete contentDataRef.current[paneId];
-        console.log(`[closeContentPane] Removed pane ${paneId} from contentDataRef and layout.`); // <--- LAVANZARO'S LOGGING!
+        console.log(`[closeContentPane] Removed pane ${paneId} from contentDataRef and layout.`);
 
 
         if (parentNode.children.length === 1) {
-           
             const remainingChild = parentNode.children[0];
-            
+
             if (parentPath.length === 0) {
-               
                 newRoot = remainingChild;
-                console.log('[closeContentPane] Parent was root, new root is remaining child.'); // <--- LAVANZARO'S LOGGING!
+                console.log('[closeContentPane] Parent was root, new root is remaining child.');
             } else {
-               
                 const grandParentNode = findNodeByPath(newRoot, parentPath.slice(0, -1));
                 if (grandParentNode) {
                     const parentIndex = parentPath[parentPath.length - 1];
                     grandParentNode.children[parentIndex] = remainingChild;
-                    console.log('[closeContentPane] Replaced parent with its single remaining child.'); // <--- LAVANZARO'S LOGGING!
+                    console.log('[closeContentPane] Replaced parent with its single remaining child.');
                 } else {
-                    console.warn('[closeContentPane] Grandparent not found when trying to replace parent with single child.'); // <--- LAVANZARO'S LOGGING!
+                    console.warn('[closeContentPane] Grandparent not found when trying to replace parent with single child.');
                 }
             }
         } else if (parentNode.children.length > 1) {
-           
             const equalSize = 100 / parentNode.children.length;
             parentNode.sizes = new Array(parentNode.children.length).fill(equalSize);
-            console.log('[closeContentPane] Recalculated sizes for remaining siblings.'); // <--- LAVANZARO'S LOGGING!
+            console.log('[closeContentPane] Recalculated sizes for remaining siblings.');
         }
-        
+
         if (activeContentPaneId === paneId) {
             const remainingPaneIds = Object.keys(contentDataRef.current);
             const newActivePaneId = remainingPaneIds.length > 0 ? remainingPaneIds[0] : null;
             setActiveContentPaneId(newActivePaneId);
-            console.log(`[closeContentPane] Active pane was closed, setting new active pane to: ${newActivePaneId}`); // <--- LAVANZARO'S LOGGING!
+            console.log(`[closeContentPane] Active pane was closed, setting new active pane to: ${newActivePaneId}`);
         }
 
-        console.log('[closeContentPane] Returning new root layout node.'); // <--- LAVANZARO'S LOGGING!
+        console.log('[closeContentPane] Returning new root layout node.');
         return newRoot;
     });
 }, [activeContentPaneId, findNodeByPath]);
-
    
 
 
@@ -2203,37 +2572,19 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
 };
 
 
-    const handleFileClick = async (filePath) => {
-        setCurrentFile(filePath);
-        setActiveConversationId(null);
-    
-        const extension = filePath.split('.').pop()?.toLowerCase();
-        const contentType = extension === 'pdf' ? 'pdf' : 'editor';
-    
-       
-        if (!rootLayoutNode) {
-            const newPaneId = generateId();
-            const newLayout = { id: newPaneId, type: 'content' };
-            
-            contentDataRef.current[newPaneId] = {};
-            await updateContentPane(newPaneId, contentType, filePath);
-            
-            setRootLayoutNode(newLayout);
-            setActiveContentPaneId(newPaneId);
-        } 
-       
-    else {
-        const targetPaneId = activeContentPaneId || Object.keys(contentDataRef.current)[0];
-        if (targetPaneId) {
-           
-            console.log(`[handleFileClick] Updating pane "${targetPaneId}" with new content.`);
-            await updateContentPane(targetPaneId, contentType, filePath);
-            setRootLayoutNode(prev => ({...prev}));
-        }
-    }
+const handleFileClick = useCallback(async (filePath) => {
+    setCurrentFile(filePath);
+    setActiveConversationId(null);
 
+    const extension = filePath.split('.').pop()?.toLowerCase();
+    const contentType = extension === 'pdf' ? 'pdf' : 'editor';
 
-    };
+    // --- CORRECTED LINE HERE ---
+    const newPaneId = createAndAddPaneNodeToLayout();
+    await updateContentPane(newPaneId, contentType, filePath);
+    // --- END CORRECTED LINE ---
+
+}, [createAndAddPaneNodeToLayout, updateContentPane]);
 
 
     const handleCreateNewFolder = () => {
@@ -2265,155 +2616,195 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         });
     };
 
-    const createNewTerminal = async () => {
-        let targetPaneId = activeContentPaneId;
-        const newTerminalId = `term_${generateId()}`;
+    
+const createNewTerminal = useCallback(async () => {
+    const newTerminalId = `term_${generateId()}`;
 
-        if (!rootLayoutNode || !targetPaneId) {
-            const newPaneId = generateId();
-            const newLayout = { id: newPaneId, type: 'content' };
-contentDataRef.current[newPaneId] = {};
-await updateContentPane(newPaneId, 'chat', conversationId);
-setRootLayoutNode({ id: newPaneId, type: 'content' }); // ADD THIS
-setActiveContentPaneId(newPaneId); // AND THIS
+    // --- CORRECTED LINE HERE ---
+    const newPaneId = createAndAddPaneNodeToLayout();
+    await updateContentPane(newPaneId, 'terminal', newTerminalId);
+    // --- END CORRECTED LINE ---
 
-targetPaneId = newPaneId;
-        }
+    setActiveConversationId(null);
+    setCurrentFile(null);
+}, [createAndAddPaneNodeToLayout, updateContentPane]);
 
-        await updateContentPane(targetPaneId, 'terminal', newTerminalId);
-        setActiveConversationId(null);
-        setCurrentFile(null);
-        setRootLayoutNode(p => ({ ...p }));
-    };
-    const renderPdfViewer = useCallback(({ nodeId }) => {
-        const paneData = contentDataRef.current[nodeId];
-        if (!paneData?.contentId) return null;
-        const path = findNodePath(rootLayoutNode, nodeId);
-    
-        console.log('[PDF_RENDER] Rendering PDF viewer for pane:', nodeId, 'with selectedPdfText:', {
-            hasSelection: !!selectedPdfText,
-            textPreview: selectedPdfText?.text?.substring(0, 30) + '...' || 'none'
-        });
-    
-        const handlePdfContextMenu = (e) => {
-            console.log('[PDF_CONTEXT] Context menu handler called from PdfViewer');
-            console.log('[PDF_CONTEXT] Event details:', {
-                clientX: e.clientX,
-                clientY: e.clientY,
-                hasSelectedPdfText: !!selectedPdfText,
-                selectedTextPreview: selectedPdfText?.text?.substring(0, 50) || 'none'
-            });
-            
-           
-            if (selectedPdfText && selectedPdfText.text) {
-                console.log('[PDF_CONTEXT] Showing context menu at:', { x: e.clientX, y: e.clientY });
-                setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
-            } else {
-                console.log('[PDF_CONTEXT] Not showing context menu - no selected text');
-            }
-        };
-    
-        return (
-            <div className="flex-1 flex flex-col theme-bg-secondary relative">
-                <div
-                    className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-                    draggable="true"
-                    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: paneData.contentId }); }}
-                    onDragEnd={handleGlobalDragEnd}
-                >
-                <div className="flex items-center gap-2 truncate">
-                        {getFileIcon(paneData.contentId)}
-                        <span className="truncate" title={paneData.contentId}>
-                            {paneData.contentId.split('/').pop()}
-                        </span>
-                    </div>
-                    <button 
-                        onClick={() => closeContentPane(nodeId, path)} 
-                        className="p-1 theme-hover rounded-full flex-shrink-0"
-                    >
-                        <X size={14} />
-                    </button>
-                </div>
-                <div className="flex-1 min-h-0">
-                <PdfViewer
-                        filePath={paneData.contentId}
-                        highlights={pdfHighlights}
-                        onTextSelect={handlePdfTextSelect}
-                        onContextMenu={handlePdfContextMenu}
-                    />
-                </div>
-            </div>
-        );
-    }, [rootLayoutNode, selectedPdfText, pdfHighlights,setDraggedItem]);
-    const handleGlobalDragStart = (e, item) => {
-        setDraggedItem(item);
-       
-        Object.values(contentDataRef.current).forEach(paneData => {
-            if (paneData.contentType === 'browser' && paneData.contentId) {
-                window.api.browserSetVisibility({ viewId: paneData.contentId, visible: false });
-            }
-        });
-    };
-    
-    const handleGlobalDragEnd = () => {
-        setDraggedItem(null);
-        setDropTarget(null);
-       
-        Object.values(contentDataRef.current).forEach(paneData => {
-            if (paneData.contentType === 'browser' && paneData.contentId) {
-                window.api.browserSetVisibility({ viewId: paneData.contentId, visible: true });
-            }
-        });
-    };
-    
-    const createNewBrowser = async (url = null) => {
-       
-        if (!url) {
-            setBrowserUrlDialogOpen(true);
-            return;
-        }
-    const validPaneIds = new Set();
-    const collectPaneIds = (node) => {
-        if (!node) return;
-        if (node.type === 'content') validPaneIds.add(node.id);
-        if (node.type === 'split') node.children.forEach(collectPaneIds);
-    };
-    collectPaneIds(rootLayoutNode);
-    
-    Object.keys(contentDataRef.current).forEach(paneId => {
-        if (!validPaneIds.has(paneId)) {
-            console.log(`[CLEANUP] Removing phantom pane: ${paneId}`);
-            delete contentDataRef.current[paneId];
-        }
-    });
-        
-        let targetPaneId = activeContentPaneId;
-        const newBrowserId = `browser_${generateId()}`;
-    
-        if (!rootLayoutNode || !targetPaneId) {
-            const newPaneId = generateId();
-            const newLayout = { id: newPaneId, type: 'content' };
-contentDataRef.current[newPaneId] = {};
-await updateContentPane(newPaneId, 'chat', conversationId);
-setRootLayoutNode({ id: newPaneId, type: 'content' }); // ADD THIS
-setActiveContentPaneId(newPaneId); // AND THIS
-            targetPaneId = newPaneId;
-        }
-    
-        await updateContentPane(targetPaneId, 'browser', newBrowserId);
-        
-       
-        contentDataRef.current[targetPaneId].browserUrl = url;
-        
-        setActiveConversationId(null);
-        setCurrentFile(null);
-        setRootLayoutNode(p => ({ ...p }));
-    };
-    const handleBrowserDialogNavigate = (url) => {
+
+const handleGlobalDragStart = useCallback((e, item) => {
+  Object.values(contentDataRef.current).forEach(paneData => {
+    if (paneData.contentType === 'browser' && paneData.contentId) {
+      window.api.browserSetVisibility({ viewId: paneData.contentId, visible: false });
+    }
+  });
+
+  if (item.type === 'pane') {
+    const paneNodePath = findNodePath(rootLayoutNode, item.id);
+    if (paneNodePath) {
+      setDraggedItem({ type: 'pane', id: item.id, nodePath: paneNodePath });
+    } else {
+      setDraggedItem(null);
+    }
+  } else {
+    setDraggedItem(item);
+  }
+}, [rootLayoutNode, findNodePath]);
+
+const handleGlobalDragEnd = () => {
+  setDraggedItem(null);
+  setDropTarget(null);
+
+  Object.values(contentDataRef.current).forEach(paneData => {
+    if (paneData.contentType === 'browser' && paneData.contentId) {
+      window.api.browserSetVisibility({ viewId: paneData.contentId, visible: true });
+    }
+  });
+};    
+const createNewBrowser = useCallback(async (url = null) => {
+    if (!url) {
+        setBrowserUrlDialogOpen(true);
+        return;
+    }
+
+    const newBrowserId = `browser_${generateId()}`;
+    // --- CORRECTED LINE HERE ---
+    const newPaneId = createAndAddPaneNodeToLayout();
+    await updateContentPane(newPaneId, 'browser', newBrowserId);
+    // --- END CORRECTED LINE ---
+
+    // Set the initial URL for the new browser pane
+    if (contentDataRef.current[newPaneId]) {
+        contentDataRef.current[newPaneId].browserUrl = url;
+    }
+
+    setActiveConversationId(null);
+    setCurrentFile(null);
+}, [createAndAddPaneNodeToLayout, updateContentPane]);
+
+const handleBrowserDialogNavigate = (url) => {
         createNewBrowser(url);
         setBrowserUrlDialogOpen(false);
     };
-const renderBrowserViewer = useCallback(({ nodeId }) => {
+const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSide) => {
+  setRootLayoutNode(oldRoot => {
+    if (!oldRoot) return oldRoot;
+
+    let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+    // Trova nodo e genitore sorgente
+    let draggedParent = null;
+    let draggedIndex = -1;
+    let draggedNode = newRoot;
+    for (const idx of draggedPath) {
+      draggedParent = draggedNode;
+      draggedIndex = idx;
+      draggedNode = draggedNode.children[draggedIndex];
+    }
+
+    // Trova nodo e genitore destinazione
+    let targetParent = null;
+    let targetIndex = -1;
+    let targetNode = newRoot;
+    for (const idx of targetPath) {
+      targetParent = targetNode;
+      targetIndex = idx;
+      targetNode = targetNode.children[targetIndex];
+    }
+
+    if (!draggedParent || !targetParent) return oldRoot;
+
+    // Rimuovi nodo sorgente
+    draggedParent.children.splice(draggedIndex, 1);
+    draggedParent.sizes.splice(draggedIndex, 1);
+
+    // Pulisci genitore sorgente se ha 0 o 1 figli
+    if (draggedParent.children.length === 0) {
+      const grandParentPath = draggedPath.slice(0, -1);
+      if (grandParentPath.length === 0) {
+        newRoot = null;
+      } else {
+        const grandParent = findNodeByPath(newRoot, grandParentPath);
+        const parentIndex = grandParentPath[grandParentPath.length - 1];
+        if (grandParent && grandParent.children) {
+          grandParent.children.splice(parentIndex, 1);
+          grandParent.sizes.splice(parentIndex, 1);
+        }
+      }
+    } else if (draggedParent.children.length === 1) {
+      const remaining = draggedParent.children[0];
+      const grandParentPath = draggedPath.slice(0, -1);
+      if (grandParentPath.length === 0) {
+        newRoot = remaining;
+      } else {
+        const grandParent = findNodeByPath(newRoot, grandParentPath);
+        const parentIndex = grandParentPath[grandParentPath.length - 1];
+        if (grandParent && grandParent.children) {
+          grandParent.children[parentIndex] = remaining;
+        }
+      }
+    } else {
+      const equalSize = 100 / draggedParent.children.length;
+      draggedParent.sizes = new Array(draggedParent.children.length).fill(equalSize);
+    }
+
+    // Trova genitore e nodo destinazione aggiornati nel nuovo albero
+    let finalTargetParent = null;
+    let finalTargetIndex = -1;
+    let finalTargetNode = newRoot;
+    for (const idx of targetPath) {
+      finalTargetParent = finalTargetNode;
+      finalTargetIndex = idx;
+      finalTargetNode = finalTargetNode.children[finalTargetIndex];
+    }
+
+    if (!finalTargetParent || finalTargetIndex === -1) {
+      // Se il genitore destinazione non esiste, il nodo trascinato diventa la radice
+      newRoot = draggedNode;
+    } else if (dropSide === 'center') {
+      // Scambio: sostituisci il nodo destinazione con quello trascinato
+      const tempTargetNode = finalTargetNode;
+      finalTargetParent.children[finalTargetIndex] = draggedNode;
+
+      // Reinserisci il nodo destinazione nella posizione originale del nodo trascinato
+      let originalDraggedParent = findNodeByPath(newRoot, draggedPath.slice(0, -1));
+      let originalDraggedIndex = draggedPath[draggedPath.length - 1];
+
+      if (originalDraggedParent && originalDraggedParent.children && originalDraggedIndex !== -1) {
+        originalDraggedParent.children.splice(originalDraggedIndex, 0, tempTargetNode);
+        const equalSize = 100 / originalDraggedParent.children.length;
+        originalDraggedParent.sizes = new Array(originalDraggedParent.children.length).fill(equalSize);
+      }
+    } else {
+      // Split: crea un nuovo nodo split con i due nodi
+      const isHorizontal = dropSide === 'left' || dropSide === 'right';
+      const newSplit = {
+        id: generateId(),
+        type: 'split',
+        direction: isHorizontal ? 'horizontal' : 'vertical',
+        children: [],
+        sizes: [50, 50],
+      };
+
+      if (dropSide === 'left' || dropSide === 'top') {
+        newSplit.children = [draggedNode, finalTargetNode];
+      } else {
+        newSplit.children = [finalTargetNode, draggedNode];
+      }
+
+      finalTargetParent.children[finalTargetIndex] = newSplit;
+    }
+
+    // Ricalcola le dimensioni del genitore aggiornato
+    if (finalTargetParent && finalTargetParent.type === 'split' && finalTargetParent.children.length > 1) {
+      const equalSize = 100 / finalTargetParent.children.length;
+      finalTargetParent.sizes = new Array(finalTargetParent.children.length).fill(equalSize);
+    }
+
+    setActiveContentPaneId(draggedId);
+    return newRoot;
+  });
+}, [findNodeByPath, findNodePath]);
+
+    const renderBrowserViewer = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
     if (!paneData) return null;
 
@@ -2431,22 +2822,24 @@ const renderBrowserViewer = useCallback(({ nodeId }) => {
     
     return (
         <div className="flex-1 flex flex-col theme-bg-secondary relative">
-            <div 
-                className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-                draggable="true"
-                onDragStart={(e) => { 
-                    e.dataTransfer.effectAllowed = 'copyMove'; 
-                    handleGlobalDragStart(e, { type: 'browser', id: browserId }); 
-                }}
-                onDragEnd={handleGlobalDragEnd}
-            >
+<div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+    draggable="true"
+    onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        const nodePath = findNodePath(rootLayoutNode, nodeId);
+        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+    }}
+    onDragEnd={() => setDraggedItem(null)}
+>
+
+
                 <div className="flex items-center gap-2 truncate">
                     <Globe size={14} />
                     <span className="truncate">Browser</span>
                 </div>
                 <button 
                     onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))}
-                    className="p-1 theme-hover rounded-full"
+  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
                     onMouseDown={(e) => e.stopPropagation()}
                 >
                     <X size={14} />
@@ -2565,7 +2958,73 @@ useEffect(() => {
         );
     };
     
+const handlePdfContextMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     
+    console.log('[PDF_CONTEXT] Context menu handler called');
+    
+    // The selected text should now be in selectedPdfText from handlePdfTextSelect
+    if (selectedPdfText?.text && selectedPdfText.text.trim()) {
+        console.log('[PDF_CONTEXT] Showing context menu with text:', selectedPdfText.text.substring(0, 50));
+        setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
+    } else {
+        console.log('[PDF_CONTEXT] No valid text selected, showing menu anyway');
+        // Show menu even without text - user might want other options
+        setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
+    }
+};
+    const renderPdfViewer = useCallback(({ nodeId }) => {
+        const paneData = contentDataRef.current[nodeId];
+        if (!paneData?.contentId) return null;
+        const path = findNodePath(rootLayoutNode, nodeId);
+
+        const handlePdfContextMenu = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (selectedPdfText?.text) {
+                setPdfContextMenuPos({ x: e.clientX, y: e.clientY });
+            }
+        };
+
+        return (
+            <div className="flex-1 flex flex-col theme-bg-secondary relative">
+                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move" 
+                    draggable="true" 
+                    onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        const nodePath = findNodePath(rootLayoutNode, nodeId);
+                        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+                    }}
+                    onDragEnd={handleGlobalDragEnd}>
+
+                    <div className="flex items-center gap-2 truncate">
+                        {getFileIcon(paneData.contentId)}
+                        <span className="truncate" title={paneData.contentId}>
+                            {paneData.contentId.split('/').pop()}
+                        </span>
+                    </div>
+                    <button 
+                        onClick={() => closeContentPane(nodeId, path)} 
+                        className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+
+                <div className="flex-1 min-h-0">
+                    <PdfViewer
+                        filePath={paneData.contentId}
+                        highlights={pdfHighlights}
+                        onTextSelect={handlePdfTextSelect}
+                        onContextMenu={handlePdfContextMenu}
+                        onHighlightAddedCallback={loadPdfHighlightsForActivePane}
+                    />
+                </div>
+            </div>
+        );
+    }, [rootLayoutNode, selectedPdfText, pdfHighlights, setDraggedItem, closeContentPane, findNodePath, handleGlobalDragEnd, handlePdfTextSelect, loadPdfHighlightsForActivePane]);
 
     const renderTerminalView = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
@@ -2575,12 +3034,24 @@ useEffect(() => {
     
         return (
             <div className="flex-1 flex flex-col theme-bg-secondary relative">
-                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center">
+<div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
+    draggable="true"
+    onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        const nodePath = findNodePath(rootLayoutNode, nodeId);
+        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+    }}
+    onDragEnd={() => setDraggedItem(null)}
+>
+
                     <div className="flex items-center gap-2 truncate">
                         <Terminal size={14} />
                         <span className="truncate" title={terminalId}>Terminal</span>
                     </div>
-                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1 theme-hover rounded-full">
+                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))}
+  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
+                     
+                     >
                         <X size={14} />
                     </button>
                 </div>
@@ -2634,12 +3105,17 @@ const renderFileEditor = useCallback(({ nodeId }) => {
 
     return (
         <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
-            <div 
-                className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-                draggable="true"
-                onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: filePath }); }}
-                onDragEnd={handleGlobalDragEnd}
-            >
+<div
+  draggable="true"
+  onDragStart={(e) => {
+    e.dataTransfer.effectAllowed = 'move';
+    const nodePath = findNodePath(rootLayoutNode, nodeId);
+    setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+  }}
+  onDragEnd={() => setDraggedItem(null)}
+  className="cursor-move"
+>
+
                 <div className="flex items-center gap-2 truncate">
                     {getFileIcon(fileName)}
                     {isRenaming ? (
@@ -2675,7 +3151,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
                             console.log(`[renderFileEditor] X button clicked for pane ${nodeId}. Calling closeContentPane with path:`, path); // <--- LAVANZARO'S LOGGING!
                             closeContentPane(nodeId, path);
                         }} 
-                        className="p-1 theme-hover rounded-full flex-shrink-0"
+  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
                         onMouseDown={(e) => e.stopPropagation()}
                     >
                         <X size={14} />
@@ -2830,7 +3306,52 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             </div>
         );
     };    
+const [paneContextMenu, setPaneContextMenu] = useState(null);
 
+
+const renderPaneContextMenu = () => {
+  if (!paneContextMenu?.isOpen) return null;
+  const { x, y, nodeId, nodePath } = paneContextMenu;
+
+  const closePane = () => {
+    closeContentPane(nodeId, nodePath);
+    setPaneContextMenu(null);
+  };
+
+  const splitPane = (side) => {
+    performSplit(nodePath, side, 'chat', null); // or appropriate contentType and contentId
+    setPaneContextMenu(null);
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={() => setPaneContextMenu(null)} />
+      <div
+        className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
+        style={{ top: y, left: x }}
+        onMouseLeave={() => setPaneContextMenu(null)}
+      >
+        <button onClick={closePane} className="block px-4 py-2 w-full text-left theme-hover">
+          Close Pane
+        </button>
+        <div className="border-t theme-border my-1" />
+        <button onClick={() => splitPane('left')} className="block px-4 py-2 w-full text-left theme-hover">
+          Split Left
+        </button>
+        <button onClick={() => splitPane('right')} className="block px-4 py-2 w-full text-left theme-hover">
+          Split Right
+        </button>
+        <button onClick={() => splitPane('top')} className="block px-4 py-2 w-full text-left theme-hover">
+          Split Top
+        </button>
+        <button onClick={() => splitPane('bottom')} className="block px-4 py-2 w-full text-left theme-hover">
+          Split Bottom
+        </button>
+        {/* You can add Move options or drag instructions here */}
+      </div>
+    </>
+  );
+};
     const renderChatView = useCallback(({ nodeId }) => {
         const paneData = contentDataRef.current[nodeId];
         if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
@@ -2908,7 +3429,36 @@ const renderFileEditor = useCallback(({ nodeId }) => {
     
         return (
             <div ref={paneRef} className="flex-1 flex flex-col min-h-0 overflow-hidden relative focus:outline-none" tabIndex={-1}>
-                <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move">
+<div 
+  className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+
+    draggable="true"
+    onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        const nodePath = findNodePath(rootLayoutNode, nodeId);
+        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+    }}
+    onDragEnd={() => setDraggedItem(null)
+        
+        
+        
+    }
+      onContextMenu={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log(`[Pane Header] Right-click at (${e.clientX},${e.clientY}) on pane ${nodeId}`);
+    setPaneContextMenu({
+      isOpen: true,
+      x: e.clientX,
+      y: e.clientY,
+      nodeId,
+      nodePath: findNodePath(rootLayoutNode, nodeId)
+    });
+  }}
+
+    
+>
+
                     <div className="flex justify-between items-center min-h-[28px]">
                         <span className="truncate min-w-0 font-semibold" title={paneData.contentId}>
                             Conversation: {paneData.contentId?.slice(-8) || 'None'}
@@ -2929,7 +3479,9 @@ const renderFileEditor = useCallback(({ nodeId }) => {
                             <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`}>
                                 <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
                             </button>
-                            <button onClick={() => closeContentPane(nodeId, path)} className="p-1 theme-hover rounded-full flex-shrink-0">
+                            <button onClick={() => closeContentPane(nodeId, path)}
+  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
+                             >
                                 <X size={14} />
                             </button>
                         </div>
@@ -2995,7 +3547,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
     }, [rootLayoutNode, messageSelectionMode, selectedMessages, autoScrollEnabled, localSearch]);
         
     
-const createNewConversation = async () => {
+const createNewConversation = useCallback(async (skipMessageLoad = false) => {
     try {
         const conversation = await window.api.createConversation({ directory_path: currentPath });
         if (!conversation || !conversation.id) {
@@ -3008,34 +3560,25 @@ const createNewConversation = async () => {
             preview: 'No content',
             timestamp: conversation.timestamp || new Date().toISOString()
         };
-        
+
+        setDirectoryConversations(prev => [formattedNewConversation, ...prev]);
+
+        // --- CORRECTED LINE HERE ---
+        const newPaneId = createAndAddPaneNodeToLayout();
+        await updateContentPane(newPaneId, 'chat', conversation.id, skipMessageLoad);
+        // --- END CORRECTED LINE ---
+
         setActiveConversationId(conversation.id);
         setCurrentFile(null);
-        setDirectoryConversations(prev => [formattedNewConversation, ...prev]);
-        
-        let targetPaneId = activeContentPaneId;
-        if (!rootLayoutNode || !targetPaneId) {
-            const newPaneId = generateId();
-            const newLayout = { id: newPaneId, type: 'content' };
-contentDataRef.current[newPaneId] = {};
-await updateContentPane(newPaneId, 'chat', conversationId);
-setRootLayoutNode({ id: newPaneId, type: 'content' }); // ADD THIS
-setActiveContentPaneId(newPaneId); // AND THIS
-            targetPaneId = newPaneId;
-        }
 
-        await updateContentPane(targetPaneId, 'chat', conversation.id, true);
-
-        setRootLayoutNode(p => ({ ...p }));
-
-        return { conversation, paneId: targetPaneId };
+        return { conversation, paneId: newPaneId };
 
     } catch (err) {
         console.error("Error creating new conversation:", err);
         setError(err.message);
         return { conversation: null, paneId: null };
     }
-};
+}, [currentPath, createAndAddPaneNodeToLayout, updateContentPane]);
 
 const createNewTextFile = async () => {
         try {
@@ -3083,7 +3626,6 @@ const gatherWorkspaceContext = () => {
     
     return contexts;
 };
-
 const handleInputSubmit = async (e) => {
     e.preventDefault();
     if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
@@ -3103,12 +3645,32 @@ const handleInputSubmit = async (e) => {
     setIsStreaming(true);
 
     let finalPrompt = input;
+    let isJinxCall = false;
+    let jinxName = null;
+    let jinxArgs = [];
+    
+    const trimmedInput = input.trim();
+    if (trimmedInput.startsWith('/')) {
+        const parts = trimmedInput.slice(1).split(/\s+/);
+        const potentialJinx = parts[0];
+        
+        const availableJinxs = await window.api.getAvailableJinxs({
+            currentPath,
+            npc: currentNPC
+        });
+        
+        if (availableJinxs.jinxs && availableJinxs.jinxs.includes(potentialJinx)) {
+            isJinxCall = true;
+            jinxName = potentialJinx;
+            jinxArgs = parts.slice(1);
+        }
+    }
     
     const contexts = gatherWorkspaceContext();
     const newHash = hashContext(contexts);
     const contextChanged = newHash !== contextHash;
     
-    if (contexts.length > 0 && contextChanged) {
+    if (contexts.length > 0 && contextChanged && !isJinxCall) {
         const fileContexts = contexts.filter(c => c.type === 'file');
         const browserContexts = contexts.filter(c => c.type === 'browser');
         let contextPrompt = '';
@@ -3156,10 +3718,11 @@ ${contextPrompt}`;
     const userMessage = { 
         id: generateId(), 
         role: 'user', 
-        content: finalPrompt, 
+        content: isJinxCall ? `/${jinxName} ${jinxArgs.join(' ')}` : finalPrompt, 
         timestamp: new Date().toISOString(), 
         attachments: uploadedFiles,
-        executionMode: executionMode
+        executionMode: executionMode,
+        isJinxCall: isJinxCall
     };
 
     const assistantPlaceholder = { 
@@ -3180,29 +3743,43 @@ ${contextPrompt}`;
 
     try {
         const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
-        await window.api.executeCommandStream({
-            commandstr: finalPrompt, 
-            currentPath, 
-            conversationId, 
-            model: currentModel, 
-            provider: currentProvider,
-            npc: selectedNpc ? selectedNpc.name : currentNPC,
-            npcSource: selectedNpc ? selectedNpc.source : 'global',
-            attachments: uploadedFiles.map(f => {
-                if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
-                else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
-                return { name: f.name, type: f.type };
-            }),
-            streamId: newStreamId, 
-            executionMode: 'chat',
-        });
+        
+        if (isJinxCall) {
+            await window.api.executeJinx({
+                jinxName,
+                jinxArgs,
+                currentPath,
+                conversationId,
+                model: currentModel,
+                provider: currentProvider,
+                npc: selectedNpc ? selectedNpc.name : currentNPC,
+                npcSource: selectedNpc ? selectedNpc.source : 'global',
+                streamId: newStreamId,
+            });
+        } else {
+            await window.api.executeCommandStream({
+                commandstr: finalPrompt, 
+                currentPath, 
+                conversationId, 
+                model: currentModel, 
+                provider: currentProvider,
+                npc: selectedNpc ? selectedNpc.name : currentNPC,
+                npcSource: selectedNpc ? selectedNpc.source : 'global',
+                attachments: uploadedFiles.map(f => {
+                    if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
+                    else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
+                    return { name: f.name, type: f.type };
+                }),
+                streamId: newStreamId, 
+                executionMode: 'chat',
+            });
+        }
     } catch (err) {
         setError(err.message); 
         setIsStreaming(false); 
         delete streamToPaneRef.current[newStreamId];
     }
 };
-
 
 
 
@@ -4737,8 +5314,73 @@ const getConversationStats = (messages) => {
         ...stats
     };
 };
-
-
+const handleDeleteSelectedMessages = async () => {
+    const selectedIds = Array.from(selectedMessages);
+    if (selectedIds.length === 0) return;
+    
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData || !activePaneData.chatMessages) {
+        console.error("No active chat pane data found for message deletion.");
+        return;
+    }
+    
+    const conversationId = activePaneData.contentId;
+    
+    try {
+        // Get the actual message_id from the message object
+        const messagesToDelete = activePaneData.chatMessages.allMessages.filter(
+            msg => selectedIds.includes(msg.id || msg.timestamp)
+        );
+        
+        console.log('Attempting to delete messages:', messagesToDelete.map(m => ({
+            frontendId: m.id,
+            message_id: m.message_id,
+            timestamp: m.timestamp
+        })));
+        
+        // Delete using message_id if available, otherwise use id
+        const deleteResults = await Promise.all(
+            messagesToDelete.map(async msg => {
+                const idToUse = msg.message_id || msg.id || msg.timestamp;
+                console.log(`Deleting message with ID: ${idToUse}`);
+                const result = await window.api.deleteMessage({ 
+                    conversationId, 
+                    messageId: idToUse 
+                });
+                return { ...result, frontendId: msg.id };
+            })
+        );
+        
+        console.log('Delete results:', deleteResults);
+        
+        // Check if any actually deleted
+        const successfulDeletes = deleteResults.filter(r => r.success && r.rowsAffected > 0);
+        if (successfulDeletes.length === 0) {
+            setError("Failed to delete messages from database");
+            console.error("No messages were deleted from DB");
+            return;
+        }
+        
+        // Remove from local state
+        activePaneData.chatMessages.allMessages = activePaneData.chatMessages.allMessages.filter(
+            msg => !selectedIds.includes(msg.id || msg.timestamp)
+        );
+        activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
+            -activePaneData.chatMessages.displayedMessageCount
+        );
+        activePaneData.chatStats = getConversationStats(activePaneData.chatMessages.allMessages);
+        
+        setRootLayoutNode(prev => ({ ...prev }));
+        setSelectedMessages(new Set());
+        setMessageContextMenuPos(null);
+        setMessageSelectionMode(false);
+        
+        console.log(`Successfully deleted ${successfulDeletes.length} of ${selectedIds.length} messages`);
+    } catch (err) {
+        console.error('Error deleting messages:', err);
+        setError(err.message);
+    }
+};
 const handleSummarizeAndStart = async () => {
         const selectedIds = Array.from(selectedConvos);
         if (selectedIds.length === 0) return;
@@ -4970,6 +5612,7 @@ const renderSidebarItemContextMenu = () => {
                     <Edit size={16} />
                     <span>Rename</span>
                 </button>
+                
                 <button
                     onClick={handleSidebarItemDelete}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400"
@@ -4977,6 +5620,7 @@ const renderSidebarItemContextMenu = () => {
                     <Trash size={16} />
                     <span>Delete</span>
                 </button>
+
             </div>
         </>
     );
@@ -5141,6 +5785,7 @@ const renderSidebar = () => {
                     <>
                         {renderFolderList(folderStructure)}
                         {renderConversationList(directoryConversations)}
+                        {renderGitPanel()} {/* <--- ADDED THE GIT PANEL HERE! */}
                     </>
                 )}
                 {contextMenuPos && renderContextMenu()}
@@ -5166,240 +5811,229 @@ const renderSidebar = () => {
                 >
                     <Trash size={24} />
                 </button>
+
             </div>
             
             {/* Bottom actions - always shown, collapse button always at bottom */}
             <div className="p-4 border-t theme-border flex-shrink-0">
-                <div className="flex gap-2 justify-center">
-                    {!sidebarCollapsed && (
-                        <>
-                            <button onClick={() => setPhotoViewerOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Photo Viewer">
-                                <Image size={16} />
-                            </button>
-                            <button onClick={() => setDashboardMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
-                            <button onClick={() => setJinxMenuOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
-                            <button onClick={() => setCtxEditorOpen(true)} className="p-2 theme-hover rounded-full transition-all" aria-label="Open Context Editor">
-                                <FileJson size={16} />
-                            </button>
-                            <button onClick={handleOpenNpcTeamMenu} className="p-2 theme-hover rounded-full transition-all" aria-label="Open NPC Team Menu"><Users size={16} /></button>
-                        </>
-                    )}
-                    <button 
-                        onClick={() => setSidebarCollapsed(!sidebarCollapsed)} 
-                        className="p-2 theme-button theme-hover rounded-full transition-all group" 
-                        title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                    >
-                        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200">
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                            <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                        </div>
-                    </button>
-                </div>
-            </div>
+
+{/* This container holds the 6 action buttons, displayed as a 3x2 grid */}
+{!sidebarCollapsed && (
+    <div className="grid grid-cols-3 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
+        {/* First row of 3 buttons */}
+        <button onClick={() => setCronDaemonPanelOpen(true)} className="action-grid-button" aria-label="Open Cron/Daemon Panel"><Clock size={16} /></button>
+        <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer"><Image size={16} /></button>
+        <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
+
+        {/* Second row of 3 buttons */}
+        <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
+        <button onClick={() => setCtxEditorOpen(true)} className="action-grid-button" aria-label="Open Context Editor"><FileJson size={16} /></button>
+        <button onClick={handleOpenNpcTeamMenu} className="action-grid-button" aria-label="Open NPC Team Menu"><Users size={16} /></button>
+    </div>
+)}
+
+{/* The sidebar toggle button - always visible, spans full width */}
+{/* Add mt-4 for spacing when action buttons are visible (not collapsed) */}
+<div className={`flex justify-center ${!sidebarCollapsed ? 'mt-4' : ''}`}>
+    <button
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        className="p-2 w-full theme-button theme-hover rounded-full transition-all group" // This button remains full-width and rounded
+        title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+    >
+        {/* Content of the collapse button, centered */}
+        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
+            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+            <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
+            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
         </div>
+    </button>
+</div>
+</div>
+    </div>
     );
 };
 
 
-    const renderFolderList = (structure) => {
-        if (!structure || typeof structure !== 'object' || structure.error) { return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>; }
-        if (Object.keys(structure).length === 0) { return <div className="p-2 text-xs text-gray-500">Empty directory</div>; }
-        
-       
-        const header = (
-            <div className="flex items-center justify-between px-4 py-2 mt-4">
-                <div className="text-xs text-gray-500 font-medium">Files and Folders</div>
-                <div className="flex items-center gap-1">
-                    {/* --- ADD THIS NEW BUTTON --- */}
-                    <button 
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleRefreshFilesAndFolders();
-                        }}
-                        className="p-1 theme-hover rounded-full transition-all"
-                        title="Refresh file and folder list"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
-                        </svg>
-                    </button>
-                    {/* --- END NEW BUTTON --- */}
-                    <button 
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setFilesCollapsed(!filesCollapsed);
-                        }}
-                        className="p-1 theme-hover rounded-full transition-all"
-                        title={filesCollapsed ? "Expand files" : "Collapse files"}
-                    >
-                        <ChevronRight
-                            size={16}
-                            className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`}
-                        />
-                    </button>
-                </div>
+const renderFolderList = (structure) => {
+    if (!structure || typeof structure !== 'object' || structure.error) {
+        return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>;
+    }
+    if (Object.keys(structure).length === 0) {
+        return <div className="p-2 text-xs text-gray-500">Empty directory</div>;
+    }
+
+    const header = (
+        <div className="flex items-center justify-between px-4 py-2 mt-4">
+            <div className="text-xs text-gray-500 font-medium">Files and Folders</div>
+            <div className="flex items-center gap-1">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleRefreshFilesAndFolders();
+                    }}
+                    className="p-1 theme-hover rounded-full transition-all"
+                    title="Refresh file and folder list"
+                >
+                    {/* Refresh icon SVG */}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5" />
+                    </svg>
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setFilesCollapsed(!filesCollapsed);
+                    }}
+                    className="p-1 theme-hover rounded-full transition-all"
+                    title={filesCollapsed ? "Expand files" : "Collapse files"}
+                >
+                    <ChevronRight
+                        size={16}
+                        className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`}
+                    />
+                </button>
+            </div>
+        </div>
+    );
+
+    if (filesCollapsed) {
+        // Show only current file button when collapsed
+        const findCurrentFile = (struct) => {
+            for (const [name, content] of Object.entries(struct)) {
+                if (content?.path === currentFile && content?.type === 'file') {
+                    return { name, content };
+                }
+            }
+            return null;
+        };
+        const activeFile = currentFile ? findCurrentFile(structure) : null;
+        return (
+            <div className="mt-4">
+                {header}
+                {activeFile && (
+                    <div className="px-1 mt-1">
+                        <button
+                            onClick={() => handleFileClick(activeFile.content.path)}
+                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
+                            title={`Edit ${activeFile.name}`}
+                        >
+                            {getFileIcon(activeFile.name)}
+                            <span className="text-gray-300 truncate">{activeFile.name}</span>
+                        </button>
+                    </div>
+                )}
             </div>
         );
-        
-       
-        if (filesCollapsed) {
-           
-            const findCurrentFile = (struct) => {
-                for (const [name, content] of Object.entries(struct)) {
-                    if (content?.path === currentFile && content?.type === 'file') {
-                                                                                                                                                                                                                                                                                            
+    }
 
-                       
-                        return { name, content };
-                    }
-                }
-                return null;
-            };
-            
-            const activeFile = currentFile ? findCurrentFile(structure) : null;
-            
-            return (
-                <div className="mt-4">
-                    {header}
-                    {activeFile && (
-                        <div className="px-1 mt-1">
-                            <button
+    // Recursive renderer for folders and files
+    const renderFolderContents = (currentStructure, parentPath = '') => {
+        if (!currentStructure) return null;
 
-                                onClick={() => handleFileClick(activeFile.content.path)}
-                                className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded" title={`Edit ${activeFile.name}`}
-                            >
-                                {getFileIcon(activeFile.name)}
-                                <span className="text-gray-300 truncate">{activeFile.name}</span>
-                            </button>
-                        </div>
-                    )}
-                </div>
-            );
+        // Normalize children: accept array or object
+        let items = [];
+        if (Array.isArray(currentStructure)) {
+            items = currentStructure;
+        } else if (typeof currentStructure === 'object') {
+            items = Object.values(currentStructure);
         }
- 
-        
-        const entries = [];
-        const sortedEntries = Object.entries(structure).sort(([nameA, contentA], [nameB, contentB]) => { 
-            const typeA = contentA?.type; 
-            const typeB = contentB?.type; 
-            if (typeA === 'directory' && typeB !== 'directory') return -1; 
-            if (typeA !== 'directory' && typeB === 'directory') return 1; 
-            return nameA.localeCompare(nameB); 
+
+        // Sort: folders first, then files, alphabetically
+        items = items.filter(Boolean).sort((a, b) => {
+            if (a.type === 'directory' && b.type !== 'directory') return -1;
+            if (a.type !== 'directory' && b.type === 'directory') return 1;
+            return (a.name || '').localeCompare(b.name || '');
         });
-        
-        sortedEntries.forEach(([name, content], index) => {
-            const fullPath = content?.path; 
-            const isFolder = content?.type === 'directory'; 
-            const isFile = content?.type === 'file'; 
-            if (!fullPath) return;
 
+        return items.map(content => {
+            const name = content.name || content.path?.split('/').pop() || 'Unknown';
+            const fullPath = content.path || (parentPath ? `${parentPath}/${name}` : name);
+            const isFolder = content.type === 'directory';
+            const isFile = content.type === 'file';
 
-        const isRenamingThisItem = renamingPath === fullPath;
-
-        if (isRenamingThisItem) {
-            entries.push(
-                <div key={`renaming-${fullPath}`} className="px-2 py-1">
-                    <input
-                        type="text"
-                        value={editedSidebarItemName}
-                        onChange={(e) => setEditedSidebarItemName(e.target.value)}
-                        onBlur={handleSidebarRenameSubmit}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSidebarRenameSubmit();
-                            if (e.key === 'Escape') setRenamingPath(null);
-                        }}
-                        className="theme-input text-sm w-full rounded px-2 py-1 border"
-                        autoFocus
-                    />
-                </div>
-            );
-        } else {
-
-            if (isFolder) { 
-                entries.push(
-                    <div key={`folder-${fullPath}`}>
-                        <button 
-                            onDoubleClick={() => switchToPath(fullPath)} 
-                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')} 
-                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded" 
-                            title={`Double-click to open ${name}`}
+            if (isFolder) {
+                return (
+                    <div key={fullPath} className="pl-4">
+                        <button
+                            onClick={() => {
+                                setExpandedFolders(prev => {
+                                    const newSet = new Set(prev);
+                                    if (newSet.has(fullPath)) newSet.delete(fullPath);
+                                    else newSet.add(fullPath);
+                                    return newSet;
+                                });
+                            }}
+                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')}
+                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
+                            title={`Click to expand/collapse ${name}`}
                         >
                             <Folder size={16} className="text-blue-400 flex-shrink-0" />
                             <span className="text-gray-300 truncate">{name}</span>
+                            <ChevronRight
+                                size={14}
+                                className={`ml-auto transition-transform ${expandedFolders.has(fullPath) ? 'rotate-90' : ''}`}
+                            />
                         </button>
+                        {expandedFolders.has(fullPath) && renderFolderContents(content.children || content.contents || [], fullPath)}
                     </div>
                 );
-            }
-             else if (isFile) { 
-                const fileIcon = getFileIcon(name); 
+            } else if (isFile) {
+                const fileIcon = getFileIcon(name);
                 const isActiveFile = currentFile === fullPath;
                 const isSelected = selectedFiles.has(fullPath);
-                
-               
-               
-                const fileEntries = sortedEntries.filter(([, content]) => content?.type === 'file');
-                const currentFileIndex = fileEntries.findIndex(([, content]) => content?.path === fullPath);
-               
-                entries.push(
-                    <div key={`file-${fullPath}`}>
-                        <button 
-                            draggable="true"
-                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: fullPath }); }}
-                            onDragEnd={handleGlobalDragEnd}
-                            onClick={(e) => {
-                                if (e.ctrlKey || e.metaKey) {
-                                   
-                                    const newSelected = new Set(selectedFiles);
-                                    if (newSelected.has(fullPath)) {
-                                        newSelected.delete(fullPath);
-                                    } else {
-                                        newSelected.add(fullPath);
-                                    }
-                                    setSelectedFiles(newSelected);
-                                    setLastClickedFileIndex(currentFileIndex);
-                                } else if (e.shiftKey && lastClickedFileIndex !== null) {
-                                   
-                                    const newSelected = new Set();
-                                    
-                                    const start = Math.min(lastClickedFileIndex, currentFileIndex);
-                                    const end = Math.max(lastClickedFileIndex, currentFileIndex);
-                                    
-                                    for (let i = start; i <= end; i++) {
-                                        if (fileEntries[i]) {
-                                            newSelected.add(fileEntries[i][1].path);
-                                        }
-                                    }
-                                    setSelectedFiles(newSelected);
-                                } else {
-                                   
-                                    setSelectedFiles(new Set([fullPath]));
-                                    handleFileClick(fullPath);
-                                    setLastClickedFileIndex(currentFileIndex);
+                return (
+                    <button
+                        key={fullPath}
+                        draggable="true"
+                        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'file', id: fullPath }); }}
+                        onDragEnd={handleGlobalDragEnd}
+                        onClick={(e) => {
+                            if (e.ctrlKey || e.metaKey) {
+                                const newSelected = new Set(selectedFiles);
+                                if (newSelected.has(fullPath)) newSelected.delete(fullPath);
+                                else newSelected.add(fullPath);
+                                setSelectedFiles(newSelected);
+                            } else if (e.shiftKey && lastClickedFileIndex !== null) {
+                                // Get file entries at this level for shift selection
+                                const fileEntries = items.filter(item => item.type === 'file');
+                                const currentFileIndex = fileEntries.findIndex(item => item.path === fullPath);
+                                const newSelected = new Set();
+                                const start = Math.min(lastClickedFileIndex, currentFileIndex);
+                                const end = Math.max(lastClickedFileIndex, currentFileIndex);
+                                for (let i = start; i <= end; i++) {
+                                    if (fileEntries[i]) newSelected.add(fileEntries[i].path);
                                 }
-                            }}
-                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'file')}
-                            className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all duration-200
-                                ${isActiveFile ? 'conversation-selected border-l-2 border-blue-500' : 
-                                  isSelected ? 'conversation-selected' : 'hover:bg-gray-800'}`} 
-                            title={`Edit ${name}`}
-                        >
-                            {fileIcon}
-                            <span className="text-gray-300 truncate">{name}</span>
-                        </button>
-                    </div>
-                ); }
+                                setSelectedFiles(newSelected);
+                            } else {
+                                setSelectedFiles(new Set([fullPath]));
+                                handleFileClick(fullPath);
+                                // Update lastClickedFileIndex for shift selections
+                                const fileEntries = items.filter(item => item.type === 'file');
+                                setLastClickedFileIndex(fileEntries.findIndex(item => item.path === fullPath));
+                            }
+                        }}
+                        onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'file')}
+                        className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all duration-200
+                            ${isActiveFile ? 'conversation-selected border-l-2 border-blue-500' : 
+                              isSelected ? 'conversation-selected' : 'hover:bg-gray-800'}`}
+                        title={`Edit ${name}`}
+                    >
+                        {fileIcon}
+                        <span className="text-gray-300 truncate">{name}</span>
+                    </button>
+                );
             }
-
+            return null;
         });
-        
-        return (
-            <div>
-                {header}
-                <div className="px-1">{entries}</div>
-            </div>
-        );
     };
+
+    return (
+        <div>
+            {header}
+            <div className="px-1">{renderFolderContents(structure)}</div>
+        </div>
+    );
+};
     const handleAttachFileClick = async () => {
         try {
             const fileData = await window.api.showOpenDialog({
@@ -6460,6 +7094,7 @@ const renderAttachmentThumbnails = () => {
             )}
 
 
+                    {renderPaneContextMenu()}
 
         {renderPdfContextMenu()}
         {renderBrowserContextMenu()}
@@ -6467,7 +7102,23 @@ const renderAttachmentThumbnails = () => {
 
         {renderMessageContextMenu()}
 
+
             {isMacroInputOpen && (<MacroInput isOpen={isMacroInputOpen} currentPath={currentPath} onClose={() => { setIsMacroInputOpen(false); window.api?.hideMacro?.(); }} onSubmit={({ macro, conversationId, result }) => { setActiveConversationId(conversationId); setCurrentConversation({ id: conversationId, title: macro.trim().slice(0, 50) }); if (!result) { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: 'Processing...', timestamp: new Date().toISOString(), type: 'message' }]); } else { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: result?.output || 'No response', timestamp: new Date().toISOString(), type: 'message' }]); } refreshConversations(); }}/> )}
+            {cronDaemonPanelOpen &&(
+            <CronDaemonPanel // <--- NEW PANEL
+            isOpen={cronDaemonPanelOpen}
+            onClose={() => setCronDaemonPanelOpen(false)}
+            currentPath={currentPath}
+            npcList={availableNPCs.map(npc => ({ name: npc.name, display_name: npc.display_name }))} // Pass available NPCs
+            jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.jinx_name, description: jinx.description }))} // Pass available Jinxs
+            onAddCronJob={window.api.addCronJob}
+            onAddDaemon={window.api.addDaemon}
+            onRemoveCronJob={window.api.removeCronJob}
+            onRemoveDaemon={window.api.removeDaemon}
+        />
+)
+            }
+
             <PhotoViewer 
     isOpen={photoViewerOpen}
     onClose={() => setPhotoViewerOpen(false)}
@@ -6481,6 +7132,7 @@ const renderAttachmentThumbnails = () => {
                 currentPath={currentPath}
             />               
         </>
+
     );
 };
 
@@ -6528,20 +7180,23 @@ const handleSearchResultSelect = async (conversationId, searchTerm) => {
     }, 100);
 };
 const layoutComponentApi = useMemo(() => ({
-    rootLayoutNode, 
+    rootLayoutNode,
     setRootLayoutNode,
     findNodeByPath,
     findNodePath,
     activeContentPaneId, setActiveContentPaneId,
     draggedItem, setDraggedItem, dropTarget, setDropTarget,
     contentDataRef, updateContentPane, performSplit,
-    closeContentPane,    
-    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer, 
+    closeContentPane,
+    moveContentPane, // Pass the moveContentPane function
+    createAndAddPaneNodeToLayout, // Pass the pane creation helper
+    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer,
 }), [
-    rootLayoutNode, 
-    findNodeByPath, findNodePath, activeContentPaneId, 
+    rootLayoutNode,
+    findNodeByPath, findNodePath, activeContentPaneId,
     draggedItem, dropTarget, updateContentPane, performSplit, closeContentPane,
-    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer, 
+    moveContentPane, createAndAddPaneNodeToLayout, // Ensure these are in the dependency array
+    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer,
     setActiveContentPaneId, setDraggedItem, setDropTarget
 ]);
 

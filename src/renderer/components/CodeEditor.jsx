@@ -3,6 +3,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 import { EditorView } from '@codemirror/view';
+import { search, searchKeymap } from '@codemirror/search';
 import { keymap } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
@@ -39,7 +40,12 @@ const CodeEditor = ({ value, onChange, filePath, onSave, onContextMenu, onSelect
   const extensions = useMemo(() => [
     languageExtension,
     history(),
-    keymap.of([...defaultKeymap, ...historyKeymap]),
+    search({top:true}),
+    keymap.of([
+      ...defaultKeymap, 
+      ...historyKeymap, 
+      ...searchKeymap,
+    ]),
     customKeymap,
     EditorView.lineWrapping,
     syntaxHighlighting(appHighlightStyle),
@@ -69,7 +75,7 @@ const CodeEditor = ({ value, onChange, filePath, onSave, onContextMenu, onSelect
       extensions={extensions}
       onChange={onChange}
       onUpdate={handleUpdate}
-    />
+  />
   );
 };
 export default memo(CodeEditor);

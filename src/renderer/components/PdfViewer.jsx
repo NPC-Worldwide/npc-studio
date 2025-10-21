@@ -1,136 +1,155 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Viewer, Worker } from '@react-pdf-viewer/core';
 import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
-import { highlightPlugin } from '@react-pdf-viewer/highlight';
-import { selectionModePlugin } from '@react-pdf-viewer/selection-mode';
 
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/default-layout/lib/styles/index.css';
-import '@react-pdf-viewer/highlight/lib/styles/index.css';
+import './PdfViewer.css';
 
 const normalizePath = (p) => (p || '').replace(/\\/g, '/');
 
-const PdfViewer = ({ filePath, onTextSelect, onContextMenu }) => {
-   
+const PdfViewer = ({ filePath, onTextSelect, onContextMenu, highlights, onHighlightAddedCallback }) => {
     const [pdfData, setPdfData] = useState(null);
-    const [highlights, setHighlights] = useState([]);
-    const latestSelectionData = useRef(null);
+    const [error, setError] = useState(null);
+    const viewerWrapperRef = useRef(null);
 
-   
+    const workerUrl = `${window.location.origin}/pdf.worker.min.js`;
+
+    const defaultLayoutPluginInstance = defaultLayoutPlugin();
+
     useEffect(() => {
+        let currentBlobUrl = null;
+
         if (!filePath) {
             setPdfData(null);
-            setHighlights([]);
+            setError(null);
             return;
         }
 
-        const loadFileAndHighlights = async () => {
+        const loadFile = async () => {
+            setError(null);
             try {
                 const buffer = await window.api.readFile(filePath);
-                setPdfData(URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' })));
-
-                const resp = await window.api.getHighlightsForFile(normalizePath(filePath));
-                const loaded = (resp?.highlights || []).map((h) => ({
-                    id: h.id,
-                    content: { text: h.highlighted_text },
-                    position: h.position,
-                }));
-                setHighlights(loaded);
+                if (!buffer || buffer.byteLength === 0) {
+                    setError('Empty file');
+                    return;
+                }
+                currentBlobUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
+                setPdfData(currentBlobUrl);
             } catch (err) {
-                console.error('[PDF_VIEWER] Failed to load file/highlights:', err);
-                setPdfData(null);
-                setHighlights([]);
+                setError(err.message);
             }
         };
 
-        loadFileAndHighlights();
+        loadFile();
+
+        return () => {
+            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+        };
     }, [filePath]);
 
-   
-    const highlightPluginInstance = highlightPlugin({
-        highlights,
-        onHighlightAdded: async (highlight) => {
-            const text = highlight?.content?.text || '';
-            if (!text.trim()) return;
+    useEffect(() => {
+        const wrapper = viewerWrapperRef.current;
+        if (!wrapper) return;
 
-            const position = {
-                pageIndex: highlight.pageIndex,
-                rects: highlight.position?.rects || [],
-                boundingRect: highlight.position?.boundingRect || null,
-                quads: highlight.position?.quads || [],
-            };
+        const handleMouseUp = (e) => {
+            if (!wrapper.contains(e.target)) return;
+            
+            setTimeout(() => {
+                const selection = window.getSelection();
+                const text = selection?.toString().trim();
+                
+                console.log('[PDF] mouseup, text:', text ? text.substring(0, 30) : 'NONE');
+                
+                if (text && text.length > 0 && onTextSelect) {
+                    console.log('[PDF] Calling onTextSelect');
+                    const range = selection.getRangeAt(0);
+                    const rects = Array.from(range.getClientRects());
+                    
+                    const containerRect = wrapper.getBoundingClientRect();
+                    
+                    const position = {
+                        pageIndex: 0,
+                        rects: rects.map(rect => ({
+                            pageIndex: 0,
+                            left: ((rect.left - containerRect.left) / containerRect.width) * 100,
+                            top: ((rect.top - containerRect.top) / containerRect.height) * 100,
+                            width: (rect.width / containerRect.width) * 100,
+                            height: (rect.height / containerRect.height) * 100
+                        }))
+                    };
+                    
+                    onTextSelect({
+                        selectedText: text,
+                        position: position,
+                        timestamp: Date.now()
+                    });
+                }
+            }, 50);
+        };
 
-            const saveResult = await window.api.addPdfHighlight({
-                filePath: normalizePath(filePath),
-                text,
-                position,
-            });
-
-            if (saveResult && !saveResult.error) {
-                setHighlights((prev) => [...prev, { id: saveResult.lastID, content: { text }, position }]);
+        const handleContextMenu = (e) => {
+            if (!wrapper.contains(e.target)) return;
+            
+            const selection = window.getSelection();
+            const text = selection?.toString().trim();
+            
+            console.log('[PDF] contextmenu, text:', text ? text.substring(0, 30) : 'NONE');
+            
+            if (text && text.length > 0 && onContextMenu) {
+                console.log('[PDF] Calling onContextMenu');
+                onContextMenu(e);
             }
-        },
-    });
+        };
 
-    const plugins = [defaultLayoutPlugin(), selectionModePlugin(), highlightPluginInstance];
+        document.addEventListener('mouseup', handleMouseUp);
+        document.addEventListener('contextmenu', handleContextMenu, true);
 
-   
-    const handleTextSelectionChange = (e) => {
-       
-        if (e?.selectedText?.trim()) {
-            const selectionData = {
-                selectedText: e.selectedText,
-                pageIndex: e.pageIndex,
-                quads: e.selectionRegion?.rects || e.quads || [],
-            };
-            latestSelectionData.current = selectionData;
-           
-            if (onTextSelect) onTextSelect(selectionData);
-        }
-    };
+        return () => {
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.removeEventListener('contextmenu', handleContextMenu);
+        };
+    }, [onTextSelect, onContextMenu]);
 
-    const handleContextMenuWrapper = (e) => {
-       
-       
-       
-        const selection = window.getSelection();
-        const selectedText = selection.toString().trim();
-
-        if (selectedText) {
-            latestSelectionData.current = {
-                ...latestSelectionData.current,
-                selectedText: selectedText,
-            };
-           
-            if (onTextSelect) onTextSelect(latestSelectionData.current);
-        }
-        
-       
-        if (onContextMenu) {
-            onContextMenu(e);
-        }
-        
-       
-        e.preventDefault();
-    };
-
-   
-    if (!pdfData) {
-        return <div>Loading PDF...</div>;
-    }
+    if (error) return <div className="p-4 text-red-500">Error: {error}</div>;
+    if (!pdfData) return <div className="p-4">Loading PDF...</div>;
 
     return (
-        <div
-            style={{ height: '100vh', width: '100%', overflow: 'hidden' }}
-            onContextMenu={handleContextMenuWrapper}
+        <div 
+            ref={viewerWrapperRef}
+            style={{
+                height: '100%',
+                width: '100%',
+                position: 'relative'
+            }}
         >
-            <Worker workerUrl="/pdf.worker.min.js">
+            <Worker workerUrl={workerUrl}>
                 <Viewer
                     fileUrl={pdfData}
-                    plugins={plugins}
-                    onTextSelectionChange={handleTextSelectionChange}
+                    plugins={[defaultLayoutPluginInstance]}
                 />
             </Worker>
+            
+            {highlights && highlights.length > 0 && highlights.map((highlight, idx) => {
+                const rects = highlight.position?.rects || [];
+                if (rects.length === 0) return null;
+                
+                return rects.map((rect, rectIdx) => (
+                    <div
+                        key={`${idx}-${rectIdx}`}
+                        style={{
+                            position: 'fixed',
+                            left: `${rect.left}%`,
+                            top: `${rect.top}%`,
+                            width: `${rect.width}%`,
+                            height: `${rect.height}%`,
+                            backgroundColor: 'rgba(255, 255, 0, 0.4)',
+                            pointerEvents: 'none',
+                            zIndex: 9999
+                        }}
+                    />
+                ));
+            })}
         </div>
     );
 };

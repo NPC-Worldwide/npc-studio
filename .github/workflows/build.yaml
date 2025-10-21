@@ -142,7 +142,28 @@ jobs:
       - name: Rebuild native modules for Electron (Windows)
         if: runner.os == 'Windows'
         run: npx electron-rebuild --force --module-dir . --which-module sqlite3
-
+      - name: Import Apple Developer ID certificate and set signing environment
+        if: runner.os == 'macOS'
+        env:
+          P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+        run: |
+          # Decode the certificate and save it
+          echo "${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}" | base64 --decode > build_cert.p12
+          
+          # Create a temporary keychain
+          security create-keychain -p "$P12_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$P12_PASSWORD" build.keychain
+          
+          # Import the certificate into the keychain
+          security import build_cert.p12 -k build.keychain -P "$P12_PASSWORD" -A
+          
+          # Allow access to the certificate for code signing tools
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$P12_PASSWORD" build.keychain
+          
+          # Set environment variables for electron-builder to pick up for signing and notarization
+          echo "CSC_LINK=$(pwd)/build_cert.p12" >> $GITHUB_ENV
+          echo "CSC_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
       - name: Build Electron app
         run: npm run electron:build
         env:

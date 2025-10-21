@@ -3,7 +3,7 @@ import {
     X, Loader, Image as ImageIcon, Folder,
     Camera, Wand2, Sliders, Grid, Upload, Trash2, Edit,
     MessageSquare, Check, List, LayoutGrid, Save, Undo,
-    Redo, Search, Sparkles, Info, Tag, Crop, RotateCw, Type,
+    Redo, Search, Sparkles, Info, Tag, Crop, RotateCw, Type, ChevronLeft, ChevronRight,
     Download, PlusCircle, Copy, ExternalLink, ChevronsRight, GitBranch,
     Layers, Eye, EyeOff, GripVertical, FileJson, FolderOpen, 
     Lasso, Star, 
@@ -77,6 +77,7 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const [selectedImageGroup, setSelectedImageGroup] = useState(new Set());
     const [lastClickedIndex, setLastClickedIndex] = useState(null);
     const [displayedImagesCount, setDisplayedImagesCount] = useState(IMAGES_PER_PAGE);
+    const [lightboxIndex, setLightboxIndex] = useState(null);  
     const [viewMode, setViewMode] = useState('grid');
     const [searchTerm, setSearchTerm] = useState('');
     const [metaSearch, setMetaSearch] = useState('');
@@ -155,15 +156,41 @@ const [selectionDragStart, setSelectionDragStart] = useState(null);
     const [generating, setGenerating] = useState(false);
   
    
-    
     const [activeTool, setActiveTool] = useState('rect');
-    const [newLabelName, setNewLabelName] = useState('');
+    const [editingLabelId, setEditingLabelId] = useState(null); // Add this line
     const [drawing, setDrawing] = useState(false);
     const [drawPoints, setDrawPoints] = useState([]);
     const imgContainerRef = useRef(null);
-  
+
     
     
+    const downloadFile = (data, filename, mimeType) => {
+      const blob = new Blob([data], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+    
+    const readFileAsText = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsText(file);
+    });
+    
+    const parseCsvLine = (line) => {
+        const regex = /(?:"([^"]*(?:""[^"]*)*)"|([^,]*))(?:,|$)/g;
+        const fields = [];
+        let match;
+        regex.lastIndex = 0;
+        while ((match = regex.exec(line)) && match[0] !== '') {
+            fields.push(match[1] !== undefined ? match[1].replace(/""/g, '"') : match[2]);
+        }
+        return fields;
+    };
     
   const loadImagesForAllSources = useCallback(async (sourcesToLoad) => {
     setLoading(true); setError(null);
@@ -282,6 +309,7 @@ const [selectionDragStart, setSelectionDragStart] = useState(null);
 const [selectedGeneratedImage, setSelectedGeneratedImage] = useState(null);
 const [isRefreshing, setIsRefreshing] = useState(false);
 
+
 // Add this function before the render functions
 const handleRefreshImages = async () => {
   setIsRefreshing(true);
@@ -335,7 +363,81 @@ const handleUseSelected = () => {
 
 // Add this state near the top with other state declarations
 const [generatedFilenames, setGeneratedFilenames] = useState([]);
+const exportLabelsAsJSON = () => {
+  if (labels.length === 0) return;
+  const payload = { image: selectedImage, labels };
+  const filename = `${selectedImage?.split('/').pop() || 'labels'}.labels.json`;
+  downloadFile(JSON.stringify(payload, null, 2), filename, 'application/json');
+};
 
+const exportLabelsAsCSV = () => {
+  if (labels.length === 0) return;
+
+  const headers = ['image_filename', 'id', 'label', 'type', 'coords_json'];
+  const rows = labels.map(l => {
+      const filename = selectedImage?.split('/').pop() || 'unknown_image';
+      const coords_json = JSON.stringify(l.coords);
+      const safeLabel = `"${l.label.replace(/"/g, '""')}"`;
+      const safeCoords = `"${coords_json.replace(/"/g, '""')}"`;
+      return [filename, l.id, safeLabel, l.type, safeCoords].join(',');
+  });
+
+  const csvContent = [headers.join(','), ...rows].join('\n');
+  const filename = `${selectedImage?.split('/').pop() || 'labels'}.labels.csv`;
+  downloadFile(csvContent, filename, 'text/csv;charset=utf-8;');
+};
+
+const handleLabelImport = async (file) => {
+  if (!file) return;
+  const extension = file.name.split('.').pop().toLowerCase();
+
+  try {
+      const content = await readFileAsText(file);
+      
+      if (extension === 'json') {
+          const json = JSON.parse(content);
+          if (Array.isArray(json)) setLabels(json);
+          else if (Array.isArray(json.labels)) setLabels(json.labels);
+          else throw new Error('Invalid JSON labels file structure.');
+      } else if (extension === 'csv') {
+          const lines = content.split('\n').filter(line => line.trim() !== '');
+          if (lines.length < 2) throw new Error('CSV file is empty or has no data rows.');
+
+          const headerLine = lines.shift();
+          const headers = parseCsvLine(headerLine);
+          const requiredHeaders = ['id', 'label', 'type', 'coords_json'];
+          if (!requiredHeaders.every(h => headers.includes(h))) {
+              throw new Error(`CSV must contain headers: ${requiredHeaders.join(', ')}`);
+          }
+
+          const idIndex = headers.indexOf('id');
+          const labelIndex = headers.indexOf('label');
+          const typeIndex = headers.indexOf('type');
+          const coordsIndex = headers.indexOf('coords_json');
+          
+          const newLabels = lines.map(line => {
+              const values = parseCsvLine(line);
+              if (values.length < headers.length) return null;
+              try {
+                  return {
+                      id: values[idIndex],
+                      label: values[labelIndex],
+                      type: values[typeIndex],
+                      coords: JSON.parse(values[coordsIndex]),
+                  };
+              } catch {
+                  return null; // Skip rows with invalid JSON in coords
+              }
+          }).filter(Boolean);
+          
+          setLabels(newLabels);
+      } else {
+          throw new Error('Unsupported file type. Please upload a .json or .csv file.');
+      }
+  } catch (e) {
+      setError(`Failed to import labels: ${e.message}`);
+  }
+};
 const [generateFilename, setGenerateFilename] = useState('vixynt_gen');
  
   const handleImageSelect = (index, isSelected) => {
@@ -350,58 +452,47 @@ const [generateFilename, setGenerateFilename] = useState('vixynt_gen');
 
   
 
-  const handleImageClick = (e, imgPath, index) => {
+const handleImageClick = (e, imgPath, index) => {
     e.stopPropagation(); 
     setRenamingImage({ path: null, newName: '' });
     
-    const newSelection = new Set(selectedImageGroup);
-    
-    if (e.shiftKey && lastClickedIndex !== null) {
-       
-        const start = Math.min(lastClickedIndex, index); 
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      const newSelection = new Set(selectedImageGroup);
+      if (e.shiftKey && lastClickedIndex !== null) {
+        const start = Math.min(lastClickedIndex, index);
         const end = Math.max(lastClickedIndex, index);
         for (let i = start; i <= end; i++) {
-            newSelection.add(filteredImages[i]);
+          newSelection.add(filteredImages[i]);
         }
-    } else if (e.ctrlKey || e.metaKey) {
-       
+      } else { 
         if (newSelection.has(imgPath)) {
-            newSelection.delete(imgPath);
+          newSelection.delete(imgPath);
         } else {
-            newSelection.add(imgPath);
+          newSelection.add(imgPath);
         }
+      }
+      setSelectedImageGroup(newSelection);
+      setLastClickedIndex(index);
     } else {
-       
-        if (selectedImageGroup.has(imgPath) && selectedImageGroup.size === 1) {
-           
-            newSelection.clear();
-            setSelectedImage(null);
-        } else {
-           
-            newSelection.clear();
-            newSelection.add(imgPath);
-            setSelectedImage(imgPath);
-        }
+      setLightboxIndex(index);
+      const newSelection = new Set([imgPath]);
+      setSelectedImageGroup(newSelection);
+      setSelectedImage(imgPath);
+      setLastClickedIndex(index);
     }
-    
-   
-    setSelectedImageGroup(newSelection);
-    setLastClickedIndex(index);
-    
-   
-    if (newSelection.size > 0 && !selectedImage) {
-        setSelectedImage(imgPath);
-    }
-};
+  };
 
   const handleContextMenu = (e, imgPath) => { /* ... (unchanged) ... */ 
     e.preventDefault(); e.stopPropagation();
     if (!selectedImageGroup.has(imgPath)) { setSelectedImage(imgPath); setSelectedImageGroup(new Set([imgPath])); }
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
   };
-  const handleRenameStart = () => { /* ... (unchanged) ... */ 
-    setRenamingImage({ path: selectedImage, newName: selectedImage.split('/').pop() }); setContextMenu({ visible: false });
+  const handleRenameStart = () => { 
+    setRenamingImage({ path: selectedImage, newName: selectedImage.split('/').pop() }); 
+    setContextMenu({ visible: false });
+    setLightboxIndex(null);
   };
+  
 
   const handleRenameSubmit = async () => {
     if (!renamingImage.path || !renamingImage.newName.trim()) {
@@ -425,6 +516,9 @@ const [generateFilename, setGenerateFilename] = useState('vixynt_gen');
         }
         
         setRenamingImage({ path: null, newName: '' });
+          setContextMenu({ visible: false });
+    setLightboxIndex(null);
+
     } catch (error) {
         console.error('Rename failed:', error);
         setError('Failed to rename file: ' + error.message);
@@ -543,18 +637,18 @@ const updateLayerTransform = (layerId, newTransform, commit = false) => {
     if(commit) { pushHistory('Transform Layer'); }
 };
 
-
 const getRelativeCoords = (e) => {
-    const container = canvasContainerRef.current;
-    if (!container) return null;
-    const rect = container.getBoundingClientRect();
-    return {
-        x: clamp((e.clientX - rect.left) / rect.width, 0, 1),
-        y: clamp((e.clientY - rect.top) / rect.height, 0, 1)
-    };
+  const container = e.currentTarget;
+  if (!container) return null;
+  const rect = container.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  return {
+      x: clamp(x / rect.width, 0, 1),
+      y: clamp(y / rect.height, 0, 1)
+  };
 };
-
-
 const commitLayerParams = () => { pushHistory({ layers, selectedLayerId, adjustments }); };
 
 
@@ -699,9 +793,19 @@ useEffect(() => {
   
     useEffect(() => {
       const handleKeyDown = (e) => {
+          if (lightboxIndex !== null) {
+              if (e.key === 'ArrowLeft' && lightboxIndex > 0) {
+                  setLightboxIndex(i => i - 1);
+              } else if (e.key === 'ArrowRight' && lightboxIndex < filteredImages.length - 1) {
+                  setLightboxIndex(i => i + 1);
+              }
+          }
+
           console.log('Key pressed:', e.key);
           if (e.key === 'Escape') {
-              if (contextMenu.visible) {
+              if (lightboxIndex !== null) {
+                  setLightboxIndex(null);
+              } else if (contextMenu.visible) {
                   setContextMenu({ visible: false });
               } else if (renamingImage.path) {
                   setRenamingImage({ path: null, newName: '' });
@@ -740,32 +844,72 @@ useEffect(() => {
               document.removeEventListener('click', handleClickOutside);
           };
       }
-  }, [isOpen, contextMenu.visible, renamingImage.path, isEditingPath, selectionPath, isCropping, textEditState.editing, onClose]);
+  }, [isOpen, contextMenu.visible, renamingImage.path, isEditingPath, selectionPath, isCropping, textEditState.editing, onClose, lightboxIndex, filteredImages.length]);
+  const renderLightbox = () => {
+    if (lightboxIndex === null) return null;
 
+    const currentImage = filteredImages[lightboxIndex];
+    if (!currentImage) return null;
+
+    const hasPrev = lightboxIndex > 0;
+    const hasNext = lightboxIndex < filteredImages.length - 1;
+
+    const goToPrev = (e) => {
+        e.stopPropagation();
+        if (hasPrev) setLightboxIndex(lightboxIndex - 1);
+    };
+    const goToNext = (e) => {
+        e.stopPropagation();
+        if (hasNext) setLightboxIndex(lightboxIndex + 1);
+    };
+    const closeLightbox = () => setLightboxIndex(null);
+
+    return (
+        <div 
+            className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-8"
+            onClick={closeLightbox}
+        >
+            <button onClick={closeLightbox} className="absolute top-4 right-4 text-white hover:text-gray-300 z-[70]" title="Close (Esc)">
+                <X size={32} />
+            </button>
+            
+            {hasPrev && (
+                <button onClick={goToPrev} className="absolute left-4 top-1/2 -translate-y-1/2 text-white p-4 bg-black/30 rounded-full hover:bg-black/60 z-[70]" title="Previous (Left Arrow)">
+                    <ChevronLeft size={32} />
+                </button>
+            )}
+
+            <div 
+              className="relative max-w-full max-h-full flex items-center justify-center" 
+              onClick={e => e.stopPropagation()}
+              onContextMenu={(e) => handleImageContextMenu(e, currentImage)}
+            >
+                <img src={currentImage} alt="Expanded view" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                    style={{ maxWidth: '90vw', maxHeight: '90vh' }}
+                />
+            </div>
+            
+            {hasNext && (
+                <button onClick={goToNext} className="absolute right-4 top-1/2 -translate-y-1/2 text-white p-4 bg-black/30 rounded-full hover:bg-black/60 z-[70]" title="Next (Right Arrow)">
+                    <ChevronRight size={32} />
+                </button>
+            )}
+             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white bg-black/50 px-3 py-1 rounded-full text-sm z-[70]">
+                {lightboxIndex + 1} / {filteredImages.length}
+            </div>
+        </div>
+    );
+};
   
-    useEffect(() => { setDisplayedImagesCount(IMAGES_PER_PAGE); }, [activeSourceId, searchTerm]);
-  
-    useEffect(() => {
-      if (!selectedImage) return;
-     
-      setLayers([]); 
-      setSelectedLayerId(null);
-      setEditHistory([]); setRedoStack([]); setCompareMode(false);
-      
-     
-     
-  
-     
-      setMetadata({ iptc: { title: 'A beautiful landscape' }, exif: { camera: 'SONY ILCE-7RM3' } });
-      setCustomTags(['landscape', 'sunset']);
-      setLabels([]);
-    }, [selectedImage]);
-  
+
+
+
 
   const startDraw = (e) => {
     if (!selectedImage) return;
     const ne = e.nativeEvent.touches?.[0] || e;
-    const p = getRelativeCoords(ne.clientX, ne.clientY);
+    const p = getRelativeCoords(e);
+    if (!p) return;
     setDrawing(true);
     if (activeTool === 'rect') setDrawPoints([p, p]);
     if (activeTool === 'point') {
@@ -778,7 +922,8 @@ useEffect(() => {
   const moveDraw = (e) => {
     if (!drawing) return;
     const ne = e.nativeEvent.touches?.[0] || e;
-    const p = getRelativeCoords(ne.clientX, ne.clientY);
+    const p = getRelativeCoords(e);
+    if (!p) return;
     setDrawPoints((pts) => {
       if (activeTool === 'rect' && pts.length === 2) return [pts[0], p];
       if (activeTool === 'polygon' && pts.length >= 1) return [...pts.slice(0, -1), p];
@@ -786,30 +931,40 @@ useEffect(() => {
     });
   };
 
+  const addPolygonVertex = (e) => {
+    if (!drawing || activeTool !== 'polygon') return;
+    const ne = e.nativeEvent.touches?.[0] || e;
+    const p = getRelativeCoords(e);
+    if (!p) return;
+    setDrawPoints((pts) => [...pts.slice(0, -1), p, p]);
+  };
+
+
+
   const endDraw = () => {
     if (!drawing) return;
     setDrawing(false);
+    const defaultLabel = `${activeTool.charAt(0).toUpperCase() + activeTool.slice(1)} ${labels.filter(l => l.type === activeTool).length + 1}`;
     if (activeTool === 'rect' && drawPoints.length === 2) {
       const [a, b] = drawPoints;
-      const rect = { id: crypto.randomUUID(), type: 'rect', coords: [a, b], label: newLabelName || 'Box' };
+      const rect = { id: crypto.randomUUID(), type: 'rect', coords: [a, b], label: defaultLabel };
       setLabels((ls) => [...ls, rect]);
     }
     if (activeTool === 'polygon') {
       if (drawPoints.length >= 3) {
-        const poly = { id: crypto.randomUUID(), type: 'polygon', coords: drawPoints.slice(0, -1), label: newLabelName || 'Poly' };
+        const poly = { id: crypto.randomUUID(), type: 'polygon', coords: drawPoints.slice(0, -1), label: defaultLabel };
         setLabels((ls) => [...ls, poly]);
       }
     }
     setDrawPoints([]);
   };
 
-  const addPolygonVertex = (e) => {
-    if (!drawing || activeTool !== 'polygon') return;
-    const ne = e.nativeEvent.touches?.[0] || e;
-    const p = getRelativeCoords(ne.clientX, ne.clientY);
-    setDrawPoints((pts) => [...pts.slice(0, -1), p, p]);
+  const updateLabelName = (id, newName) => {
+    setLabels(prevLabels => 
+        prevLabels.map(l => l.id === id ? { ...l, label: newName } : l)
+    );
+    setEditingLabelId(null);
   };
-
   const removeLabel = (id) => setLabels((ls) => ls.filter(l => l.id !== id));
   const saveLabels = async () => {
     if (!selectedImage) return;
@@ -1004,16 +1159,15 @@ useEffect(() => {
   );
 
   
-
   const renderImageContextMenu = () => (
     contextMenu.visible && (
         <>
             <div
-                className="fixed inset-0 z-40"
+                className="fixed inset-0 z-[75]"
                 onClick={() => setContextMenu({ visible: false })}
             />
             <div
-                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-[80]"
                 style={{ top: contextMenu.y, left: contextMenu.x }}
             >
                 <button
@@ -1024,7 +1178,7 @@ useEffect(() => {
                     <span>Send to LLM</span>
                 </button>
                 <button
-                    onClick={() => { setActiveTab('editor'); setContextMenu({ visible: false }); }}
+                    onClick={() => { setActiveTab('editor'); setContextMenu({ visible: false }); setLightboxIndex(null); }}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm"
                 >
                     <Edit size={14} />
@@ -1046,7 +1200,7 @@ useEffect(() => {
                     <span>Rename</span>
                 </button>
                 <button
-                    onClick={() => { handleDeleteSelected(); setContextMenu({ visible: false }); }}
+                    onClick={() => { handleDeleteSelected(); setContextMenu({ visible: false }); setLightboxIndex(null); }}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400 text-sm hover:bg-red-600/20"
                 >
                     <Trash2 size={14} />
@@ -1058,15 +1212,14 @@ useEffect(() => {
 );
 
 
-
-
-
   const handleSendToLLM = () => {
   const selectedImages = Array.from(selectedImageGroup);
   if (selectedImages.length === 0) return;
   
   onStartConversation?.(selectedImages.map(path => ({ path: path.replace('media://', '') })));
   setContextMenu({ visible: false });
+  setLightboxIndex(null);
+    
   onClose?.();
 };
 
@@ -1078,6 +1231,8 @@ const handleUseForGeneration = () => {
       setGeneratePrompt(prev => `${prev} ${prev ? '\n\n' : ''}Using reference image: ${contextMenu.imagePath.split('/').pop()}`);
   }
   setContextMenu({ visible: false });
+  setLightboxIndex(null);
+  
 };
   const handleImageContextMenu = (e, imgPath) => {
     e.preventDefault(); 
@@ -1155,30 +1310,44 @@ const handleUseForGeneration = () => {
     <div className="flex-1 flex overflow-hidden">
       <div
         className="flex-1 relative bg-gray-900 flex items-center justify-center select-none"
-        ref={imgContainerRef}
-        onMouseDown={startDraw} onMouseMove={moveDraw} onMouseUp={endDraw} onDoubleClick={addPolygonVertex}
-        onTouchStart={startDraw} onTouchMove={moveDraw} onTouchEnd={endDraw}
       >
         {selectedImage ? (
-          <>
-            <img src={selectedImage} alt="Labeling" className="max-w-full max-h-full object-contain" />
+          <div 
+            className="relative"
+            onMouseDown={startDraw} onMouseMove={moveDraw} onMouseUp={endDraw} onDoubleClick={addPolygonVertex}
+            onTouchStart={startDraw} onTouchMove={moveDraw} onTouchEnd={endDraw}
+          >
+            <img 
+              src={selectedImage} 
+              alt="Labeling" 
+              className="max-w-full max-h-full object-contain pointer-events-none"
+              draggable="false"
+            />
             {drawing && drawPoints.length > 0 && (
-              <OverlayShape points={drawPoints} type={activeTool} containerRef={imgContainerRef} />
+              <OverlayShape points={drawPoints} type={activeTool} />
             )}
             {labels.map((l) => (
-              <PlacedShape key={l.id} shape={l} containerRef={imgContainerRef} onRemove={() => removeLabel(l.id)} />
+              <PlacedShape key={l.id} shape={l} onRemove={() => removeLabel(l.id)} />
             ))}
-          </>
+          </div>
         ) : (<p className="theme-text-muted">Select an image to label</p>)}
       </div>
       <div className="w-80 border-l theme-border theme-bg-secondary p-4 space-y-3 overflow-y-auto">
         <div className="flex items-center justify-between">
           <h4 className="text-lg font-semibold">Labels</h4>
           <div className="flex gap-2">
-            <button className="theme-button" onClick={saveLabels}><Save size={14} /></button>
-            <button className="theme-button" onClick={exportLabels}><Download size={14} /></button>
-            <label className="theme-button cursor-pointer">
-              <input type="file" accept=".json" className="hidden" onChange={(e) => e.target.files?.[0] && importLabels(e.target.files[0])} />
+            <button className="theme-button" onClick={saveLabels} title="Save labels to disk"><Save size={14} /></button>
+            
+            <div className="relative group">
+                <button className="theme-button" title="Export labels"><Download size={14} /></button>
+                <div className="absolute right-0 top-full mt-1 w-32 bg-gray-800 border theme-border rounded shadow-lg hidden group-hover:block z-10">
+                    <button onClick={exportLabelsAsJSON} className="w-full text-left px-3 py-1.5 text-sm theme-hover">as JSON</button>
+                    <button onClick={exportLabelsAsCSV} className="w-full text-left px-3 py-1.5 text-sm theme-hover">as CSV</button>
+                </div>
+            </div>
+
+            <label className="theme-button cursor-pointer" title="Import labels from JSON or CSV">
+              <input type="file" accept=".json,.csv" className="hidden" onChange={(e) => handleLabelImport(e.target.files?.[0])} />
               <ExternalLink size={14} />
             </label>
           </div>
@@ -1189,17 +1358,31 @@ const handleUseForGeneration = () => {
               onClick={() => { setActiveTool(t); setDrawing(false); setDrawPoints([]); }}>{t}</button>
           ))}
         </div>
-        <div>
-          <label className="text-sm">Label Name</label>
-          <input className="w-full theme-input mt-1" value={newLabelName} onChange={e => setNewLabelName(e.target.value)} placeholder="Person / Car / Tree…" />
-        </div>
+
         <div className="space-y-2">
           {labels.length === 0 ? (
-            <div className="theme-text-muted text-sm">No labels yet. Choose a tool and draw on the image.</div>
+            <div className="theme-text-muted text-sm text-center py-4">No labels yet. Choose a tool and draw on the image to begin.</div>
           ) : labels.map((l) => (
-            <div key={l.id} className="flex items-center justify-between bg-gray-800 p-2 rounded">
-              <span className="truncate text-sm">{l.label} <span className="opacity-60">({l.type})</span></span>
-              <button className="theme-button px-2 py-1 text-xs" onClick={() => removeLabel(l.id)}><X size={12} /></button>
+            <div key={l.id} className="flex items-center justify-between bg-gray-800 p-2 rounded gap-2">
+              {editingLabelId === l.id ? (
+                <input 
+                  type="text"
+                  defaultValue={l.label}
+                  className="w-full theme-input text-sm bg-gray-700"
+                  autoFocus
+                  onBlur={(e) => updateLabelName(l.id, e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') updateLabelName(l.id, e.target.value); if (e.key === 'Escape') setEditingLabelId(null); }}
+                />
+              ) : (
+                <span 
+                  className="truncate text-sm flex-1 cursor-pointer" 
+                  onDoubleClick={() => setEditingLabelId(l.id)}
+                  title="Double-click to edit"
+                >
+                  {l.label} <span className="opacity-60">({l.type})</span>
+                </span>
+              )}
+              <button className="theme-button px-2 py-1 text-xs flex-shrink-0" onClick={() => removeLabel(l.id)}><X size={12} /></button>
             </div>
           ))}
         </div>
@@ -1216,10 +1399,7 @@ const handleUseForGeneration = () => {
         </div>
       </div>
     </div>
-  );
-
-
-  
+  );  
 
   const renderGenerator = useCallback(() => {
     const getGridCols = (imageCount) => {
@@ -1445,72 +1625,77 @@ const handleUseForGeneration = () => {
     generateFilename, setGenerateFilename, setError
 ]);
 const handleCanvasMouseDown = (e) => {
-    if (!canvasContainerRef.current) return;
-    const rect = canvasContainerRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    if (editorTool === 'text') {
-        const newText = {
-            id: `text_${Date.now()}`,
-            content: 'Edit me',
-            x: x,
-            y: y,
-            fontSize: 32,
-            color: '#FFFFFF',
-            fontFamily: 'Arial'
-        };
-        setTextLayers(prev => [...prev, newText]);
-        setEditingTextId(newText.id);
-        return;
-    }
-    
-    if (editorTool === 'brush' || editorTool === 'eraser') {
-        setIsDrawingBrush(true);
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        ctx.lineCap = 'round';
-        ctx.lineWidth = brushSize;
-        ctx.strokeStyle = editorTool === 'eraser' ? 'rgba(0,0,0,1)' : brushColor;
-        ctx.globalCompositeOperation = editorTool === 'eraser' ? 'destination-out' : 'source-over';
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        return;
-    }
-    
-    if (editorTool === 'select' && selection) {
-        const xPercent = (x / rect.width) * 100;
-        const yPercent = (y / rect.height) * 100;
-        
-        if (selection.type === 'rect') {
-            const inSelection = 
-                xPercent >= Math.min(selection.x1, selection.x2) &&
-                xPercent <= Math.max(selection.x1, selection.x2) &&
-                yPercent >= Math.min(selection.y1, selection.y2) &&
-                yPercent <= Math.max(selection.y1, selection.y2);
-            
-            if (inSelection) {
-                setIsDraggingSelection(true);
-                setSelectionDragStart({ x: xPercent, y: yPercent });
-                return;
-            }
-        }
-    }
-    
-    setDrawingSelection(true);
-    
-    if (selectionMode === 'rect') {
-        const xPercent = (x / rect.width) * 100;
-        const yPercent = (y / rect.height) * 100;
-        setSelection({ type: 'rect', x1: xPercent, y1: yPercent, x2: xPercent, y2: yPercent });
-    } else if (selectionMode === 'lasso') {
-        const xPercent = (x / rect.width) * 100;
-        const yPercent = (y / rect.height) * 100;
-        setSelectionPoints([{ x: xPercent, y: yPercent }]);
-    }
+  if (!canvasContainerRef.current) return;
+  const p = getRelativeCoords(e, canvasContainerRef.current);
+  if (!p) return;
+
+  const rect = canvasContainerRef.current.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  
+  if (editorTool === 'text') {
+      const newText = {
+          id: `text_${Date.now()}`,
+          content: 'Edit me',
+          x: x,
+          y: y,
+          fontSize: 32,
+          color: '#FFFFFF',
+          fontFamily: 'Arial'
+      };
+      setTextLayers(prev => [...prev, newText]);
+      setEditingTextId(newText.id);
+      return;
+  }
+  
+  if (editorTool === 'brush' || editorTool === 'eraser') {
+      setIsDrawingBrush(true);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      ctx.lineCap = 'round';
+      ctx.lineWidth = brushSize;
+      ctx.strokeStyle = editorTool === 'eraser' ? 'rgba(0,0,0,1)' : brushColor;
+      ctx.globalCompositeOperation = editorTool === 'eraser' ? 'destination-out' : 'source-over';
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      return;
+  }
+  
+  if (editorTool === 'select' && selection) {
+      const xPercent = (x / rect.width) * 100;
+      const yPercent = (y / rect.height) * 100;
+      
+      if (selection.type === 'rect') {
+          const inSelection = 
+              xPercent >= Math.min(selection.x1, selection.x2) &&
+              xPercent <= Math.max(selection.x1, selection.x2) &&
+              yPercent >= Math.min(selection.y1, selection.y2) &&
+              yPercent <= Math.max(selection.y1, selection.y2);
+          
+          if (inSelection) {
+              setIsDraggingSelection(true);
+              setSelectionDragStart({ x: xPercent, y: yPercent });
+              return;
+          }
+      }
+  }
+  
+  setDrawingSelection(true);
+  
+  if (selectionMode === 'rect') {
+      const xPercent = (x / rect.width) * 100;
+      const yPercent = (y / rect.height) * 100;
+      setSelection({ type: 'rect', x1: xPercent, y1: yPercent, x2: xPercent, y2: yPercent });
+  } else if (selectionMode === 'lasso') {
+      const xPercent = (x / rect.width) * 100;
+      const yPercent = (y / rect.height) * 100;
+      setSelectionPoints([{ x: xPercent, y: yPercent }]);
+  }
 };
-const handleCanvasMouseMove = (e) => {
+
+
+  const handleCanvasMouseMove = (e) => {
     if (!canvasContainerRef.current) return;
     const rect = canvasContainerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -2029,6 +2214,8 @@ return (
         </main>
       </div>
       {renderImageContextMenu()}
+      {renderLightbox()}
+      
     </div>
   </div>
 );
@@ -2151,19 +2338,70 @@ const TagsEditor = ({ tags, setTags }) => {
     );
   };
   
-  const OverlayShape = ({ points, type, containerRef }) => {
-    const rect = containerRef.current?.getBoundingClientRect(); if (!rect) return null;
-    if (type === 'rect' && points.length === 2) { const [a, b] = points; return <div className="absolute border-2 border-blue-400/80 bg-blue-400/10 pointer-events-none" style={{ left: Math.min(a.x, b.x) * rect.width, top: Math.min(a.y, b.y) * rect.height, width: Math.abs(a.x - b.x) * rect.width, height: Math.abs(a.y - b.y) * rect.height }} />; }
-    if (type === 'polygon' && points.length >= 2) return <svg className="absolute inset-0 pointer-events-none"><polyline points={points.map(p => `${p.x * rect.width},${p.y * rect.height}`).join(' ')} fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.8)" strokeWidth={2} /></svg>;
+  const OverlayShape = ({ points, type }) => {
+    if (type === 'rect' && points.length === 2) {
+      const [a, b] = points;
+      const style = {
+        left: `${Math.min(a.x, b.x) * 100}%`,
+        top: `${Math.min(a.y, b.y) * 100}%`,
+        width: `${Math.abs(a.x - b.x) * 100}%`,
+        height: `${Math.abs(a.y - b.y) * 100}%`,
+      };
+      return <div className="absolute border-2 border-blue-400/80 bg-blue-400/10 pointer-events-none" style={style} />;
+    }
+    if (type === 'polygon' && points.length >= 2) {
+      return (
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <polyline
+            points={points.map(p => `${p.x * 100},${p.y * 100}`).join(' ')}
+            fill="rgba(59,130,246,0.1)"
+            stroke="rgba(59,130,246,0.8)"
+            strokeWidth="0.5"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      );
+    }
     return null;
   };
   
-  const PlacedShape = ({ shape, containerRef, onRemove }) => {
-    const rect = containerRef.current?.getBoundingClientRect(); if (!rect) return null;
+  const PlacedShape = ({ shape, onRemove }) => {
     const commonLabel = (x, y) => <div style={{ transform: `translate(${x}px, ${y}px)` }} className="absolute"><div className="absolute -top-6 left-0 text-xs bg-black/70 px-1 rounded text-white whitespace-nowrap">{shape.label}</div><button className="absolute -top-3 -right-3 bg-black/70 rounded-full p-0.5 z-10" onClick={onRemove}><X size={10} className="text-white" /></button></div>;
-    if (shape.type === 'rect') { const [a, b] = shape.coords; const left = Math.min(a.x, b.x) * rect.width; const top = Math.min(a.y, b.y) * rect.height; return <div className="absolute border-2 border-emerald-400/90 bg-emerald-400/10" style={{ left, top, width: Math.abs(a.x - b.x) * rect.width, height: Math.abs(a.y - b.y) * rect.height }}>{commonLabel(0, 0)}</div>; }
-    if (shape.type === 'point') return <div className="absolute" style={{ left: shape.coords[0].x * rect.width, top: shape.coords[0].y * rect.height }}><div className="w-2 h-2 bg-emerald-400 rounded-full -translate-x-1 -translate-y-1"></div>{commonLabel(0, 0)}</div>;
-    if (shape.type === 'polygon') return <svg className="absolute inset-0 pointer-events-none"><polygon points={shape.coords.map(p => `${p.x * rect.width},${p.y * rect.height}`).join(' ')} fill="rgba(16,185,129,0.15)" stroke="rgba(16,185,129,0.9)" strokeWidth={2} style={{ pointerEvents: 'auto' }} /><foreignObject x={shape.coords[0].x * rect.width} y={shape.coords[0].y * rect.height} width={1} height={1} style={{ overflow: 'visible', pointerEvents: 'auto' }}>{commonLabel(0, 0)}</foreignObject></svg>;
+    
+    if (shape.type === 'rect') {
+      const [a, b] = shape.coords;
+      const style = {
+        left: `${Math.min(a.x, b.x) * 100}%`,
+        top: `${Math.min(a.y, b.y) * 100}%`,
+        width: `${Math.abs(a.x - b.x) * 100}%`,
+        height: `${Math.abs(a.y - b.y) * 100}%`,
+      };
+      return <div className="absolute border-2 border-emerald-400/90 bg-emerald-400/10" style={style}>{commonLabel(0, 0)}</div>;
+    }
+    if (shape.type === 'point') {
+      const style = {
+        left: `${shape.coords[0].x * 100}%`,
+        top: `${shape.coords[0].y * 100}%`,
+      };
+      return <div className="absolute" style={style}><div className="w-2 h-2 bg-emerald-400 rounded-full -translate-x-1 -translate-y-1"></div>{commonLabel(0, 0)}</div>;
+    }
+    if (shape.type === 'polygon') {
+      return (
+        <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none' }} viewBox="0 0 100 100" preserveAspectRatio="none">
+          <polygon
+            points={shape.coords.map(p => `${p.x * 100},${p.y * 100}`).join(' ')}
+            fill="rgba(16,185,129,0.15)"
+            stroke="rgba(16,185,129,0.9)"
+            strokeWidth="0.5"
+            vectorEffect="non-scaling-stroke"
+            style={{ pointerEvents: 'auto' }}
+          />
+          <foreignObject x={shape.coords[0].x * 100} y={shape.coords[0].y * 100} width="1" height="1" style={{ overflow: 'visible', pointerEvents: 'auto' }}>
+            {commonLabel(0, 0)}
+          </foreignObject>
+        </svg>
+      );
+    }
     return null;
   };
   

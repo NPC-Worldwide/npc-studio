@@ -3,6 +3,7 @@ const { desktopCapturer } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const simpleGit = require('simple-git');
 const fsPromises = require('fs/promises');
 const os = require('os');
 let pty;
@@ -11,6 +12,13 @@ try {
 } catch (error) {
   pty = null;
 }
+
+const cron = require('node-cron');
+
+
+const cronJobs = new Map();  // id => {id, schedule, command, npc, jinx, task}
+const daemons = new Map();   // id => {id, name, command, npc, jinx, process}
+
 
 
 const sqlite3 = require('sqlite3');
@@ -33,6 +41,7 @@ const ensureTablesExist = async () => {
           file_path TEXT NOT NULL,
           highlighted_text TEXT NOT NULL,
           position_json TEXT NOT NULL,
+          annotation TEXT DEFAULT '', -- <--- CRITICAL FIX: ADDED ANNOTATION COLUMN
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       );
   `;
@@ -77,6 +86,7 @@ const ensureTablesExist = async () => {
       console.error('[DB] FATAL: Could not create tables.', error);
   }
 };
+
 app.setAppUserModelId('com.npc_studio.chat');
 app.name = 'npc-studio';
 app.setName('npc-studio');
@@ -174,6 +184,19 @@ async function waitForServer(maxAttempts = 120, delay = 1000) {
   log('Backend server failed to start in the allocated time');
   return false;
 }
+function scheduleCronJob(job) {
+  if (job.task) job.task.stop();
+  job.task = cron.schedule(job.schedule, () => {
+    // Here you can execute the command, maybe via npc/jinx logic or shell exec
+    console.log(`Executing cron job ${job.id}: ${job.command}`);
+    // Example: spawn a shell command
+    const child = spawn(job.command, { shell: true });
+    child.stdout.on('data', data => console.log(`Cron job output: ${data}`));
+    child.stderr.on('data', data => console.error(`Cron job error: ${data}`));
+  }, { scheduled: true });
+  return job.task;
+}
+
 
 async function ensureBaseDir() {
   try {
@@ -607,7 +630,120 @@ function createWindow() {
     mainWindow.hide();
   });
 
+// Add these handlers near your other ipcMain.handle calls
 
+ipcMain.handle('getAvailableJinxs', async (event, { currentPath, npc }) => {
+  try {
+      const params = new URLSearchParams();
+      if (currentPath) params.append('currentPath', currentPath);
+      if (npc) params.append('npc', npc);
+      
+      const url = `http://127.0.0.1:5337/api/jinxs/available?${params.toString()}`;
+      log('Fetching available jinxs from:', url);
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error ${response.status}: ${errorText}`);
+      }
+      
+      const data = await response.json();
+      log('Received jinxs:', data.jinxs?.length);
+      return data;
+  } catch (err) {
+      log('Error in getAvailableJinxs handler:', err);
+      return { jinxs: [], error: err.message };
+  }
+});
+
+ipcMain.handle('executeJinx', async (event, data) => {
+  const currentStreamId = data.streamId || generateId();
+  log(`[Main Process] executeJinx: Starting stream with ID: ${currentStreamId}`);
+  
+  try {
+      const apiUrl = 'http://127.0.0.1:5337/api/jinx/execute';
+      
+      const payload = {
+          streamId: currentStreamId,
+          jinxName: data.jinxName,
+          jinxArgs: data.jinxArgs || [],
+          currentPath: data.currentPath,
+          conversationId: data.conversationId,
+          model: data.model,
+          provider: data.provider,
+          npc: data.npc,
+          npcSource: data.npcSource || 'global',
+      };
+      
+      const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+      });
+
+      log(`[Main Process] Backend response status for jinx ${data.jinxName}: ${response.status}`);
+      if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! Status: ${response.status}. Body: ${errorText}`);
+      }
+
+      const stream = response.body;
+      if (!stream) {
+          event.sender.send('stream-error', { 
+              streamId: currentStreamId, 
+              error: 'Backend returned no stream data for jinx execution.' 
+          });
+          return { error: 'Backend returned no stream data.', streamId: currentStreamId };
+      }
+      
+      activeStreams.set(currentStreamId, { stream, eventSender: event.sender });
+      
+      (function(capturedStreamId) {
+          stream.on('data', (chunk) => {
+              if (event.sender.isDestroyed()) {
+                  stream.destroy();
+                  activeStreams.delete(capturedStreamId);
+                  return;
+              }
+              event.sender.send('stream-data', {
+                  streamId: capturedStreamId,
+                  chunk: chunk.toString()
+              });
+          });
+
+          stream.on('end', () => {
+              log(`[Main Process] Jinx stream ${capturedStreamId} ended.`);
+              if (!event.sender.isDestroyed()) {
+                  event.sender.send('stream-complete', { streamId: capturedStreamId });
+              }
+              activeStreams.delete(capturedStreamId);
+          });
+
+          stream.on('error', (err) => {
+              log(`[Main Process] Jinx stream ${capturedStreamId} error:`, err.message);
+              if (!event.sender.isDestroyed()) {
+                  event.sender.send('stream-error', {
+                      streamId: capturedStreamId,
+                      error: err.message
+                  });
+              }
+              activeStreams.delete(capturedStreamId);
+          });
+      })(currentStreamId);
+
+      return { streamId: currentStreamId };
+
+  } catch (err) {
+      log(`[Main Process] Error setting up jinx stream ${currentStreamId}:`, err.message);
+      if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('stream-error', {
+              streamId: currentStreamId,
+              error: `Failed to execute jinx: ${err.message}`
+          });
+      }
+      return { error: `Failed to execute jinx: ${err.message}`, streamId: currentStreamId };
+  }
+});
 
     ipcMain.handle('getAvailableModels', async (event, currentPath) => {
      
@@ -638,29 +774,8 @@ function createWindow() {
       }
   });
 
-  ipcMain.handle('db:getHighlightsForFile', async (event, { filePath }) => {
-    try {
-      ensureTablesExist();
-      const rows = await dbQuery('SELECT * FROM pdf_highlights WHERE file_path = ? ORDER BY id ASC', [filePath]);
-     
-      return { highlights: rows.map(r => ({ ...r, position: JSON.parse(r.position_json) })) };
-    } catch (error) {
-      return { error: error.message };
-    }
-  });
-  
-  ipcMain.handle('db:addPdfHighlight', async (event, { filePath, text, position }) => {
-    try {
-      const positionJson = JSON.stringify(position);
-      await dbQuery(
-        'INSERT INTO pdf_highlights (file_path, highlighted_text, position_json) VALUES (?, ?, ?)',
-        [filePath, text, positionJson]
-      );
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
+
+
   
   ipcMain.handle('open_directory_picker', async () => {
     const result = await dialog.showOpenDialog({
@@ -678,7 +793,121 @@ function createWindow() {
         timestamp: data.timestamp
     }, '*');
 });
- 
+
+
+ipcMain.handle('getCronDaemons', () => {
+  return {
+    cronJobs: Array.from(cronJobs.values()).map(({task, ...rest}) => rest),
+    daemons: Array.from(daemons.values()).map(({process, ...rest}) => rest)
+  };
+});
+
+ipcMain.handle('addCronJob', (event, { path, schedule, command, npc, jinx }) => {
+  const id = generateId();
+  const job = { id, path, schedule, command, npc, jinx, task: null };
+  scheduleCronJob(job);
+  cronJobs.set(id, job);
+  return { success: true, id };
+});
+
+ipcMain.handle('removeCronJob', (event, id) => {
+  if (cronJobs.has(id)) {
+    const job = cronJobs.get(id);
+    if (job.task) job.task.stop();
+    cronJobs.delete(id);
+    return { success: true };
+  } else {
+    return { success: false, error: 'Cron job not found' };
+  }
+});
+ipcMain.handle('deleteMessage', async (_, { conversationId, messageId }) => {
+  try {
+    const db = new sqlite3.Database(dbPath);
+    
+    // Delete by message_id column (which is what the backend actually uses)
+    const deleteMessageQuery = `
+      DELETE FROM conversation_history 
+      WHERE conversation_id = ? 
+      AND message_id = ?
+    `;
+    
+    let rowsAffected = 0;
+    await new Promise((resolve, reject) => {
+      db.run(deleteMessageQuery, [conversationId, messageId], function(err) {
+        if (err) {
+          reject(err);
+        } else {
+          rowsAffected = this.changes;
+          log(`[DB] Deleted message ${messageId} from conversation ${conversationId}. Rows affected: ${this.changes}`);
+          resolve();
+        }
+      });
+    });
+    
+    // Also delete associated attachments
+    if (rowsAffected > 0) {
+      const deleteAttachmentsQuery = 'DELETE FROM message_attachments WHERE message_id = ?';
+      await new Promise((resolve) => {
+        db.run(deleteAttachmentsQuery, [messageId], function(err) {
+          if (err) {
+            log(`[DB] Warning: Failed to delete attachments for message ${messageId}:`, err.message);
+          }
+          resolve();
+        });
+      });
+    }
+    
+    db.close();
+    
+    return { success: rowsAffected > 0, rowsAffected };
+  } catch (err) {
+    console.error('Error deleting message:', err);
+    return { success: false, error: err.message, rowsAffected: 0 };
+  }
+});
+ipcMain.handle('addDaemon', (event, { path, name, command, npc, jinx }) => {
+  const id = generateId();
+
+  try {
+    // Spawn daemon process, e.g., continuous process for your NPC jinxs or commands
+    const proc = spawn(command, {
+      shell: true,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    proc.unref();
+
+    proc.stdout.on('data', data => {
+      console.log(`[Daemon ${name} stdout]: ${data.toString()}`);
+    });
+    proc.stderr.on('data', data => {
+      console.error(`[Daemon ${name} stderr]: ${data.toString()}`);
+    });
+    proc.on('exit', (code, signal) => {
+      console.log(`[Daemon ${name}] exited with code ${code}, signal ${signal}`);
+      // You may want to remove or restart
+    });
+
+    daemons.set(id, { id, path, name, command, npc, jinx, process: proc });
+    return { success: true, id };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('removeDaemon', (event, id) => {
+  if (daemons.has(id)) {
+    const daemon = daemons.get(id);
+    if (daemon.process) {
+      daemon.process.kill();
+    }
+    daemons.delete(id);
+    return { success: true };
+  }
+  return { success: false, error: 'Daemon not found' };
+});
+
+
   ipcMain.handle('update-shortcut', (event, newShortcut) => {
     const rcPath = path.join(os.homedir(), '.npcshrc');
     try {
@@ -890,6 +1119,123 @@ ipcMain.handle('browser-get-page-content', async (event, { viewId }) => {
     }
     return { success: false, error: 'Browser view not found' };
 });
+ipcMain.handle('gitStatus', async (event, repoPath) => {
+  log(`[Git] Getting status for: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const status = await git.status();
+
+    const allChangedFiles = status.files.map(f => {
+      let fileStatus = '';
+      let isStaged = false;
+      let isUntracked = false;
+
+      // Determine the primary status for display
+      if (f.index === 'M') {
+        fileStatus = 'Staged Modified'; // Modified in index
+        isStaged = true;
+      } else if (f.index === 'A') {
+        fileStatus = 'Staged Added'; // Added to index
+        isStaged = true;
+      } else if (f.index === 'D') {
+        fileStatus = 'Staged Deleted'; // Deleted from index
+        isStaged = true;
+      } else if (f.working_dir === 'M') {
+        fileStatus = 'Modified'; // Modified in working directory, not staged
+      } else if (f.working_dir === 'D') {
+        fileStatus = 'Deleted'; // Deleted in working directory, not staged
+      } else if (f.index === '??') {
+        fileStatus = 'Untracked'; // Untracked file
+        isUntracked = true;
+      } else {
+        fileStatus = 'Unknown Change'; // Fallback for any other types
+      }
+
+      return {
+        path: f.path,
+        status: fileStatus,
+        isStaged: isStaged,
+        isUntracked: isUntracked,
+      };
+    });
+
+    return {
+      success: true,
+      branch: status.current,
+      ahead: status.ahead,
+      behind: status.behind,
+      // Filter based on the new structured 'allChangedFiles'
+      staged: allChangedFiles.filter(f => f.isStaged),
+      unstaged: allChangedFiles.filter(f => !f.isStaged && !f.isUntracked),
+      untracked: allChangedFiles.filter(f => f.isUntracked),
+      hasChanges: allChangedFiles.length > 0
+    };
+  } catch (err) {
+    console.error(`[Git] Error getting status for ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitStageFile', async (event, repoPath, file) => {
+  log(`[Git] Staging file: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.add(file);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error staging file ${file} in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitUnstageFile', async (event, repoPath, file) => {
+  log(`[Git] Unstaging file: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.reset([file]); // 'git reset <file>' unstages it
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error unstaging file ${file} in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitCommit', async (event, repoPath, message) => {
+  log(`[Git] Committing with message: "${message}" in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const commitResult = await git.commit(message);
+    return { success: true, commit: commitResult.commit };
+  } catch (err) {
+    console.error(`[Git] Error committing in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitPull', async (event, repoPath) => {
+  log(`[Git] Pulling changes for: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const pullResult = await git.pull();
+    return { success: true, summary: pullResult };
+  } catch (err) {
+    console.error(`[Git] Error pulling in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitPush', async (event, repoPath) => {
+  log(`[Git] Pushing changes for: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const pushResult = await git.push();
+    return { success: true, summary: pushResult };
+  } catch (err) {
+    console.error(`[Git] Error pushing in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
     log(`[BROWSER VIEW] show-browser for URL: ${url}, viewId: ${viewId}`);
     log(`[BROWSER VIEW] Bounds received:`, JSON.stringify(bounds));
@@ -1545,6 +1891,68 @@ app.on('will-quit', () => {
         return { jinxs: [], error: err.message };
     }
 });
+ipcMain.handle('db:addPdfHighlight', async (event, { filePath, text, position, annotation = '' }) => {
+  console.log('[DB_ADD_HIGHLIGHT] Received request:', {
+    filePath,
+    textLength: text?.length,
+    positionType: typeof position,
+    position: position,
+    annotation
+  });
+  
+  try {
+    const positionJson = JSON.stringify(position);
+    console.log('[DB_ADD_HIGHLIGHT] Stringified position:', positionJson.substring(0, 100));
+    
+    const result = await dbQuery(
+      'INSERT INTO pdf_highlights (file_path, highlighted_text, position_json, annotation) VALUES (?, ?, ?, ?)',
+      [filePath, text, positionJson, annotation]
+    );
+    
+    console.log('[DB_ADD_HIGHLIGHT] Insert result:', result);
+    return { success: true, lastID: result.lastID };
+  } catch (error) {
+    console.error('[DB_ADD_HIGHLIGHT] Error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('db:getHighlightsForFile', async (event, { filePath }) => {
+  console.log('[DB_GET_HIGHLIGHTS] Fetching for file:', filePath);
+  
+  try {
+    await ensureTablesExist();
+    const rows = await dbQuery('SELECT * FROM pdf_highlights WHERE file_path = ? ORDER BY id ASC', [filePath]);
+    
+    console.log('[DB_GET_HIGHLIGHTS] Found rows:', rows.length);
+    
+    const highlights = rows.map(r => {
+      console.log('[DB_GET_HIGHLIGHTS] Raw row:', r);
+      
+      let position = {};
+      try {
+        position = JSON.parse(r.position_json);
+        console.log('[DB_GET_HIGHLIGHTS] Parsed position:', position);
+      } catch (e) {
+        console.error('[DB_GET_HIGHLIGHTS] Error parsing position_json:', e, r.position_json);
+      }
+      
+      return {
+        ...r,
+        position: position,
+        annotation: r.annotation || ''
+      };
+    });
+    
+    console.log('[DB_GET_HIGHLIGHTS] Returning highlights:', highlights);
+    return { highlights };
+  } catch (error) {
+    console.error('[DB_GET_HIGHLIGHTS] Error:', error);
+    return { error: error.message };
+  }
+});
+
+
 ipcMain.handle('db:listTables', async () => {
   try {
     const rows = await dbQuery("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
@@ -2391,42 +2799,46 @@ ipcMain.handle('getConversations', async (_, path) => {
     }
   });
 
-  ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
-    const structure = {};
-    const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', 
-                               '.json', '.txt', '.yaml', '.yml', '.html', '.css', 
-                               '.npc', '.jinx', '.pdf', '.csv', '.sh',];
-   
-
-    try {
-      await fsPromises.access(dirPath, fs.constants.R_OK);
-      const items = await fsPromises.readdir(dirPath, { withFileTypes: true });
-     
-
-      for (const item of items) {
-        const itemPath = path.join(dirPath, item.name);
-        if (item.isDirectory()) {
-          structure[item.name] = { type: 'directory', path: itemPath };
-        } else if (item.isFile()) {
-          const ext = path.extname(item.name).toLowerCase();
-          if (allowedExtensions.includes(ext)) {
-           
-            structure[item.name] = { type: 'file', path: itemPath };
-          }
+ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
+  const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', 
+                             '.json', '.txt', '.yaml', '.yml', '.html', '.css', 
+                             '.npc', '.jinx', '.pdf', '.csv', '.sh'];
+  
+  async function readDirRecursive(currentPath) {
+    const result = {};
+    const items = await fsPromises.readdir(currentPath, { withFileTypes: true });
+    for (const item of items) {
+      const itemPath = path.join(currentPath, item.name);
+      if (item.isDirectory()) {
+        // Recursively read children
+        result[item.name] = {
+          type: 'directory',
+          path: itemPath,
+          children: await readDirRecursive(itemPath)
+        };
+      } else if (item.isFile()) {
+        const ext = path.extname(item.name).toLowerCase();
+        if (allowedExtensions.includes(ext)) {
+          result[item.name] = {
+            type: 'file',
+            path: itemPath
+          };
         }
       }
-     
-      return structure;
-
-    } catch (err) {
-      console.error(`[Main Process] Error in readDirectoryStructure for ${dirPath}:`, err);
-      if (err.code === 'ENOENT') return { error: 'Directory not found' };
-      if (err.code === 'EACCES') return { error: 'Permission denied' };
-      return { error: err.message || 'Failed to read directory contents' };
     }
-  });
+    return result;
+  }
 
-
+  try {
+    await fsPromises.access(dirPath, fs.constants.R_OK);
+    return await readDirRecursive(dirPath);
+  } catch (err) {
+    console.error(`[Main Process] Error in readDirectoryStructure for ${dirPath}:`, err);
+    if (err.code === 'ENOENT') return { error: 'Directory not found' };
+    if (err.code === 'EACCES') return { error: 'Permission denied' };
+    return { error: err.message || 'Failed to read directory contents' };
+  }
+});
   ipcMain.handle('goUpDirectory', async (_, currentPath) => {
    
     if (!currentPath) {
