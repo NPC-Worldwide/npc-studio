@@ -40,7 +40,81 @@ const normalizePath = (path) => {
     }
     return normalizedPath;
 };
+// Add these to your lucide-react imports if not already there
+// import { X, MessageSquare, Terminal, Globe, FileText, Code2, ListFilter, ArrowUp } from 'lucide-react';
+// And also ensure getFileIcon is accessible, usually it's defined near the top.
+const PaneHeader = memo(({ 
+    nodeId, 
+    icon, 
+    title, 
+    children, 
+    findNodePath, 
+    rootLayoutNode, 
+    setDraggedItem, 
+    setPaneContextMenu, 
+    closeContentPane,
+    autoScrollEnabled,
+    setAutoScrollEnabled,
+    messageSelectionMode,
+    toggleMessageSelectionMode,
+    selectedMessages,
+    fileChanged,
+    onSave
+}) => {
+    const nodePath = findNodePath(rootLayoutNode, nodeId);
+    
+    return (
+        <div
+            draggable="true"
+            onDragStart={(e) => {
+                // This part is critical for the browser
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
+                
+                // THE FIX: Delay the React state update
+                // This lets the browser's drag operation start without interference
+                setTimeout(() => {
+                    setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+                }, 0);
+            }}
+            onDragEnd={() => setDraggedItem(null)}
+            onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setPaneContextMenu({
+                    isOpen: true,
+                    x: e.clientX,
+                    y: e.clientY,
+                    nodeId,
+                    nodePath
+                });
+            }}
+            className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+        >
+            <div className="flex justify-between items-center min-h-[28px] w-full">
+                <div className="flex items-center gap-2 truncate min-w-0">
+                    {icon}
+                    <span className="truncate font-semibold" title={title}>{title}</span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    {children}
 
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            closeContentPane(nodeId, nodePath);
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="p-1 theme-hover rounded-full flex-shrink-0 transition-all hover:bg-red-500/20"
+                        aria-label="Close pane"
+                    >
+                        <X size={14} className="hover:text-red-400" />
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+});
 
 
 const LayoutNode = memo(({ node, path, component }) => {
@@ -456,13 +530,24 @@ const [pdfHighlightsTrigger, setPdfHighlightsTrigger] = useState(0);
         }
       }, [currentPath, loadGitStatus]);
       
-    const [windowId] = useState(() => {
-        // Generate unique window ID on component mount
-        return `window_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    });
+// At the top of the component, change how windowId is generated
+const [windowId] = useState(() => {
+    // Try to get existing window ID from sessionStorage (persists across refreshes in same window)
+    let id = sessionStorage.getItem('npcStudioWindowId');
+    
+    if (!id) {
+        // Generate new ID only if this is truly a new window
+        id = `window_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        sessionStorage.setItem('npcStudioWindowId', id);
+    }
+    
+    console.log('[WINDOW_ID] Using window ID:', id);
+    return id;
+});
 
     const WINDOW_WORKSPACES_KEY = 'npcStudioWindowWorkspaces';
-    const ACTIVE_WINDOWS_KEY = 'npcStudioActiveWindows';    
+
+
     const [localSearch, setLocalSearch] = useState({
         isActive: false,
         term: '',
@@ -473,7 +558,11 @@ const [pdfHighlightsTrigger, setPdfHighlightsTrigger] = useState(0);
 
     const [workspaces, setWorkspaces] = useState(new Map());
     const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
-    const WORKSPACES_STORAGE_KEY = 'npcStudioWorkspaces';
+
+
+const WORKSPACES_STORAGE_KEY = 'npcStudioWorkspaces_v2'; // Per-path workspaces
+const ACTIVE_WINDOWS_KEY = 'npcStudioActiveWindows';
+
     const MAX_WORKSPACES = 50; // Limit stored workspaces
     
     const [renamingPath, setRenamingPath] = useState(null);
@@ -832,50 +921,53 @@ const loadPdfHighlightsForActivePane = useCallback(async () => {
     });
 
     const generateId = () => Math.random().toString(36).substr(2, 9);
-    const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
-  if (!layoutNode) return null;
+const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
+    // Just validate - don't try to fix mismatches
+    if (!layoutNode) return null;
 
-  const collectPaneIds = (node) => {
-    if (!node) return new Set();
-    if (node.type === 'content') return new Set([node.id]);
-    if (node.type === 'split') {
-      return node.children.reduce((acc, child) => {
-        const childIds = collectPaneIds(child);
-        childIds.forEach(id => acc.add(id));
-        return acc;
-      }, new Set());
+    const collectPaneIds = (node) => {
+        if (!node) return new Set();
+        if (node.type === 'content') return new Set([node.id]);
+        if (node.type === 'split') {
+            return node.children.reduce((acc, child) => {
+                const childIds = collectPaneIds(child);
+                childIds.forEach(id => acc.add(id));
+                return acc;
+            }, new Set());
+        }
+        return new Set();
+    };
+
+    const paneIdsInLayout = collectPaneIds(layoutNode);
+    const missingPaneIds = Object.keys(contentData).filter(id => !paneIdsInLayout.has(id));
+
+    if (missingPaneIds.length > 0) {
+        console.warn('[SYNC] Found orphaned panes in contentData:', missingPaneIds);
+        // Clean them up instead of trying to add them
+        missingPaneIds.forEach(id => delete contentData[id]);
     }
-    return new Set();
+
+    return layoutNode;
+}, []);
+
+  
+
+const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+  // Verify this paneId exists in the layout tree
+  const paneExistsInLayout = (node, targetId) => {
+    if (!node) return false;
+    if (node.type === 'content' && node.id === targetId) return true;
+    if (node.type === 'split') {
+      return node.children.some(child => paneExistsInLayout(child, targetId));
+    }
+    return false;
   };
 
-  const paneIdsInLayout = collectPaneIds(layoutNode);
-  const missingPaneIds = Object.keys(contentData).filter(id => !paneIdsInLayout.has(id));
+  if (!paneExistsInLayout(rootLayoutNodeRef.current, paneId)) {
+    console.warn(`[updateContentPane] Pane ${paneId} not found in layout tree yet, waiting...`);
+    // Don't abort - the layout update might be pending
+  }
 
-  if (missingPaneIds.length === 0) return layoutNode;
-
-  let newRoot = JSON.parse(JSON.stringify(layoutNode));
-
-  missingPaneIds.forEach(paneId => {
-    const newPaneNode = { id: paneId, type: 'content' };
-
-    if (newRoot.type === 'content') {
-      newRoot = {
-        id: generateId(),
-        type: 'split',
-        direction: 'horizontal',
-        children: [newRoot, newPaneNode],
-        sizes: [50, 50],
-      };
-    } else if (newRoot.type === 'split') {
-      newRoot.children.push(newPaneNode);
-      const equalSize = 100 / newRoot.children.length;
-      newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-    }
-  });
-
-  return newRoot;
-}, []);
-const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
   if (!contentDataRef.current[paneId]) {
     contentDataRef.current[paneId] = {};
   }
@@ -935,6 +1027,9 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
     return syncedRoot;
   });
 }, [syncLayoutWithContentData]);
+
+
+
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
     useEffect(() => {
@@ -945,8 +1040,16 @@ const useDebounce = (value, delay) => {
     }, [value, delay]);
     return debouncedValue;
 };
+
 const serializeWorkspace = useCallback(() => {
-    if (!rootLayoutNode || !currentPath) return null;
+    if (!rootLayoutNode || !currentPath) {
+        console.log('[SERIALIZE] Skipping - no layout or path');
+        return null;
+    }
+    
+    console.log('[SERIALIZE] Starting serialization');
+    console.log('[SERIALIZE] contentDataRef keys:', Object.keys(contentDataRef.current));
+    console.log('[SERIALIZE] rootLayoutNode:', rootLayoutNode);
     
     const serializedContentData = {};
     Object.entries(contentDataRef.current).forEach(([paneId, paneData]) => {
@@ -958,6 +1061,8 @@ const serializeWorkspace = useCallback(() => {
             fileChanged: paneData.fileChanged
         };
     });
+    
+    console.log('[SERIALIZE] Serialized pane count:', Object.keys(serializedContentData).length);
     
     return {
         layoutNode: rootLayoutNode,
@@ -974,56 +1079,106 @@ const deserializeWorkspace = useCallback(async (workspaceData) => {
     
     try {
         const newRootLayout = workspaceData.layoutNode;
-        setRootLayoutNode(newRootLayout);
-        setActiveContentPaneId(workspaceData.activeContentPaneId);
         
+        console.log('[DESERIALIZE] Starting workspace restore', {
+            paneCount: Object.keys(workspaceData.contentData).length,
+            layoutExists: !!newRootLayout
+        });
+        
+        // CRITICAL FIX: Clear contentDataRef COMPLETELY first
         contentDataRef.current = {};
         
-        for (const [paneId, paneData] of Object.entries(workspaceData.contentData)) {
-            contentDataRef.current[paneId] = {};
-            await updateContentPane(paneId, paneData.contentType, paneData.contentId, paneData.skipMessageLoad); 
-            
-            if (paneData.displayedMessageCount) {
-                if (contentDataRef.current[paneId]?.chatMessages) { 
-                    contentDataRef.current[paneId].chatMessages.displayedMessageCount = paneData.displayedMessageCount;
-                }
-            }
-            if (paneData.browserUrl) {
-                contentDataRef.current[paneId].browserUrl = paneData.browserUrl;
-            }
-            if (paneData.fileChanged !== undefined) {
-                contentDataRef.current[paneId].fileChanged = paneData.fileChanged;
-            }
-        }
-        
-        const validPaneIdsInLayout = new Set();
+        // Collect all pane IDs from layout
+        const paneIdsInLayout = new Set();
         const collectPaneIds = (node) => {
             if (!node) return;
-            if (node.type === 'content') validPaneIdsInLayout.add(node.id);
+            if (node.type === 'content') paneIdsInLayout.add(node.id);
             if (node.type === 'split') {
                 node.children.forEach(collectPaneIds);
             }
         };
         collectPaneIds(newRootLayout);
-
-        Object.keys(contentDataRef.current).forEach(paneId => {
-            if (!validPaneIdsInLayout.has(paneId)) {
-                delete contentDataRef.current[paneId];
+        
+        console.log('[DESERIALIZE] Panes in layout:', Array.from(paneIdsInLayout));
+        console.log('[DESERIALIZE] Panes in saved data:', Object.keys(workspaceData.contentData));
+        
+        // FIX: Populate contentDataRef synchronously BEFORE any async operations
+        for (const [paneId, paneData] of Object.entries(workspaceData.contentData)) {
+            if (!paneIdsInLayout.has(paneId)) {
+                console.log('[DESERIALIZE] Skipping orphaned pane:', paneId);
+                continue;
             }
-        });
-
-        if (activeContentPaneId && !validPaneIdsInLayout.has(activeContentPaneId)) {
-            const firstValidPaneId = Array.from(validPaneIdsInLayout).shift();
-            setActiveContentPaneId(firstValidPaneId || null);
-        } else if (!activeContentPaneId && validPaneIdsInLayout.size > 0) {
-            setActiveContentPaneId(Array.from(validPaneIdsInLayout).shift());
+            
+            // Initialize empty data structure FIRST
+            contentDataRef.current[paneId] = {
+                contentType: paneData.contentType,
+                contentId: paneData.contentId,
+                fileChanged: paneData.fileChanged || false
+            };
         }
+        
+        console.log('[DESERIALIZE] Initialized contentDataRef with', Object.keys(contentDataRef.current).length, 'panes');
+        
+        // NOW set the layout - at this point contentDataRef is already populated
+        setRootLayoutNode(newRootLayout);
+        setActiveContentPaneId(workspaceData.activeContentPaneId);
+        
+        // THEN load the actual content asynchronously
+        const loadPromises = [];
+        for (const [paneId, paneData] of Object.entries(workspaceData.contentData)) {
+            if (!paneIdsInLayout.has(paneId)) continue;
+            
+            console.log('[DESERIALIZE] Loading content for pane:', paneId, paneData.contentType, paneData.contentId);
+            
+            const loadPromise = (async () => {
+                try {
+                    const paneDataRef = contentDataRef.current[paneId];
+                    
+                    if (paneData.contentType === 'editor') {
+                        const response = await window.api.readFileContent(paneData.contentId);
+                        paneDataRef.fileContent = response.error ? `Error: ${response.error}` : response.content;
+                    } else if (paneData.contentType === 'chat') {
+                        paneDataRef.chatMessages = { 
+                            messages: [], 
+                            allMessages: [], 
+                            displayedMessageCount: paneData.displayedMessageCount || 20 
+                        };
+                        
+                        const msgs = await window.api.getConversationMessages(paneData.contentId);
+                        const formatted = (msgs && Array.isArray(msgs))
+                            ? msgs.map(m => ({ ...m, id: m.id || generateId() }))
+                            : [];
 
+                        paneDataRef.chatMessages.allMessages = formatted;
+                        paneDataRef.chatMessages.messages = formatted.slice(-paneDataRef.chatMessages.displayedMessageCount);
+                        paneDataRef.chatStats = getConversationStats(formatted);
+                    } else if (paneData.contentType === 'browser') {
+                        paneDataRef.browserUrl = paneData.browserUrl || paneData.contentId;
+                    }
+                    
+                    console.log('[DESERIALIZE] Successfully loaded pane:', paneId);
+                } catch (err) {
+                    console.error('[DESERIALIZE] Error loading pane content:', paneId, err);
+                }
+            })();
+            
+            loadPromises.push(loadPromise);
+        }
+        
+        // Wait for all content to load
+        await Promise.all(loadPromises);
+        
+        // Force final re-render with all content loaded
         setRootLayoutNode(prev => ({ ...prev }));
+        
+        console.log('[DESERIALIZE] Workspace restored successfully', {
+            paneCount: Object.keys(contentDataRef.current).length,
+            layoutPanes: paneIdsInLayout.size
+        });
         
         return true;
     } catch (error) {
-        console.error('Error restoring workspace:', error);
+        console.error('[DESERIALIZE] Error restoring workspace:', error);
         contentDataRef.current = {}; 
         setRootLayoutNode(null); 
         setActiveContentPaneId(null);
@@ -1031,61 +1186,73 @@ const deserializeWorkspace = useCallback(async (workspaceData) => {
     } finally {
         setIsLoadingWorkspace(false);
     }
-}, [updateContentPane, activeContentPaneId]);
-
+}, []);
 
 const saveWorkspaceToStorage = useCallback((path, workspaceData) => {
     try {
-        // Load existing data
-        const allWorkspaces = JSON.parse(localStorage.getItem(WINDOW_WORKSPACES_KEY) || '{}');
-        const activeWindows = JSON.parse(localStorage.getItem(ACTIVE_WINDOWS_KEY) || '{}');
+        console.log('[SAVE_WORKSPACE] Saving for path:', path);
+        console.log('[SAVE_WORKSPACE] Received workspaceData:', {
+            hasLayout: !!workspaceData.layoutNode,
+            paneCount: Object.keys(workspaceData.contentData || {}).length,
+            layoutNodeId: workspaceData.layoutNode?.id,
+            contentDataKeys: Object.keys(workspaceData.contentData || {})
+        });
+        console.log('[SAVE_WORKSPACE] Called from:');
+        console.trace();  // This will show the call stack
         
-        // Ensure window entry exists
-        if (!allWorkspaces[windowId]) {
-            allWorkspaces[windowId] = {};
+        console.log('[SAVE_WORKSPACE] Saving for path:', path);
+
+        
+        // Use path-based storage instead of window-based
+        const allWorkspaces = JSON.parse(localStorage.getItem(WORKSPACES_STORAGE_KEY) || '{}');
+        
+        allWorkspaces[path] = {
+            ...workspaceData,
+            lastAccessed: Date.now()
+        };
+        
+        // Keep only the 20 most recently accessed workspaces
+        const workspaceEntries = Object.entries(allWorkspaces);
+        if (workspaceEntries.length > 20) {
+            workspaceEntries.sort((a, b) => (b[1].lastAccessed || 0) - (a[1].lastAccessed || 0));
+            const top20 = Object.fromEntries(workspaceEntries.slice(0, 20));
+            localStorage.setItem(WORKSPACES_STORAGE_KEY, JSON.stringify(top20));
+        } else {
+            localStorage.setItem(WORKSPACES_STORAGE_KEY, JSON.stringify(allWorkspaces));
         }
         
-        // Save workspace for this window and path
-        allWorkspaces[windowId][path] = {
-            ...workspaceData,
-            lastAccessed: Date.now(),
-            windowId
-        };
-        
-        // Update active windows registry
-        activeWindows[windowId] = {
-            currentPath: path,
-            lastActive: Date.now()
-        };
-        
-        // Cleanup old inactive windows (older than 24 hours)
-        const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
-        Object.keys(activeWindows).forEach(wId => {
-            if (activeWindows[wId].lastActive < dayAgo) {
-                delete activeWindows[wId];
-                delete allWorkspaces[wId];
-            }
-        });
-        
-        localStorage.setItem(WINDOW_WORKSPACES_KEY, JSON.stringify(allWorkspaces));
-        localStorage.setItem(ACTIVE_WINDOWS_KEY, JSON.stringify(activeWindows));
-        
-        console.log(`[Window ${windowId}] Saved workspace for ${path}`);
+        console.log('[SAVE_WORKSPACE] Successfully saved for path:', path);
     } catch (error) {
-        console.error('Error saving window workspace:', error);
+        console.error('[SAVE_WORKSPACE] Error saving workspace:', error);
     }
-}, [windowId]);
+}, []);
 
+// Update loadWorkspaceFromStorage
 const loadWorkspaceFromStorage = useCallback((path) => {
     try {
-        const allWorkspaces = JSON.parse(localStorage.getItem(WINDOW_WORKSPACES_KEY) || '{}');
-        const windowWorkspaces = allWorkspaces[windowId] || {};
-        return windowWorkspaces[path] || null;
+        console.log('[LOAD_WORKSPACE] Attempting to load for path:', path);
+        
+        const allWorkspaces = JSON.parse(localStorage.getItem(WORKSPACES_STORAGE_KEY) || '{}');
+        console.log('[LOAD_WORKSPACE] All workspace paths in storage:', Object.keys(allWorkspaces));
+        
+        const workspace = allWorkspaces[path];
+        console.log('[LOAD_WORKSPACE] Found workspace for path:', !!workspace);
+        
+        if (workspace) {
+            console.log('[LOAD_WORKSPACE] Workspace details:', {
+                hasLayout: !!workspace.layoutNode,
+                paneCount: Object.keys(workspace.contentData || {}).length,
+                timestamp: workspace.timestamp
+            });
+        }
+        
+        return workspace || null;
     } catch (error) {
-        console.error('Error loading window workspace:', error);
+        console.error('[LOAD_WORKSPACE] Error loading workspace:', error);
         return null;
     }
-}, [windowId]);
+}, []);
+
 
 useEffect(() => {
     const saveCurrentWorkspace = () => {
@@ -1107,44 +1274,9 @@ useEffect(() => {
     };
 }, [currentPath, rootLayoutNode, serializeWorkspace, saveWorkspaceToStorage]);
 
-useEffect(() => {
-    const loadWorkspaceForNewPath = async () => {
-        if (!currentPath || loading) return;
-        
-        setIsLoadingWorkspace(true);
-        console.log(`[Window ${windowId}] Loading workspace for ${currentPath}`);
-        
-        try {
-            // Try to restore window-specific workspace FIRST
-            const savedWorkspace = loadWorkspaceFromStorage(currentPath);
-            if (savedWorkspace) {
-                console.log(`[Window ${windowId}] Found saved workspace for ${currentPath}`);
-                
-                // Load directory structure WITHOUT triggering conversation selection
-                await loadDirectoryStructureWithoutConversationLoad(currentPath);
-                
-                const restored = await deserializeWorkspace(savedWorkspace);
-                if (restored) {
-                    console.log(`[Window ${windowId}] Successfully restored workspace`);
-                    return;
-                }
-            }
-            
-            // No workspace found - load normally
-            console.log(`[Window ${windowId}] No workspace found, loading normally for ${currentPath}`);
-            await loadDirectoryStructure(currentPath);
-            await createDefaultWorkspace();
-            
-        } catch (error) {
-            console.error(`[Window ${windowId}] Error loading workspace:`, error);
-            await createDefaultWorkspace();
-        } finally {
-            setIsLoadingWorkspace(false);
-        }
-    };
 
-    loadWorkspaceForNewPath();
-}, [currentPath, windowId]);
+
+
 const loadDirectoryStructureWithoutConversationLoad = async (dirPath) => {
     try {
         if (!dirPath) {
@@ -1169,7 +1301,6 @@ const loadDirectoryStructureWithoutConversationLoad = async (dirPath) => {
         return { error: err.message };
     }
 };
-
 const loadConversationsWithoutAutoSelect = async (dirPath) => {
     try {
         const normalizedPath = normalizePath(dirPath);
@@ -1189,7 +1320,8 @@ const loadConversationsWithoutAutoSelect = async (dirPath) => {
         
         setDirectoryConversations(formattedConversations);
         
-        // DON'T auto-select any conversations - let workspace restoration handle it
+        // DON'T auto-select any conversations
+        console.log('[loadConversationsWithoutAutoSelect] Loaded conversations without selecting');
 
     } catch (err) {
         console.error('Error loading conversations:', err);
@@ -1197,7 +1329,6 @@ const loadConversationsWithoutAutoSelect = async (dirPath) => {
         setDirectoryConversations([]);
     }
 };
-
 const createDefaultWorkspace = useCallback(async () => {
     const initialPaneId = generateId();
     const initialLayout = { id: initialPaneId, type: 'content' };
@@ -2405,12 +2536,17 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
         return newRoot;
     });
 }, [updateContentPane]);
-   
-const createAndAddPaneNodeToLayout = useCallback(() => {
-  const newPaneId = generateId();
-  contentDataRef.current[newPaneId] = {};
 
+  const createAndAddPaneNodeToLayout = useCallback(() => {
+  const newPaneId = generateId();
+  
+  // Create the contentData entry ONLY AFTER we know where it goes
+  let finalPaneId = newPaneId;
+  
   setRootLayoutNode(oldRoot => {
+    // Initialize contentData entry NOW, inside the state update
+    contentDataRef.current[newPaneId] = {};
+    
     if (!oldRoot) {
       return { id: newPaneId, type: 'content' };
     }
@@ -2463,6 +2599,8 @@ const createAndAddPaneNodeToLayout = useCallback(() => {
   setActiveContentPaneId(newPaneId);
   return newPaneId;
 }, [activeContentPaneId, findNodePath, findNodeByPath]);
+  
+  
 const closeContentPane = useCallback((paneId, nodePath) => {
     console.log(`[closeContentPane] Attempting to close pane: ${paneId} with path:`, nodePath);
 
@@ -2535,17 +2673,26 @@ const closeContentPane = useCallback((paneId, nodePath) => {
     });
 }, [activeContentPaneId, findNodeByPath]);
    
-
-
 const handleConversationSelect = async (conversationId, skipMessageLoad = false) => {
     setActiveConversationId(conversationId);
     setCurrentFile(null);
 
-    // Only skip pane updates if we're currently in the process of loading a workspace
-    // Don't block ALL conversation selections!
+    // CRITICAL: Don't create/update panes if workspace is being restored
     if (isLoadingWorkspace) {
-        console.log('Skipping pane update - currently restoring workspace');
+        console.log('[SELECT_CONVO] Skipping pane update - currently restoring workspace');
         return null;
+    }
+
+    // NEW: Check if this conversation is already open in a pane
+    const existingPaneId = Object.keys(contentDataRef.current).find(paneId => {
+        const paneData = contentDataRef.current[paneId];
+        return paneData?.contentType === 'chat' && paneData?.contentId === conversationId;
+    });
+
+    if (existingPaneId) {
+        console.log('[SELECT_CONVO] Conversation already open in pane:', existingPaneId);
+        setActiveContentPaneId(existingPaneId);
+        return existingPaneId;
     }
 
     let paneIdToUpdate;
@@ -2554,10 +2701,13 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         const newPaneId = generateId();
         const newLayout = { id: newPaneId, type: 'content' };
         
+        // Initialize contentData SYNCHRONOUSLY with layout
         contentDataRef.current[newPaneId] = {};
+        setRootLayoutNode(newLayout);
+        
+        // NOW update the content
         await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
         
-        setRootLayoutNode(newLayout);
         setActiveContentPaneId(newPaneId);
         paneIdToUpdate = newPaneId;
     } 
@@ -2572,20 +2722,100 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
 };
 
 
-const handleFileClick = useCallback(async (filePath) => {
+
+const cleanupPhantomPanes = useCallback(() => {
+  const validPaneIds = new Set();
+  
+  const collectPaneIds = (node) => {
+    if (!node) return;
+    if (node.type === 'content') validPaneIds.add(node.id);
+    if (node.type === 'split') {
+      node.children.forEach(collectPaneIds);
+    }
+  };
+  
+  collectPaneIds(rootLayoutNode);
+  
+  // Remove any contentDataRef entries not in the layout
+  Object.keys(contentDataRef.current).forEach(paneId => {
+    if (!validPaneIds.has(paneId)) {
+      console.log(`Removing phantom pane: ${paneId}`);
+      delete contentDataRef.current[paneId];
+    }
+  });
+}, [rootLayoutNode]);
+
+// Call this after layout changes
+useEffect(() => {
+  if (rootLayoutNode) {
+    cleanupPhantomPanes();
+  }
+}, [rootLayoutNode, cleanupPhantomPanes]);
+
+
+  const handleFileClick = useCallback(async (filePath) => {
     setCurrentFile(filePath);
     setActiveConversationId(null);
 
     const extension = filePath.split('.').pop()?.toLowerCase();
     const contentType = extension === 'pdf' ? 'pdf' : 'editor';
 
-    // --- CORRECTED LINE HERE ---
-    const newPaneId = createAndAddPaneNodeToLayout();
-    await updateContentPane(newPaneId, contentType, filePath);
-    // --- END CORRECTED LINE ---
+    const newPaneId = generateId();
+    
+    // Create layout first
+    setRootLayoutNode(oldRoot => {
+        contentDataRef.current[newPaneId] = {};
+        
+        if (!oldRoot) {
+            return { id: newPaneId, type: 'content' };
+        }
 
-}, [createAndAddPaneNodeToLayout, updateContentPane]);
-
+        let newRoot = JSON.parse(JSON.stringify(oldRoot));
+        
+        if (activeContentPaneId) {
+            const pathToActive = findNodePath(newRoot, activeContentPaneId);
+            if (pathToActive && pathToActive.length > 0) {
+                const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                const targetIndex = pathToActive[pathToActive.length - 1];
+                
+                if (targetParent && targetParent.type === 'split') {
+                    const newChildren = [...targetParent.children];
+                    newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                    const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                    targetParent.children = newChildren;
+                    targetParent.sizes = newSizes;
+                    return newRoot;
+                }
+            }
+        }
+        
+        if (newRoot.type === 'content') {
+            return {
+                id: generateId(),
+                type: 'split',
+                direction: 'horizontal',
+                children: [newRoot, { id: newPaneId, type: 'content' }],
+                sizes: [50, 50],
+            };
+        } else if (newRoot.type === 'split') {
+            newRoot.children.push({ id: newPaneId, type: 'content' });
+            const equalSize = 100 / newRoot.children.length;
+            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+            return newRoot;
+        }
+        
+        return { id: newPaneId, type: 'content' };
+    });
+    
+    // Then update content
+    setTimeout(async () => {
+        await updateContentPane(newPaneId, contentType, filePath);
+        setRootLayoutNode(prev => ({ ...prev }));
+    }, 0);
+    
+    setActiveContentPaneId(newPaneId);
+}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+  
 
     const handleCreateNewFolder = () => {
         setPromptModal({
@@ -2615,20 +2845,65 @@ const handleFileClick = useCallback(async (filePath) => {
             },
         });
     };
-
-    
 const createNewTerminal = useCallback(async () => {
     const newTerminalId = `term_${generateId()}`;
+    const newPaneId = generateId();
+    
+    // Create layout first
+    setRootLayoutNode(oldRoot => {
+        contentDataRef.current[newPaneId] = {};
+        
+        if (!oldRoot) {
+            return { id: newPaneId, type: 'content' };
+        }
 
-    // --- CORRECTED LINE HERE ---
-    const newPaneId = createAndAddPaneNodeToLayout();
-    await updateContentPane(newPaneId, 'terminal', newTerminalId);
-    // --- END CORRECTED LINE ---
-
+        let newRoot = JSON.parse(JSON.stringify(oldRoot));
+        
+        if (activeContentPaneId) {
+            const pathToActive = findNodePath(newRoot, activeContentPaneId);
+            if (pathToActive && pathToActive.length > 0) {
+                const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                const targetIndex = pathToActive[pathToActive.length - 1];
+                
+                if (targetParent && targetParent.type === 'split') {
+                    const newChildren = [...targetParent.children];
+                    newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                    const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                    targetParent.children = newChildren;
+                    targetParent.sizes = newSizes;
+                    return newRoot;
+                }
+            }
+        }
+        
+        if (newRoot.type === 'content') {
+            return {
+                id: generateId(),
+                type: 'split',
+                direction: 'horizontal',
+                children: [newRoot, { id: newPaneId, type: 'content' }],
+                sizes: [50, 50],
+            };
+        } else if (newRoot.type === 'split') {
+            newRoot.children.push({ id: newPaneId, type: 'content' });
+            const equalSize = 100 / newRoot.children.length;
+            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+            return newRoot;
+        }
+        
+        return { id: newPaneId, type: 'content' };
+    });
+    
+    // Then update content
+    setTimeout(async () => {
+        await updateContentPane(newPaneId, 'terminal', newTerminalId);
+        setRootLayoutNode(prev => ({ ...prev }));
+    }, 0);
+    
+    setActiveContentPaneId(newPaneId);
     setActiveConversationId(null);
     setCurrentFile(null);
-}, [createAndAddPaneNodeToLayout, updateContentPane]);
-
+}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
 const handleGlobalDragStart = useCallback((e, item) => {
   Object.values(contentDataRef.current).forEach(paneData => {
@@ -2659,150 +2934,178 @@ const handleGlobalDragEnd = () => {
     }
   });
 };    
-const createNewBrowser = useCallback(async (url = null) => {
+  
+
+  const createNewBrowser = useCallback(async (url = null) => {
     if (!url) {
         setBrowserUrlDialogOpen(true);
         return;
     }
 
     const newBrowserId = `browser_${generateId()}`;
-    // --- CORRECTED LINE HERE ---
-    const newPaneId = createAndAddPaneNodeToLayout();
-    await updateContentPane(newPaneId, 'browser', newBrowserId);
-    // --- END CORRECTED LINE ---
+    const newPaneId = generateId();
+    
+    // Create layout first
+    setRootLayoutNode(oldRoot => {
+        contentDataRef.current[newPaneId] = {};
+        
+        if (!oldRoot) {
+            return { id: newPaneId, type: 'content' };
+        }
 
-    // Set the initial URL for the new browser pane
-    if (contentDataRef.current[newPaneId]) {
-        contentDataRef.current[newPaneId].browserUrl = url;
-    }
-
+        let newRoot = JSON.parse(JSON.stringify(oldRoot));
+        
+        if (activeContentPaneId) {
+            const pathToActive = findNodePath(newRoot, activeContentPaneId);
+            if (pathToActive && pathToActive.length > 0) {
+                const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                const targetIndex = pathToActive[pathToActive.length - 1];
+                
+                if (targetParent && targetParent.type === 'split') {
+                    const newChildren = [...targetParent.children];
+                    newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                    const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                    targetParent.children = newChildren;
+                    targetParent.sizes = newSizes;
+                    return newRoot;
+                }
+            }
+        }
+        
+        if (newRoot.type === 'content') {
+            return {
+                id: generateId(),
+                type: 'split',
+                direction: 'horizontal',
+                children: [newRoot, { id: newPaneId, type: 'content' }],
+                sizes: [50, 50],
+            };
+        } else if (newRoot.type === 'split') {
+            newRoot.children.push({ id: newPaneId, type: 'content' });
+            const equalSize = 100 / newRoot.children.length;
+            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+            return newRoot;
+        }
+        
+        return { id: newPaneId, type: 'content' };
+    });
+    
+    // Then update content
+    setTimeout(async () => {
+        await updateContentPane(newPaneId, 'browser', newBrowserId);
+        if (contentDataRef.current[newPaneId]) {
+            contentDataRef.current[newPaneId].browserUrl = url;
+        }
+        setRootLayoutNode(prev => ({ ...prev }));
+    }, 0);
+    
+    setActiveContentPaneId(newPaneId);
     setActiveConversationId(null);
     setCurrentFile(null);
-}, [createAndAddPaneNodeToLayout, updateContentPane]);
-
+}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 const handleBrowserDialogNavigate = (url) => {
         createNewBrowser(url);
         setBrowserUrlDialogOpen(false);
     };
 const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSide) => {
-  setRootLayoutNode(oldRoot => {
-    if (!oldRoot) return oldRoot;
+    setRootLayoutNode(oldRoot => {
+        if (!oldRoot) return oldRoot;
 
-    let newRoot = JSON.parse(JSON.stringify(oldRoot));
+        // --- Step 1: Deep copy the layout to avoid mutation issues ---
+        let newRoot = JSON.parse(JSON.stringify(oldRoot));
 
-    // Trova nodo e genitore sorgente
-    let draggedParent = null;
-    let draggedIndex = -1;
-    let draggedNode = newRoot;
-    for (const idx of draggedPath) {
-      draggedParent = draggedNode;
-      draggedIndex = idx;
-      draggedNode = draggedNode.children[draggedIndex];
-    }
-
-    // Trova nodo e genitore destinazione
-    let targetParent = null;
-    let targetIndex = -1;
-    let targetNode = newRoot;
-    for (const idx of targetPath) {
-      targetParent = targetNode;
-      targetIndex = idx;
-      targetNode = targetNode.children[targetIndex];
-    }
-
-    if (!draggedParent || !targetParent) return oldRoot;
-
-    // Rimuovi nodo sorgente
-    draggedParent.children.splice(draggedIndex, 1);
-    draggedParent.sizes.splice(draggedIndex, 1);
-
-    // Pulisci genitore sorgente se ha 0 o 1 figli
-    if (draggedParent.children.length === 0) {
-      const grandParentPath = draggedPath.slice(0, -1);
-      if (grandParentPath.length === 0) {
-        newRoot = null;
-      } else {
-        const grandParent = findNodeByPath(newRoot, grandParentPath);
-        const parentIndex = grandParentPath[grandParentPath.length - 1];
-        if (grandParent && grandParent.children) {
-          grandParent.children.splice(parentIndex, 1);
-          grandParent.sizes.splice(parentIndex, 1);
+        // --- Step 2: Find the node being dragged ---
+        const draggedNode = findNodeByPath(newRoot, draggedPath);
+        if (!draggedNode) {
+            console.error("Could not find dragged node in layout copy.");
+            return oldRoot; // Abort
         }
-      }
-    } else if (draggedParent.children.length === 1) {
-      const remaining = draggedParent.children[0];
-      const grandParentPath = draggedPath.slice(0, -1);
-      if (grandParentPath.length === 0) {
-        newRoot = remaining;
-      } else {
-        const grandParent = findNodeByPath(newRoot, grandParentPath);
-        const parentIndex = grandParentPath[grandParentPath.length - 1];
-        if (grandParent && grandParent.children) {
-          grandParent.children[parentIndex] = remaining;
+
+        // --- Step 3: Remove the dragged node from its original position ---
+        const removeNode = (root, path) => {
+            if (path.length === 1) { // The node to remove is a direct child of the root
+                root.children.splice(path[0], 1);
+                root.sizes.splice(path[0], 1);
+                return root;
+            }
+
+            const parent = findNodeByPath(root, path.slice(0, -1));
+            const childIndex = path[path.length - 1];
+            if (parent && parent.children) {
+                parent.children.splice(childIndex, 1);
+                parent.sizes.splice(childIndex, 1);
+            }
+            return root;
+        };
+        
+        newRoot = removeNode(newRoot, draggedPath);
+
+        // --- Step 4: Clean up any split nodes that now have only one child ---
+        const cleanup = (node) => {
+            if (!node) return null;
+            if (node.type === 'split') {
+                if (node.children.length === 1) {
+                    return cleanup(node.children[0]);
+                }
+                node.children = node.children.map(cleanup).filter(Boolean);
+                if (node.children.length === 0) return null;
+                const equalSize = 100 / node.children.length;
+                node.sizes = new Array(node.children.length).fill(equalSize);
+            }
+            return node;
+        };
+
+        newRoot = cleanup(newRoot);
+        if (!newRoot) return draggedNode; // If everything was removed, the dragged node becomes the new root
+
+        // --- Step 5: Recalculate the target path in the now-modified tree ---
+        // This is the critical fix to prevent the crash
+        const newTargetPath = findNodePath(newRoot, findNodeByPath(oldRoot, targetPath)?.id);
+        if (!newTargetPath) {
+            console.error("Could not find target node path after removal. Aborting drop.");
+            return oldRoot;
         }
-      }
-    } else {
-      const equalSize = 100 / draggedParent.children.length;
-      draggedParent.sizes = new Array(draggedParent.children.length).fill(equalSize);
-    }
 
-    // Trova genitore e nodo destinazione aggiornati nel nuovo albero
-    let finalTargetParent = null;
-    let finalTargetIndex = -1;
-    let finalTargetNode = newRoot;
-    for (const idx of targetPath) {
-      finalTargetParent = finalTargetNode;
-      finalTargetIndex = idx;
-      finalTargetNode = finalTargetNode.children[finalTargetIndex];
-    }
+        // --- Step 6: Insert the dragged node at the new target position ---
+        const insertNode = (root, path, nodeToInsert, side) => {
+            const targetNode = findNodeByPath(root, path);
+            if (!targetNode) return root;
 
-    if (!finalTargetParent || finalTargetIndex === -1) {
-      // Se il genitore destinazione non esiste, il nodo trascinato diventa la radice
-      newRoot = draggedNode;
-    } else if (dropSide === 'center') {
-      // Scambio: sostituisci il nodo destinazione con quello trascinato
-      const tempTargetNode = finalTargetNode;
-      finalTargetParent.children[finalTargetIndex] = draggedNode;
+            const isHorizontal = side === 'left' || side === 'right';
+            const newSplit = {
+                id: generateId(),
+                type: 'split',
+                direction: isHorizontal ? 'horizontal' : 'vertical',
+                children: [],
+                sizes: [50, 50],
+            };
 
-      // Reinserisci il nodo destinazione nella posizione originale del nodo trascinato
-      let originalDraggedParent = findNodeByPath(newRoot, draggedPath.slice(0, -1));
-      let originalDraggedIndex = draggedPath[draggedPath.length - 1];
+            if (side === 'left' || side === 'top') {
+                newSplit.children = [nodeToInsert, targetNode];
+            } else {
+                newSplit.children = [targetNode, nodeToInsert];
+            }
+            
+            if (path.length === 0) { // Target was the root
+                return newSplit;
+            }
 
-      if (originalDraggedParent && originalDraggedParent.children && originalDraggedIndex !== -1) {
-        originalDraggedParent.children.splice(originalDraggedIndex, 0, tempTargetNode);
-        const equalSize = 100 / originalDraggedParent.children.length;
-        originalDraggedParent.sizes = new Array(originalDraggedParent.children.length).fill(equalSize);
-      }
-    } else {
-      // Split: crea un nuovo nodo split con i due nodi
-      const isHorizontal = dropSide === 'left' || dropSide === 'right';
-      const newSplit = {
-        id: generateId(),
-        type: 'split',
-        direction: isHorizontal ? 'horizontal' : 'vertical',
-        children: [],
-        sizes: [50, 50],
-      };
+            const parent = findNodeByPath(root, path.slice(0, -1));
+            const childIndex = path[path.length - 1];
+            if (parent && parent.children) {
+                parent.children[childIndex] = newSplit;
+            }
+            return root;
+        };
 
-      if (dropSide === 'left' || dropSide === 'top') {
-        newSplit.children = [draggedNode, finalTargetNode];
-      } else {
-        newSplit.children = [finalTargetNode, draggedNode];
-      }
+        newRoot = insertNode(newRoot, newTargetPath, draggedNode, dropSide);
 
-      finalTargetParent.children[finalTargetIndex] = newSplit;
-    }
-
-    // Ricalcola le dimensioni del genitore aggiornato
-    if (finalTargetParent && finalTargetParent.type === 'split' && finalTargetParent.children.length > 1) {
-      const equalSize = 100 / finalTargetParent.children.length;
-      finalTargetParent.sizes = new Array(finalTargetParent.children.length).fill(equalSize);
-    }
-
-    setActiveContentPaneId(draggedId);
-    return newRoot;
-  });
+        // --- Step 7: Final state update ---
+        setActiveContentPaneId(draggedId);
+        return newRoot;
+    });
 }, [findNodeByPath, findNodePath]);
+
 
     const renderBrowserViewer = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -2822,29 +3125,18 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
     
     return (
         <div className="flex-1 flex flex-col theme-bg-secondary relative">
-<div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-    draggable="true"
-    onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = 'move';
-        const nodePath = findNodePath(rootLayoutNode, nodeId);
-        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
-    }}
-    onDragEnd={() => setDraggedItem(null)}
->
-
-
-                <div className="flex items-center gap-2 truncate">
-                    <Globe size={14} />
-                    <span className="truncate">Browser</span>
-                </div>
-                <button 
-                    onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))}
-  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
-                    onMouseDown={(e) => e.stopPropagation()}
-                >
-                    <X size={14} />
-                </button>
-            </div>
+            <PaneHeader
+                nodeId={nodeId}
+                icon={<Globe size={14} />}
+                title="Browser"
+                // Pass props required by PaneHeader from ChatInterface's scope
+                findNodePath={findNodePath}
+                rootLayoutNode={rootLayoutNode}
+                setDraggedItem={setDraggedItem}
+                setPaneContextMenu={setPaneContextMenu}
+                closeContentPane={closeContentPane}
+            />
+            
             <div className="flex-1 overflow-hidden min-h-0">
                 {browserId && (
                     <WebBrowserViewer 
@@ -2990,29 +3282,17 @@ const handlePdfContextMenu = (e) => {
 
         return (
             <div className="flex-1 flex flex-col theme-bg-secondary relative">
-                <div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move" 
-                    draggable="true" 
-                    onDragStart={(e) => {
-                        e.dataTransfer.effectAllowed = 'move';
-                        const nodePath = findNodePath(rootLayoutNode, nodeId);
-                        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
-                    }}
-                    onDragEnd={handleGlobalDragEnd}>
-
-                    <div className="flex items-center gap-2 truncate">
-                        {getFileIcon(paneData.contentId)}
-                        <span className="truncate" title={paneData.contentId}>
-                            {paneData.contentId.split('/').pop()}
-                        </span>
-                    </div>
-                    <button 
-                        onClick={() => closeContentPane(nodeId, path)} 
-                        className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
-                    >
-                        <X size={14} />
-                    </button>
-                </div>
-
+            <PaneHeader
+                nodeId={nodeId}
+                icon={getFileIcon(paneData.contentId)}
+                title={paneData.contentId.split('/').pop()}
+                // Pass props required by PaneHeader from ChatInterface's scope
+                findNodePath={findNodePath}
+                rootLayoutNode={rootLayoutNode}
+                setDraggedItem={setDraggedItem}
+                setPaneContextMenu={setPaneContextMenu}
+                closeContentPane={closeContentPane}
+            />
                 <div className="flex-1 min-h-0">
                     <PdfViewer
                         filePath={paneData.contentId}
@@ -3034,27 +3314,17 @@ const handlePdfContextMenu = (e) => {
     
         return (
             <div className="flex-1 flex flex-col theme-bg-secondary relative">
-<div className="p-2 border-b theme-border text-xs theme-text-primary flex-shrink-0 flex justify-between items-center cursor-move"
-    draggable="true"
-    onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = 'move';
-        const nodePath = findNodePath(rootLayoutNode, nodeId);
-        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
-    }}
-    onDragEnd={() => setDraggedItem(null)}
->
-
-                    <div className="flex items-center gap-2 truncate">
-                        <Terminal size={14} />
-                        <span className="truncate" title={terminalId}>Terminal</span>
-                    </div>
-                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))}
-  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
-                     
-                     >
-                        <X size={14} />
-                    </button>
-                </div>
+            <PaneHeader
+                nodeId={nodeId}
+                icon={<Terminal size={14} />}
+                title="Terminal"
+                // Pass props required by PaneHeader from ChatInterface's scope
+                findNodePath={findNodePath}
+                rootLayoutNode={rootLayoutNode}
+                setDraggedItem={setDraggedItem}
+                setPaneContextMenu={setPaneContextMenu}
+                closeContentPane={closeContentPane}
+            />
                 <div className="flex-1 overflow-hidden min-h-0">
                     <TerminalView
                         terminalId={terminalId}
@@ -3105,59 +3375,52 @@ const renderFileEditor = useCallback(({ nodeId }) => {
 
     return (
         <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
-<div
-  draggable="true"
-  onDragStart={(e) => {
-    e.dataTransfer.effectAllowed = 'move';
-    const nodePath = findNodePath(rootLayoutNode, nodeId);
-    setDraggedItem({ type: 'pane', id: nodeId, nodePath });
-  }}
-  onDragEnd={() => setDraggedItem(null)}
-  className="cursor-move"
->
-
-                <div className="flex items-center gap-2 truncate">
-                    {getFileIcon(fileName)}
-                    {isRenaming ? (
-                        <input
-                            type="text"
-                            value={editedFileName}
-                            onChange={(e) => setEditedFileName(e.target.value)}
-                            onBlur={() => handleRenameFile(nodeId, filePath)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleRenameFile(nodeId, filePath);
-                                if (e.key === 'Escape') setRenamingPaneId(null);
-                            }}
-                            className="theme-input text-xs rounded px-2 py-1 border focus:outline-none"
-                            autoFocus
-                        />
-                    ) : (
-                        <span
-                            className="truncate cursor-pointer"
-                            title={filePath}
-                            onDoubleClick={() => {
-                                setRenamingPaneId(nodeId);
-                                setEditedFileName(fileName);
-                            }}
-                        >
-                            {fileName}{fileChanged ? '*' : ''}
-                        </span>
-                    )}
-                </div>
-                <div className="flex items-center gap-2">
-                    <button onClick={onSave} disabled={!fileChanged} className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50">Save</button>
-                    <button 
-                        onClick={() => {
-                            console.log(`[renderFileEditor] X button clicked for pane ${nodeId}. Calling closeContentPane with path:`, path); // <--- LAVANZARO'S LOGGING!
-                            closeContentPane(nodeId, path);
-                        }} 
-  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
-                        onMouseDown={(e) => e.stopPropagation()}
+            <PaneHeader
+                nodeId={nodeId}
+                icon={getFileIcon(fileName)}
+                title={isRenaming ? editedFileName : `${fileName}${fileChanged ? '*' : ''}`} // Adjust title for renaming
+                // Pass props required by PaneHeader from ChatInterface's scope
+                findNodePath={findNodePath}
+                rootLayoutNode={rootLayoutNode}
+                setDraggedItem={setDraggedItem}
+                setPaneContextMenu={setPaneContextMenu}
+                closeContentPane={closeContentPane}
+            >
+                {/* File editor specific elements (children prop) */}
+                {isRenaming ? (
+                    <input
+                        type="text"
+                        value={editedFileName}
+                        onChange={(e) => setEditedFileName(e.target.value)}
+                        onBlur={() => handleRenameFile(nodeId, filePath)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameFile(nodeId, filePath);
+                            if (e.key === 'Escape') setRenamingPaneId(null);
+                        }}
+                        className="theme-input text-xs rounded px-2 py-1 border focus:outline-none"
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()} // Prevent PaneHeader's onDragStart
+                        onMouseDown={(e) => e.stopPropagation()} // Prevent PaneHeader's onDragStart
+                    />
+                ) : (
+                    <span
+                        className="truncate cursor-pointer"
+                        title={filePath}
+                        onDoubleClick={() => {
+                            setRenamingPaneId(nodeId);
+                            setEditedFileName(fileName);
+                        }}
                     >
-                        <X size={14} />
-                    </button>
-                </div>
-            </div>
+                    </span>
+                )}
+                <button
+                    onClick={onSave}
+                    disabled={!fileChanged}
+                    className="px-3 py-1 rounded text-xs theme-button-success disabled:opacity-50"
+                >
+                    Save
+                </button>
+            </PaneHeader>
             <div className="flex-1 overflow-scroll min-h-0">
                 <CodeEditor
                     value={fileContent || ''}
@@ -3352,202 +3615,198 @@ const renderPaneContextMenu = () => {
     </>
   );
 };
-    const renderChatView = useCallback(({ nodeId }) => {
-        const paneData = contentDataRef.current[nodeId];
-        if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
-    
-        const scrollRef = useRef(null);
-        const paneRef = useRef(null);
-    
-        const debouncedSearchTerm = useDebounce(localSearch.term, 300);
-    
-        const debouncedSetSearchTerm = useCallback((newTerm) => {
-            setLocalSearch(prev => ({ ...prev, term: newTerm }));
-        }, []);
-    
-        useEffect(() => {
-            const paneElement = paneRef.current;
-            const handleKeyDown = (e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setLocalSearch(prev => ({
-                        ...prev,
-                        isActive: true,
-                        paneId: nodeId,
-                        term: prev.paneId === nodeId ? prev.term : ''
-                    }));
-                }
-            };
-            if (paneElement) {
-                paneElement.addEventListener('keydown', handleKeyDown);
-                return () => paneElement.removeEventListener('keydown', handleKeyDown);
+const renderChatView = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData) return <div className="p-4 theme-text-muted">Loading pane...</div>;
+
+    const scrollRef = useRef(null);
+    const paneRef = useRef(null);
+
+    const debouncedSearchTerm = useDebounce(localSearch.term, 300);
+
+    const debouncedSetSearchTerm = useCallback((newTerm) => {
+        setLocalSearch(prev => ({ ...prev, term: newTerm }));
+    }, []);
+
+    useEffect(() => {
+        const paneElement = paneRef.current;
+        const handleKeyDown = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                e.preventDefault();
+                e.stopPropagation();
+                setLocalSearch(prev => ({
+                    ...prev,
+                    isActive: true,
+                    paneId: nodeId,
+                    term: prev.paneId === nodeId ? prev.term : ''
+                }));
             }
-        }, [nodeId]);
-    
-        useEffect(() => {
-            if (localSearch.isActive && localSearch.paneId === nodeId && debouncedSearchTerm) {
-                const allMessages = paneData.chatMessages?.allMessages || [];
-                const results = [];
-                allMessages.forEach(msg => {
-                    if (msg.content && msg.content.toLowerCase().includes(debouncedSearchTerm.toLowerCase())) {
-                        results.push(msg.id || msg.timestamp);
-                    }
-                });
-                setLocalSearch(prev => ({ ...prev, results, currentIndex: results.length > 0 ? 0 : -1 }));
-            } else if (localSearch.paneId === nodeId && !debouncedSearchTerm) {
-                setLocalSearch(prev => ({ ...prev, results: [], currentIndex: -1 }));
-            }
-        }, [debouncedSearchTerm, localSearch.isActive, localSearch.paneId, nodeId, paneData.chatMessages?.allMessages]);
-    
-        useEffect(() => {
-            if (localSearch.currentIndex !== -1 && localSearch.results.length > 0) {
-                const messageId = localSearch.results[localSearch.currentIndex];
-                const element = document.getElementById(`message-${messageId}`);
-                element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        }, [localSearch.currentIndex, localSearch.results]);
-    
-        useEffect(() => {
-            if (autoScrollEnabled && scrollRef.current && !localSearch.isActive) {
-                scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-            }
-        }, [paneData?.chatMessages?.messages, autoScrollEnabled, localSearch.isActive]);
-    
-        const handleLocalSearchNavigate = (direction) => {
-            if (localSearch.results.length === 0) return;
-            setLocalSearch(prev => {
-                const nextIndex = (prev.currentIndex + direction + prev.results.length) % prev.results.length;
-                return { ...prev, currentIndex: nextIndex };
-            });
         };
-    
-        const messagesToDisplay = paneData.chatMessages?.messages || [];
-        const totalMessages = paneData.chatMessages?.allMessages?.length || 0;
-        const stats = paneData.chatStats || {};
-        const path = findNodePath(rootLayoutNode, nodeId);
-    
-        return (
-            <div ref={paneRef} className="flex-1 flex flex-col min-h-0 overflow-hidden relative focus:outline-none" tabIndex={-1}>
-<div 
-  className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+        if (paneElement) {
+            paneElement.addEventListener('keydown', handleKeyDown);
+            return () => paneElement.removeEventListener('keydown', handleKeyDown);
+        }
+    }, [nodeId]);
 
-    draggable="true"
-    onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = 'move';
-        const nodePath = findNodePath(rootLayoutNode, nodeId);
-        setDraggedItem({ type: 'pane', id: nodeId, nodePath });
-    }}
-    onDragEnd={() => setDraggedItem(null)
-        
-        
-        
-    }
-      onContextMenu={(e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    console.log(`[Pane Header] Right-click at (${e.clientX},${e.clientY}) on pane ${nodeId}`);
-    setPaneContextMenu({
-      isOpen: true,
-      x: e.clientX,
-      y: e.clientY,
-      nodeId,
-      nodePath: findNodePath(rootLayoutNode, nodeId)
-    });
-  }}
+    useEffect(() => {
+        if (localSearch.isActive && localSearch.paneId === nodeId && debouncedSearchTerm) {
+            const allMessages = paneData.chatMessages?.allMessages || [];
+            const results = [];
+            allMessages.forEach(msg => {
+                if (msg.content && msg.content.toLowerCase().includes(debouncedSearchTerm.toLowerCase())) {
+                    results.push(msg.id || msg.timestamp);
+                }
+            });
+            setLocalSearch(prev => ({ ...prev, results, currentIndex: results.length > 0 ? 0 : -1 }));
+        } else if (localSearch.paneId === nodeId && !debouncedSearchTerm) {
+            setLocalSearch(prev => ({ ...prev, results: [], currentIndex: -1 }));
+        }
+    }, [debouncedSearchTerm, localSearch.isActive, localSearch.paneId, nodeId, paneData.chatMessages?.allMessages]);
 
-    
->
+    useEffect(() => {
+        if (localSearch.currentIndex !== -1 && localSearch.results.length > 0) {
+            const messageId = localSearch.results[localSearch.currentIndex];
+            const element = document.getElementById(`message-${messageId}`);
+            element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, [localSearch.currentIndex, localSearch.results]);
 
-                    <div className="flex justify-between items-center min-h-[28px]">
-                        <span className="truncate min-w-0 font-semibold" title={paneData.contentId}>
-                            Conversation: {paneData.contentId?.slice(-8) || 'None'}
-                        </span>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
-                                className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
-                                    autoScrollEnabled ? 'theme-button-success' : 'theme-button'
-                                } theme-hover`}
-                                title={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M12 5v14M19 12l-7 7-7-7"/>
-                                </svg>
-                                {autoScrollEnabled ? 'Auto' : 'Manual'}
-                            </button>
-                            <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`}>
-                                <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
-                            </button>
-                            <button onClick={() => closeContentPane(nodeId, path)}
-  className="pane-header-close-button p-1 theme-hover rounded-full flex-shrink-0"
-                             >
-                                <X size={14} />
-                            </button>
-                        </div>
-                    </div>
-    
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-gray-400 min-h-[20px]">
-                        <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
-                        <span><Terminal size={12} className="inline mr-1"/>~{stats.tokenCount || 0} Tokens</span>
-                        <span><Code2 size={12} className="inline mr-1"/>{stats.models?.size || 0} Models</span>
-                        <span><Users size={12} className="inline mr-1"/>{stats.agents?.size || 0} Agents</span>
-                        {stats.totalAttachments > 0 && <span><Paperclip size={12} className="inline mr-1"/>{stats.totalAttachments} Attachments</span>}
-                        {stats.totalToolCalls > 0 && <span><Wrench size={12} className="inline mr-1"/>{stats.totalToolCalls} Tool Calls</span>}
+    useEffect(() => {
+        if (autoScrollEnabled && scrollRef.current && !localSearch.isActive) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    }, [paneData?.chatMessages?.messages, autoScrollEnabled, localSearch.isActive]);
+
+    const handleLocalSearchNavigate = (direction) => {
+        if (localSearch.results.length === 0) return;
+        setLocalSearch(prev => {
+            const nextIndex = (prev.currentIndex + direction + prev.results.length) % prev.results.length;
+            return { ...prev, currentIndex: nextIndex };
+        });
+    };
+
+    const messagesToDisplay = paneData.chatMessages?.messages || [];
+    const totalMessages = paneData.chatMessages?.allMessages?.length || 0;
+    const stats = paneData.chatStats || {};
+    const path = findNodePath(rootLayoutNode, nodeId);
+
+    // NEW: Check if this is an empty pane (no contentId set yet)
+    const isEmpty = !paneData.contentId;
+
+    return (
+        <div ref={paneRef} className="flex-1 flex flex-col min-h-0 overflow-hidden relative focus:outline-none" tabIndex={-1}>
+            <PaneHeader
+                nodeId={nodeId}
+                icon={<MessageSquare size={14} />}
+                title={isEmpty ? 'Empty Pane' : `Conversation: ${paneData.contentId?.slice(-8) || 'None'}`}
+                // Pass props required by PaneHeader from ChatInterface's scope
+                findNodePath={findNodePath}
+                rootLayoutNode={rootLayoutNode}
+                setDraggedItem={setDraggedItem}
+                setPaneContextMenu={setPaneContextMenu}
+                closeContentPane={closeContentPane}
+                autoScrollEnabled={autoScrollEnabled}
+                setAutoScrollEnabled={setAutoScrollEnabled}
+                messageSelectionMode={messageSelectionMode}
+                toggleMessageSelectionMode={toggleMessageSelectionMode}
+                selectedMessages={selectedMessages}
+            >
+                {/* Extra buttons specific to chat panes (children prop) */}
+                {!isEmpty && (
+                    <>
+                        <button
+                            onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
+                            className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
+                                autoScrollEnabled ? 'theme-button-success' : 'theme-button'
+                            } theme-hover`}
+                            title={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 5v14M19 12l-7 7-7-7"/>
+                            </svg>
+                            {autoScrollEnabled ? 'Auto' : 'Manual'}
+                        </button>
+                        <button onClick={toggleMessageSelectionMode} className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`}>
+                            <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
+                        </button>
+                    </>
+                )}
+            </PaneHeader>
+            {/* The stats section moves outside of PaneHeader as it's not part of the 'header' */}
+            {!isEmpty && (
+                <div className="p-2 flex flex-wrap gap-x-4 gap-y-1 text-gray-400 min-h-[20px] theme-bg-secondary border-b theme-border">
+                    <span><MessageSquare size={12} className="inline mr-1"/>{stats.messageCount || 0} Msgs</span>
+                    <span><Terminal size={12} className="inline mr-1"/>~{stats.tokenCount || 0} Tokens</span>
+                    <span><Code2 size={12} className="inline mr-1"/>{stats.models?.size || 0} Models</span>
+                    <span><Users size={12} className="inline mr-1"/>{stats.agents?.size || 0} Agents</span>
+                    {stats.totalAttachments > 0 && <span><Paperclip size={12} className="inline mr-1"/>{stats.totalAttachments} Attachments</span>}
+                    {stats.totalToolCalls > 0 && <span><Wrench size={12} className="inline mr-1"/>{stats.totalToolCalls} Tool Calls</span>}
+                </div>
+            )}
+
+            {isEmpty ? (
+                <div className="flex-1 flex items-center justify-center theme-text-muted">
+                    <div className="text-center">
+                        <div className="text-lg mb-2">Empty Chat Pane</div>
+                        <div className="text-sm">Drag a conversation here or close this pane</div>
                     </div>
                 </div>
-    
-                <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
-                    {totalMessages > messagesToDisplay.length && (
-                        <div className="text-center">
-                            <button onClick={() => {
-                                const currentPane = contentDataRef.current[nodeId];
-                                if (currentPane && currentPane.chatMessages) {
-                                    currentPane.chatMessages.displayedMessageCount += 20;
-                                    currentPane.chatMessages.messages = currentPane.chatMessages.allMessages.slice(-currentPane.chatMessages.displayedMessageCount);
-                                    setRootLayoutNode(p => ({ ...p }));
-                                }
-                            }} className="theme-button theme-hover px-3 py-1 text-xs rounded">Load More</button>
+            ) : (
+                <>
+                    <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 p-4 theme-bg-primary">
+                        {totalMessages > messagesToDisplay.length && (
+                            <div className="text-center">
+                                <button onClick={() => {
+                                    const currentPane = contentDataRef.current[nodeId];
+                                    if (currentPane && currentPane.chatMessages) {
+                                        currentPane.chatMessages.displayedMessageCount += 20;
+                                        currentPane.chatMessages.messages = currentPane.chatMessages.allMessages.slice(-currentPane.chatMessages.displayedMessageCount);
+                                        setRootLayoutNode(p => ({ ...p }));
+                                    }
+                                }} className="theme-button theme-hover px-3 py-1 text-xs rounded">Load More</button>
+                            </div>
+                        )}
+                        {messagesToDisplay.map(msg => {
+                            const messageId = msg.id || msg.timestamp;
+                            const isCurrentSearchResult = localSearch.isActive && localSearch.paneId === nodeId && localSearch.results[localSearch.currentIndex] === messageId;
+                            return (
+                                <ChatMessage
+                                    key={messageId}
+                                    message={msg}
+                                    searchTerm={localSearch.isActive && localSearch.paneId === nodeId ? debouncedSearchTerm : ''}
+                                    isCurrentSearchResult={isCurrentSearchResult}
+                                    isSelected={selectedMessages.has(messageId)}
+                                    messageSelectionMode={messageSelectionMode}
+                                    toggleMessageSelection={toggleMessageSelection}
+                                    handleMessageContextMenu={handleMessageContextMenu}
+                                    onResendMessage={handleResendMessage}
+                                />
+                            );
+                        })}
+                    </div>
+
+                    {localSearch.isActive && localSearch.paneId === nodeId && (
+                        <div className="flex-shrink-0 p-2 border-t theme-border theme-bg-secondary">
+                            <InPaneSearchBar
+                                searchTerm={localSearch.term}
+                                onSearchTermChange={debouncedSetSearchTerm}
+                                onNext={() => handleLocalSearchNavigate(1)}
+                                onPrevious={() => handleLocalSearchNavigate(-1)}
+                                onClose={() => setLocalSearch({ isActive: false, term: '', paneId: null, results: [], currentIndex: -1 })}
+                                resultCount={localSearch.results.length}
+                                currentIndex={localSearch.currentIndex}
+                            />
                         </div>
                     )}
-                    {messagesToDisplay.map(msg => {
-                        const messageId = msg.id || msg.timestamp;
-                        const isCurrentSearchResult = localSearch.isActive && localSearch.paneId === nodeId && localSearch.results[localSearch.currentIndex] === messageId;
-                        return (
-                            <ChatMessage
-                                key={messageId}
-                                message={msg}
-                                searchTerm={localSearch.isActive && localSearch.paneId === nodeId ? debouncedSearchTerm : ''}
-                                isCurrentSearchResult={isCurrentSearchResult}
-                                isSelected={selectedMessages.has(messageId)}
-                                messageSelectionMode={messageSelectionMode}
-                                toggleMessageSelection={toggleMessageSelection}
-                                handleMessageContextMenu={handleMessageContextMenu}
-                                onResendMessage={handleResendMessage}
-                            />
-                        );
-                    })}
-                </div>
-    
-                {localSearch.isActive && localSearch.paneId === nodeId && (
-                    <div className="flex-shrink-0 p-2 border-t theme-border theme-bg-secondary">
-                        <InPaneSearchBar
-                            searchTerm={localSearch.term}
-                            onSearchTermChange={debouncedSetSearchTerm}
-                            onNext={() => handleLocalSearchNavigate(1)}
-                            onPrevious={() => handleLocalSearchNavigate(-1)}
-                            onClose={() => setLocalSearch({ isActive: false, term: '', paneId: null, results: [], currentIndex: -1 })}
-                            resultCount={localSearch.results.length}
-                            currentIndex={localSearch.currentIndex}
-                        />
-                    </div>
-                )}
-            </div>
-        );
-    }, [rootLayoutNode, messageSelectionMode, selectedMessages, autoScrollEnabled, localSearch]);
-        
-    
-const createNewConversation = useCallback(async (skipMessageLoad = false) => {
+                </>
+            )}
+        </div>
+    );
+}, [rootLayoutNode, messageSelectionMode, selectedMessages, autoScrollEnabled, localSearch]);
+
+  
+
+  const createNewConversation = useCallback(async (skipMessageLoad = false) => {
     try {
         const conversation = await window.api.createConversation({ directory_path: currentPath });
         if (!conversation || !conversation.id) {
@@ -3563,11 +3822,64 @@ const createNewConversation = useCallback(async (skipMessageLoad = false) => {
 
         setDirectoryConversations(prev => [formattedNewConversation, ...prev]);
 
-        // --- CORRECTED LINE HERE ---
-        const newPaneId = createAndAddPaneNodeToLayout();
-        await updateContentPane(newPaneId, 'chat', conversation.id, skipMessageLoad);
-        // --- END CORRECTED LINE ---
+        // CRITICAL: Create pane and layout synchronously in one step
+        const newPaneId = generateId();
+        
+        // First, update the layout with the new pane
+        setRootLayoutNode(oldRoot => {
+            // Initialize contentData entry INSIDE the state update
+            contentDataRef.current[newPaneId] = {};
+            
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
 
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+            
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+                    
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+            
+            // Fallback: create split with existing root
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+            
+            return { id: newPaneId, type: 'content' };
+        });
+
+        // THEN update the content (this will now pass validation)
+        // Use setTimeout to ensure the state update has completed
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'chat', conversation.id, skipMessageLoad);
+            setRootLayoutNode(prev => ({ ...prev })); // Force re-render
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
         setActiveConversationId(conversation.id);
         setCurrentFile(null);
 
@@ -3578,8 +3890,8 @@ const createNewConversation = useCallback(async (skipMessageLoad = false) => {
         setError(err.message);
         return { conversation: null, paneId: null };
     }
-}, [currentPath, createAndAddPaneNodeToLayout, updateContentPane]);
-
+}, [currentPath, activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+  
 const createNewTextFile = async () => {
         try {
             const filename = `untitled-${Date.now()}.txt`;
@@ -4763,13 +5075,14 @@ useEffect(() => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
 }, [windowId, currentPath, rootLayoutNode, serializeWorkspace, saveWorkspaceToStorage]);
+// Remove the separate workspace loading useEffect completely
+// Instead, integrate it directly into initApplicationData
 
 useEffect(() => {
     const initApplicationData = async () => {
         setLoading(true);
         setError(null);
 
-       
         if (!config) {
             try {
                 const loadedConfig = await window.api.getDefaultConfig();
@@ -4785,7 +5098,6 @@ useEffect(() => {
             }
         }
 
-       
         let initialPathToLoad = config.baseDir;
         const storedPath = localStorage.getItem(LAST_ACTIVE_PATH_KEY);
         if (storedPath) {
@@ -4807,31 +5119,73 @@ useEffect(() => {
 
         initialLoadComplete.current = true;
 
-       
-        await loadDirectoryStructure(currentPath);
+        // CRITICAL: Try to load workspace FIRST, before anything else
+        console.log(`[INIT] Attempting to load workspace for ${currentPath}`);
+        setIsLoadingWorkspace(true);
+        
+        let workspaceRestored = false;
+        try {
+            const savedWorkspace = loadWorkspaceFromStorage(currentPath);
+            if (savedWorkspace) {
+                console.log(`[INIT] Found saved workspace for ${currentPath}`, {
+                    paneCount: Object.keys(savedWorkspace.contentData).length,
+                    layoutExists: !!savedWorkspace.layoutNode
+                });
+                
+                // Load directory structure WITHOUT triggering conversation selection
+                await loadDirectoryStructureWithoutConversationLoad(currentPath);
+                
+                workspaceRestored = await deserializeWorkspace(savedWorkspace);
+                
+                if (workspaceRestored) {
+                    console.log(`[INIT] Successfully restored workspace with ${Object.keys(contentDataRef.current).length} panes`);
+                } else {
+                    console.log(`[INIT] Workspace restoration failed`);
+                }
+            } else {
+                console.log(`[INIT] No saved workspace found for ${currentPath}`);
+            }
+        } catch (error) {
+            console.error(`[INIT] Error loading workspace:`, error);
+        } finally {
+            setIsLoadingWorkspace(false);
+        }
 
-       
+        // Now check if workspace was restored
+        const workspaceAlreadyLoaded = workspaceRestored && rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
+        
+        console.log('[INIT] Workspace check after restoration attempt:', {
+            workspaceRestored,
+            workspaceAlreadyLoaded,
+            rootLayoutNode: !!rootLayoutNode,
+            contentDataCount: Object.keys(contentDataRef.current).length
+        });
+
+        // Only load directory structure if workspace wasn't restored
+        if (!workspaceAlreadyLoaded) {
+            console.log('[INIT] No workspace loaded, loading directory structure normally');
+            await loadDirectoryStructure(currentPath);
+        } else {
+            console.log('[INIT] Workspace already loaded, just loading conversations list');
+            await loadConversationsWithoutAutoSelect(currentPath);
+        }
+
         const fetchedModels = await fetchModels();
         const fetchedNPCs = await loadAvailableNPCs();
 
-       
         let modelToSet = config.model || 'llama3.2';
         let providerToSet = config.provider || 'ollama';
         let npcToSet = config.npc || 'sibiji';
 
-       
         const storedConvoId = localStorage.getItem(LAST_ACTIVE_CONVO_ID_KEY);
         let targetConvoId = null;
 
-       
-       
         const currentConversations = directoryConversationsRef.current;
         
         if (storedConvoId) {
             const convoInCurrentDir = currentConversations.find(conv => conv.id === storedConvoId);
             if (convoInCurrentDir) {
                 targetConvoId = storedConvoId;
-               
                 const lastUsedInConvo = await window.api.getLastUsedInConversation(targetConvoId);
                 if (lastUsedInConvo?.model) {
                     const validModel = fetchedModels.find(m => m.value === lastUsedInConvo.model);
@@ -4851,7 +5205,6 @@ useEffect(() => {
             }
         }
 
-       
         if (!targetConvoId) {
             const lastUsedInDir = await window.api.getLastUsedInDirectory(currentPath);
             if (lastUsedInDir?.model) {
@@ -4869,7 +5222,6 @@ useEffect(() => {
             }
         }
         
-       
         if (!fetchedModels.some(m => m.value === modelToSet) && fetchedModels.length > 0) {
             modelToSet = fetchedModels[0].value;
             providerToSet = fetchedModels[0].provider;
@@ -4888,38 +5240,36 @@ useEffect(() => {
         setCurrentProvider(providerToSet);
         setCurrentNPC(npcToSet);
 
-                            
-            const hasExistingWorkspace = rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
-            const isLoadingWorkspaceForPath = isLoadingWorkspace; 
+        // Final check - only create panes if workspace wasn't loaded
+// Final check - only create panes if workspace wasn't loaded
+const hasExistingWorkspace = rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
 
-            if (!hasExistingWorkspace && !isLoadingWorkspaceForPath) {
-                if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
-                    console.log('Selecting stored conversation:', targetConvoId);
-                    await handleConversationSelect(targetConvoId, false, false); // Allow pane update
-                } else if (currentConversations.length > 0) {
-                    console.log('Selecting first conversation:', currentConversations[0].id);
-                    await handleConversationSelect(currentConversations[0].id, false, false); // Allow pane update
-                } else {
-                    console.log('Creating new conversation - none found');
-                    await createNewConversation();
-                }
-            } else {
-                if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
-                    console.log('Setting active conversation without overriding workspace:', targetConvoId);
-                    await handleConversationSelect(targetConvoId, false, true); // Skip pane update
-                }
-                console.log('Skipping conversation selection - workspace was restored or is being restored');
+console.log('[INIT] Final workspace check:', { 
+    hasExistingWorkspace, 
+    rootLayoutNode: !!rootLayoutNode, 
+    contentDataCount: Object.keys(contentDataRef.current).length
+});
+
+if (!hasExistingWorkspace) {
+    console.log('[INIT] Creating default panes');
+    
+    if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
+        console.log('[INIT] Creating pane for stored conversation:', targetConvoId);
+        await handleConversationSelect(targetConvoId, false, false);  // ← THIS IS CREATING PHANTOM PANES!
+    }
+} else {
+            console.log('[INIT] Workspace exists, skipping pane creation');
+            
+            if (targetConvoId) {
+                setActiveConversationId(targetConvoId);
             }
-
+        }
 
         setLoading(false);
     };
 
-
-
     initApplicationData();
-}, [currentPath, config]);    
-
+}, [currentPath, config]);
 const goUpDirectory = async () => {
     try {
         if (!currentPath || currentPath === baseDir) return;
@@ -7188,17 +7538,20 @@ const layoutComponentApi = useMemo(() => ({
     draggedItem, setDraggedItem, dropTarget, setDropTarget,
     contentDataRef, updateContentPane, performSplit,
     closeContentPane,
-    moveContentPane, // Pass the moveContentPane function
-    createAndAddPaneNodeToLayout, // Pass the pane creation helper
+    moveContentPane, 
+    createAndAddPaneNodeToLayout,
     renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer,
+    setPaneContextMenu // Add this new dependency
 }), [
     rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
     draggedItem, dropTarget, updateContentPane, performSplit, closeContentPane,
-    moveContentPane, createAndAddPaneNodeToLayout, // Ensure these are in the dependency array
+    moveContentPane, createAndAddPaneNodeToLayout,
     renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer,
-    setActiveContentPaneId, setDraggedItem, setDropTarget
+    setActiveContentPaneId, setDraggedItem, setDropTarget,
+    setPaneContextMenu // Make sure it's here
 ]);
+
 
 const renderMainContent = () => {
 
