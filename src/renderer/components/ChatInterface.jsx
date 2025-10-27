@@ -1369,11 +1369,162 @@ const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId';
     const [executionMode, setExecutionMode] = useState('chat');
     const [favoriteModels, setFavoriteModels] = useState(new Set());
     const [showAllModels, setShowAllModels] = useState(false);
-    const [availableJinxs, setAvailableJinxss] = useState([
+    const [availableJinxs, setAvailableJinxs] = useState([
     ]);
-    const [selectedTools, setSelectedTools] = useState([]);
+    const [selectedJinx, setSelectedJinx] = useState(null);
+    const [jinxLoadingError, setJinxLoadingError] = useState(null); // This already exists
     
+    const [jinxInputValues, setJinxInputValues] = useState({}); // Stores { jinxName: { inputName: value, ... }, ... }
+
    
+    const [jinxInputs, setJinxInputs] = useState({});
+
+
+    
+        useEffect(() => {
+        const loadJinxs = async () => {
+            console.log('[JINX_LOAD] Starting load', { currentPath, currentNPC });
+
+            if (!currentPath || !currentNPC) {
+                console.log('[JINX_LOAD] Missing path or NPC');
+                setAvailableJinxs([]);
+                setJinxLoadingError("Missing project path or NPC to load Jinxs.");
+                setSelectedJinx(null);
+                return;
+            }
+
+            try {
+                setJinxLoadingError(null); // Clear previous errors
+                let projectJinxs = [];
+                let globalJinxs = [];
+
+                // Fetch project-specific Jinxs
+                try {
+                    const projectResponse = await window.api.getJinxsProject(currentPath);
+                    if (projectResponse.error) {
+                        console.warn(`[JINX_LOAD] Error fetching project Jinxs: ${projectResponse.error}`);
+                    } else {
+                        projectJinxs = projectResponse.jinxs || [];
+                    }
+                } catch (err) {
+                    console.warn(`[JINX_LOAD] Failed to fetch project Jinxs: ${err.message}`);
+                }
+
+                // Fetch global Jinxs
+                try {
+                    const globalResponse = await window.api.getJinxsGlobal();
+                    if (globalResponse.error) {
+                        console.warn(`[JINX_LOAD] Error fetching global Jinxs: ${globalResponse.error}`);
+                    } else {
+                        globalJinxs = globalResponse.jinxs || [];
+                    }
+                } catch (err) {
+                    console.warn(`[JINX_LOAD] Failed to fetch global Jinxs: ${err.message}`);
+                }
+
+                // Combine and deduplicate Jinxs (project Jinxs take precedence)
+                const combinedJinxsMap = new Map();
+                globalJinxs.forEach(jinx => {
+                    const name = jinx.jinx_name || jinx.name;
+                    if (name) combinedJinxsMap.set(name, jinx);
+                });
+                projectJinxs.forEach(jinx => {
+                    const name = jinx.jinx_name || jinx.name;
+                    if (name) combinedJinxsMap.set(name, jinx);
+                });
+
+                const rawJinxs = Array.from(combinedJinxsMap.values());
+
+                console.log('[JINX_LOAD] Raw combined Jinxs from API calls:', JSON.stringify(rawJinxs, null, 2)); // CRITICAL LOG: Raw data from backend
+
+                const formattedJinxs = rawJinxs.map(jinxItem => {
+                    console.log('[JINX_LOAD] Processing raw jinxItem for formatting:', JSON.stringify(jinxItem, null, 2)); // CRITICAL LOG: Each item before final formatting
+
+                    let jinxName = jinxItem.jinx_name || jinxItem.name || String(jinxItem);
+                    let jinxDescription = jinxItem.description || '';
+                    let jinxInputs = [];
+
+                    // CRITICAL FIX: Robustly format inputs to be an array of objects {key: value}
+                    // This conversion needs to happen here, at the point of loading into state.
+                    jinxInputs = (jinxItem.inputs || []).map(inputDef => {
+                        if (typeof inputDef === 'string') {
+                            // If inputDef is a string (e.g., "code"), convert it to {code: ""}
+                            return { [inputDef]: "" };
+                        }
+                        // If inputDef is already an object, ensure it's not empty, otherwise use a fallback
+                        if (typeof inputDef === 'object' && inputDef !== null && Object.keys(inputDef).length > 0) {
+                            return inputDef;
+                        }
+                        // Fallback for empty or malformed object inputDefs
+                        console.warn(`[JINX_LOAD] Found empty or malformed inputDef in Jinx "${jinxName}":`, inputDef);
+                        return { "unnamed_input": "" }; // Provide a default if object is empty/malformed
+                    });
+
+                    return {
+                        ...jinxItem, // SPREAD jinxItem FIRST
+                        name: jinxName,
+                        description: jinxDescription,
+                        inputs: jinxInputs // ENSURE our formatted inputs are LAST to overwrite any old ones
+                    };
+                }).sort((a, b) => (a.name || '').localeCompare(b.name || '')); // Sort by name
+
+                console.log('[JINX_LOAD] Setting formatted jinxs:', formattedJinxs);
+                setAvailableJinxs(formattedJinxs);
+
+                // Initialize jinxInputValues for newly loaded jinxs if not already present
+                setJinxInputValues(prev => {
+                    const newValues = { ...prev };
+                    formattedJinxs.forEach(jinx => {
+                        if (!newValues[jinx.name]) {
+                            newValues[jinx.name] = {};
+                            jinx.inputs.forEach(inputDef => {
+                                const inputName = Object.keys(inputDef)[0]; // This will now always be a valid key
+                                newValues[jinx.name][inputName] = inputDef[inputName] || '';
+                            });
+                        }
+                    });
+                    return newValues;
+                });
+
+                // If no Jinx is selected, or the previously selected Jinx is no longer available, select the first one
+                if (!selectedJinx || !formattedJinxs.some(j => j.name === selectedJinx.name)) {
+                    if (formattedJinxs.length > 0) {
+                        setSelectedJinx(formattedJinxs[0]);
+                    } else {
+                        setSelectedJinx(null);
+                    }
+                }
+
+            } catch (err) {
+                console.error('[JINX_LOAD] General error during Jinx loading:', err);
+                setAvailableJinxs([]);
+                setJinxLoadingError(err.message || "Failed to load Jinxs due to a network or server issue.");
+                setSelectedJinx(null);
+            }
+        };
+
+        loadJinxs();
+    }, [currentPath, currentNPC]); // Dependencies remain the same
+    
+    
+useEffect(() => {
+    if (selectedJinx) {
+        setJinxInputValues(prev => {
+            const currentJinxValues = prev[selectedJinx.name] || {};
+            const newJinxValues = { ...currentJinxValues };
+
+            // Ensure all inputs defined by the jinx have an entry in currentJinxValues
+            selectedJinx.inputs.forEach(inputDef => {
+                const inputName = Object.keys(inputDef)[0];
+                if (newJinxValues[inputName] === undefined) {
+                    newJinxValues[inputName] = inputDef[inputName] || ''; // Use default from jinx definition
+                }
+            });
+            return { ...prev, [selectedJinx.name]: newJinxValues };
+        });
+    }
+}, [selectedJinx]);
+
     useEffect(() => {
         const savedFavorites = localStorage.getItem('npcStudioFavoriteModels');
         if (savedFavorites) {
@@ -3938,160 +4089,196 @@ const gatherWorkspaceContext = () => {
     
     return contexts;
 };
-const handleInputSubmit = async (e) => {
-    e.preventDefault();
-    if (isStreaming || (!input.trim() && uploadedFiles.length === 0) || !activeContentPaneId) {
-        return;
-    }
-    
-    const paneData = contentDataRef.current[activeContentPaneId];
-    if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) {
-        console.error("No active chat pane to send message to.");
-        return;
-    }
+    const handleInputSubmit = async (e) => {
+        e.preventDefault();
 
-    const conversationId = paneData.contentId;
-    const newStreamId = generateId();
-    
-    streamToPaneRef.current[newStreamId] = activeContentPaneId;
-    setIsStreaming(true);
+        const isJinxMode = executionMode === 'jinx' && selectedJinx;
+        const currentJinxInputs = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
 
-    let finalPrompt = input;
-    let isJinxCall = false;
-    let jinxName = null;
-    let jinxArgs = [];
-    
-    const trimmedInput = input.trim();
-    if (trimmedInput.startsWith('/')) {
-        const parts = trimmedInput.slice(1).split(/\s+/);
-        const potentialJinx = parts[0];
-        
-        const availableJinxs = await window.api.getAvailableJinxs({
-            currentPath,
-            npc: currentNPC
-        });
-        
-        if (availableJinxs.jinxs && availableJinxs.jinxs.includes(potentialJinx)) {
-            isJinxCall = true;
-            jinxName = potentialJinx;
-            jinxArgs = parts.slice(1);
+        const hasContent = input.trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
+
+        if (isStreaming || !hasContent || (!activeContentPaneId && !isJinxMode)) {
+            if (!isJinxMode && !activeContentPaneId) {
+                console.error("No active chat pane to send message to.");
+            }
+            return;
         }
-    }
-    
-    const contexts = gatherWorkspaceContext();
-    const newHash = hashContext(contexts);
-    const contextChanged = newHash !== contextHash;
-    
-    if (contexts.length > 0 && contextChanged && !isJinxCall) {
-        const fileContexts = contexts.filter(c => c.type === 'file');
-        const browserContexts = contexts.filter(c => c.type === 'browser');
-        let contextPrompt = '';
-        
-        if (fileContexts.length > 0) {
-            contextPrompt += fileContexts.map(ctx => 
-                `File: ${ctx.path}\n\`\`\`\n${ctx.content}\n\`\`\``
-            ).join('\n\n');
+
+        const paneData = contentDataRef.current[activeContentPaneId];
+        if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) {
+            console.error("No active chat pane to send message to.");
+            return;
         }
-                        
-        if (browserContexts.length > 0) {
-            if (contextPrompt) contextPrompt += '\n\n';
+
+        const conversationId = paneData.contentId;
+        const newStreamId = generateId();
+
+        streamToPaneRef.current[newStreamId] = activeContentPaneId;
+        setIsStreaming(true);
+
+        let finalPromptForUserMessage = input;
+        let jinxName = null;
+        // CRITICAL FIX: jinxArgsForApi will now be an ORDERED ARRAY of values
+        let jinxArgsForApi = [];
+
+        if (isJinxMode) {
+            jinxName = selectedJinx.name;
             
-            const browserContentPromises = browserContexts.map(async ctx => {
-                const result = await window.api.browserGetPageContent({ 
-                    viewId: ctx.viewId
-                });
-                if (result.success && result.content) {
-                    return `Webpage: ${result.title} (${result.url})\n\`\`\`\n${result.content}\n\`\`\``;
+            // CRITICAL FIX: Construct jinxArgsForApi as an ordered array of values
+            selectedJinx.inputs.forEach(inputDef => {
+                const inputName = Object.keys(inputDef)[0]; // Guaranteed to be valid by loadJinxs formatting
+                const value = currentJinxInputs[inputName];
+                // Only include non-null/non-empty values in the ordered arguments
+                if (value !== null && String(value).trim()) {
+                    jinxArgsForApi.push(value);
+                } else {
+                    // If an argument is required but empty, we might need to send an empty string
+                    // or handle this as a validation error. For now, we'll push empty string if not provided
+                    // but the backend might still complain if it expects a non-empty value.
+                    // This depends on backend validation.
+                    jinxArgsForApi.push(inputDef[inputName] || ''); // Use default from Jinx definition or empty string
                 }
-                return `Currently viewing: ${ctx.url}`;
             });
-            
-            const browserContents = await Promise.all(browserContentPromises);
-            contextPrompt += browserContents.join('\n\n');
-        }
 
-        if (executionMode === 'agent') {
-            finalPrompt = `${input}
+            console.log(`[Jinx Submit] Jinx Name: ${jinxName}`);
+            console.log(`[Jinx Submit] jinxArgsForApi (ordered array before API call):`, JSON.stringify(jinxArgsForApi, null, 2)); // CRITICAL LOG
 
-Available context:
-${contextPrompt}
+            // Construct the user message string for display
+            const jinxCommandParts = [`/${selectedJinx.name}`];
+            selectedJinx.inputs.forEach(inputDef => {
+                const inputName = Object.keys(inputDef)[0];
+                const value = currentJinxInputs[inputName];
+                if (value !== null && String(value).trim()) {
+                    jinxCommandParts.push(`${inputName}="${String(value).replace(/"/g, '\\"')}"`);
+                }
+            });
+            finalPromptForUserMessage = jinxCommandParts.join(' ');
 
-IMPORTANT: Propose changes as unified diffs, NOT full file contents.`;
         } else {
-            finalPrompt = `${input}
+            const contexts = gatherWorkspaceContext();
+            const newHash = hashContext(contexts);
+            const contextChanged = newHash !== contextHash;
 
-Context - currently open:
-${contextPrompt}`;
+            if (contexts.length > 0 && contextChanged) {
+                const fileContexts = contexts.filter(c => c.type === 'file');
+                const browserContexts = contexts.filter(c => c.type === 'browser');
+                let contextPrompt = '';
+
+                if (fileContexts.length > 0) {
+                    contextPrompt += fileContexts.map(ctx =>
+                        `File: ${ctx.path}\n\`\`\`\n${ctx.content}\n\`\`\``
+                    ).join('\n\n');
+                }
+
+                if (browserContexts.length > 0) {
+                    if (contextPrompt) contextPrompt += '\n\n';
+
+                    const browserContentPromises = browserContexts.map(async ctx => {
+                        const result = await window.api.browserGetPageContent({
+                            viewId: ctx.viewId
+                        });
+                        if (result.success && result.content) {
+                            return `Webpage: ${result.title} (${result.url})\n\`\`\`\n${result.content}\n\`\`\``;
+                        }
+                        return `Currently viewing: ${ctx.url}`;
+                    });
+
+                    const browserContents = await Promise.all(browserContentPromises);
+                    contextPrompt += browserContents.join('\n\n');
+                }
+
+                if (executionMode === 'agent') {
+                    finalPromptForUserMessage = `${input}
+
+    Available context:
+    ${contextPrompt}
+
+    IMPORTANT: Propose changes as unified diffs, NOT full file contents.`;
+                } else {
+                    finalPromptForUserMessage = `${input}
+
+    Context - currently open:
+    ${contextPrompt}`;
+                }
+
+                setContextHash(newHash);
+            }
         }
-        
-        setContextHash(newHash);
-    }
-    
-    const userMessage = { 
-        id: generateId(), 
-        role: 'user', 
-        content: isJinxCall ? `/${jinxName} ${jinxArgs.join(' ')}` : finalPrompt, 
-        timestamp: new Date().toISOString(), 
-        attachments: uploadedFiles,
-        executionMode: executionMode,
-        isJinxCall: isJinxCall
-    };
 
-    const assistantPlaceholder = { 
-        id: newStreamId, role: 'assistant', content: '', timestamp: new Date().toISOString(), 
-        isStreaming: true, streamId: newStreamId, npc: currentNPC, model: currentModel
-    };
+        const userMessage = {
+            id: generateId(),
+            role: 'user',
+            content: finalPromptForUserMessage,
+            timestamp: new Date().toISOString(),
+            attachments: uploadedFiles,
+            executionMode: executionMode,
+            isJinxCall: isJinxMode,
+            jinxName: isJinxMode ? jinxName : null,
+            jinxInputs: isJinxMode ? jinxArgsForApi : null // Store the ordered array of arguments
+        };
 
-    if (!paneData.chatMessages) {
-        paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
-    }
-    paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
-    paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
-    paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
+        const assistantPlaceholder = {
+            id: newStreamId, role: 'assistant', content: '', timestamp: new Date().toISOString(),
+            isStreaming: true, streamId: newStreamId, npc: currentNPC, model: currentModel
+        };
 
-    setRootLayoutNode(prev => ({ ...prev }));
-    setInput('');
-    setUploadedFiles([]);
-
-    try {
-        const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
-        
-        if (isJinxCall) {
-            await window.api.executeJinx({
-                jinxName,
-                jinxArgs,
-                currentPath,
-                conversationId,
-                model: currentModel,
-                provider: currentProvider,
-                npc: selectedNpc ? selectedNpc.name : currentNPC,
-                npcSource: selectedNpc ? selectedNpc.source : 'global',
-                streamId: newStreamId,
-            });
-        } else {
-            await window.api.executeCommandStream({
-                commandstr: finalPrompt, 
-                currentPath, 
-                conversationId, 
-                model: currentModel, 
-                provider: currentProvider,
-                npc: selectedNpc ? selectedNpc.name : currentNPC,
-                npcSource: selectedNpc ? selectedNpc.source : 'global',
-                attachments: uploadedFiles.map(f => {
-                    if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
-                    else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
-                    return { name: f.name, type: f.type };
-                }),
-                streamId: newStreamId, 
-                executionMode: 'chat',
-            });
+        if (!paneData.chatMessages) {
+            paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
-    } catch (err) {
-        setError(err.message); 
-        setIsStreaming(false); 
-        delete streamToPaneRef.current[newStreamId];
-    }
-};
+        paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
+        paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+        paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
+
+        setRootLayoutNode(prev => ({ ...prev }));
+        setInput('');
+        setUploadedFiles([]);
+        if (isJinxMode) {
+            // Clear inputs for the *current* Jinx only after submission
+            setJinxInputValues(prev => ({
+                ...prev,
+                [selectedJinx.name]: {} // Clear to empty object for this jinx
+            }));
+        }
+
+        try {
+            const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
+
+            if (isJinxMode) {
+                await window.api.executeJinx({
+                    jinxName: jinxName,
+                    jinxArgs: jinxArgsForApi, // Pass the ordered array of arguments
+                    currentPath,
+                    conversationId,
+                    model: currentModel,
+                    provider: currentProvider,
+                    npc: selectedNpc ? selectedNpc.name : currentNPC,
+                    npcSource: selectedNpc ? selectedNpc.source : 'global',
+                    streamId: newStreamId,
+                });
+            } else {
+                await window.api.executeCommandStream({
+                    commandstr: finalPromptForUserMessage,
+                    currentPath,
+                    conversationId,
+                    model: currentModel,
+                    provider: currentProvider,
+                    npc: selectedNpc ? selectedNpc.name : currentNPC,
+                    npcSource: selectedNpc ? selectedNpc.source : 'global',
+                    attachments: uploadedFiles.map(f => {
+                        if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
+                        else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
+                        return { name: f.name, type: f.type };
+                    }),
+                    streamId: newStreamId,
+                    executionMode: executionMode,
+                });
+            }
+        } catch (err) {
+            setError(err.message);
+            setIsStreaming(false);
+            delete streamToPaneRef.current[newStreamId];
+        }
+    };
 
 
 
@@ -6859,209 +7046,300 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
     };
 
 
+    const renderInputArea = () => {
+        const isJinxMode = executionMode === 'jinx' && selectedJinx;
 
-const renderInputArea = () => {
-    if (isInputExpanded) {
+        if (isInputExpanded) {
+            return (
+                <div className="fixed inset-0 bg-black/80 z-50 flex flex-col p-4">
+                    <div className="flex-1 flex flex-col theme-bg-primary theme-border border rounded-lg">
+                        <div className="p-2 border-b theme-border flex-shrink-0 flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setIsInputExpanded(false)}
+                                className="p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover"
+                                aria-label="Minimize input"
+                            >
+                                <Minimize2 size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 p-2 flex">
+                             <textarea
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (!isStreaming && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                        e.preventDefault();
+                                        handleInputSubmit(e);
+                                        setIsInputExpanded(false);
+                                    }
+                                }}
+                                placeholder={isStreaming ? "Streaming response..." : "Type a message... (Ctrl+Enter to send)"}
+                                className="w-full h-full theme-input text-base rounded-lg p-4 focus:outline-none border-0 resize-none bg-transparent"
+                                disabled={isStreaming}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="p-2 border-t theme-border flex-shrink-0 flex items-center justify-end gap-2">
+                            {isStreaming ? (
+                                <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1" aria-label="Stop generating">
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
+                                    Stop
+                                </button>
+                            ) : (
+                                <button type="button" onClick={(e) => { handleInputSubmit(e); setIsInputExpanded(false); }} disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <Send size={16}/>
+                                    Send (Ctrl+Enter)
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         return (
-            <div className="fixed inset-0 bg-black/80 z-50 flex flex-col p-4">
-                <div className="flex-1 flex flex-col theme-bg-primary theme-border border rounded-lg">
-                    <div className="p-2 border-b theme-border flex-shrink-0 flex justify-end">
+            <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
+                <div
+                    className="relative theme-bg-primary theme-border border rounded-lg group"
+                    onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
+                    onDragEnter={() => setIsHovering(true)}
+                    onDragLeave={() => setIsHovering(false)}
+                    onDrop={handleDrop}
+                >
+                    {isHovering && (
+                        <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center z-10 pointer-events-none">
+                            <span className="text-blue-300 font-semibold">Drop files here</span>
+                        </div>
+                    )}
+                    {renderAttachmentThumbnails()}
+
+                    <div className="flex items-end p-2 gap-2 relative z-0">
+                        <div className="flex-grow relative">
+                            {/* Jinx Mode Input Area */}
+                            {isJinxMode && (
+                                <div className="flex flex-col gap-2 w-full">
+                                    <select
+                                        value={selectedJinx ? selectedJinx.name : ''}
+                                        onChange={(e) => {
+                                            const selectedJinxName = e.target.value;
+                                            const fullJinx = availableJinxs.find(jinx => jinx.name === selectedJinxName);
+                                            setSelectedJinx(fullJinx);
+                                        }}
+                                        className="theme-input text-xs rounded px-2 py-1 border min-w-[150px] mb-2"
+                                        disabled={isStreaming || !!jinxLoadingError}
+                                    >
+                                        <option value="">
+                                            {jinxLoadingError ? 'Error loading Jinxs' : (availableJinxs.length === 0 ? 'No jinxs available' : 'Select jinx...')}
+                                        </option>
+                                        {availableJinxs.map(jinx => (
+                                            <option key={jinx.name} value={jinx.name}>
+                                                {jinx.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {jinxLoadingError && (
+                                        <div className="text-red-400 text-xs mb-2">
+                                            Error: {jinxLoadingError.substring(0, 100)}...
+                                        </div>
+                                    )}
+
+                                    {/* Dynamic Jinx Input Forms */}
+                                    {selectedJinx && selectedJinx.inputs && selectedJinx.inputs.length > 0 && (
+                                        <div className="space-y-2">
+                                            {selectedJinx.inputs.map((rawInputDef, idx) => {
+                                                // CRITICAL FIX: Convert string inputDef to object here if necessary
+                                                const inputDef = (typeof rawInputDef === 'string')
+                                                                 ? { [rawInputDef]: "" } // Convert "code" to {code: ""}
+                                                                 : rawInputDef;
+
+                                                // Now inputDef is guaranteed to be an object (or null/undefined, handled below)
+                                                const inputName = (inputDef && typeof inputDef === 'object' && Object.keys(inputDef).length > 0)
+                                                                  ? Object.keys(inputDef)[0]
+                                                                  : `__unnamed_input_${idx}__`; // Fallback name for truly malformed
+
+                                                // Defensive check for truly malformed inputDef
+                                                if (!inputName || inputName.startsWith('__unnamed_input_')) {
+                                                    console.warn(`[Jinx Input Render] Found malformed inputDef at index ${idx} for Jinx "${selectedJinx.name}":`, rawInputDef);
+                                                    return (
+                                                        <div key={`malformed-${selectedJinx.name}-${idx}`} className="text-red-400 text-xs">
+                                                            Error: Malformed input definition for "{selectedJinx.name}" at index {idx}.
+                                                        </div>
+                                                    );
+                                                }
+
+                                                const inputPlaceholder = inputDef[inputName] || '';
+                                                const isTextArea = ['code', 'prompt'].includes(inputName.toLowerCase());
+
+                                                return (
+                                                    <div key={`${selectedJinx.name}-${inputName}`} className="flex flex-col">
+                                                        <label htmlFor={`jinx-input-${selectedJinx.name}-${inputName}`} className="text-xs theme-text-muted mb-1 capitalize">
+                                                            {inputName}:
+                                                        </label>
+                                                        {isTextArea ? (
+                                                            <textarea
+                                                                id={`jinx-input-${selectedJinx.name}-${inputName}`}
+                                                                value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
+                                                                onChange={(e) => setJinxInputValues(prev => ({
+                                                                    ...prev,
+                                                                    [selectedJinx.name]: {
+                                                                        ...prev[selectedJinx.name],
+                                                                        [inputName]: e.target.value
+                                                                    }
+                                                                }))}
+                                                                placeholder={inputPlaceholder || `Enter ${inputName}...`}
+                                                                className="theme-input text-sm rounded px-2 py-1 border min-h-[60px] max-h-[150px] resize-y"
+                                                                rows={3}
+                                                                disabled={isStreaming}
+                                                            />
+                                                        ) : (
+                                                            <input
+                                                                id={`jinx-input-${selectedJinx.name}-${inputName}`}
+                                                                type="text"
+                                                                value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
+                                                                onChange={(e) => setJinxInputValues(prev => ({
+                                                                    ...prev,
+                                                                    [selectedJinx.name]: {
+                                                                        ...prev[selectedJinx.name],
+                                                                        [inputName]: e.target.value
+                                                                    }
+                                                                }))}
+                                                                placeholder={inputPlaceholder || `Enter ${inputName}...`}
+                                                                className="theme-input text-sm rounded px-2 py-1 border"
+                                                                disabled={isStreaming}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Standard Chat/Agent Mode Textarea */}
+                            {!isJinxMode && (
+                                <textarea
+                                    ref={(el) => {
+                                        if (el) {
+                                            el.style.height = 'auto';
+                                            el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+                                        }
+                                    }}
+                                    value={input}
+                                    onChange={(e) => {
+                                        setInput(e.target.value);
+                                        e.target.style.height = 'auto';
+                                        e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                                    }}
+                                    onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
+                                    placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
+                                    className={`w-full theme-input text-sm rounded-lg pl-4 pr-8 py-3 focus:outline-none border-0 min-h-[56px] max-h-[200px] resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                    rows={1}
+                                    style={{ overflowY: 'auto', lineHeight: '1.5' }}
+                                    disabled={isStreaming}
+                                />
+                            )}
+                             <button
+                                type="button"
+                                onClick={() => setIsInputExpanded(true)}
+                                className="absolute top-2 right-2 p-1 theme-text-muted hover:theme-text-primary rounded-lg theme-hover opacity-50 group-hover:opacity-100 transition-opacity"
+                                aria-label="Expand input"
+                            >
+                                <Maximize2 size={16} />
+                            </button>
+                        </div>
                         <button
                             type="button"
-                            onClick={() => setIsInputExpanded(false)}
-                            className="p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover"
-                            aria-label="Minimize input"
-                        >
-                            <Minimize2 size={20} />
-                        </button>
-                    </div>
-                    <div className="flex-1 p-2 flex">
-                         <textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (!isStreaming && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                    e.preventDefault();
-                                    handleInputSubmit(e);
-                                    setIsInputExpanded(false);
-                                }
-                            }}
-                            placeholder={isStreaming ? "Streaming response..." : "Type a message... (Ctrl+Enter to send)"}
-                            className="w-full h-full theme-input text-base rounded-lg p-4 focus:outline-none border-0 resize-none bg-transparent"
+                            onClick={handleAttachFileClick}
+                            className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 self-end ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            aria-label="Attach file"
                             disabled={isStreaming}
-                            autoFocus
-                        />
-                    </div>
-                    <div className="p-2 border-t theme-border flex-shrink-0 flex items-center justify-end gap-2">
-                        {isStreaming ? (
-                            <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1" aria-label="Stop generating">
+                        >
+                            <Paperclip size={20} />
+                        </button>
+                         {isStreaming ? (
+                            <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 w-[76px] h-[40px] self-end" aria-label="Stop generating" title="Stop generating" >
                                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
-                                Stop
                             </button>
                         ) : (
-                            <button type="button" onClick={(e) => { handleInputSubmit(e); setIsInputExpanded(false); }} disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <button type="button" onClick={handleInputSubmit} disabled={(!input.trim() && uploadedFiles.length === 0 && !isJinxMode) || (isJinxMode && Object.values(jinxInputValues[selectedJinx.name] || {}).every(val => !String(val).trim())) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
                                 <Send size={16}/>
-                                Send (Ctrl+Enter)
                             </button>
                         )}
+                    </div>
+
+                    <div className={`flex items-center gap-2 px-2 pb-2 ${isStreaming ? 'opacity-50' : ''}`}>
+                        <div className="flex theme-border border rounded-md p-0.5">
+                            <button
+                                onClick={() => setExecutionMode('chat')}
+                                className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'chat' ? 'theme-button-primary' : 'theme-hover'}`}
+                            >
+                                <div className="flex items-center gap-1">
+                                    <MessageCircle size={12}/> Chat
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => setExecutionMode('agent')}
+                                className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'agent' ? 'theme-button-primary' : 'theme-hover'}`}
+                            >
+                                <div className="flex items-center gap-1">
+                                    <BrainCircuit size={12}/> Agent
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => setExecutionMode('jinx')}
+                                className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'jinx' ? 'theme-button-primary' : 'theme-hover'}`}
+                            >
+                                <div className="flex items-center gap-1">
+                                    <Wrench size={12}/> Jinx
+                                </div>
+                            </button>
+                        </div>
+
+                        <div className="flex-grow flex items-center gap-1">
+                            <select
+                                value={currentModel || ''}
+                                onChange={(e) => {
+                                    const selectedModel = availableModels.find(m => m.value === e.target.value);
+                                    setCurrentModel(e.target.value);
+                                    if (selectedModel?.provider) {
+                                        setCurrentProvider(selectedModel.provider);
+                                    }
+                                }}
+                                className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
+                                disabled={modelsLoading || !!modelsError || isStreaming}
+                            >
+                                {modelsLoading && <option value="">Loading...</option>}
+                                {modelsError && <option value="">Error</option>}
+                                {!modelsLoading && !modelsError && modelsToDisplay.length === 0 && (
+                                    <option value="">{favoriteModels.size > 0 ? "No Favorite Models" : "No Models"}</option>
+                                )}
+                                {!modelsLoading && !modelsError && modelsToDisplay.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
+                            </select>
+                            <button onClick={() => toggleFavoriteModel(currentModel)} className={`p-1 rounded ${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`} disabled={!currentModel} title="Toggle favorite"><Star size={14}/></button>
+                            <button onClick={() => setShowAllModels(!showAllModels)} className="p-1 theme-hover rounded theme-text-muted" title={showAllModels ? "Show Favorites" : "Show All Models"}><ListFilter size={14} /></button>
+                        </div>
+                         <select
+                            value={currentNPC || ''}
+                            onChange={e => setCurrentNPC(e.target.value)}
+                            className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
+                            disabled={npcsLoading || !!npcsError || isStreaming}
+                         >
+                             {npcsLoading && <option value="">Loading NPCs...</option>}
+                             {npcsError && <option value="">Error loading NPCs</option>}
+                             {!npcsLoading && !npcsError && availableNPCs.length === 0 && (<option value="">No NPCs available</option>)}
+                             {!npcsLoading && !npcsError && availableNPCs.map(npc => ( <option key={`${npc.source}-${npc.value}`} value={npc.value}> {npc.display_name} </option>))}
+                        </select>
                     </div>
                 </div>
             </div>
         );
-    }
+    };
+    
 
-    return (
-        <div className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0">
-            <div
-                className="relative theme-bg-primary theme-border border rounded-lg group"
-                onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
-                onDragEnter={() => setIsHovering(true)}
-                onDragLeave={() => setIsHovering(false)}
-                onDrop={handleDrop}
-            >
-                {isHovering && (
-                    <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center z-10 pointer-events-none">
-                        <span className="text-blue-300 font-semibold">Drop files here</span>
-                    </div>
-                )}
-                {renderAttachmentThumbnails()}
 
-                <div className="flex items-end p-2 gap-2 relative z-0">
-                    <div className="flex-grow relative">
-                        <textarea
-                            ref={(el) => {
-                                if (el) {
-                                    el.style.height = 'auto';
-                                    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-                                }
-                            }}
-                            value={input}
-                            onChange={(e) => {
-                                setInput(e.target.value);
-                                e.target.style.height = 'auto';
-                                e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
-                            }}
-                            onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
-                            placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
-                            className={`w-full theme-input text-sm rounded-lg pl-4 pr-8 py-3 focus:outline-none border-0 min-h-[56px] max-h-[200px] resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
-                            rows={1}
-                            style={{ overflowY: 'auto', lineHeight: '1.5' }}
-                            disabled={isStreaming}
-                        />
-                         <button
-                            type="button"
-                            onClick={() => setIsInputExpanded(true)}
-                            className="absolute top-2 right-2 p-1 theme-text-muted hover:theme-text-primary rounded-lg theme-hover opacity-50 group-hover:opacity-100 transition-opacity"
-                            aria-label="Expand input"
-                        >
-                            <Maximize2 size={16} />
-                        </button>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={handleAttachFileClick}
-                        className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 self-end ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        aria-label="Attach file"
-                        disabled={isStreaming}
-                    >
-                        <Paperclip size={20} />
-                    </button>
-                     {isStreaming ? (
-                        <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 w-[76px] h-[40px] self-end" aria-label="Stop generating" title="Stop generating" >
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
-                        </button>
-                    ) : (
-                        <button type="button" onClick={handleInputSubmit} disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
-                            <Send size={16}/>
-                        </button>
-                    )}
-                </div>
 
-                <div className={`flex items-center gap-2 px-2 pb-2 ${isStreaming ? 'opacity-50' : ''}`}>
-                    <div className="flex theme-border border rounded-md p-0.5">
-                        <div className="flex theme-border border rounded-md p-0.5">
-                            <button onClick={() => setExecutionMode('chat')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'chat' ? 'theme-button-primary' : 'theme-hover'}`}>
-                                <div className="flex items-center gap-1"><MessageCircle size={12}/> Chat</div>
-                            </button>
-                            <button onClick={() => setExecutionMode('agent')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'agent' ? 'theme-button-primary' : 'theme-hover'}`}>
-                                <div className="flex items-center gap-1"><BrainCircuit size={12}/> Agent</div>
-                            </button>
-                            <button onClick={() => setExecutionMode('code')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${executionMode === 'code' ? 'theme-button-primary' : 'theme-hover'}`}>
-                                <div className="flex items-center gap-1"><Code2 size={12}/> Code</div>
-                            </button>
-                        </div>
-
-                    </div>
-                    
-                    <div className="flex-grow flex items-center gap-1">
-                        <select
-                            value={currentModel || ''}
-                            onChange={(e) => {
-                                const selectedModel = availableModels.find(m => m.value === e.target.value);
-                                setCurrentModel(e.target.value);
-                                if (selectedModel?.provider) {
-                                    setCurrentProvider(selectedModel.provider);
-                                }
-                            }}
-                            className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                            disabled={modelsLoading || !!modelsError || isStreaming}
-                        >
-                            {modelsLoading && <option value="">Loading...</option>}
-                            {modelsError && <option value="">Error</option>}
-                            {!modelsLoading && !modelsError && modelsToDisplay.length === 0 && (
-                                <option value="">{favoriteModels.size > 0 ? "No Favorite Models" : "No Models"}</option>
-                            )}
-                            {!modelsLoading && !modelsError && modelsToDisplay.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
-                        </select>
-                        <button onClick={() => toggleFavoriteModel(currentModel)} className={`p-1 rounded ${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`} disabled={!currentModel} title="Toggle favorite"><Star size={14}/></button>
-                        <button onClick={() => setShowAllModels(!showAllModels)} className="p-1 theme-hover rounded theme-text-muted" title={showAllModels ? "Show Favorites" : "Show All Models"}><ListFilter size={14} /></button>
-                    </div>
-                     <select
-                        value={currentNPC || ''}
-                        onChange={e => setCurrentNPC(e.target.value)}
-                        className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                        disabled={npcsLoading || !!npcsError || isStreaming}
-                     >
-                         {npcsLoading && <option value="">Loading NPCs...</option>}
-                         {npcsError && <option value="">Error loading NPCs</option>}
-                         {!npcsLoading && !npcsError && availableNPCs.length === 0 && (<option value="">No NPCs available</option>)}
-                         {!npcsLoading && !npcsError && availableNPCs.map(npc => ( <option key={`${npc.source}-${npc.value}`} value={npc.value}> {npc.display_name} </option>))}
-                    </select>
-                </div>
-                
-                {executionMode === 'npcsh' && (
-                    <div className="px-2 pb-2">
-                        <select
-                            multiple
-                            value={selectedTools}
-                            onChange={(e) => setSelectedTools(Array.from(e.target.selectedOptions, option => option.value))}
-                            className="w-full theme-input text-xs rounded px-2 py-1 border h-20"
-                            disabled={isStreaming}
-                            title="Select Jinxs for the NPC (Ctrl+Click for multiple)"
-                        >
-                            {availableJinxs.map(tool => (
-                                <option key={tool.id} value={tool.id}>{tool.name}</option>
-                            ))}
-                        </select>
-                    </div>
-                )}
-                    {executionMode === 'corca' && (
-                        <div className="flex-grow">
-                            <input
-                                type="text"
-                                value={mcpServerPath}
-                                onChange={(e) => setMcpServerPath(e.target.value)}
-                                placeholder="MCP server path (optional)"
-                                className="w-full theme-input text-xs rounded px-2 py-1 border"
-                                disabled={isStreaming}
-                            />
-                        </div>
-                    )}
-
-            </div>
-        </div>
-    );
-};
 
 const getThumbnailIcon = (fileName, fileType) => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
