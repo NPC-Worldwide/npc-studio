@@ -2800,9 +2800,29 @@ ipcMain.handle('getConversations', async (_, path) => {
   });
 
 ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
-  const allowedExtensions = ['.py', '.md', '.js', '.jsx', '.tsx', '.ts', 
-                             '.json', '.txt', '.yaml', '.yml', '.html', '.css', 
-                             '.npc', '.jinx', '.pdf', '.csv', '.sh', '.ctx'];
+  const allowedExtensions = ['.py', 
+                             '.md', 
+                             '.js', 
+                             '.jsx', 
+                             '.tsx', 
+                             '.ts', 
+                             '.json', 
+                             '.txt', 
+                             '.yaml', 
+                             '.yml', 
+                             '.html', 
+                             '.css', 
+                             '.npc', 
+                             '.jinx', 
+                             '.pdf', 
+                             '.csv', 
+                             '.sh', 
+                             '.ctx', 
+                             '.cpp', 
+                             '.c', 
+                             '.r', 
+                             '.json', 
+                            ];
   
   async function readDirRecursive(currentPath) {
     const result = {};
