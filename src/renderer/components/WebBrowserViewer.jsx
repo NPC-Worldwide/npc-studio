@@ -1,255 +1,170 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { ArrowLeft, ArrowRight, RotateCcw, Globe } from 'lucide-react';
+import React, { useEffect, useRef, useState, memo } from 'react';
+import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X } from 'lucide-react';
 
-const WebBrowserViewer = ({ initialUrl, viewId, currentPath }) => {
-    const containerRef = useRef(null);
-    const mountedRef = useRef(false);
+const WebBrowserViewer = memo(({ 
+    initialUrl, 
+    viewId, 
+    currentPath,
+    nodeId, 
+    findNodePath, 
+    rootLayoutNode, 
+    setDraggedItem, 
+    setPaneContextMenu, 
+    closeContentPane
+}) => {
+    const webviewRef = useRef(null);
     const [currentUrl, setCurrentUrl] = useState('');
     const [urlInput, setUrlInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [title, setTitle] = useState('Browser');
     const [canGoBack, setCanGoBack] = useState(false);
     const [canGoForward, setCanGoForward] = useState(false);
+    const [error, setError] = useState(null);
 
-    // <--- LAVANZARO'S ADDITION: useRef for currentPath
-    const currentPathRef = useRef(currentPath);
     useEffect(() => {
-        currentPathRef.current = currentPath; // Keep the ref updated with the latest prop
-    }, [currentPath]);
-    // --- END LAVANZARO'S ADDITION ---
+        const webview = webviewRef.current;
+        if (!webview) return;
 
-    const updateBounds = useCallback(() => {
-        if (containerRef.current && mountedRef.current) {
-            const rect = containerRef.current.getBoundingClientRect();
-            const bounds = {
-                x: Math.round(rect.left),
-                y: Math.round(rect.top + 40), 
-                width: Math.round(rect.width),
-                height: Math.round(rect.height - 40)
-            };
-            
-            window.api?.updateBrowserBounds?.({ viewId, bounds });
-        }
-    }, [viewId]);
+        const formattedUrl = initialUrl?.startsWith('http')
+            ? initialUrl
+            : `https://${initialUrl || 'google.com'}`;
 
-   
-    const handleNavigate = useCallback(() => {
-        if (urlInput.trim()) {
-            const finalUrl = urlInput.startsWith('http') ? urlInput : `https://${urlInput}`;
-            setCurrentUrl(finalUrl); // Update currentUrl immediately
-            window.api?.browserNavigate?.({ viewId, url: finalUrl });
-        }
-    }, [urlInput, viewId]);
+        setCurrentUrl(formattedUrl);
+        setUrlInput(formattedUrl);
+        webview.src = formattedUrl;
 
-    const handleBack = useCallback(() => {
-        window.api?.browserBack?.({ viewId });
-    }, [viewId]);
-
-    const handleForward = useCallback(() => {
-        window.api?.browserForward?.({ viewId });
-    }, [viewId]);
-
-    const handleRefresh = useCallback(() => {
-        window.api?.browserRefresh?.({ viewId });
-    }, [viewId]);
-
-   
-    const handleContextMenu = useCallback(async (e) => {
-        e.preventDefault();
-        
-       
-        const result = await window.api?.browserGetSelectedText?.({ viewId });
-        if (result?.success && result.selectedText) {
-           
-            showBrowserContextMenu(e.clientX, e.clientY, result.selectedText);
-        }
-    }, [viewId]);
-
-    const showBrowserContextMenu = (x, y, selectedText) => {
-       
-       
-        console.log('Browser context menu at', x, y, 'with text:', selectedText);
-       
-    };
-
-useEffect(() => {
-    if (!containerRef.current) return;
-        const rect = containerRef.current.getBoundingClientRect();
-    const bounds = {
-        x: Math.round(rect.left),
-        y: Math.round(rect.top + 40), 
-        width: Math.round(rect.width),
-        height: Math.round(rect.height - 40)
-    };
-    
-    console.log('[WebBrowserViewer] Container rect:', rect);
-    console.log('[WebBrowserViewer] Calculated bounds:', bounds);
-    console.log('[WebBrowserViewer] Window dimensions:', {
-        innerWidth: window.innerWidth,
-        innerHeight: window.innerHeight
-    });
-
-    const formattedInitialUrl = initialUrl?.startsWith('http') 
-        ? initialUrl 
-        : `https://${initialUrl || 'google.com'}`;
-
-    setCurrentUrl(formattedInitialUrl);
-    setUrlInput(formattedInitialUrl);
-    mountedRef.current = true;
-    
-    
-    console.log('[WebBrowserViewer] Mounting browser:', {
-        url: formattedInitialUrl,
-        viewId,
-        bounds
-    });
-    
-    window.api?.showBrowser?.({ 
-        url: formattedInitialUrl, 
-        bounds, 
-        viewId 
-    });
-
-    const cleanupLoaded = window.api?.onBrowserLoaded?.((data) => {
-        if (data.viewId === viewId) {
-            setCurrentUrl(data.url);
-            setUrlInput(data.url);
+        const handleDidStartLoading = () => setLoading(true);
+        const handleDidStopLoading = () => {
             setLoading(false);
-            
-            if (data.url && data.url !== 'about:blank') {
-                window.api?.browserAddToHistory?.({
-                    url: data.url,
-                    title: data.title || data.url,
-                    folderPath: currentPathRef.current
-                });
+            if (webview) {
+                setCanGoBack(webview.canGoBack());
+                setCanGoForward(webview.canGoForward());
             }
-        }
-    });
-    
-    const cleanupLoading = window.api?.onBrowserLoading?.((data) => {
-        if (data.viewId === viewId) {
-            setLoading(data.loading);
-        }
-    });
+        };
 
-    const cleanupTitle = window.api?.onBrowserTitleUpdated?.((data) => {
-        if (data.viewId === viewId) {
-            setTitle(data.title);
-        }
-    });
+        const handleDidNavigate = (e) => {
+            const url = e.url;
+            setCurrentUrl(url);
+            setUrlInput(url);
+            setError(null);
 
-    const cleanupError = window.api?.onBrowserLoadError?.((data) => {
-        if (data.viewId === viewId) {
-            setLoading(false);
-            console.error('[WebBrowserViewer] Load error:', data.error);
-        }
-    });
-    
-    const cleanupNavigationState = 
-        window.api?.onBrowserNavigationStateUpdated?.((data) => {
-        if (data.viewId === viewId) {
-            setCanGoBack(data.canGoBack);
-            setCanGoForward(data.canGoForward);
-        }
-    });
+            if (url && url !== 'about:blank') {
+                window.api?.browserAddToHistory?.({
+                    url,
+                    title: webview.getTitle() || url,
+                    folderPath: currentPath
+                }).catch(err => console.error('[Browser] History save error:', err));
+            }
+        };
 
-    const resizeObserver = new ResizeObserver(updateBounds);
-    resizeObserver.observe(containerRef.current);
+        const handlePageTitleUpdated = (e) => setTitle(e.title || 'Browser');
+        const handleDidFailLoad = (e) => {
+            if (e.errorCode !== -3) { // Ignore aborted loads
+                setLoading(false);
+                setError(`Failed to load page (Error ${e.errorCode})`);
+            }
+        };
 
-    return () => {
-        if (mountedRef.current) {
-            console.log('[WebBrowserViewer] Unmounting');
-            window.api?.hideBrowser?.({ viewId });
-            mountedRef.current = false;
-        }
-        
-        resizeObserver.disconnect();
-        cleanupLoaded?.();
-        cleanupLoading?.();
-        cleanupTitle?.();
-        cleanupError?.();
-        cleanupNavigationState?.();
+        webview.addEventListener('did-start-loading', handleDidStartLoading);
+        webview.addEventListener('did-stop-loading', handleDidStopLoading);
+        webview.addEventListener('did-navigate', handleDidNavigate);
+        webview.addEventListener('did-navigate-in-page', handleDidNavigate);
+        webview.addEventListener('page-title-updated', handlePageTitleUpdated);
+        webview.addEventListener('did-fail-load', handleDidFailLoad);
+
+        return () => {
+            if (webview) {
+                webview.removeEventListener('did-start-loading', handleDidStartLoading);
+                webview.removeEventListener('did-stop-loading', handleDidStopLoading);
+                webview.removeEventListener('did-navigate', handleDidNavigate);
+                webview.removeEventListener('did-navigate-in-page', handleDidNavigate);
+                webview.removeEventListener('page-title-updated', handlePageTitleUpdated);
+                webview.removeEventListener('did-fail-load', handleDidFailLoad);
+            }
+        };
+    }, [initialUrl, currentPath]);
+
+    const handleNavigate = () => {
+        const targetUrl = urlInput;
+        if (!targetUrl.trim()) return;
+        const finalUrl = targetUrl.startsWith('http') ? targetUrl : `https://${targetUrl}`;
+        if (webviewRef.current) webviewRef.current.src = finalUrl;
     };
-}, [viewId, initialUrl]); // ONLY viewId and initialUrl
-// 
+
+    const handleBack = () => webviewRef.current?.goBack();
+    const handleForward = () => webviewRef.current?.goForward();
+    const handleRefresh = () => webviewRef.current?.reload();
+    const handleHome = () => handleNavigate(initialUrl || 'https://google.com');
+    
+    const nodePath = findNodePath(rootLayoutNode, nodeId);
+    
+    const handleDragStart = (e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
+        setTimeout(() => setDraggedItem({ type: 'pane', id: nodeId, nodePath }), 0);
+    };
+
+    const handleDragEnd = () => setDraggedItem(null);
+    const handleContextMenu = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setPaneContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, nodeId, nodePath });
+    };
+
     return (
         <div 
-            ref={containerRef} 
-            className="flex flex-col w-full h-full bg-gray-800"
-            >
+            className="flex flex-col flex-1 w-full min-h-0 bg-gray-900" // <-- CRITICAL FIX HERE
+            draggable="true"
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onContextMenu={handleContextMenu}
+        >
             {/* Browser Toolbar */}
-            <div className="flex items-center gap-2 p-2 bg-gray-900 border-b border-gray-700 h-10">
-                <button
-                    onClick={handleBack}
-                    disabled={!canGoBack}
-                    className="p-1 theme-hover rounded disabled:opacity-50"
-                    title="Back"
-                >
-                    <ArrowLeft size={16} />
+            <div className="flex items-center gap-2 p-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+                {/* ... (toolbar content remains the same) ... */}
+                <button onClick={handleBack} disabled={!canGoBack} className="p-1.5 theme-hover rounded disabled:opacity-30 flex-shrink-0" title="Back"><ArrowLeft size={16} /></button>
+                <button onClick={handleForward} disabled={!canGoForward} className="p-1.5 theme-hover rounded disabled:opacity-30 flex-shrink-0" title="Forward"><ArrowRight size={16} /></button>
+                <button onClick={handleRefresh} className="p-1.5 theme-hover rounded flex-shrink-0" title="Refresh"><RotateCcw size={16} className={loading ? 'animate-spin' : ''} /></button>
+                <button onClick={handleHome} className="p-1.5 theme-hover rounded flex-shrink-0" title="Home"><Home size={16} /></button>
+
+                <div className="flex-1 flex items-center gap-1.5 min-w-0 bg-gray-700 rounded px-2 py-1">
+                    <Globe size={14} className="text-gray-400 flex-shrink-0" />
+                    <input
+                        type="text"
+                        value={urlInput}
+                        onChange={(e) => setUrlInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleNavigate()}
+                        placeholder="Enter URL..."
+                        className="flex-1 bg-transparent text-sm text-gray-200 outline-none min-w-0"
+                    />
+                </div>
+
+                <button onClick={(e) => { e.stopPropagation(); closeContentPane(nodeId, nodePath); }} onMouseDown={(e) => e.stopPropagation()} className="p-1.5 theme-hover rounded-full flex-shrink-0 hover:bg-red-500/20" title="Close pane">
+                    <X size={14} className="hover:text-red-400" />
                 </button>
-                
-                <button
-                    onClick={handleForward}
-                    disabled={!canGoForward}
-                    className="p-1 theme-hover rounded disabled:opacity-50"
-                    title="Forward"
-                >
-                    <ArrowRight size={16} />
-                </button>
-                
-                <button
-                    onClick={handleRefresh}
-                    className="p-1 theme-hover rounded"
-                    title="Refresh"
-                >
-                    <RotateCcw size={16} />
-                </button>
-                
-                <div className="flex-1 flex items-center gap-2">
-                     <Globe size={16} className="text-gray-400" />
-                     <input
-                         type="text"
-                         value={urlInput}
-                         onChange={(e) => setUrlInput(e.target.value)}
-                         onKeyDown={(e) => {
-                             if (e.key === 'Enter') {
-                                 handleNavigate();
-                             }
-                         }}
-                         placeholder={loading ? 'Loading...' : 'Enter URL...'}
-                         className="flex-1 theme-input text-sm rounded px-3 py-1 border focus:outline-none"
-                     />
-                     <button
-                         onClick={handleNavigate}
-                         className="px-3 py-1 theme-button-primary rounded text-sm"
-                     >
-                         Go
-                     </button>
-                 </div>
-                 
-                 {loading && (
-                     <div className="flex items-center gap-2 text-xs text-gray-400">
-                         <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
-                         Loading...
-                     </div>
-                 )}
-             </div>
- 
-             {/* Browser Content Area - BrowserView will be positioned here */}
-             <div className="flex-1 relative bg-white">
-                 {/* Fallback content - only visible if BrowserView fails or is not yet ready */}
-                 {loading && (
-                     <div className="absolute inset-0 flex items-center justify-center text-gray-400 bg-gray-100">
-                         <div className="text-center">
-                             <Globe size={48} className="mx-auto mb-2 opacity-50" />
-                             <div>Loading website...</div>
-                             <div className="text-sm mt-2 truncate max-w-xs">{currentUrl}</div>
-                         </div>
-                     </div>
-                 )}
-             </div>
-         </div>
-     );
- };
- 
- export default WebBrowserViewer;
+            </div>
+
+            {/* Webview Container */}
+            <div className="flex-1 relative bg-gray-900">
+                {error && (
+                    <div className="absolute inset-0 flex items-center justify-center z-10 p-4">
+                        <div className="text-center p-6 max-w-md bg-gray-800 rounded-lg border border-gray-700">
+                            <h3 className="text-lg font-medium text-gray-200 mb-2">Failed to Load Page</h3>
+                            <p className="text-gray-400 text-sm mb-4">{error}</p>
+                            <button onClick={handleRefresh} className="px-4 py-2 bg-blue-600 text-white rounded">Try Again</button>
+                        </div>
+                    </div>
+                )}
+
+                <webview
+                    ref={webviewRef}
+                    className="w-full h-full"
+                    partition={`persist:${viewId}`}
+                    style={{ visibility: error ? 'hidden' : 'visible' }}
+                />
+            </div>
+        </div>
+    );
+});
+
+export default WebBrowserViewer;

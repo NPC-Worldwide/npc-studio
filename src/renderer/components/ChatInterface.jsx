@@ -512,6 +512,210 @@ const [pdfHighlightsTrigger, setPdfHighlightsTrigger] = useState(0);
     const [gitLoading, setGitLoading] = useState(false);
     const [gitError, setGitError] = useState(null);
     
+    const [websiteHistory, setWebsiteHistory] = useState([]);
+    const [commonSites, setCommonSites] = useState([]);
+    const [openBrowsers, setOpenBrowsers] = useState([]);
+    const [websitesCollapsed, setWebsitesCollapsed] = useState(false);
+    const [paneContextMenu, setPaneContextMenu] = useState(null);
+    
+    const loadWebsiteHistory = useCallback(async () => {
+    if (!currentPath) return;
+    try {
+        const response = await window.api.getBrowserHistory(currentPath);
+        if (response?.history) {
+            setWebsiteHistory(response.history);
+            
+            // Calculate common sites based on visit frequency
+            const siteMap = new Map();
+            response.history.forEach(item => {
+                const domain = new URL(item.url).hostname;
+                if (!siteMap.has(domain)) {
+                    siteMap.set(domain, {
+                        domain,
+                        count: 0,
+                        lastVisited: item.timestamp,
+                        favicon: `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
+                    });
+                }
+                const site = siteMap.get(domain);
+                site.count++;
+                if (new Date(item.timestamp) > new Date(site.lastVisited)) {
+                    site.lastVisited = item.timestamp;
+                }
+            });
+            
+            // Sort by visit count and take top 10
+            const common = Array.from(siteMap.values())
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 10);
+            setCommonSites(common);
+        }
+    } catch (err) {
+        console.error('Error loading website history:', err);
+    }
+}, [currentPath]);
+
+const renderWebsiteList = () => {
+    const header = (
+        <div className="flex items-center justify-between px-4 py-2 mt-4">
+            <div className="text-xs text-gray-500 font-medium">Websites</div>
+            <div className="flex items-center gap-1">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        loadWebsiteHistory();
+                    }}
+                    className="p-1 theme-hover rounded-full transition-all"
+                    title="Refresh website history"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
+                    </svg>
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setWebsitesCollapsed(!websitesCollapsed);
+                    }}
+                    className="p-1 theme-hover rounded-full transition-all"
+                    title={websitesCollapsed ? "Expand websites" : "Collapse websites"}
+                >
+                    <ChevronRight
+                        size={16}
+                        className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`}
+                    />
+                </button>
+            </div>
+        </div>
+    );
+
+    if (websitesCollapsed && openBrowsers.length === 0) {
+        return <div className="mt-4">{header}</div>;
+    }
+
+    return (
+        <div className="mt-4">
+            {header}
+            
+            {!websitesCollapsed && (
+                <div className="px-1 space-y-2">
+                    {/* Currently Open Browsers */}
+                    {openBrowsers.length > 0 && (
+                        <div>
+                            <div className="text-xs text-gray-600 px-2 py-1 font-medium">
+                                Open Now ({openBrowsers.length})
+                            </div>
+                            {openBrowsers.map(browser => (
+                                <button
+                                    key={browser.paneId}
+                                    onClick={() => setActiveContentPaneId(browser.paneId)}
+                                    className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all ${
+                                        activeContentPaneId === browser.paneId 
+                                            ? 'conversation-selected border-l-2 border-blue-500' 
+                                            : 'hover:bg-gray-800'
+                                    }`}
+                                >
+                                    <Globe size={14} className="text-blue-400 flex-shrink-0" />
+                                    <div className="flex flex-col overflow-hidden min-w-0 flex-1">
+                                        <span className="text-xs truncate font-medium">
+                                            {browser.title}
+                                        </span>
+                                        <span className="text-xs text-gray-500 truncate">
+                                            {browser.url}
+                                        </span>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Common Sites */}
+                    {commonSites.length > 0 && (
+                        <div>
+                            <div className="text-xs text-gray-600 px-2 py-1 font-medium">
+                                Common Sites
+                            </div>
+                            {commonSites.map(site => (
+                                <button
+                                    key={site.domain}
+                                    draggable="true"
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.effectAllowed = 'copyMove';
+                                        handleGlobalDragStart(e, { 
+                                            type: 'browser', 
+                                            id: `browser_${generateId()}`,
+                                            url: `https://${site.domain}`
+                                        });
+                                    }}
+                                    onDragEnd={handleGlobalDragEnd}
+                                    onClick={() => createNewBrowser(`https://${site.domain}`)}
+                                    className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all group"
+                                >
+                                    <img 
+                                        src={site.favicon} 
+                                        alt="" 
+                                        className="w-4 h-4 flex-shrink-0"
+                                        onError={(e) => {
+                                            e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="gray" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
+                                        }}
+                                    />
+                                    <div className="flex flex-col overflow-hidden min-w-0 flex-1">
+                                        <span className="text-xs truncate">{site.domain}</span>
+                                        <span className="text-xs text-gray-500">
+                                            {site.count} visits
+                                        </span>
+                                    </div>
+                                    <Plus 
+                                        size={12} 
+                                        className="text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" 
+                                    />
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Recent History */}
+                    {websiteHistory.length > 0 && (
+                        <div>
+                            <div className="text-xs text-gray-600 px-2 py-1 font-medium">
+                                Recent History ({websiteHistory.length})
+                            </div>
+                            <div className="max-h-48 overflow-y-auto">
+                                {websiteHistory.slice(0, 20).map((item, idx) => (
+                                    <button
+                                        key={`${item.url}-${idx}`}
+                                        draggable="true"
+                                        onDragStart={(e) => {
+                                            e.dataTransfer.effectAllowed = 'copyMove';
+                                            handleGlobalDragStart(e, { 
+                                                type: 'browser', 
+                                                id: `browser_${generateId()}`,
+                                                url: item.url
+                                            });
+                                        }}
+                                        onDragEnd={handleGlobalDragEnd}
+                                        onClick={() => createNewBrowser(item.url)}
+                                        className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all"
+                                    >
+                                        <Globe size={12} className="text-gray-400 flex-shrink-0" />
+                                        <div className="flex flex-col overflow-hidden min-w-0 flex-1">
+                                            <span className="text-xs truncate">
+                                                {item.title || new URL(item.url).hostname}
+                                            </span>
+                                            <span className="text-xs text-gray-500 truncate">
+                                                {new Date(item.timestamp).toLocaleString()}
+                                            </span>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
     const loadGitStatus = useCallback(async () => {
       setGitLoading(true);
       setGitError(null);
@@ -2551,6 +2755,27 @@ const loadAvailableNPCs = async () => {
 
 
 
+// Load history when path changes
+useEffect(() => {
+    if (currentPath) {
+        loadWebsiteHistory();
+    }
+}, [currentPath, loadWebsiteHistory]);
+
+// Track open browsers
+useEffect(() => {
+    const browsers = Object.entries(contentDataRef.current)
+        .filter(([_, data]) => data.contentType === 'browser')
+        .map(([paneId, data]) => ({
+            paneId,
+            url: data.browserUrl,
+            viewId: data.contentId,
+            title: data.browserTitle || 'Loading...'
+        }));
+    setOpenBrowsers(browsers);
+}, [rootLayoutNode]); // Re-check when layout changes
+
+
 
 const renderMessageContextMenu = () => (
     messageContextMenuPos && (
@@ -2589,44 +2814,8 @@ const renderMessageContextMenu = () => (
                     <MessageSquare size={14} />
                     <span>Summarize in New Convo ({selectedMessages.size})</span>
                 </button>
-                <button
-                    onClick={() => handleApplyPromptToCurrentConversation('summarize')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-                >
-                    <Edit size={14} />
-                    <span>Summarize in Input Field ({selectedMessages.size})</span>
-                </button>
-                <div className="border-t theme-border my-1"></div>
-                <button
-                    onClick={() => handleApplyPromptToMessages('analyze')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-                >
-                    <Terminal size={14} />
-                    <span>Analyze in New Convo ({selectedMessages.size})</span>
-                </button>
-                <button
-                    onClick={() => handleApplyPromptToCurrentConversation('analyze')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-                >
-                    <Edit size={14} />
-                    <span>Analyze in Input Field ({selectedMessages.size})</span>
-                </button>
-                <div className="border-t theme-border my-1"></div>
-                <button
-                    onClick={() => handleApplyPromptToMessages('extract')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-                >
-                    <FileText size={14} />
-                    <span>Extract in New Convo ({selectedMessages.size})</span>
-                </button>
-                <button
-                    onClick={() => handleApplyPromptToCurrentConversation('extract')}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
-                >
-                    <Edit size={14} />
-                    <span>Extract in Input Field ({selectedMessages.size})</span>
-                </button>
-                
+
+
                 {/* Delete option */}
                 <div className="border-t theme-border my-1"></div>
                 <button
@@ -3258,57 +3447,47 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
 }, [findNodeByPath, findNodePath]);
 
 
-    const renderBrowserViewer = useCallback(({ nodeId }) => {
-    const paneData = contentDataRef.current[nodeId];
-    if (!paneData) return null;
 
-    const { contentId: browserId, browserUrl } = paneData;
-    
-    // NO useMemo here - just use the values directly
-    const viewId = browserId;
-    const initialUrl = browserUrl;
-    
-    console.log('[renderBrowserViewer] Rendering with:', { 
-        viewId, 
-        initialUrl, 
-        key: `browser-${nodeId}-${browserId}` 
-    });
-    
+
+
+
+const renderBrowserViewer = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData) {
+        // Return null or a placeholder if paneData isn't ready
+        return <div className="p-4 theme-text-muted">Initializing browser pane...</div>;
+    }
+
     return (
-        <div className="flex-1 flex flex-col theme-bg-secondary relative">
-            <PaneHeader
-                nodeId={nodeId}
-                icon={<Globe size={14} />}
-                title="Browser"
-                // Pass props required by PaneHeader from ChatInterface's scope
-                findNodePath={findNodePath}
-                rootLayoutNode={rootLayoutNode}
-                setDraggedItem={setDraggedItem}
-                setPaneContextMenu={setPaneContextMenu}
-                closeContentPane={closeContentPane}
-            />
+        <WebBrowserViewer 
+            // --- THE DEFINITIVE FIX IS HERE ---
+            // The key MUST be the STABLE 'nodeId' of the pane.
+            // This tells React to keep the component alive and just update it,
+            // which stops the destructive unmount/remount loop.
+            key={nodeId}
+            // --- END OF FIX ---
             
-            <div className="flex-1 overflow-hidden min-h-0">
-                {browserId && (
-                    <WebBrowserViewer 
-                        key={`browser-${nodeId}-${browserId}`} 
-                        initialUrl={initialUrl}
-                        viewId={viewId}
-                        currentPath={currentPath}
-                    />
-                )}
-            </div>
-        </div>
+            initialUrl={paneData.browserUrl}
+            viewId={paneData.contentId} // This is the unique ID for the BrowserView
+            currentPath={currentPath}
+            
+            // Pass down all the props needed for header and drag-and-drop
+            nodeId={nodeId} 
+            findNodePath={findNodePath} 
+            rootLayoutNode={rootLayoutNode} 
+            setDraggedItem={setDraggedItem} 
+            setPaneContextMenu={setPaneContextMenu} 
+            closeContentPane={closeContentPane} 
+        />
     );
 }, [
-    contentDataRef,
-    closeContentPane,
-    findNodePath,
-    handleGlobalDragStart, 
-    handleGlobalDragEnd,
-    currentPath,
-    rootLayoutNode
+    // These are the correct dependencies for this memoized function
+    contentDataRef, currentPath, rootLayoutNode, findNodePath,
+    setDraggedItem, setPaneContextMenu, closeContentPane
 ]);
+
+
+
 
 useEffect(() => {
        
@@ -3720,7 +3899,6 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             </div>
         );
     };    
-const [paneContextMenu, setPaneContextMenu] = useState(null);
 
 
 const renderPaneContextMenu = () => {
@@ -6320,6 +6498,7 @@ const renderSidebar = () => {
                     renderSearchResults()
                 ) : (
                     <>
+                        {renderWebsiteList()}                        
                         {renderFolderList(folderStructure)}
                         {renderConversationList(directoryConversations)}
                         {renderGitPanel()} {/* <--- ADDED THE GIT PANEL HERE! */}

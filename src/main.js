@@ -1236,165 +1236,97 @@ ipcMain.handle('gitPush', async (event, repoPath) => {
   }
 });
 
-ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
-    log(`[BROWSER VIEW] show-browser for URL: ${url}, viewId: ${viewId}`);
-    log(`[BROWSER VIEW] Bounds received:`, JSON.stringify(bounds));
-    
-    if (!mainWindow) {
-        return { success: false, error: 'Main window not found' };
+
+
+
+ipcMain.handle('browser-add-to-history', async (event, { url, title, folderPath }) => {
+    try {
+        if (!url || url === 'about:blank') return { success: true };
+        const existing = await dbQuery('SELECT id FROM browser_history WHERE url = ? AND folder_path = ?', [url, folderPath]);
+        if (existing.length > 0) {
+            await dbQuery('UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ? WHERE id = ?', [title, existing[0].id]);
+        } else {
+            await dbQuery('INSERT INTO browser_history (url, title, folder_path) VALUES (?, ?, ?)', [url, title, folderPath]);
+        }
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
     }
-  
-    // Clean up existing
+});
+
+
+// --- FIX 2: Replace your entire 'show-browser' handler with this robust version ---
+ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
+    log(`[BROWSER VIEW] Received 'show-browser' for viewId: ${viewId}`);
+    if (!mainWindow) return { success: false, error: 'Main window not found' };
+
+    // Clean up any pre-existing view with the same ID.
     if (browserViews.has(viewId)) {
-        log(`[BROWSER VIEW] Destroying existing view ${viewId}`);
         const existingState = browserViews.get(viewId);
         mainWindow.removeBrowserView(existingState.view);
-        existingState.view.webContents.destroy();
+        if (existingState.view && !existingState.view.webContents.isDestroyed()) {
+            existingState.view.webContents.destroy();
+        }
         browserViews.delete(viewId);
     }
+
+    const finalBounds = { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    log(`[BROWSER VIEW] FINAL calculated bounds for ${viewId}:`, JSON.stringify(finalBounds));
+
+  const newBrowserView = new BrowserView({
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: true,
+      partition: `persist:${viewId}`,
+    },
+  });
+
+  newBrowserView.setBackgroundColor('#0f172a');
   
-    const newBrowserView = new BrowserView({
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            webSecurity: true,
-            allowPopups: true,
-            partition: `persist:${viewId}`,
-        },
-    });
+  mainWindow.addBrowserView(newBrowserView);
+  newBrowserView.setBounds(finalBounds);
+  
+  // 🔥 THE FIX: Enable auto-resize with clipping
+  newBrowserView.setAutoResize({
+    width: true,
+    height: true,
+    horizontal: true,
+    vertical: true
+  });
 
-    log(`[BROWSER VIEW] Created BrowserView`);
-    
-    mainWindow.addBrowserView(newBrowserView);
-    log(`[BROWSER VIEW] Added to main window`);
-    
-    newBrowserView.setBounds(bounds);
-    log(`[BROWSER VIEW] Set bounds:`, newBrowserView.getBounds());
-    
-    newBrowserView.setBackgroundColor('#ff0000'); // RED so you can see it
-    log(`[BROWSER VIEW] Set background color`);
-    
-    browserViews.set(viewId, { 
-        view: newBrowserView, 
-        bounds, 
-        visible: true, 
-        webContents: newBrowserView.webContents 
-    });
+  // Store with clipping enabled flag
+  browserViews.set(viewId, { 
+    view: newBrowserView, 
+    bounds: finalBounds, 
+    visible: true 
+  });
+
 
   
-    // Store state BEFORE adding to window
-    browserViews.set(viewId, { 
-        view: newBrowserView, 
-        bounds, 
-        visible: true, 
-        webContents: newBrowserView.webContents 
+  
+    const wc = newBrowserView.webContents;
+
+    // Listeners now only send events to the renderer; they do not register handlers.
+    wc.on('did-navigate', (event, navigatedUrl) => {
+        mainWindow.webContents.send('browser-loaded', { viewId, url: navigatedUrl, title: wc.getTitle() });
+    });
+    wc.on('did-start-loading', () => mainWindow.webContents.send('browser-loading', { viewId, loading: true }));
+    wc.on('page-title-updated', (e, title) => mainWindow.webContents.send('browser-title-updated', { viewId, title }));
+    wc.on('did-stop-loading', () => {
+        mainWindow.webContents.send('browser-loading', { viewId, loading: false });
+        mainWindow.webContents.send('browser-navigation-state-updated', { viewId, canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward() });
     });
 
-    // Set up event listeners
-newBrowserView.webContents.on('context-menu', (e, params) => {
-    const { x, y, selectionText } = params;
-    if (selectionText && selectionText.trim().length > 0) {
-        log(`[BROWSER CONTEXT] Selected text found`);
-        
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('browser-show-context-menu', {
-                x, y,
-                selectedText: selectionText.trim(),
-                viewId,
-                currentUrl: newBrowserView.webContents.getURL(),
-                pageTitle: newBrowserView.webContents.getTitle()
-            });
-        }
-    }
-});
-    newBrowserView.webContents.on('did-start-loading', () => {
-        log(`[BROWSER VIEW ${viewId}] did-start-loading`);
-        mainWindow.webContents.send('browser-loading', { 
-            viewId, loading: true 
-        });
-    });
-
-    newBrowserView.webContents.on('did-stop-loading', () => {
-        log(`[BROWSER VIEW ${viewId}] did-stop-loading`);
-        mainWindow.webContents.send('browser-loading', { 
-            viewId, loading: false 
-        });
-        mainWindow.webContents.send('browser-navigation-state-updated', {
-            viewId,
-            canGoBack: newBrowserView.webContents.canGoBack(),
-            canGoForward: newBrowserView.webContents.canGoForward()
-        });
-    });
-
-    newBrowserView.webContents.on('did-finish-load', () => {
-        log(`[BROWSER VIEW ${viewId}] did-finish-load`);
-        mainWindow.webContents.send('browser-loaded', {
-            viewId,
-            url: newBrowserView.webContents.getURL(),
-            title: newBrowserView.webContents.getTitle()
-        });
-    });
-
-    newBrowserView.webContents.on('did-fail-load', 
-        (event, errorCode, errorDescription, validatedURL) => {
-        log(`[BROWSER VIEW ${viewId}] did-fail-load: ${errorCode}`);
-        mainWindow.webContents.send('browser-load-error', {
-            viewId,
-            url: validatedURL,
-            error: errorDescription,
-            errorCode: errorCode
-        });
-        mainWindow.webContents.send('browser-loading', { 
-            viewId, loading: false 
-        });
-    });
-
-    newBrowserView.webContents.on('page-title-updated', 
-        (event, title) => {
-        log(`[BROWSER VIEW ${viewId}] page-title-updated: ${title}`);
-        mainWindow.webContents.send('browser-title-updated', { 
-            viewId, title 
-        });
-    });
-
-    newBrowserView.webContents.on('did-navigate', (event, url) => {
-        log(`[BROWSER VIEW ${viewId}] did-navigate: ${url}`);
-        mainWindow.webContents.send('browser-loaded', {
-            viewId,
-            url: url,
-            title: newBrowserView.webContents.getTitle()
-        });
-    });
-      
-    // Load URL after everything is set up
     const finalURL = url.startsWith('http') ? url : `https://${url}`;
-    log(`[BROWSER VIEW ${viewId}] Loading URL: ${finalURL}`);
-    
-
-    newBrowserView.webContents.loadURL(finalURL)
-        .then(() => {
-            log(`[BROWSER VIEW] loadURL promise resolved for ${finalURL}`);
-        })
-        .catch(err => {
-            log(`[BROWSER VIEW] loadURL promise rejected: ${err.message}`);
-            mainWindow.webContents.send('browser-load-error', {
-                viewId, url: finalURL, error: err.message, errorCode: -1
-            });
-        });
-    
-    // Check if it's actually loading after a delay
-    setTimeout(() => {
-        const currentURL = newBrowserView.webContents.getURL();
-        const isLoading = newBrowserView.webContents.isLoading();
-        log(`[BROWSER VIEW] After 1s - Current URL: ${currentURL}, isLoading: ${isLoading}`);
-    }, 1000);
+    wc.loadURL(finalURL).catch(err => log(`[BROWSER VIEW ${viewId}] loadURL promise rejected: ${err.message}`));
     
     return { success: true, viewId };
-
-
-    
-    
 });
+
+
+
+
 
 ipcMain.handle('browser:set-visibility', (event, { viewId, visible }) => {
     if (browserViews.has(viewId)) {
@@ -1415,21 +1347,40 @@ ipcMain.handle('browser:set-visibility', (event, { viewId, visible }) => {
 });
   
  
+
 ipcMain.handle('update-browser-bounds', (event, { viewId, bounds }) => {
-    if (browserViews.has(viewId)) {
-        const browserState = browserViews.get(viewId);
-        browserState.bounds = bounds;
-        
-       
-        if (browserState.visible) {
-            browserState.view.setBounds(bounds); // Apply new bounds to the actual BrowserView
-        }
-        return { success: true };
+  if (browserViews.has(viewId)) {
+    const browserState = browserViews.get(viewId);
+    
+    // Get main window bounds to establish hard limits
+    const winBounds = mainWindow.getBounds();
+    
+    // Clip bounds to NEVER exceed the pane's boundaries
+    const adjustedBounds = {
+      x: Math.max(0, Math.round(bounds.x)),
+      y: Math.max(0, Math.round(bounds.y)),
+      width: Math.min(
+        Math.round(bounds.width),
+        winBounds.width - Math.round(bounds.x)
+      ),
+      height: Math.min(
+        Math.round(bounds.height),
+        winBounds.height - Math.round(bounds.y)
+      )
+    };
+    console.log(`[BROWSER ${viewId}] Setting bounds:`, adjustedBounds);
+  console.log(`[BROWSER ${viewId}] Window size:`, mainWindow.getBounds());
+
+
+    browserState.bounds = adjustedBounds;
+    
+    if (browserState.visible) {
+      browserState.view.setBounds(adjustedBounds);
     }
-    return { success: false, error: 'Browser view not found' };
+    return { success: true };
+  }
+  return { success: false, error: 'Browser view not found' };
 });
-  
- 
 ipcMain.handle('hide-browser', (event, { viewId }) => {
     log(`[BROWSER VIEW] Received 'hide-browser' for viewId: ${viewId}`);
     if (browserViews.has(viewId) && mainWindow && !mainWindow.isDestroyed()) {
@@ -1476,7 +1427,25 @@ ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath })
     return { success: false, error: error.message };
   }
 });
-  
+
+ipcMain.handle('get-browser-history', async (event, folderPath) => {
+  try {
+    // LAVANZARO'S ADJUSTMENT: Include global history entries as well
+    const history = await dbQuery(
+      'SELECT id, title, url, folder_path, visit_count, last_visited FROM browser_history WHERE (folder_path = ? OR folder_path IS NULL) ORDER BY last_visited DESC LIMIT 50',
+      [folderPath]
+    );
+    log(`[BROWSER HISTORY] Retrieved ${history.length} history entries for ${folderPath}`);
+    return { history };
+  } catch (error) {
+    log(`[BROWSER HISTORY] Error getting history for ${folderPath}:`, error);
+    return { error: error.message };
+  }
+});
+
+
+
+
 ipcMain.handle('browser:getHistory', async (event, { folderPath, limit = 50 }) => {
   try {
     const history = await dbQuery(

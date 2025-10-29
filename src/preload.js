@@ -195,10 +195,11 @@ onTerminalClosed: (callback) => {
         return () => ipcRenderer.removeListener('stream-error', handler);
     },
     showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
-showBrowser: (args) => ipcRenderer.invoke('show-browser', args),
-hideBrowser: (args) => ipcRenderer.invoke('hide-browser', args),
-updateBrowserBounds: (args) => ipcRenderer.invoke('update-browser-bounds', args),
-   
+    showBrowser: (args) => ipcRenderer.invoke('show-browser', args),
+    hideBrowser: (args) => ipcRenderer.invoke('hide-browser', args),
+    updateBrowserBounds: (args) => ipcRenderer.invoke('update-browser-bounds', args),
+    getBrowserHistory: (folderPath) => ipcRenderer.invoke('get-browser-history', folderPath),
+    browserAddToHistory: (data) => ipcRenderer.invoke('browser-add-to-history', data),
     getJinxsGlobal: async () => {
         try {
             const response = await fetch('http://127.0.0.1:5337/api/jinxs/global');
