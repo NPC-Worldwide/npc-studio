@@ -6,65 +6,74 @@ import '@xterm/xterm/css/xterm.css';
 const TerminalView = ({ terminalId, currentPath }) => {
   const terminalRef = useRef(null);
   const xtermInstance = useRef(null);
+  const fitAddonRef = useRef(null);
   const isSessionReady = useRef(false);
 
   useEffect(() => {
-   
-   
-  if (!xtermInstance.current) {
-    const term = new Terminal({
-      cursorBlink: true,
-      fontFamily: '"Fira Code", monospace',
-      fontSize: 14,
-      theme: { 
-        background: '#1a1b26', 
-        foreground: '#c0caf5', 
-        cursor: '#c0caf5' 
-      },
-    });
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(terminalRef.current);
-    xtermInstance.current = term;
-    
-    term.attachCustomKeyEventHandler((event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
-        navigator.clipboard.readText().then(text => {
-          if (isSessionReady.current) {
-            window.api.writeToTerminal({ 
-              id: terminalId, 
-              data: text 
-            });
-          }
-        });
-        return false;
-      }
+    if (!xtermInstance.current) {
+      const term = new Terminal({
+        cursorBlink: true,
+        fontFamily: '"Fira Code", monospace',
+        fontSize: 14,
+        theme: { 
+          background: '#1a1b26', 
+          foreground: '#c0caf5', 
+          cursor: '#c0caf5' 
+        },
+      });
+      const fitAddon = new FitAddon();
+      fitAddonRef.current = fitAddon;
+      term.loadAddon(fitAddon);
+      term.open(terminalRef.current);
       
-      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
-        const selection = term.getSelection();
-        if (selection) {
-          navigator.clipboard.writeText(selection);
+      // Fit after opening
+      setTimeout(() => fitAddon.fit(), 0);
+      
+      xtermInstance.current = term;
+      
+      term.attachCustomKeyEventHandler((event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+          navigator.clipboard.readText().then(text => {
+            if (isSessionReady.current) {
+              window.api.writeToTerminal({ 
+                id: terminalId, 
+                data: text 
+              });
+            }
+          });
           return false;
         }
-      }
+        
+        if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+          const selection = term.getSelection();
+          if (selection) {
+            navigator.clipboard.writeText(selection);
+            return false;
+          }
+        }
+        
+        return true;
+      });
       
-      return true;
-    });
-    
-    const resizeObserver = new ResizeObserver(() => fitAddon.fit());
-    resizeObserver.observe(terminalRef.current);
-  }
-  
+      const resizeObserver = new ResizeObserver(() => {
+        fitAddon.fit();
+        // Send new dimensions to backend
+        if (isSessionReady.current) {
+          window.api.resizeTerminal?.({
+            id: terminalId,
+            cols: term.cols,
+            rows: term.rows
+          });
+        }
+      });
+      resizeObserver.observe(terminalRef.current);
+    }
 
-  
-   
     let isEffectCancelled = false;
     isSessionReady.current = false;
     xtermInstance.current.clear();
     xtermInstance.current.write('Initializing session...\r\n');
 
-   
-   
     const dataCallback = (_, { id, data }) => {
       if (id === terminalId && !isEffectCancelled) {
         xtermInstance.current?.write(data);
@@ -78,7 +87,6 @@ const TerminalView = ({ terminalId, currentPath }) => {
       }
     };
     
-   
     const removeDataListener = window.api.onTerminalData(dataCallback);
     const removeClosedListener = window.api.onTerminalClosed(closedCallback);
     
@@ -91,7 +99,16 @@ const TerminalView = ({ terminalId, currentPath }) => {
     const initBackendSession = async () => {
       try {
         console.log(`[Frontend] API: Requesting backend to create session ${terminalId}`);
-        const result = await window.api.createTerminalSession({ id: terminalId, cwd: currentPath });
+        
+        // Ensure terminal is properly sized before creating session
+        fitAddonRef.current?.fit();
+        
+        const result = await window.api.createTerminalSession({ 
+          id: terminalId, 
+          cwd: currentPath,
+          cols: xtermInstance.current.cols,
+          rows: xtermInstance.current.rows
+        });
         
         if (isEffectCancelled) {
             console.log(`[Frontend] Ignoring response for cancelled effect ${terminalId}`);
@@ -114,17 +131,14 @@ const TerminalView = ({ terminalId, currentPath }) => {
 
     initBackendSession();
 
-   
     return () => {
       console.log(`[Frontend] CLEANUP: Running for effect instance of ${terminalId}`);
       isEffectCancelled = true;
       
-     
       inputHandler.dispose();
       removeDataListener();
       removeClosedListener();
       
-     
       window.api.closeTerminalSession(terminalId);
     };
   }, [terminalId, currentPath]);
