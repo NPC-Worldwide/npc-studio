@@ -2767,7 +2767,6 @@ ipcMain.handle('getConversations', async (_, path) => {
       return [];
     }
   });
-
 ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
   const allowedExtensions = ['.py', 
                              '.md', 
@@ -2793,10 +2792,17 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
                              '.json', 
                             ];
   
+  const ignorePatterns = ['node_modules', '.git', '.DS_Store'];
+
   async function readDirRecursive(currentPath) {
     const result = {};
     const items = await fsPromises.readdir(currentPath, { withFileTypes: true });
     for (const item of items) {
+      if (item.isDirectory() && ignorePatterns.includes(item.name)) {
+        console.log(`[Main Process] Ignoring directory: ${path.join(currentPath, item.name)}`);
+        continue; 
+      }
+
       const itemPath = path.join(currentPath, item.name);
       if (item.isDirectory()) {
         // Recursively read children
@@ -2828,6 +2834,7 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
     return { error: err.message || 'Failed to read directory contents' };
   }
 });
+
   ipcMain.handle('goUpDirectory', async (_, currentPath) => {
    
     if (!currentPath) {
