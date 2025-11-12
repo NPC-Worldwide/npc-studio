@@ -74,7 +74,7 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
             </div>
             <div className="overflow-auto h-[calc(100%-48px)]">
               <SyntaxHighlighter
-                style={isDarkMode ? atomDark : atomLight}
+                style={isDarkMode ? atomDark : oneLight}
                 language={match?.[1]}
                 PreTag="div"
                 showLineNumbers={true}
@@ -117,7 +117,7 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
           className="overflow-auto max-h-[400px]"
         >
           <SyntaxHighlighter
-            style={isDarkMode ? atomDark : atomLight}
+            style={isDarkMode ? atomDark : oneLight}
             language={match?.[1]}
             PreTag="div"
             showLineNumbers={true}
@@ -149,56 +149,183 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
     </>
   );
 });
-const MarkdownRenderer = ({ content }) => {
+
+const ImageComponent = memo(({ src, alt, title }) => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+
+  const handleLoad = useCallback(() => {
+    console.log('[IMAGE] Image loaded successfully');
+    setIsLoading(false);
+  }, []);
+
+  const handleError = useCallback((e) => {
+    setIsLoading(false);
+    setHasError(true);
+    console.error('[IMAGE] Image failed to load. Src:', src?.substring(0, 100));
+  }, [src]);
+
+  if (hasError) {
     return (
-        <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
+      <div className="max-w-full my-2 p-4 rounded-md border border-red-500 bg-red-900/20 text-red-300 text-sm">
+        <div className="font-semibold mb-1">❌ Image Failed to Load</div>
+        <div className="text-xs break-all font-mono">{src?.substring(0, 200) || 'No src provided'}</div>
+      </div>
+    );
+  }
+
+  return (
+    <figure className="my-2 inline-block max-w-full">
+      <div className="relative inline-block max-w-full">
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-700/50 rounded-md">
+            <div className="animate-spin">
+              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
+            </div>
+          </div>
+        )}
+        <img
+          src={src || ''}
+          alt={alt || title || 'Generated image'}
+          title={title || alt}
+          className={`max-w-full h-auto rounded-md theme-border border transition-opacity ${
+            isLoading ? 'opacity-50' : 'opacity-100'
+          }`}
+          onLoad={handleLoad}
+          onError={handleError}
+          loading="lazy"
+          style={{
+            maxHeight: '600px',
+            objectFit: 'contain',
+          }}
+        />
+      </div>
+      {alt && (
+        <figcaption className="mt-2 text-xs text-gray-400 text-center italic">
+          {alt}
+        </figcaption>
+      )}
+    </figure>
+  );
+});
+
+
+// Custom component to parse and render HTML img tags manually
+const ContentWithImages = memo(({ content }) => {
+  if (!content || typeof content !== 'string') {
+    return null;
+  }
+
+  // Split content by <img> tags and process each part
+  const parts = [];
+  let lastIndex = 0;
+  const imgRegex = /<img\s+[^>]*src=["']([^"']+)["'][^>]*alt=["']([^"']*)["'][^>]*>/gi;
+  
+  let match;
+  while ((match = imgRegex.exec(content)) !== null) {
+    // Add markdown content before the image
+    if (match.index > lastIndex) {
+      const markdownPart = content.substring(lastIndex, match.index);
+      parts.push({
+        type: 'markdown',
+        content: markdownPart,
+        key: `md-${lastIndex}`
+      });
+    }
+    
+    // Add the image
+    parts.push({
+      type: 'image',
+      src: match[1],
+      alt: match[2],
+      key: `img-${match.index}`
+    });
+    
+    lastIndex = imgRegex.lastIndex;
+  }
+  
+  // Add remaining markdown content
+  if (lastIndex < content.length) {
+    parts.push({
+      type: 'markdown',
+      content: content.substring(lastIndex),
+      key: `md-${lastIndex}`
+    });
+  }
+  
+  // If no images found, return plain markdown
+  if (parts.length === 0) {
+    parts.push({
+      type: 'markdown',
+      content: content,
+      key: 'md-0'
+    });
+  }
+
+  return (
+    <>
+      {parts.map(part => {
+        if (part.type === 'image') {
+          return <ImageComponent key={part.key} src={part.src} alt={part.alt} />;
+        } else {
+          return (
+            <ReactMarkdown
+              key={part.key}
+              remarkPlugins={[remarkGfm]}
+              components={{
                 code: CodeBlock,
+                img: ImageComponent,
                 p: ({ node, children, ...props }) => {
-                    const hasCodeBlock = node.children.some(child => 
-                        child.type === 'element' && child.tagName === 'code' && child.properties?.className
-                    );
-                    if (hasCodeBlock) {
-                        return <div className="mb-2" {...props}>{children}</div>;
-                    }
-                    return <p className="mb-2 theme-text-primary" {...props}>{children}</p>;
+                  return <p className="mb-2 theme-text-primary" {...props}>{children}</p>;
                 },
                 a: ({ node, ...props }) => (
-                    <a className="theme-text-link hover:underline font-medium" {...props} />
-                ),
-                img: ({ node, ...props }) => (
-                    <img className="max-w-full h-auto rounded-md my-2 theme-border border" {...props} />
+                  <a className="theme-text-link hover:underline font-medium" target="_blank" rel="noopener noreferrer" {...props} />
                 ),
                 ul: ({ node, ...props }) => (
-                    <ul className="list-disc list-outside pl-5 mb-3 theme-text-primary" {...props} />
+                  <ul className="list-disc list-outside pl-5 mb-3 theme-text-primary" {...props} />
                 ),
                 ol: ({ node, ...props }) => (
-                    <ol className="list-decimal list-outside pl-5 mb-3 theme-text-primary" {...props} />
+                  <ol className="list-decimal list-outside pl-5 mb-3 theme-text-primary" {...props} />
                 ),
-                li: ({ node, children, ...props }) => {
-                    const firstChild = node.children[0];
-                    if (firstChild && firstChild.type === 'element' && firstChild.tagName === 'p') {
-                        return <li className="mb-1" {...props}>{children}</li>;
-                    }
-                    return <li className="mb-1" {...props}>{children}</li>;
-                },
+                li: ({ node, children, ...props }) => (
+                  <li className="mb-1" {...props}>{children}</li>
+                ),
                 h1: ({ node, ...props }) => <h1 className="text-xl font-bold mb-2 mt-4 theme-text-primary" {...props} />,
                 h2: ({ node, ...props }) => <h2 className="text-lg font-bold mb-2 mt-3 theme-text-primary" {...props} />,
                 h3: ({ node, ...props }) => <h3 className="text-base font-bold mb-2 mt-2 theme-text-primary" {...props} />,
                 blockquote: ({ node, ...props }) => (
-                    <blockquote className="border-l-4 theme-border-accent pl-4 italic theme-text-secondary my-2 theme-bg-secondary p-3 rounded-r" {...props} />
+                  <blockquote className="border-l-4 theme-border-accent pl-4 italic theme-text-secondary my-2 theme-bg-secondary p-3 rounded-r" {...props} />
                 ),
                 table: ({ node, ...props }) => <table className="border-collapse w-full my-3 theme-border border rounded overflow-hidden" {...props} />,
                 th: ({ node, ...props }) => <th className="theme-border border p-2 text-left theme-text-primary theme-bg-secondary font-semibold" {...props} />,
                 td: ({ node, ...props }) => <td className="theme-border border p-2 theme-text-primary" {...props} />,
                 tr: ({ node, ...props }) => <tr className="even:theme-bg-secondary" {...props} />,
-            }}
-            className="theme-text-primary"
-        >
-            {content || ''}
-        </ReactMarkdown>
-    );
+              }}
+              className="theme-text-primary"
+            >
+              {part.content}
+            </ReactMarkdown>
+          );
+        }
+      })}
+    </>
+  );
+});
+
+
+const MarkdownRenderer = ({ content }) => {
+  console.log('[MARKDOWN] Content received, length:', content?.length);
+  
+  if (content && content.includes('<img')) {
+    console.log('[MARKDOWN] Found raw HTML <img> tags in content string.');
+  } else if (content && content.includes('![')) {
+    const imageMatches = content.match(/!\[([^\]]*)\]\(([^)]+)\)/g);
+    if (imageMatches) {
+      console.log('[MARKDOWN] Found', imageMatches.length, 'Markdown image tags in content string.');
+    }
+  }
+
+  return <ContentWithImages content={content} />;
 };
 
 export default memo(MarkdownRenderer);

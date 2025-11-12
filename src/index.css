@@ -312,7 +312,22 @@ body.light-mode .bg-\[#0b0c0f\] { background-color: var(--theme-input-bg) !impor
     border: 1px solid var(--theme-border) !important;
     transition: all 0.3s ease;
 }
+/* Add to your CSS file */
+body.resizing-sidebar,
+body.resizing-input {
+    cursor: col-resize !important;
+    user-select: none;
+}
 
+body.resizing-input {
+    cursor: row-resize !important;
+}
+
+body.resizing-sidebar *,
+body.resizing-input * {
+    cursor: inherit !important;
+    user-select: none;
+}
 .theme-toggle-btn:hover {
     background-color: var(--theme-button-hover) !important;
 }
