@@ -9,6 +9,7 @@ import {
     Copy,
     Scissors
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const CsvViewer = ({ 
     filePath, 
@@ -26,44 +27,103 @@ const CsvViewer = ({
     const [selectedCell, setSelectedCell] = useState(null);
     const [selectedRange, setSelectedRange] = useState(null);
     const [clipboard, setClipboard] = useState(null);
-    const [isSelecting, setIsSelecting] = useState(false);
     const [editingCell, setEditingCell] = useState(null);
+    const [workbook, setWorkbook] = useState(null);
+    const [sheetNames, setSheetNames] = useState([]);
+    const [activeSheet, setActiveSheet] = useState('');
     const tableRef = useRef(null);
+
+    const isXlsx = filePath?.endsWith('.xlsx') || filePath?.endsWith('.xls');
 
     useEffect(() => {
         loadSpreadsheet();
     }, [filePath]);
 
-    const loadSpreadsheet = async () => {
-        if (!filePath) return;
-        try {
+    const loadSheetData = (wb, sheetName) => {
+        const sheet = wb.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        
+        if (jsonData.length > 0) {
+            setHeaders(jsonData[0] || ['Column 1']);
+            setData(jsonData.slice(1) || [[]]);
+        } else {
+            setHeaders(['Column 1']);
+            setData([['']]);
+        }
+    };
+const loadSpreadsheet = async () => {
+    if (!filePath) return;
+    try {
+        if (isXlsx) {
+            const buffer = await window.api.readFileBuffer(filePath);
+            const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+            setWorkbook(wb);
+            setSheetNames(wb.SheetNames);
+            
+            if (wb.SheetNames.length > 0) {
+                setActiveSheet(wb.SheetNames[0]);
+                loadSheetData(wb, wb.SheetNames[0]);
+            }
+        } else {
             const response = await window.api.readCsvContent(filePath);
             if (response.error) throw new Error(response.error);
             
             setHeaders(response.headers || ['Column 1']);
             setData(response.rows || [[]]);
-        } catch (err) {
-            setError(err.message);
         }
+    } catch (err) {
+        setError(err.message);
+    }
+};
+
+    const switchSheet = (sheetName) => {
+        if (workbook) {
+            // Save current sheet data first
+            const sheetData = [headers, ...data];
+            workbook.Sheets[activeSheet] = XLSX.utils.aoa_to_sheet(sheetData);
+            
+            setActiveSheet(sheetName);
+            loadSheetData(workbook, sheetName);
+            setSelectedCell(null);
+            setEditingCell(null);
+            setSelectedRange(null);
+        }
+    };
+
+    const addSheet = () => {
+        const newName = `Sheet${sheetNames.length + 1}`;
+        setSheetNames(prev => [...prev, newName]);
+        if (workbook) {
+            workbook.SheetNames.push(newName);
+            workbook.Sheets[newName] = XLSX.utils.aoa_to_sheet([['Column 1'], ['']]);
+        }
+        switchSheet(newName);
+        setHasChanges(true);
     };
 
     const saveSpreadsheet = async () => {
         try {
-            const csvContent = [
-                headers.join(','),
-                ...data.map(row => 
-                    row.map(cell => {
-                        const str = String(cell ?? '');
-                        if (str.includes(',') || str.includes('"') || 
-                            str.includes('\n')) {
-                            return `"${str.replace(/"/g, '""')}"`;
-                        }
-                        return str;
-                    }).join(',')
-                )
-            ].join('\n');
+            if (isXlsx && workbook) {
+                const sheetData = [headers, ...data];
+                workbook.Sheets[activeSheet] = XLSX.utils.aoa_to_sheet(sheetData);
+                const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'binary' });
+                await window.api.writeFileContent(filePath, wbout, 'binary');
+            } else {
+                const csvContent = [
+                    headers.join(','),
+                    ...data.map(row => 
+                        row.map(cell => {
+                            const str = String(cell ?? '');
+                            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                                return `"${str.replace(/"/g, '""')}"`;
+                            }
+                            return str;
+                        }).join(',')
+                    )
+                ].join('\n');
 
-            await window.api.writeFileContent(filePath, csvContent);
+                await window.api.writeFileContent(filePath, csvContent);
+            }
             setHasChanges(false);
         } catch (err) {
             setError(err.message);
@@ -126,8 +186,7 @@ const CsvViewer = ({
         
         setData(prev => {
             const newData = [...prev];
-            [newData[fromIndex], newData[toIndex]] = 
-                [newData[toIndex], newData[fromIndex]];
+            [newData[fromIndex], newData[toIndex]] = [newData[toIndex], newData[fromIndex]];
             return newData;
         });
         setHasChanges(true);
@@ -315,237 +374,378 @@ const CsvViewer = ({
         return selectedCell?.row === rowIndex && selectedCell?.col === colIndex;
     };
 
-    if (error) return <div className="p-4 text-red-500">Error: {error}</div>;
+    const evaluateFormula = useCallback((formula, sheetData, currentRow, currentCol) => {
+    if (!formula || typeof formula !== 'string' || !formula.startsWith('=')) {
+        return formula;
+    }
 
-    return (
-        <div className="flex-1 flex flex-col theme-bg-secondary">
-            <div 
-                draggable="true"
-                onDragStart={(e) => {
-                    e.dataTransfer.effectAllowed = 'move';
-                    const nodePath = findNodePath(rootLayoutNode, nodeId);
-                    e.dataTransfer.setData('application/json', 
-                        JSON.stringify({ type: 'pane', id: nodeId, nodePath })
-                    );
-                    setTimeout(() => setDraggedItem({ 
-                        type: 'pane', id: nodeId, nodePath 
-                    }), 0);
-                }}
-                onDragEnd={() => setDraggedItem(null)}
-                onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setPaneContextMenu({
-                        isOpen: true,
-                        x: e.clientX,
-                        y: e.clientY,
-                        nodeId,
-                        nodePath: findNodePath(rootLayoutNode, nodeId)
-                    });
-                }}
-                className="p-2 border-b theme-border text-xs theme-text-muted 
-                    flex-shrink-0 theme-bg-secondary cursor-move"
-            >
-                <div className="flex justify-between items-center">
-                    <span className="truncate font-semibold">
-                        {filePath.split('/').pop()}{hasChanges ? ' *' : ''}
-                    </span>
-                    <div className="flex items-center gap-1">
-                        <button 
-                            onClick={saveSpreadsheet}
-                            disabled={!hasChanges}
-                            className="p-1 theme-hover rounded disabled:opacity-50"
-                            title="Save (Ctrl+S)"
-                        >
-                            <Save size={14} />
-                        </button>
-                        <button 
-                            onClick={() => addRow()}
-                            className="p-1 theme-hover rounded"
-                            title="Add row"
-                        >
-                            <Plus size={14} />
-                        </button>
-                        <button 
-                            onClick={() => setDraggedItem(null)}
-                            className="p-1 theme-hover rounded-full"
-                        >
-                            <X size={14} />
-                        </button>
-                        <button 
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                closeContentPane(nodeId, 
-                                    findNodePath(rootLayoutNode, nodeId)
-                                );
-                            }}
-                            className="p-1 theme-hover rounded-full"
-                        >
-                            <X size={14} />
-                        </button>
-                    </div>
+    try {
+        const expr = formula.substring(1).toUpperCase();
+        
+        // SUM(A1:B3)
+        const sumMatch = expr.match(/^SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$/);
+        if (sumMatch) {
+            const startCol = sumMatch[1].charCodeAt(0) - 65;
+            const startRow = parseInt(sumMatch[2]) - 1;
+            const endCol = sumMatch[3].charCodeAt(0) - 65;
+            const endRow = parseInt(sumMatch[4]) - 1;
+            let sum = 0;
+            for (let r = startRow; r <= endRow; r++) {
+                for (let c = startCol; c <= endCol; c++) {
+                    const val = parseFloat(sheetData[r]?.[c]) || 0;
+                    sum += val;
+                }
+            }
+            return sum;
+        }
+
+        // AVERAGE(A1:B3)
+        const avgMatch = expr.match(/^AVERAGE\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$/);
+        if (avgMatch) {
+            const startCol = avgMatch[1].charCodeAt(0) - 65;
+            const startRow = parseInt(avgMatch[2]) - 1;
+            const endCol = avgMatch[3].charCodeAt(0) - 65;
+            const endRow = parseInt(avgMatch[4]) - 1;
+            let sum = 0;
+            let count = 0;
+            for (let r = startRow; r <= endRow; r++) {
+                for (let c = startCol; c <= endCol; c++) {
+                    const val = parseFloat(sheetData[r]?.[c]);
+                    if (!isNaN(val)) {
+                        sum += val;
+                        count++;
+                    }
+                }
+            }
+            return count > 0 ? (sum / count).toFixed(2) : 0;
+        }
+
+        // COUNT(A1:B3)
+        const countMatch = expr.match(/^COUNT\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$/);
+        if (countMatch) {
+            const startCol = countMatch[1].charCodeAt(0) - 65;
+            const startRow = parseInt(countMatch[2]) - 1;
+            const endCol = countMatch[3].charCodeAt(0) - 65;
+            const endRow = parseInt(countMatch[4]) - 1;
+            let count = 0;
+            for (let r = startRow; r <= endRow; r++) {
+                for (let c = startCol; c <= endCol; c++) {
+                    if (sheetData[r]?.[c] !== '' && sheetData[r]?.[c] != null) {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
+        // MAX(A1:B3)
+        const maxMatch = expr.match(/^MAX\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$/);
+        if (maxMatch) {
+            const startCol = maxMatch[1].charCodeAt(0) - 65;
+            const startRow = parseInt(maxMatch[2]) - 1;
+            const endCol = maxMatch[3].charCodeAt(0) - 65;
+            const endRow = parseInt(maxMatch[4]) - 1;
+            let max = -Infinity;
+            for (let r = startRow; r <= endRow; r++) {
+                for (let c = startCol; c <= endCol; c++) {
+                    const val = parseFloat(sheetData[r]?.[c]);
+                    if (!isNaN(val) && val > max) max = val;
+                }
+            }
+            return max === -Infinity ? 0 : max;
+        }
+
+        // MIN(A1:B3)
+        const minMatch = expr.match(/^MIN\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$/);
+        if (minMatch) {
+            const startCol = minMatch[1].charCodeAt(0) - 65;
+            const startRow = parseInt(minMatch[2]) - 1;
+            const endCol = minMatch[3].charCodeAt(0) - 65;
+            const endRow = parseInt(minMatch[4]) - 1;
+            let min = Infinity;
+            for (let r = startRow; r <= endRow; r++) {
+                for (let c = startCol; c <= endCol; c++) {
+                    const val = parseFloat(sheetData[r]?.[c]);
+                    if (!isNaN(val) && val < min) min = val;
+                }
+            }
+            return min === Infinity ? 0 : min;
+        }
+
+        // Simple cell reference like =A1
+        const cellRefMatch = expr.match(/^([A-Z]+)(\d+)$/);
+        if (cellRefMatch) {
+            const col = cellRefMatch[1].charCodeAt(0) - 65;
+            const row = parseInt(cellRefMatch[2]) - 1;
+            return sheetData[row]?.[col] ?? '';
+        }
+
+        // Basic math: =A1+B1, =A1*2, etc.
+        const mathMatch = expr.match(/^([A-Z]+)(\d+)\s*([+\-*/])\s*([A-Z]+)?(\d+)?$/);
+        if (mathMatch) {
+            const col1 = mathMatch[1].charCodeAt(0) - 65;
+            const row1 = parseInt(mathMatch[2]) - 1;
+            const op = mathMatch[3];
+            const val1 = parseFloat(sheetData[row1]?.[col1]) || 0;
+            
+            let val2;
+            if (mathMatch[4]) {
+                const col2 = mathMatch[4].charCodeAt(0) - 65;
+                const row2 = parseInt(mathMatch[5]) - 1;
+                val2 = parseFloat(sheetData[row2]?.[col2]) || 0;
+            } else {
+                val2 = parseFloat(mathMatch[5]) || 0;
+            }
+
+            switch (op) {
+                case '+': return val1 + val2;
+                case '-': return val1 - val2;
+                case '*': return val1 * val2;
+                case '/': return val2 !== 0 ? val1 / val2 : '#DIV/0!';
+            }
+        }
+
+// Simple numeric math: =5+7, =10*2, etc.
+const numericMathMatch = expr.match(/^(\d+(?:\.\d+)?)\s*([+\-*/])\s*(\d+(?:\.\d+)?)$/);
+if (numericMathMatch) {
+    const val1 = parseFloat(numericMathMatch[1]);
+    const op = numericMathMatch[2];
+    const val2 = parseFloat(numericMathMatch[3]);
+
+    switch (op) {
+        case '+': return val1 + val2;
+        case '-': return val1 - val2;
+        case '*': return val1 * val2;
+        case '/': return val2 !== 0 ? val1 / val2 : '#DIV/0!';
+    }
+}
+
+return '#ERROR!';    } catch (err) {
+        return '#ERROR!';
+    }
+}, []);
+    if (error) return <div className="p-4 text-red-500">Error: {error}</div>;
+return (
+    <div className="flex-1 flex flex-col theme-bg-secondary" style={{ overflow: 'hidden', position: 'relative' }}>
+        {/* Header */}
+        <div 
+            draggable="true"
+            onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                const nodePath = findNodePath(rootLayoutNode, nodeId);
+                e.dataTransfer.setData('application/json', 
+                    JSON.stringify({ type: 'pane', id: nodeId, nodePath })
+                );
+                setTimeout(() => setDraggedItem({ type: 'pane', id: nodeId, nodePath }), 0);
+            }}
+            onDragEnd={() => setDraggedItem(null)}
+            onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setPaneContextMenu({
+                    isOpen: true,
+                    x: e.clientX,
+                    y: e.clientY,
+                    nodeId,
+                    nodePath: findNodePath(rootLayoutNode, nodeId)
+                });
+            }}
+            className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+        >
+            <div className="flex justify-between items-center">
+                <span className="truncate font-semibold">
+                    {filePath.split('/').pop()}{hasChanges ? ' *' : ''}
+                </span>
+                <div className="flex items-center gap-1">
+                    <button 
+                        onClick={saveSpreadsheet}
+                        disabled={!hasChanges}
+                        className="p-1 theme-hover rounded disabled:opacity-50"
+                        title="Save (Ctrl+S)"
+                    >
+                        <Save size={14} />
+                    </button>
+                    <button 
+                        onClick={() => addRow()}
+                        className="p-1 theme-hover rounded"
+                        title="Add row"
+                    >
+                        <Plus size={14} />
+                    </button>
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId));
+                        }}
+                        className="p-1 theme-hover rounded-full"
+                    >
+                        <X size={14} />
+                    </button>
                 </div>
             </div>
+        </div>
 
-            <div className="flex-1 overflow-auto" ref={tableRef}>
-                <table className="w-full border-collapse text-sm">
-                    <thead className="sticky top-0 theme-bg-tertiary z-10">
-                        <tr>
-                            <th className="border theme-border p-1 w-12 
-                                bg-gray-700 sticky left-0 z-20">
-                                #
-                            </th>
-                            {headers.map((header, colIndex) => (
-                                <th key={colIndex} 
-                                    className="border theme-border p-1 
-                                        min-w-[100px] group relative"
+        {/* Table - adjusted for bottom tabs */}
+        <div 
+            ref={tableRef}
+            style={{ 
+                overflow: 'scroll',
+                position: 'absolute',
+                top: '45px',
+                bottom: isXlsx && sheetNames.length > 0 ? '85px' : '45px',
+                left: '0',
+                right: '0'
+            }}
+        >
+            <table className="border-collapse text-sm">
+                <thead className="sticky top-0 theme-bg-tertiary z-10">
+                    <tr>
+                        <th className="border theme-border p-1 w-12 bg-gray-700">#</th>
+                        {headers.map((header, colIndex) => (
+                            <th key={colIndex} className="border theme-border p-1 min-w-[100px] group relative">
+                                <input
+                                    type="text"
+                                    value={header}
+                                    onChange={(e) => updateHeader(colIndex, e.target.value)}
+                                    className="w-full bg-transparent text-center font-semibold outline-none"
+                                />
+                                <button
+                                    onClick={() => deleteColumn(colIndex)}
+                                    className="absolute right-1 top-1 opacity-0 group-hover:opacity-100 p-0.5 bg-red-500 rounded"
+                                    title="Delete column"
                                 >
-                                    <input
-                                        type="text"
-                                        value={header}
-                                        onChange={(e) => 
-                                            updateHeader(colIndex, e.target.value)
-                                        }
-                                        className="w-full bg-transparent 
-                                            text-center font-semibold 
-                                            outline-none"
-                                    />
+                                    <Trash2 size={10} />
+                                </button>
+                            </th>
+                        ))}
+                        <th className="border theme-border p-1 w-12">
+                            <button
+                                onClick={addColumn}
+                                className="w-full h-full flex items-center justify-center theme-hover"
+                                title="Add column"
+                            >
+                                <Plus size={14} />
+                            </button>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {data.map((row, rowIndex) => (
+                        <tr key={rowIndex} className="group">
+                            <td className="border theme-border p-1 bg-gray-700">
+                                <div className="flex items-center justify-between gap-1">
+                                    <span className="text-xs text-gray-400">{rowIndex + 1}</span>
+                                    <div className="flex flex-col opacity-0 group-hover:opacity-100">
+                                        <button
+                                            onClick={() => moveRow(rowIndex, -1)}
+                                            disabled={rowIndex === 0}
+                                            className="p-0.5 theme-hover rounded disabled:opacity-30"
+                                        >
+                                            <ArrowUp size={10} />
+                                        </button>
+                                        <button
+                                            onClick={() => moveRow(rowIndex, 1)}
+                                            disabled={rowIndex === data.length - 1}
+                                            className="p-0.5 theme-hover rounded disabled:opacity-30"
+                                        >
+                                            <ArrowDown size={10} />
+                                        </button>
+                                    </div>
                                     <button
-                                        onClick={() => deleteColumn(colIndex)}
-                                        className="absolute right-1 top-1 
-                                            opacity-0 group-hover:opacity-100 
-                                            p-0.5 bg-red-500 rounded"
-                                        title="Delete column"
+                                        onClick={() => deleteRow(rowIndex)}
+                                        className="p-0.5 bg-red-500 rounded opacity-0 group-hover:opacity-100"
+                                        title="Delete row"
                                     >
                                         <Trash2 size={10} />
                                     </button>
-                                </th>
-                            ))}
-                            <th className="border theme-border p-1 w-12">
-                                <button
-                                    onClick={addColumn}
-                                    className="w-full h-full flex items-center 
-                                        justify-center theme-hover"
-                                    title="Add column"
-                                >
-                                    <Plus size={14} />
-                                </button>
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {data.map((row, rowIndex) => (
-                            <tr key={rowIndex} className="group">
-                                <td className="border theme-border p-1 
-                                    bg-gray-700 sticky left-0 z-10"
-                                >
-                                    <div className="flex items-center 
-                                        justify-between gap-1"
+                                </div>
+                            </td>
+                            {headers.map((_, colIndex) => {
+                                const isEditing = editingCell?.row === rowIndex && editingCell?.col === colIndex;
+                                const isSelected = isCellSelected(rowIndex, colIndex);
+                                const cellValue = row[colIndex] ?? '';
+                                const displayValue = typeof cellValue === 'string' && cellValue.startsWith('=') 
+                                    ? evaluateFormula(cellValue, data, rowIndex, colIndex)
+                                    : cellValue;
+                                
+                                return (
+                                    <td 
+                                        key={colIndex}
+                                        className={`border theme-border p-0 
+                                            ${isSelected ? 'ring-2 ring-blue-500' : ''}
+                                            ${isEditing ? 'ring-2 ring-green-500' : ''}
+                                            hover:bg-gray-700 cursor-cell`}
+                                        onClick={(e) => handleCellClick(rowIndex, colIndex, e)}
+                                        onDoubleClick={() => handleCellDoubleClick(rowIndex, colIndex)}
                                     >
-                                        <span className="text-xs text-gray-400">
-                                            {rowIndex + 1}
-                                        </span>
-                                        <div className="flex flex-col 
-                                            opacity-0 group-hover:opacity-100"
-                                        >
-                                            <button
-                                                onClick={() => moveRow(rowIndex, -1)}
-                                                disabled={rowIndex === 0}
-                                                className="p-0.5 theme-hover rounded 
-                                                    disabled:opacity-30"
-                                            >
-                                                <ArrowUp size={10} />
-                                            </button>
-                                            <button
-                                                onClick={() => moveRow(rowIndex, 1)}
-                                                disabled={rowIndex === data.length - 1}
-                                                className="p-0.5 theme-hover rounded 
-                                                    disabled:opacity-30"
-                                            >
-                                                <ArrowDown size={10} />
-                                            </button>
-                                        </div>
-                                        <button
-                                            onClick={() => deleteRow(rowIndex)}
-                                            className="p-0.5 bg-red-500 rounded 
-                                                opacity-0 group-hover:opacity-100"
-                                            title="Delete row"
-                                        >
-                                            <Trash2 size={10} />
-                                        </button>
-                                    </div>
-                                </td>
-                                {headers.map((_, colIndex) => {
-                                    const isEditing = editingCell?.row === rowIndex && 
-                                                     editingCell?.col === colIndex;
-                                    const isSelected = isCellSelected(rowIndex, colIndex);
-                                    
-                                    return (
-                                        <td 
-                                            key={colIndex}
-                                            className={`border theme-border p-0 
-                                                ${isSelected ? 'ring-2 ring-blue-500' : ''}
-                                                ${isEditing ? 'ring-2 ring-green-500' : ''}
-                                                hover:bg-gray-700 cursor-cell`}
-                                            onClick={(e) => 
-                                                handleCellClick(rowIndex, colIndex, e)
-                                            }
-                                            onDoubleClick={() => 
-                                                handleCellDoubleClick(rowIndex, colIndex)
-                                            }
-                                        >
-                                            {isEditing ? (
-                                                <input
-                                                    type="text"
-                                                    value={row[colIndex] ?? ''}
-                                                    onChange={(e) => 
-                                                        updateCell(rowIndex, colIndex, 
-                                                            e.target.value)
+                                        {isEditing ? (
+                                            <input
+                                                type="text"
+                                                value={cellValue}
+                                                onChange={(e) => updateCell(rowIndex, colIndex, e.target.value)}
+                                                onBlur={() => setEditingCell(null)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' || e.key === 'Escape') {
+                                                        setEditingCell(null);
                                                     }
-                                                    onBlur={() => setEditingCell(null)}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' || 
-                                                            e.key === 'Escape') {
-                                                            setEditingCell(null);
-                                                        }
-                                                    }}
-                                                    className="w-full h-full p-2 
-                                                        bg-transparent outline-none"
-                                                    autoFocus
-                                                />
-                                            ) : (
-                                                <div className="p-2 min-h-[32px]">
-                                                    {row[colIndex] ?? ''}
-                                                </div>
-                                            )}
-                                        </td>
-                                    );
-                                })}
-                                <td className="border theme-border p-1">
-                                    <button
-                                        onClick={() => addRow(rowIndex + 1)}
-                                        className="w-full h-full flex items-center 
-                                            justify-center theme-hover 
-                                            opacity-0 group-hover:opacity-100"
-                                        title="Insert row below"
-                                    >
-                                        <Plus size={12} />
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+                                                }}
+                                                className="w-full h-full p-2 bg-transparent outline-none"
+                                                autoFocus
+                                            />
+                                        ) : (
+                                            <div className="p-2 min-h-[32px]">{displayValue}</div>
+                                        )}
+                                    </td>
+                                );
+                            })}
+                            <td className="border theme-border p-1">
+                                <button
+                                    onClick={() => addRow(rowIndex + 1)}
+                                    className="w-full h-full flex items-center justify-center theme-hover opacity-0 group-hover:opacity-100"
+                                    title="Insert row below"
+                                >
+                                    <Plus size={12} />
+                                </button>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
 
-            {selectedCell && (
-                <div className="p-2 border-t theme-border text-xs 
-                    theme-text-muted flex items-center justify-between"
+        {/* Sheet Tabs - BOTTOM LEFT */}
+        {isXlsx && sheetNames.length > 0 && (
+            <div className="absolute bottom-[45px] left-0 right-0 flex items-center gap-1 p-2 border-t theme-border theme-bg-tertiary overflow-x-auto">
+                {sheetNames.map(name => (
+                    <button
+                        key={name}
+                        onClick={() => switchSheet(name)}
+                        className={`px-3 py-1 text-xs rounded transition-all whitespace-nowrap ${
+                            activeSheet === name 
+                                ? 'theme-button-primary' 
+                                : 'theme-button theme-hover'
+                        }`}
+                    >
+                        {name}
+                    </button>
+                ))}
+                <button
+                    onClick={addSheet}
+                    className="p-1 theme-hover rounded"
+                    title="Add sheet"
                 >
-                    <div className="flex items-center gap-4">
+                    <Plus size={14} />
+                </button>
+            </div>
+        )}
+
+        {/* Cell Info Bar - BOTTOM */}
+        <div className="p-2 border-t theme-border text-xs theme-text-muted flex items-center justify-between absolute bottom-0 left-0 right-0 theme-bg-secondary">
+            <div className="flex items-center gap-4">
+                {selectedCell && (
+                    <>
                         <span>
-                            Cell: {String.fromCharCode(65 + selectedCell.col)}
-                            {selectedCell.row + 1}
+                            Cell: {String.fromCharCode(65 + selectedCell.col)}{selectedCell.row + 1}
                         </span>
                         {selectedRange && (
                             <span>
@@ -553,27 +753,19 @@ const CsvViewer = ({
                                 ×{selectedRange.endCol - selectedRange.startCol + 1}
                             </span>
                         )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={copySelection}
-                            className="p-1 theme-hover rounded"
-                            title="Copy (Ctrl+C)"
-                        >
-                            <Copy size={12} />
-                        </button>
-                        <button
-                            onClick={cutSelection}
-                            className="p-1 theme-hover rounded"
-                            title="Cut (Ctrl+X)"
-                        >
-                            <Scissors size={12} />
-                        </button>
-                    </div>
-                </div>
-            )}
+                    </>
+                )}
+            </div>
+            <div className="flex items-center gap-2">
+                <button onClick={copySelection} className="p-1 theme-hover rounded" title="Copy (Ctrl+C)">
+                    <Copy size={12} />
+                </button>
+                <button onClick={cutSelection} className="p-1 theme-hover rounded" title="Cut (Ctrl+X)">
+                    <Scissors size={12} />
+                </button>
+            </div>
         </div>
-    );
-};
+    </div>
+);};
 
 export default CsvViewer;
