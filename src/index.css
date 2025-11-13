@@ -16,25 +16,25 @@
   --theme-input-bg-light: #ffffff;
   --theme-input-border-light: #d1d5db;
   --theme-button-bg-light: #f8fafc;
-  --theme-button-hover-light: #f1f5f9;
-  --theme-primary-light: #2563eb;
-  --theme-primary-hover-light: #1d4ed8;
+  --theme-button-hover-light: #fce7f3;
+  --theme-primary-light: #ec4899;
+  --theme-primary-hover-light: #db2777;
   --theme-success-light: #059669;
   --theme-success-hover-light: #047857;
   --theme-danger-light: #dc2626;
   --theme-danger-hover-light: #b91c1c;
-  --theme-message-user-light: #dbeafe;
+  --theme-message-user-light: #fce7f3;
   --theme-message-assistant-light: #f8fafc;
   --theme-message-error-light: #fef2f2;
   --theme-sidebar-light: #f8fafc;
-  --theme-hover-light: #f1f5f9;
-  --theme-active-light: #e2e8f0;
-  --theme-selected-light: #3b82f6;
+  --theme-hover-light: #fce7f3;
+  --theme-active-light: #fbcfe8;
+  --theme-selected-light: #ec4899;
   --theme-selected-text-light: #ffffff;
-  --theme-selected-border-light: #1d4ed8;
-  --theme-selected-shadow-light: rgba(37, 99, 235, 0.5);
-  --theme-primary-rgb: 59, 130, 246; /* blue-500 */
-  --theme-success-rgb: 16, 185, 129; /* green-500 */
+  --theme-selected-border-light: #db2777;
+  --theme-selected-shadow-light: rgba(236, 72, 153, 0.5);
+  --theme-primary-rgb: 236, 72, 153;
+  --theme-success-rgb: 16, 185, 129;
 
   /* Dark Mode Colors */
   --theme-bg-dark: #0f172a;
@@ -163,12 +163,10 @@ body.light-mode {
   --theme-selected-text: var(--theme-selected-text-light);
   --theme-selected-border: var(--theme-selected-border-light);
   --theme-selected-shadow: var(--theme-selected-shadow-light);
-  --theme-primary-rgb: 37, 99, 235; /* blue-600 */
-  --theme-success-rgb: 5, 150, 105; /* green-700 */
-
+  --theme-primary-rgb: 236, 72, 153;
+  --theme-success-rgb: 5, 150, 105;
 }
 
-/* Theme-aware utility classes that override Tailwind defaults */
 .chat-container {
     display: flex;
     flex-direction: column;
@@ -178,28 +176,23 @@ body.light-mode {
     overflow: hidden;
 }
 
-/* Sidebar styling */
 .theme-sidebar {
     background-color: var(--theme-sidebar) !important;
     border-color: var(--theme-border) !important;
     color: var(--theme-text) !important;
 }
 
-/* Background overrides */
 .theme-bg-primary { background-color: var(--theme-bg) !important; }
 .theme-bg-secondary { background-color: var(--theme-bg-secondary) !important; }
 .theme-bg-tertiary { background-color: var(--theme-bg-tertiary) !important; }
 
-/* Text overrides */
 .theme-text-primary { color: var(--theme-text) !important; }
 .theme-text-secondary { color: var(--theme-text-secondary) !important; }
 .theme-text-muted { color: var(--theme-text-muted) !important; }
 
-/* Border overrides */
 .theme-border { border-color: var(--theme-border) !important; }
 .theme-border-secondary { border-color: var(--theme-border-secondary) !important; }
 
-/* Button styling */
 .theme-button {
     background-color: var(--theme-button-bg) !important;
     color: var(--theme-text) !important;
@@ -237,7 +230,6 @@ body.light-mode {
     background-color: var(--theme-danger-hover) !important;
 }
 
-/* Input styling */
 .theme-input {
     background-color: var(--theme-input-bg) !important;
     border-color: var(--theme-input-border) !important;
@@ -253,7 +245,6 @@ body.light-mode {
     color: var(--theme-text-muted) !important;
 }
 
-/* Message styling */
 .theme-message-user {
     background-color: var(--theme-message-user) !important;
     color: var(--theme-text) !important;
@@ -270,49 +261,25 @@ body.light-mode {
     color: var(--theme-text) !important;
 }
 
-/* Hover states */
 .theme-hover:hover {
-    background-color: var(--theme-hover) !important;
+    background-color: var(--theme-button-hover) !important;
 }
 
 .theme-active {
     background-color: var(--theme-active) !important;
 }
 
-/* Override specific Tailwind classes */
-body.light-mode .bg-gray-900 { background-color: var(--theme-bg) !important; }
-body.light-mode .bg-gray-800 { background-color: var(--theme-bg-secondary) !important; }
-body.light-mode .bg-gray-700 { background-color: var(--theme-bg-tertiary) !important; }
-body.light-mode .text-gray-100 { color: var(--theme-text) !important; }
-body.light-mode .text-gray-200 { color: var(--theme-text) !important; }
-body.light-mode .text-gray-300 { color: var(--theme-text-secondary) !important; }
-body.light-mode .text-gray-400 { color: var(--theme-text-muted) !important; }
-body.light-mode .text-gray-500 { color: var(--theme-text-muted) !important; }
-body.light-mode .border-gray-700 { border-color: var(--theme-border) !important; }
-body.light-mode .border-gray-600 { border-color: var(--theme-border-secondary) !important; }
-body.light-mode .bg-blue-800 { background-color: var(--theme-message-user) !important; }
-body.light-mode .bg-red-900 { background-color: var(--theme-message-error) !important; }
-body.light-mode .border-red-700 { border-color: var(--theme-danger) !important; }
-
-/* Dark mode text colors that need adjustment in light mode */
-body.light-mode .text-blue-400,
-body.light-mode .text-blue-500 { color: var(--theme-primary) !important; }
-body.light-mode .text-green-400 { color: var(--theme-success) !important; }
-body.light-mode .text-yellow-400 { color: #d97706 !important; }
-body.light-mode .text-red-400 { color: var(--theme-danger) !important; }
-body.light-mode .text-orange-400 { color: #ea580c !important; }
-
-/* Input area specific styling */
-body.light-mode .bg-\[#0b0c0f\] { background-color: var(--theme-input-bg) !important; }
-
-/* Theme toggle button */
 .theme-toggle-btn {
     background-color: var(--theme-button-bg) !important;
     color: var(--theme-text) !important;
     border: 1px solid var(--theme-border) !important;
     transition: all 0.3s ease;
 }
-/* Add to your CSS file */
+
+.theme-toggle-btn:hover {
+    background-color: var(--theme-button-hover) !important;
+}
+
 body.resizing-sidebar,
 body.resizing-input {
     cursor: col-resize !important;
@@ -328,55 +295,15 @@ body.resizing-input * {
     cursor: inherit !important;
     user-select: none;
 }
-.theme-toggle-btn:hover {
-    background-color: var(--theme-button-hover) !important;
-}
 
-/* Streaming cursor animation - adjust for light mode */
-body.light-mode .stream-cursor {
-    background: var(--theme-text) !important;
-}
-
-/* Dropdown/select styling */
-body.light-mode select {
-    background-color: var(--theme-input-bg) !important;
-    border-color: var(--theme-input-border) !important;
-    color: var(--theme-text) !important;
-}
-
-/* Context menu styling */
-body.light-mode .fixed {
-    background-color: var(--theme-bg-secondary) !important;
-    border-color: var(--theme-border) !important;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-}
-
-/* Scrollbar styling for light mode */
-body.light-mode ::-webkit-scrollbar {
-    width: 8px;
-}
-
-body.light-mode ::-webkit-scrollbar-track {
-    background: var(--theme-bg-secondary);
-}
-
-body.light-mode ::-webkit-scrollbar-thumb {
-    background: var(--theme-border-secondary);
-    border-radius: 4px;
-}
-
-body.light-mode ::-webkit-scrollbar-thumb:hover {
-    background: var(--theme-text-muted);
-}
-
-/* Enhanced markdown content styling with MUCH better contrast for dark mode */
+/* DARK MODE PROSE STYLES */
 .prose {
     max-width: none !important;
-    text-align: left !important; /* Remove justification */
+    text-align: left !important;
 }
 
 .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
-    color: #f8fafc !important; /* Much brighter white for dark mode */
+    color: #f8fafc !important;
     margin-top: 1.5em !important;
     margin-bottom: 0.5em !important;
     font-weight: 700 !important;
@@ -384,44 +311,44 @@ body.light-mode ::-webkit-scrollbar-thumb:hover {
 }
 
 .prose p {
-    color: #e2e8f0 !important; /* Much brighter text for dark mode */
+    color: #e2e8f0 !important;
     margin-bottom: 1em !important;
     line-height: 1.6 !important;
-    text-align: left !important; /* Remove justification */
+    text-align: left !important;
     text-justify: none !important;
 }
 
 .prose strong {
-    color: #f1f5f9 !important; /* Very bright for emphasis */
+    color: #f1f5f9 !important;
     font-weight: 700 !important;
 }
 
 .prose em {
-    color: #cbd5e1 !important; /* Bright secondary text */
+    color: #cbd5e1 !important;
     font-style: italic !important;
 }
 
 .prose code {
-    color: #f1f5f9 !important; /* Very bright for inline code */
+    color: #f1f5f9 !important;
     background-color: #1e293b !important;
-    padding: 2px 4px !important; /* Smaller padding */
-    border-radius: 3px !important; /* Smaller radius */
-    font-size: 0.85em !important; /* Smaller font */
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+    font-size: 0.85em !important;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
     border: 1px solid #475569 !important;
-    display: inline !important; /* Ensure inline display */
-    white-space: nowrap !important; /* Prevent wrapping */
+    display: inline !important;
+    white-space: nowrap !important;
 }
 
 .prose pre {
-    background-color: #0f172a !important; /* Darker background for contrast */
-    color: #e2e8f0 !important; /* Bright text */
-    padding: 0.8em !important; /* Less padding */
+    background-color: #0f172a !important;
+    color: #e2e8f0 !important;
+    padding: 0.8em !important;
     border-radius: 6px !important;
     overflow-x: auto !important;
     border: 1px solid #475569 !important;
-    margin: 0.8em 0 !important; /* Less margin */
-    font-size: 0.85em !important; /* Smaller font */
+    margin: 0.8em 0 !important;
+    font-size: 0.85em !important;
 }
 
 .prose pre code {
@@ -429,38 +356,37 @@ body.light-mode ::-webkit-scrollbar-thumb:hover {
     padding: 0 !important;
     border-radius: 0 !important;
     border: none !important;
-    font-size: inherit !important; /* Use parent font size */
-    color: #f1f5f9 !important; /* Very bright for code blocks */
-    white-space: pre !important; /* Preserve formatting */
+    font-size: inherit !important;
+    color: #f1f5f9 !important;
+    white-space: pre !important;
     display: block !important;
 }
 
 .prose blockquote {
-    border-left: 4px solid #3b82f6 !important; /* Bright blue accent */
-    padding: 0.6em 1em !important; /* Less padding */
-    margin: 1em 0 !important; /* Less margin */
-    color: #cbd5e1 !important; /* Bright secondary text */
+    border-left: 4px solid #3b82f6 !important;
+    padding: 0.6em 1em !important;
+    margin: 1em 0 !important;
+    color: #cbd5e1 !important;
     background-color: #1e293b !important;
     border-radius: 4px !important;
     font-style: italic !important;
 }
 
 .prose ul, .prose ol {
-    color: #e2e8f0 !important; /* Much brighter for lists */
-    padding-left: 1.5em !important; /* Less indentation */
-    margin: 0.5em 0 !important; /* Less margin */
+    color: #e2e8f0 !important;
+    padding-left: 1.5em !important;
+    margin: 0.5em 0 !important;
     text-align: left !important;
 }
 
 .prose li {
-    color: #e2e8f0 !important; /* Much brighter for list items */
-    margin-bottom: 0.2em !important; /* Less spacing between items */
-    line-height: 1.4 !important; /* Tighter line height */
+    color: #e2e8f0 !important;
+    margin-bottom: 0.2em !important;
+    line-height: 1.4 !important;
     text-align: left !important;
     display: list-item !important;
 }
 
-/* Make bullet points much more visible and prevent line breaks */
 .prose ul li {
     list-style-type: disc !important;
     display: list-item !important;
@@ -476,23 +402,23 @@ body.light-mode ::-webkit-scrollbar-thumb:hover {
 }
 
 .prose ul li::marker {
-    color: #f1f5f9 !important; /* Very bright bullets */
+    color: #f1f5f9 !important;
     content: "•" !important;
 }
 
 .prose ol li::marker {
-    color: #f1f5f9 !important; /* Very bright numbers */
+    color: #f1f5f9 !important;
     font-weight: 600 !important;
 }
 
 .prose a {
-    color: #60a5fa !important; /* Bright blue links */
+    color: #60a5fa !important;
     text-decoration: underline !important;
     font-weight: 500 !important;
 }
 
 .prose a:hover {
-    color: #93c5fd !important; /* Even brighter on hover */
+    color: #93c5fd !important;
 }
 
 .prose table {
@@ -506,253 +432,25 @@ body.light-mode ::-webkit-scrollbar-thumb:hover {
 
 .prose th, .prose td {
     border: 1px solid #475569 !important;
-    padding: 0.6em !important; /* Less padding */
+    padding: 0.6em !important;
     text-align: left !important;
-    color: #e2e8f0 !important; /* Bright table text */
+    color: #e2e8f0 !important;
 }
 
 .prose th {
     background-color: #1e293b !important;
     font-weight: 700 !important;
-    color: #f1f5f9 !important; /* Very bright headers */
+    color: #f1f5f9 !important;
 }
 
 .prose tr:nth-child(even) td {
     background-color: #1e293b !important;
 }
 
-/* Light mode overrides (keep existing good contrast) */
-body.light-mode .prose h1, 
-body.light-mode .prose h2, 
-body.light-mode .prose h3, 
-body.light-mode .prose h4, 
-body.light-mode .prose h5, 
-body.light-mode .prose h6 {
-    color: #1e293b !important;
-}
-
-body.light-mode .prose p {
-    color: #1e293b !important;
-    text-align: left !important;
-    text-justify: none !important;
-}
-
-body.light-mode .prose strong {
-    color: #0f172a !important;
-}
-
-body.light-mode .prose em {
-    color: #475569 !important;
-}
-
-body.light-mode .prose ul, 
-body.light-mode .prose ol {
-    color: #1e293b !important;
-}
-
-body.light-mode .prose li {
-    color: #1e293b !important;
-}
-
-body.light-mode .prose ul li::marker {
-    color: #0f172a !important;
-}
-
-body.light-mode .prose ol li::marker {
-    color: #0f172a !important;
-}
-
-body.light-mode .prose code {
-    background-color: #f1f5f9 !important;
-    color: #1e293b !important;
-    border: 1px solid #cbd5e1 !important;
-}
-
-body.light-mode .prose pre {
-    background-color: #f8fafc !important;
-    color: #1e293b !important;
-    border: 1px solid #e2e8f0 !important;
-}
-
-body.light-mode .prose pre code {
-    color: #1e293b !important;
-}
-
-body.light-mode .prose blockquote {
-    background-color: #f8fafc !important;
-    color: #475569 !important;
-    border-left: 4px solid #2563eb !important;
-}
-
-body.light-mode .prose th {
-    background-color: #f1f5f9 !important;
-    color: #1e293b !important;
-}
-
-body.light-mode .prose th, 
-body.light-mode .prose td {
-    color: #1e293b !important;
-}
-
-body.light-mode .prose tr:nth-child(even) td {
-    background-color: #f8fafc !important;
-}
-
-body.light-mode .prose a {
-    color: #2563eb !important;
-}
-
-body.light-mode .prose a:hover {
-    color: #1d4ed8 !important;
-}
-
-/* Enhanced markdown content styling with better contrast for both themes */
-.prose {
-    max-width: none !important;
-}
-
-.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
-    color: var(--theme-text) !important;
-    margin-top: 1.5em !important;
-    margin-bottom: 0.5em !important;
-    font-weight: 700 !important;
-}
-
-.prose p {
-    color: var(--theme-text) !important;
-    margin-bottom: 1em !important;
-    line-height: 1.6 !important;
-}
-
-.prose strong {
-    color: var(--theme-text) !important;
-    font-weight: 700 !important;
-}
-
-.prose em {
-    color: var(--theme-text-secondary) !important;
-    font-style: italic !important;
-}
-
-.prose code {
-    color: var(--theme-text) !important;
-    background-color: var(--theme-bg-tertiary) !important;
-    padding: 3px 6px !important;
-    border-radius: 4px !important;
-    font-size: 0.9em !important;
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
-    border: 1px solid var(--theme-border) !important;
-}
-
-.prose pre {
-    background-color: var(--theme-bg-tertiary) !important;
-    color: var(--theme-text) !important;
-    padding: 1.2em !important;
-    border-radius: 8px !important;
-    overflow-x: auto !important;
-    border: 1px solid var(--theme-border) !important;
-    margin: 1em 0 !important;
-}
-
-.prose pre code {
-    background-color: transparent !important;
-    padding: 0 !important;
-    border-radius: 0 !important;
-    border: none !important;
-    font-size: 0.85em !important;
-}
-
-.prose blockquote {
-    border-left: 4px solid var(--theme-primary) !important;
-    padding: 0.8em 1.2em !important;
-    margin: 1.2em 0 !important;
-    color: var(--theme-text-secondary) !important;
-    background-color: var(--theme-bg-secondary) !important;
-    border-radius: 6px !important;
-    font-style: italic !important;
-}
-
-.prose ul, .prose ol {
-    color: var(--theme-text) !important;
-    padding-left: 1.8em !important;
-    margin: 0.8em 0 !important;
-}
-
-.prose li {
-    color: var(--theme-text) !important;
-    margin-bottom: 0.4em !important;
-    line-height: 1.5 !important;
-}
-
-.prose a {
-    color: var(--theme-primary) !important;
-    text-decoration: underline !important;
-    font-weight: 500 !important;
-}
-
-.prose a:hover {
-    color: var(--theme-primary-hover) !important;
-}
-
-.prose table {
-    border-collapse: collapse !important;
-    width: 100% !important;
-    margin: 1.2em 0 !important;
-    border: 1px solid var(--theme-border) !important;
-    border-radius: 6px !important;
-    overflow: hidden !important;
-}
-
-.prose th, .prose td {
-    border: 1px solid var(--theme-border) !important;
-    padding: 0.8em !important;
-    text-align: left !important;
-    color: var(--theme-text) !important;
-}
-
-.prose th {
-    background-color: var(--theme-bg-secondary) !important;
-    font-weight: 700 !important;
-    color: var(--theme-text) !important;
-}
-
-.prose tr:nth-child(even) td {
-    background-color: var(--theme-bg-secondary) !important;
-}
-
-/* Enhanced contrast for light mode markdown */
-body.light-mode .prose code {
-    background-color: #f1f5f9 !important;
-    color: #1e293b !important;
-    border: 1px solid #cbd5e1 !important;
-}
-
-body.light-mode .prose pre {
-    background-color: #f8fafc !important;
-    color: #1e293b !important;
-    border: 1px solid #e2e8f0 !important;
-}
-
-body.light-mode .prose blockquote {
-    background-color: #f8fafc !important;
-    color: #475569 !important;
-    border-left: 4px solid #2563eb !important;
-}
-
-body.light-mode .prose th {
-    background-color: #f1f5f9 !important;
-    color: #1e293b !important;
-}
-
-body.light-mode .prose tr:nth-child(even) td {
-    background-color: #f8fafc !important;
-}
-
-/* Additional theme classes for MarkdownRenderer */
 .theme-code-inline {
-    color: var(--theme-text) !important;
-    background-color: var(--theme-bg-tertiary) !important;
-    border: 1px solid var(--theme-border) !important;
+    color: #f1f5f9 !important;
+    background-color: #1e293b !important;
+    border: 1px solid #475569 !important;
 }
 
 .theme-text-link {
@@ -767,31 +465,6 @@ body.light-mode .prose tr:nth-child(even) td {
     border-color: var(--theme-primary) !important;
 }
 
-/* Light mode specific overrides for markdown components */
-body.light-mode .theme-code-inline {
-    background-color: #f1f5f9 !important;
-    color: #1e293b !important;
-    border: 1px solid #cbd5e1 !important;
-}
-
-body.light-mode .theme-text-link {
-    color: var(--theme-primary-light) !important;
-}
-
-body.light-mode .theme-border-accent {
-    border-color: var(--theme-primary-light) !important;
-}
-
-/* Enhanced table styling for both themes */
-.prose table tr:nth-child(even) {
-    background-color: var(--theme-bg-secondary) !important;
-}
-
-body.light-mode .prose table tr:nth-child(even) {
-    background-color: #f8fafc !important;
-}
-
-/* Message selection styling - EXTREMELY high contrast */
 .message-selected {
     background: #000000 !important;
     color: #00ff00 !important;
@@ -825,82 +498,10 @@ body.light-mode .prose table tr:nth-child(even) {
     border-left: 4px solid #00ff00 !important;
 }
 
-/* Conversation selection styling */
 .conversation-selected {
-  background-color: rgba(59, 130, 246, 0.15) !important; /* Default fallback */
+  background-color: rgba(59, 130, 246, 0.15) !important;
 }
 
-/* Light mode - soft pastel pink */
-.light-mode .conversation-selected {
-  background-color: rgba(236, 72, 153, 0.12) !important; /* Very soft pink */
-  border: 1px solid rgba(236, 72, 153, 0.2) !important;
-  color: #1f2937 !important;
-}
-
-/* Dark mode - soft turquoise */
-.dark-mode .conversation-selected {
-  background-color: rgba(20, 184, 166, 0.15) !important; /* Soft turquoise */
-  border: 1px solid rgba(20, 184, 166, 0.25) !important;
-  color: #f9fafb !important;
-}
-
-/* Light mode specific - Pastel Pink */
-body.light-mode .message-selected {
-    background: #fce7f3 !important;
-    color: #831843 !important;
-    border: 2px solid #f9a8d4 !important;
-    box-shadow: 0 0 15px rgba(249, 168, 212, 0.4), inset 0 0 15px rgba(249, 168, 212, 0.1) !important;
-    transform: scale(1.02) !important;
-    border-radius: 8px !important;
-}
-
-body.light-mode .message-selected * {
-    color: #831843 !important;
-}
-
-body.light-mode .message-selected .theme-text-muted {
-    color: #a21caf !important;
-}
-
-body.light-mode .message-selected code {
-    background-color: #f3e8ff !important;
-    color: #831843 !important;
-    border: 1px solid #f9a8d4 !important;
-}
-
-body.light-mode .message-selected pre {
-    background-color: #f3e8ff !important;
-    border: 1px solid #f9a8d4 !important;
-}
-
-body.light-mode .message-selected blockquote {
-    background-color: #f3e8ff !important;
-    border-left: 4px solid #f9a8d4 !important;
-}
-
-body.light-mode .conversation-selected {
-    background: #fce7f3 !important;
-    color: #831843 !important;
-    border: 2px solid #f9a8d4 !important;
-    box-shadow: 0 0 12px rgba(249, 168, 212, 0.3) !important;
-    transform: scale(1.05) translateX(5px) !important;
-    border-radius: 8px !important;
-}
-
-body.light-mode .conversation-selected * {
-    color: #831843 !important;
-}
-
-body.light-mode .conversation-selected .theme-text-muted,
-body.light-mode .conversation-selected .text-gray-500 {
-    color: #a21caf !important;
-}
-
-body.light-mode .conversation-selected svg {
-    color: #831843 !important;
-}
-
-/* Dark mode - Pastel Turquoise */
 body.dark-mode .message-selected {
     background: #0f766e !important;
     color: #ccfbf1 !important;
@@ -956,9 +557,6 @@ body.dark-mode .conversation-selected svg {
     color: #ccfbf1 !important;
 }
 
-/* === CodeMirror Editor Theming - START === */
-
-/* CodeMirror specific styles */
 .cm-editor {
   height: 100% !important;
   max-height: 100% !important;
@@ -973,7 +571,6 @@ body.dark-mode .conversation-selected svg {
   min-height: 100% !important;
 }
 
-/* Ensure the parent container allows scrolling */
 .code-editor-container {
   height: 100%;
   overflow: hidden;
@@ -981,59 +578,35 @@ body.dark-mode .conversation-selected svg {
   flex-direction: column;
 }
 
-/* Light Mode Editor Theme */
-body.light-mode .cm-editor {
-  color: var(--theme-text-light);
-  background-color: var(--theme-bg-light);
-}
-body.light-mode .cm-content {
-  caret-color: var(--theme-primary-light);
-}
-body.light-mode .cm-cursor, body.light-mode .cm-dropCursor {
-  border-left-color: var(--theme-primary-light) !important;
-}
-body.light-mode .cm-selectionBackground,
-body.light-mode .cm-content ::selection {
-  background-color: #dbeafe !important; /* A soft blue selection */
-}
-body.light-mode .cm-gutters {
-  background-color: var(--theme-bg-secondary-light);
-  color: var(--theme-text-muted-light);
-  border-right: 1px solid var(--theme-border-light);
-}
-body.light-mode .cm-activeLine,
-body.light-mode .cm-activeLineGutter {
-  background-color: #f1f5f9;
-}
-
-/* Dark Mode Editor Theme */
 body.dark-mode .cm-editor {
   color: var(--theme-text-dark);
   background-color: var(--theme-bg-secondary-dark);
 }
+
 body.dark-mode .cm-content {
   caret-color: var(--theme-primary-dark);
 }
+
 body.dark-mode .cm-cursor, body.dark-mode .cm-dropCursor {
   border-left-color: var(--theme-primary-dark) !important;
 }
+
 body.dark-mode .cm-selectionBackground,
 body.dark-mode .cm-content ::selection {
-  background-color: #334155 !important; /* Your tertiary dark background */
+  background-color: #334155 !important;
 }
+
 body.dark-mode .cm-gutters {
   background-color: var(--theme-bg-dark);
   color: var(--theme-text-muted-dark);
   border-right: 1px solid var(--theme-border-dark);
 }
+
 body.dark-mode .cm-activeLine,
 body.dark-mode .cm-activeLineGutter {
   background-color: #334155;
 }
 
-/* === CodeMirror Editor Theming - END === */
-
-/* ...existing animation keyframes... */
 .streaming-dots {
     display: flex;
     gap: 4px;
@@ -1088,18 +661,6 @@ body.dark-mode .cm-activeLineGutter {
     50% { opacity: 0.5; }
 }
 
-/* New selection styles */
-.conversation-selected {
-  background: linear-gradient(135deg, var(--theme-selected-border) 0%, var(--theme-selected) 100%);
-  color: var(--theme-selected-text);
-  border: 2px solid var(--theme-selected-border);
-  box-shadow: 0 0 0 2px var(--theme-selected-shadow), 0 4px 8px rgba(0, 0, 0, 0.3);
-  transform: scale(1.05) translateX(5px);
-  border-radius: 8px;
-  margin: 2px 0;
-  z-index: 10;
-  position: relative;
-}
 .pane-header-close-button {
   opacity: 1 !important;
   visibility: visible !important;
@@ -1108,24 +669,21 @@ body.dark-mode .cm-activeLineGutter {
 }
 
 .pane-header-close-button:hover {
-  color: var(--theme-danger) !important; /* Red on hover */
+  color: var(--theme-danger) !important;
   cursor: pointer;
 }
 
-
-/* Modal overlay: full-screen, dark translucent background */
 .cron-daemon-panel-overlay {
     position: fixed;
-    inset: 0; /* top:0; left:0; right:0; bottom:0 */
+    inset: 0;
     background-color: rgba(0, 0, 0, 0.75);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 9999; /* must be above main UI */
+    z-index: 9999;
     padding: 1rem;
 }
 
-/* Panel container styles—dark background, rounded corners */
 .cron-daemon-panel-container {
     background-color: var(--theme-bg-secondary);
     border: 1px solid var(--theme-border);
@@ -1139,7 +697,6 @@ body.dark-mode .cm-activeLineGutter {
     overflow: hidden;
 }
 
-/* Header with title and close button */
 .cron-daemon-panel-header {
     display: flex;
     justify-content: space-between;
@@ -1164,7 +721,6 @@ body.dark-mode .cm-activeLineGutter {
     color: var(--theme-primary-hover);
 }
 
-/* Content area scrolls if overflow */
 .cron-daemon-panel-content {
     padding: 1rem 1.5rem;
     overflow-y: auto;
@@ -1172,7 +728,6 @@ body.dark-mode .cm-activeLineGutter {
     color: var(--theme-text);
 }
 
-/* Scrollbar styling for modern browsers */
 .cron-daemon-panel-content::-webkit-scrollbar {
     width: 10px;
 }
@@ -1186,68 +741,272 @@ body.dark-mode .cm-activeLineGutter {
     border-radius: 10px;
     border: 2px solid var(--theme-bg-tertiary);
 }
-/* Icon colors - adjust as needed to fit the retro aesthetic */
+
 .action-grid-button .lucide-clock {
     color: var(--theme-primary); 
 }
 .action-grid-button .lucide-image {
-    color: #a855f7; /* Purple for retro pop */
+    color: #a855f7;
 }
 .action-grid-button .lucide-bar-chart-3 {
     color: var(--theme-success);
 }
 .action-grid-button .lucide-wrench {
-    color: #f59e0b; /* Amber/Orange for retro pop */
+    color: #f59e0b;
 }
 .action-grid-button .lucide-file-json {
-    color: #ef4444; /* Red for retro pop */
+    color: #ef4444;
 }
 .action-grid-button .lucide-users {
-    color: #6366f1; /* Indigo for retro pop */
+    color: #6366f1;
 }
 
-/* Styles for the sidebar collapse/expand button - ensures it's centered and visually clear */
 .p-4.border-t.theme-border.flex-shrink-0 > div > button.group {
-    height: 40px; /* Fixed height for consistency */
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Ensure no text overflow when collapsed if content is too wide */
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
 .action-grid-button {
-    /* Base styles: fill the cell, center content (icon), smooth transitions */
     width: 100%;
     height: 100%;
-    padding: 12px; /* p-3 is 0.75rem = 12px */
+    padding: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition-property: background-color, color, transform, box-shadow; /* Added box-shadow for transition */
-    transition-duration: 0.15s; /* Faster transition for responsiveness */
-    transition-timing-function: ease-out; /* default ease */
-
-    /* Theme colors */
-    background-color: var(--theme-bg-secondary); /* Darker base for buttons for depth */
-    color: var(--theme-text-muted); /* Muted text color by default */
-    
-    /* Retro box effect - initial state */
-    border: 1px solid var(--theme-border-secondary); /* Softer inner border for depth */
-    border-radius: 4px; /* More squarish, less rounded */
+    transition-property: background-color, color, transform, box-shadow;
+    transition-duration: 0.15s;
+    transition-timing-function: ease-out;
+    background-color: var(--theme-bg-secondary);
+    color: var(--theme-text-muted);
+    border: 1px solid var(--theme-border-secondary);
+    border-radius: 4px;
     box-shadow: 
-        inset 0 1px 4px rgba(0, 0, 0, 0.4), /* Darker inner shadow for depth */
-        0 1px 1px rgba(0, 0, 0, 0.2), /* Subtle outer shadow */
-        0 2px 4px rgba(0, 0, 0, 0.15); /* More pronounced outer shadow for lift */
-
-    font-size: 0.875rem; /* text-sm */
-    font-weight: 500; /* font-medium */
+        inset 0 1px 4px rgba(0, 0, 0, 0.4),
+        0 1px 1px rgba(0, 0, 0, 0.2),
+        0 2px 4px rgba(0, 0, 0, 0.15);
+    font-size: 0.875rem;
+    font-weight: 500;
     cursor: pointer;
-    position: relative; /* For detailed hover effects */
-    overflow: hidden; /* Ensures shadows/gradients stay within bounds */
-    text-decoration: none; /* Ensure no underline on icons */
+    position: relative;
+    overflow: hidden;
+    text-decoration: none;
 }
+
+.action-grid-button:hover {
+    background-color: var(--theme-button-hover);
+    color: var(--theme-text);
+    transform: translateY(-2px);
+    box-shadow: 
+        inset 0 1px 4px rgba(0, 0, 0, 0.5),
+        0 5px 10px rgba(0, 0, 0, 0.3),
+        0 0 15px rgba(var(--theme-primary-rgb), 0.4);
+}
+
+.action-grid-button:active {
+    transform: translateY(0);
+    box-shadow: 
+        inset 0 2px 5px rgba(0, 0, 0, 0.5),
+        0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-collapsed-true button.group {
+    width: 100%;
+    padding: 0.5rem;
+}
+
+@media (max-width: 640px) {
+    .cron-daemon-panel-container {
+        max-width: 100%;
+        max-height: 90vh;
+        border-radius: 0.5rem;
+    }
+}
+
+/* ============================================
+   LIGHT MODE OVERRIDES - MUST BE AT THE END
+   ============================================ */
+
+body.light-mode .bg-gray-900 { background-color: var(--theme-bg) !important; }
+body.light-mode .bg-gray-800 { background-color: var(--theme-bg-secondary) !important; }
+body.light-mode .bg-gray-700 { background-color: var(--theme-bg-tertiary) !important; }
+body.light-mode .text-gray-100 { color: var(--theme-text) !important; }
+body.light-mode .text-gray-200 { color: var(--theme-text) !important; }
+body.light-mode .text-gray-300 { color: var(--theme-text-secondary) !important; }
+body.light-mode .text-gray-400 { color: var(--theme-text-muted) !important; }
+body.light-mode .text-gray-500 { color: var(--theme-text-muted) !important; }
+body.light-mode .border-gray-700 { border-color: var(--theme-border) !important; }
+body.light-mode .border-gray-600 { border-color: var(--theme-border-secondary) !important; }
+body.light-mode .bg-blue-800 { background-color: var(--theme-message-user) !important; }
+body.light-mode .bg-red-900 { background-color: var(--theme-message-error) !important; }
+body.light-mode .border-red-700 { border-color: var(--theme-danger) !important; }
+body.light-mode .text-blue-400,
+body.light-mode .text-blue-500 { color: var(--theme-primary) !important; }
+body.light-mode .text-green-400 { color: var(--theme-success) !important; }
+body.light-mode .text-yellow-400 { color: #d97706 !important; }
+body.light-mode .text-red-400 { color: var(--theme-danger) !important; }
+body.light-mode .text-orange-400 { color: #ea580c !important; }
+body.light-mode .bg-\[#0b0c0f\] { background-color: var(--theme-input-bg) !important; }
+body.light-mode .ring-blue-500 {
+  --tw-ring-color: rgb(236 72 153 / var(--tw-ring-opacity)) !important;
+}
+body.light-mode .border-blue-500 {
+  border-color: #ec4899 !important;
+}
+
+body.light-mode .stream-cursor {
+    background: var(--theme-text) !important;
+}
+
+body.light-mode select {
+    background-color: var(--theme-input-bg) !important;
+    border-color: var(--theme-input-border) !important;
+    color: var(--theme-text) !important;
+}
+
+body.light-mode .fixed {
+    background-color: var(--theme-bg-secondary) !important;
+    border-color: var(--theme-border) !important;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+body.light-mode ::-webkit-scrollbar {
+    width: 8px;
+}
+
+body.light-mode ::-webkit-scrollbar-track {
+    background: var(--theme-bg-secondary);
+}
+
+body.light-mode ::-webkit-scrollbar-thumb {
+    background: var(--theme-border-secondary);
+    border-radius: 4px;
+}
+
+body.light-mode ::-webkit-scrollbar-thumb:hover {
+    background: var(--theme-text-muted);
+}
+
+/* LIGHT MODE PROSE - PINK THEMED */
+body.light-mode .prose h1, 
+body.light-mode .prose h2, 
+body.light-mode .prose h3, 
+body.light-mode .prose h4, 
+body.light-mode .prose h5, 
+body.light-mode .prose h6 {
+    color: #1e293b !important;
+}
+
+body.light-mode .prose p {
+    color: #1e293b !important;
+    text-align: left !important;
+    text-justify: none !important;
+}
+
+body.light-mode .prose strong {
+    color: #0f172a !important;
+}
+
+body.light-mode .prose em {
+    color: #475569 !important;
+}
+
+body.light-mode .prose ul, 
+body.light-mode .prose ol {
+    color: #1e293b !important;
+}
+
+body.light-mode .prose li {
+    color: #1e293b !important;
+}
+
+body.light-mode .prose ul li::marker {
+    color: #0f172a !important;
+}
+
+body.light-mode .prose ol li::marker {
+    color: #0f172a !important;
+}
+
+body.light-mode .prose code {
+    background-color: #fce7f3 !important;
+    color: #831843 !important;
+    border: 1px solid #f9a8d4 !important;
+}
+
+body.light-mode .prose pre {
+    background-color: #fdf2f8 !important;
+    color: #831843 !important;
+    border: 1px solid #f9a8d4 !important;
+}
+
+body.light-mode .prose pre code {
+    background-color: transparent !important;
+    color: #831843 !important;
+    border: none !important;
+}
+
+body.light-mode .prose blockquote {
+    background-color: #fce7f3 !important;
+    color: #831843 !important;
+    border-left: 4px solid #ec4899 !important;
+}
+
+body.light-mode .prose th {
+    background-color: #fce7f3 !important;
+    color: #831843 !important;
+}
+
+body.light-mode .prose th, 
+body.light-mode .prose td {
+    color: #1e293b !important;
+    border: 1px solid #f9a8d4 !important;
+}
+
+body.light-mode .prose tr:nth-child(even) td {
+    background-color: #fdf2f8 !important;
+}
+
+body.light-mode .prose table {
+    border: 1px solid #f9a8d4 !important;
+}
+
+body.light-mode .prose a {
+    color: #ec4899 !important;
+}
+
+body.light-mode .prose a:hover {
+    color: #db2777 !important;
+}
+
+body.light-mode .theme-code-inline {
+    background-color: #fce7f3 !important;
+    color: #831843 !important;
+    border: 1px solid #f9a8d4 !important;
+}
+
+body.light-mode .theme-text-link {
+    color: var(--theme-primary-light) !important;
+}
+
+body.light-mode .theme-border-accent {
+    border-color: var(--theme-primary-light) !important;
+}
+
+body.light-mode .prose table tr:nth-child(even) {
+    background-color: #fdf2f8 !important;
+}
+
+/* LIGHT MODE HOVER - PINK */
+body.light-mode .theme-hover:hover {
+    background-color: #fce7f3 !important;
+}
+
+/* LIGHT MODE ACTION GRID BUTTONS - PINK */
 body.light-mode .action-grid-button {
     background-color: var(--theme-bg-tertiary-light);
     color: var(--theme-text-muted-light);
@@ -1257,16 +1016,13 @@ body.light-mode .action-grid-button {
         0 1px 1px rgba(0, 0, 0, 0.1), 
         0 2px 4px rgba(0, 0, 0, 0.08);
 }
-.action-grid-button:hover {
-    background-color: var(--theme-hover); /* Brighter on hover */
-    color: var(--theme-text); /* Brighter icon on hover */
-    transform: translateY(-2px); /* More pronounced lift */
-    
-    /* Retro hover glow and stronger shadow */
+
+body.light-mode .action-grid-button:hover {
+    background-color: #fce7f3 !important;
     box-shadow: 
-        inset 0 1px 4px rgba(0, 0, 0, 0.5), /* Stronger inner shadow */
-        0 5px 10px rgba(0, 0, 0, 0.3), /* Stronger outer shadow for lift */
-        0 0 15px rgba(var(--theme-primary-rgb), 0.4); /* Primary color outer glow */
+        inset 0 1px 4px rgba(236, 72, 153, 0.2),
+        0 5px 10px rgba(236, 72, 153, 0.15),
+        0 0 15px rgba(236, 72, 153, 0.3);
 }
 
 body.light-mode .action-grid-button:active {
@@ -1275,61 +1031,122 @@ body.light-mode .action-grid-button:active {
         0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
-/* When sidebar is collapsed, adjust the toggle button for visibility */
-.sidebar-collapsed-true button.group { /* Assuming you can target the button when sidebarCollapsed is true */
-    width: 100%; /* Spans the narrow width */
-    /* Adjust padding or icon size to fit */
-    padding: 0.5rem; /* p-2 */
-}/* Optional: Active/Pressed state for a click feedback */
-.action-grid-button:active {
-    transform: translateY(0); /* "Presses" the button down */
-    box-shadow: 
-        inset 0 2px 5px rgba(0, 0, 0, 0.5), /* Deep inner shadow */
-        0 1px 2px rgba(0, 0, 0, 0.1); /* Minimal outer shadow */
+/* LIGHT MODE SELECTIONS - PINK */
+body.light-mode .message-selected {
+    background: #fce7f3 !important;
+    color: #831843 !important;
+    border: 2px solid #f9a8d4 !important;
+    box-shadow: 0 0 15px rgba(249, 168, 212, 0.4), inset 0 0 15px rgba(249, 168, 212, 0.1) !important;
+    transform: scale(1.02) !important;
+    border-radius: 8px !important;
 }
 
-.action-grid-button .lucide-clock {
-    color: var(--theme-primary); 
-}
-.action-grid-button .lucide-image {
-    color: #a855f7; /* Purple for retro pop */
-}
-.action-grid-button .lucide-bar-chart-3 {
-    color: var(--theme-success);
-}
-.action-grid-button .lucide-wrench {
-    color: #f59e0b; /* Amber/Orange for retro pop */
-}
-.action-grid-button .lucide-file-json {
-    color: #ef4444; /* Red for retro pop */
-}
-.action-grid-button .lucide-users {
-    color: #6366f1; /* Indigo for retro pop */
+body.light-mode .message-selected * {
+    color: #831843 !important;
 }
 
-/* Styles for the sidebar collapse/expand button - ensures it's centered and visually clear */
-.p-4.border-t.theme-border.flex-shrink-0 > div > button.group {
-    height: 40px; /* Fixed height for consistency */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    /* Ensure no text overflow when collapsed if content is too wide */
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+body.light-mode .message-selected .theme-text-muted {
+    color: #a21caf !important;
 }
 
-/* When sidebar is collapsed, adjust the toggle button for visibility */
-.sidebar-collapsed-true button.group { /* Assuming you can target the button when sidebarCollapsed is true */
-    width: 100%; /* Spans the narrow width */
-    /* Adjust padding or icon size to fit */
-    padding: 0.5rem; /* p-2 */
+body.light-mode .message-selected code {
+    background-color: #f3e8ff !important;
+    color: #831843 !important;
+    border: 1px solid #f9a8d4 !important;
 }
 
-@media (max-width: 640px) {
-    .cron-daemon-panel-container {
-        max-width: 100%;
-        max-height: 90vh;
-        border-radius: 0.5rem;
-    }
+body.light-mode .message-selected pre {
+    background-color: #f3e8ff !important;
+    border: 1px solid #f9a8d4 !important;
+}
+
+body.light-mode .message-selected blockquote {
+    background-color: #f3e8ff !important;
+    border-left: 4px solid #f9a8d4 !important;
+}
+
+body.light-mode .conversation-selected {
+    background: #fce7f3 !important;
+    color: #831843 !important;
+    border: 2px solid #f9a8d4 !important;
+    box-shadow: 0 0 12px rgba(249, 168, 212, 0.3) !important;
+    transform: scale(1.05) translateX(5px) !important;
+    border-radius: 8px !important;
+}
+
+body.light-mode .conversation-selected * {
+    color: #831843 !important;
+}
+
+body.light-mode .conversation-selected .theme-text-muted,
+body.light-mode .conversation-selected .text-gray-500 {
+    color: #a21caf !important;
+}
+
+body.light-mode .conversation-selected svg {
+    color: #831843 !important;
+}
+
+/* LIGHT MODE CODEMIRROR */
+body.light-mode .cm-editor {
+  color: var(--theme-text-light);
+  background-color: var(--theme-bg-light);
+}
+
+body.light-mode .cm-content {
+  caret-color: var(--theme-primary-light);
+}
+
+body.light-mode .cm-cursor, body.light-mode .cm-dropCursor {
+  border-left-color: var(--theme-primary-light) !important;
+}
+
+body.light-mode .cm-selectionBackground,
+body.light-mode .cm-content ::selection {
+  background-color: #fce7f3 !important;
+}
+
+body.light-mode .cm-gutters {
+  background-color: var(--theme-bg-secondary-light);
+  color: var(--theme-text-muted-light);
+  border-right: 1px solid var(--theme-border-light);
+}
+
+body.light-mode .cm-activeLine,
+body.light-mode .cm-activeLineGutter {
+  background-color: #f1f5f9;
+}
+body.light-mode .theme-bg-tertiary pre,
+body.light-mode .theme-bg-tertiary code,
+body.light-mode .theme-bg-tertiary > div,
+body.light-mode .theme-bg-tertiary > div > div {
+    background-color: #fdf2f8 !important;
+    color: #831843 !important;
+}
+
+body.light-mode .theme-bg-tertiary span {
+    color: #831843 !important;
+}
+/* OVERRIDE HARDCODED HOVER COLORS IN LIGHT MODE */
+body.light-mode .hover\:bg-gray-800:hover {
+    background-color: #fce7f3 !important;
+}
+
+body.light-mode button:hover,
+body.light-mode .theme-hover:hover {
+    background-color: #fce7f3 !important;
+}
+
+/* Make sure dropdowns don't get pink background, only pink on item hover */
+body.light-mode .group:hover > div {
+    background-color: var(--theme-bg-secondary) !important;
+}
+
+body.light-mode .group:hover > div > button:hover {
+    background-color: #fce7f3 !important;
+}
+/* OVERRIDE ALL HARDCODED GRAY HOVERS IN LIGHT MODE */
+body.light-mode .hover\:bg-gray-800:hover,
+body.light-mode .hover\:bg-gray-700:hover {
+    background-color: #fce7f3 !important;
 }

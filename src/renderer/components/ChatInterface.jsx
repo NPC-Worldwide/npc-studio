@@ -11,7 +11,8 @@ import {
 import { Icon } from 'lucide-react';
 import { avocado } from '@lucide/lab';
 import CronDaemonPanel from './CronDaemonPanel'; // <--- NEW IMPORT
-
+import CsvViewer from './CsvViewer';
+import DocxViewer from './DocxViewer';
 import MacroInput from './MacroInput';
 import SettingsMenu from './SettingsMenu';
 import NPCTeamMenu from './NPCTeamMenu';
@@ -126,7 +127,6 @@ const PaneHeader = memo(({
 });
 
 
-
 const LayoutNode = memo(({ node, path, component }) => {
     if (!node) return null;
 
@@ -185,36 +185,37 @@ const LayoutNode = memo(({ node, path, component }) => {
     if (node.type === 'content') {
         const { activeContentPaneId, setActiveContentPaneId, draggedItem,
             setDraggedItem, dropTarget, setDropTarget, contentDataRef,
-            updateContentPane, performSplit, renderChatView,
-            renderFileEditor, renderTerminalView,
-            renderPdfViewer, renderBrowserViewer,
-            moveContentPane // Ensure moveContentPane is destructured here
+            updateContentPane, performSplit, 
+            renderChatView, renderFileEditor, renderTerminalView,
+            renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
+            moveContentPane
         } = component;
 
         const isActive = node.id === activeContentPaneId;
         const isTargeted = dropTarget?.nodePath.join('') === path.join('');
 
-        // --- CORRECTED onDrop FUNCTION ---
         const onDrop = (e, side) => {
-  e.preventDefault();
-  e.stopPropagation();
-  if (!component.draggedItem) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (!component.draggedItem) return;
 
-  if (component.draggedItem.type === 'pane') {
-    if (component.draggedItem.id === node.id) return;
-    component.moveContentPane(component.draggedItem.id, component.draggedItem.nodePath, path, side);
-    component.setDraggedItem(null);
-    component.setDropTarget(null);
-    return;
-  }
+            if (component.draggedItem.type === 'pane') {
+                if (component.draggedItem.id === node.id) return;
+                component.moveContentPane(component.draggedItem.id, component.draggedItem.nodePath, path, side);
+                component.setDraggedItem(null);
+                component.setDropTarget(null);
+                return;
+            }
 
-            // Existing logic for new items dropped from sidebar
             let contentType;
-            if (draggedItem.type === 'conversation') { // Use local draggedItem
+            if (draggedItem.type === 'conversation') {
                 contentType = 'chat';
             } else if (draggedItem.type === 'file') {
                 const ext = draggedItem.id.split('.').pop()?.toLowerCase();
-                contentType = ext === 'pdf' ? 'pdf' : 'editor';
+                if (ext === 'pdf') contentType = 'pdf';
+                else if (['csv', 'xlsx', 'xls'].includes(ext)) contentType = 'csv';
+                else if (['docx', 'doc'].includes(ext)) contentType = 'docx';
+                else contentType = 'editor';
             } else if (draggedItem.type === 'browser') {
                 contentType = 'browser';
             } else if (draggedItem.type === 'terminal') {
@@ -231,11 +232,11 @@ const LayoutNode = memo(({ node, path, component }) => {
             setDraggedItem(null);
             setDropTarget(null);
         };
-        // --- END CORRECTED onDrop FUNCTION ---
 
-        // --- RE-ADDED renderContent FUNCTION ---
         const renderContent = () => {
             const contentType = contentDataRef.current[node.id]?.contentType;
+            console.log('[RENDER_CONTENT] NodeId:', node.id, 'ContentType:', contentType);
+            
             switch (contentType) {
                 case 'chat':
                     return renderChatView({ nodeId: node.id });
@@ -245,13 +246,17 @@ const LayoutNode = memo(({ node, path, component }) => {
                     return renderTerminalView({ nodeId: node.id });
                 case 'pdf':
                     return renderPdfViewer({ nodeId: node.id });
+                case 'csv':
+                    return renderCsvViewer({ nodeId: node.id });
+                case 'docx':
+                    return renderDocxViewer({ nodeId: node.id });
                 case 'browser':
                     return renderBrowserViewer({ nodeId: node.id });
                 default:
+                    console.log('[RENDER_CONTENT] Unknown/empty content type');
                     return <div className="p-4 theme-text-muted">Empty pane.</div>;
             }
         };
-        // --- END RE-ADDED renderContent FUNCTION ---
 
         return (
             <div
@@ -259,7 +264,7 @@ const LayoutNode = memo(({ node, path, component }) => {
                 onClick={() => setActiveContentPaneId(node.id)}
                 onDragLeave={() => setDropTarget(null)}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
-                onDrop={(e) => onDrop(e, 'center')} // Call the corrected onDrop
+                onDrop={(e) => onDrop(e, 'center')}
             >
                 {draggedItem && (
                     <>
@@ -276,25 +281,29 @@ const LayoutNode = memo(({ node, path, component }) => {
     return null;
 });
 
-
-
 const getFileIcon = (filename) => {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     const iconProps = { size: 16, className: "flex-shrink-0" };
     switch(ext) {
-        case 'py': return <Code2 {...iconProps} className={`${iconProps.className} text-blue-500`} />;
-        case 'js': return <Code2 {...iconProps} className={`${iconProps.className} text-yellow-400`} />;
-        case 'md': return <FileText {...iconProps} className={`${iconProps.className} text-green-400`} />;
-        case 'json': return <FileJson {...iconProps} className={`${iconProps.className} text-orange-400`} />;
-        case 'html': return <Code2 {...iconProps} className={`${iconProps.className} text-red-400`} />;
-        case 'css': return <Code2 {...iconProps} className={`${iconProps.className} text-blue-300`} />;
-        case 'txt': case 'yaml': case 'yml': case 'npc': case 'jinx':
-             return <File {...iconProps} className={`${iconProps.className} text-gray-400`} />;
-        case 'pdf': return <FileText {...iconProps} className={`${iconProps.className} text-purple-400`} />;
-
-        default: return <File {...iconProps} className={`${iconProps.className} text-gray-400`} />;
+        case 'py': return <Code2 {...iconProps} 
+            className={`${iconProps.className} text-blue-500`} />;
+        case 'js': return <Code2 {...iconProps} 
+            className={`${iconProps.className} text-yellow-400`} />;
+        case 'md': return <FileText {...iconProps} 
+            className={`${iconProps.className} text-green-400`} />;
+        case 'json': return <FileJson {...iconProps} 
+            className={`${iconProps.className} text-orange-400`} />;
+        case 'csv': case 'xlsx': case 'xls': return <BarChart3 {...iconProps} 
+            className={`${iconProps.className} text-green-500`} />;
+        case 'docx': case 'doc': return <FileText {...iconProps} 
+            className={`${iconProps.className} text-blue-600`} />;
+        case 'pdf': return <FileText {...iconProps} 
+            className={`${iconProps.className} text-purple-400`} />;
+        default: return <File {...iconProps} 
+            className={`${iconProps.className} text-gray-400`} />;
     }
 };
+
 const convertFileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -3193,18 +3202,21 @@ useEffect(() => {
     cleanupPhantomPanes();
   }
 }, [rootLayoutNode, cleanupPhantomPanes]);
-
-
-  const handleFileClick = useCallback(async (filePath) => {
+const handleFileClick = useCallback(async (filePath) => {
     setCurrentFile(filePath);
     setActiveConversationId(null);
 
     const extension = filePath.split('.').pop()?.toLowerCase();
-    const contentType = extension === 'pdf' ? 'pdf' : 'editor';
+    let contentType = 'editor';
+    
+    if (extension === 'pdf') contentType = 'pdf';
+    else if (['csv', 'xlsx', 'xls'].includes(extension)) contentType = 'csv';
+    else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
+
+    console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
 
     const newPaneId = generateId();
     
-    // Create layout first
     setRootLayoutNode(oldRoot => {
         contentDataRef.current[newPaneId] = {};
         
@@ -3217,13 +3229,18 @@ useEffect(() => {
         if (activeContentPaneId) {
             const pathToActive = findNodePath(newRoot, activeContentPaneId);
             if (pathToActive && pathToActive.length > 0) {
-                const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                const targetParent = findNodeByPath(newRoot, 
+                    pathToActive.slice(0, -1)
+                );
                 const targetIndex = pathToActive[pathToActive.length - 1];
                 
                 if (targetParent && targetParent.type === 'split') {
                     const newChildren = [...targetParent.children];
-                    newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                    const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                    newChildren.splice(targetIndex + 1, 0, 
+                        { id: newPaneId, type: 'content' }
+                    );
+                    const newSizes = new Array(newChildren.length)
+                        .fill(100 / newChildren.length);
                     targetParent.children = newChildren;
                     targetParent.sizes = newSizes;
                     return newRoot;
@@ -3249,16 +3266,14 @@ useEffect(() => {
         return { id: newPaneId, type: 'content' };
     });
     
-    // Then update content
     setTimeout(async () => {
+        console.log('[FILE_CLICK] Updating content pane:', newPaneId, contentType, filePath);
         await updateContentPane(newPaneId, contentType, filePath);
         setRootLayoutNode(prev => ({ ...prev }));
     }, 0);
     
     setActiveContentPaneId(newPaneId);
 }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
-  
-
     const handleCreateNewFolder = () => {
         setPromptModal({
             isOpen: true,
@@ -3652,7 +3667,41 @@ useEffect(() => {
         );
     };
     
-    
+    const renderCsvViewer = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData?.contentId) return null;
+
+    return (
+        <CsvViewer
+            filePath={paneData.contentId}
+            nodeId={nodeId}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [rootLayoutNode, findNodePath, setDraggedItem, setPaneContextMenu, 
+    closeContentPane]);
+
+const renderDocxViewer = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData?.contentId) return null;
+
+    return (
+        <DocxViewer
+            filePath={paneData.contentId}
+            nodeId={nodeId}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [rootLayoutNode, findNodePath, setDraggedItem, setPaneContextMenu, 
+    closeContentPane]);
     const renderPdfContextMenu = () => {
        
        
@@ -8312,7 +8361,6 @@ const handleSearchResultSelect = async (conversationId, searchTerm) => {
     }, 100);
 };
 
-
 const layoutComponentApi = useMemo(() => ({
     rootLayoutNode,
     setRootLayoutNode,
@@ -8324,18 +8372,24 @@ const layoutComponentApi = useMemo(() => ({
     closeContentPane,
     moveContentPane, 
     createAndAddPaneNodeToLayout,
-    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer,
-    setPaneContextMenu // Add this new dependency
+    renderChatView, 
+    renderFileEditor, 
+    renderTerminalView, 
+    renderPdfViewer, 
+    renderCsvViewer,
+    renderDocxViewer,
+    renderBrowserViewer,
+    setPaneContextMenu
 }), [
     rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
     draggedItem, dropTarget, updateContentPane, performSplit, closeContentPane,
     moveContentPane, createAndAddPaneNodeToLayout,
-    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, renderBrowserViewer,
+    renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, 
+    renderCsvViewer, renderDocxViewer, renderBrowserViewer,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
-    setPaneContextMenu // Make sure it's here
+    setPaneContextMenu
 ]);
-
 
 const renderMainContent = () => {
 

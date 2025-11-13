@@ -1,7 +1,10 @@
 const { contextBridge, ipcRenderer, shell } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-
+readCsvContent: (filePath) => 
+  ipcRenderer.invoke('read-csv-content', filePath),
+readDocxContent: (filePath) => 
+  ipcRenderer.invoke('read-docx-content', filePath),
     getDefaultConfig: () => ipcRenderer.invoke('getDefaultConfig'),
     readDirectoryStructure: (dirPath) => ipcRenderer.invoke('readDirectoryStructure', dirPath),
     goUpDirectory: (currentPath) => ipcRenderer.invoke('goUpDirectory', currentPath),

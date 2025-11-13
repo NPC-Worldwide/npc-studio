@@ -4,7 +4,45 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check, Maximize2, Minimize2 } from 'lucide-react';
-
+const customLightStyle = {
+  'code[class*="language-"]': {
+    color: '#1e293b',
+    background: 'transparent',
+  },
+  'pre[class*="language-"]': {
+    color: '#1e293b',
+    background: '#fdf2f8',
+  },
+  'comment': { color: '#64748b', fontStyle: 'italic' },
+  'prolog': { color: '#64748b' },
+  'doctype': { color: '#64748b' },
+  'cdata': { color: '#64748b' },
+  'punctuation': { color: '#475569' },
+  'property': { color: '#db2777' },
+  'tag': { color: '#dc2626' },
+  'boolean': { color: '#0891b2' },
+  'number': { color: '#0891b2' },
+  'constant': { color: '#0891b2' },
+  'symbol': { color: '#0891b2' },
+  'deleted': { color: '#dc2626' },
+  'selector': { color: '#c026d3' },
+  'attr-name': { color: '#c026d3' },
+  'string': { color: '#059669' },
+  'char': { color: '#059669' },
+  'builtin': { color: '#7c3aed' },
+  'inserted': { color: '#059669' },
+  'operator': { color: '#475569' },
+  'entity': { color: '#db2777' },
+  'url': { color: '#0891b2' },
+  'variable': { color: '#dc2626' },
+  'atrule': { color: '#c026d3' },
+  'attr-value': { color: '#059669' },
+  'function': { color: '#2563eb' },
+  'class-name': { color: '#ea580c' },
+  'keyword': { color: '#db2777', fontWeight: 'bold' },
+  'regex': { color: '#059669' },
+  'important': { color: '#dc2626', fontWeight: 'bold' },
+};
 
 const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
   const [copied, setCopied] = useState(false);
@@ -73,15 +111,15 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
               </div>
             </div>
             <div className="overflow-auto h-[calc(100%-48px)]">
-              <SyntaxHighlighter
-                style={isDarkMode ? atomDark : oneLight}
-                language={match?.[1]}
-                PreTag="div"
-                showLineNumbers={true}
-                wrapLines={true}
-                lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap' } }}
-                {...props}
-              >
+<SyntaxHighlighter
+  style={isDarkMode ? atomDark : customLightStyle}
+  language={match?.[1]}
+  PreTag="div"
+  showLineNumbers={true}
+  wrapLines={true}
+  lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap' } }}
+  {...props}
+>
                 {codeString}
               </SyntaxHighlighter>
             </div>

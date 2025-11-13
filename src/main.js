@@ -2137,7 +2137,37 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
     return { error: `Failed to set up stream: ${err.message}`, streamId: currentStreamId };
   }
 });
+ipcMain.handle('read-csv-content', async (_, filePath) => {
+  try {
+    const XLSX = require('xlsx');
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    
+    return { 
+      headers: jsonData[0] || [], 
+      rows: jsonData.slice(1) || [],
+      error: null 
+    };
+  } catch (err) {
+    console.error('Error reading CSV/XLSX:', err);
+    return { headers: [], rows: [], error: err.message };
+  }
+});
 
+ipcMain.handle('read-docx-content', async (_, filePath) => {
+  try {
+    const mammoth = require('mammoth');
+    const buffer = await fsPromises.readFile(filePath);
+    const result = await mammoth.convertToMarkdown({ buffer });
+    
+    return { content: result.value, error: null };
+  } catch (err) {
+    console.error('Error reading DOCX:', err);
+    return { content: null, error: err.message };
+  }
+});
 ipcMain.handle('read-file-buffer', async (event, filePath) => {
   try {
     console.log(`[Main Process] Reading file buffer for: ${filePath}`);
@@ -2775,6 +2805,11 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
                              '.md', 
                              '.js', 
                              '.jsx', 
+                             '.docx', 
+                             '.csv', 
+                             '.xlsx', 
+                             '.doc', 
+                             '.xlsx', 
                              '.tsx', 
                              '.ts', 
                              '.json', 
