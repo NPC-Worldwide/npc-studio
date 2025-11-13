@@ -2,28 +2,197 @@
   <img src="https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/levi.PNG" alt="npc studio logo with Levi the dog howling at the moon" width="400" height="400">
 </p>
 
-
 # NPC Studio
 
-NPC Studio is an AI IDE that lets users have conversations with LLMs and Agents, edit files, explore data, execute code, and much more.
+NPC Studio is an AI-powered IDE that lets users have conversations with LLMs and Agents, edit files, explore data, execute code, and much more.
 
-Executables available for Linux, MacOS, and Windows at [our website](https://enpisi.com/npc-studio).
-At the moment, NPC Studio requires you to independently have ollama installed (or other API keys within .env files) and for you to have pulled models yourself. In future releases, we intend to bundle a program that can install ollama and models from within NPC Studio itself. We also aim to provide inference for users who don't have the local hardware necessary to run models. 
-If you have issues during installation, please let us know!
+**Download executables for Linux, MacOS, and Windows at [enpisi.com/npc-studio](https://enpisi.com/npc-studio)**
 
-## Demo video:
+## Demo Video
 
 <a href="https://www.youtube.com/watch?v=rXkc2CrLNb4" target="_blank">
   <img src="https://img.youtube.com/vi/rXkc2CrLNb4/0.jpg" alt="Watch the video" />
 </a>
 
+---
+
+## Table of Contents
+
+- [Features](#features)
+  - [AI Chat & Conversations](#ai-chat--conversations)
+  - [File Editing](#file-editing)
+  - [Document Viewers](#document-viewers)
+  - [Web Browsing](#web-browsing)
+  - [Image Tools (Vixynt)](#image-tools-vixynt)
+  - [Data Dashboard](#data-dashboard)
+  - [Agent Management](#agent-management)
+- [Themes](#themes)
+- [Installation](#installation)
+- [Getting Started with Development](#getting-started-with-development)
+- [License](#license)
+
+---
+
+## Features
+
+### AI Chat & Conversations
+
+Organize conversations by project path and chat with multiple AI models.
+
+![Chat Window](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/chat_window.png)
+
+**Thinking Traces**: See the agent's reasoning process:
+
+![Reasoning Trace](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/reasoning.png)
+
+**Aggregate Conversations**: Select and combine multiple conversations:
+
+![Select Conversations](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/convo_agg.png)
+![Aggregate Messages](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/agg_messages.png)
+
+**Include Attachments**: Attach files to your conversations:
+
+![Include Attachments](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/include_attachments.png)
+
+**Model Selection**: Choose from available models based on your environment:
+
+![Model Selector](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/model_selector.png)
+
+---
+
+### File Editing
+
+Edit code and text files with syntax highlighting.
+
+![Code Editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/code_editor.png)
+
+**AI-Powered Analysis**: Analyze files with AI assistance:
+
+![Analyze Files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/analyze_files.png)
+
+**Tiled Layout**: Edit files while chatting with AI:
+
+![Tiled Chat](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_chat_ai.png)
+
+---
+
+### Document Viewers
+
+**DOCX & XLSX Support**: Edit Word documents and Excel spreadsheets with full functionality:
+
+![DOCX and XLSX Editing](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/docx_xlsx.png)
+
+**PDF Analysis**: Highlight and analyze PDF documents:
+
+![PDF Highlighting](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/pdf_highlight.png)
+
+---
+
+### Web Browsing
+
+Browse the web with AI assistance at your fingertips.
+
+![AI Web Browsing](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/ai_web_browsing.png)
+
+**Tiled Browsing**: Browse while viewing PDFs or chatting:
+
+![Tiled PDF Browser](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_pdf_browser.png)
+
+
+
+---
+
+### Vixynt: your visual assistant
+
+**Photo Editor**: Browse photos
+
+![Photo Editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/photo_editor.png)
+
+**AI Image generation with references**:
+
+![Vixynt Editing](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/vixynt_image_edit.png)
+
+**DarkRoom**: Simple photo cropping, editing, and styling.
+
+![DarkRoom](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/darkroom.png)
+
+---
+
+### Data Dashboard
+
+Composable widgets for analytics, querying, and visualization.
+
+![Data Dashboard](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/data_dash.png)
+
+**Database Schema Viewer**:
+
+![Database Schema](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/db_viewer.png)
+
+**SQL Querying**: Run queries with natural language to SQL:
+
+![Database Query](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/db_query.png)
+
+**Memory Management**: Edit and manage agent memories:
+
+![Memory CRUD](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/memory_crud.png)
+
+**Knowledge Graph Explorer**:
+
+![Knowledge Graph](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/kg_inspector.png)
+
+---
+
+### Agent Management
+
+**Create and Edit NPC Personas**: edit the primary directive, model, provider, and jinxs for your persona.
+
+![Edit NPCs](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/edit_npcs.png)
+
+**Jinx Management**: Create and manage Jinxs for agents:
+
+![Jinx Editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tool.png)
+
+**Jinx Execution**: Run jinx workflows:
+
+![Jinx Execution](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/jinx_execution.png)
+
+**SQL Jinx**:
+
+![SQL Jinx](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/sql_jinx.png)
+
+**Context Editor**: Manage global and project context:
+
+![Context Editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/ctx_editor.png)
+
+---
+
+## Themes
+
+**Light Mode**: Full light mode support with pink accents:
+
+![Light Mode](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/light_mode.png)
+
+**Sidebar Controls**: Collapse sidebar, delete conversations, access menus:
+
+![Sidebar](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/sidebar.png)
+
+---
+
+## Settings
+
+**Global Settings**: Configure default models and providers:
+
+![Global Settings](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/default_settings.png)
+
+**Project Settings**: Set environment variables per project:
+
+![Environment Variables](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/env_variables.png)
+
+---
 
 ## Installation
 
-When installed via the executables or if you manually build npc-studio yourself, then it will be available as
-```bash
-npc-studio
-```
+Executables are available for Linux, MacOS, and Windows at [enpisi.com/npc-studio](https://enpisi.com/npc-studio).
 
 ### Requirements
 
@@ -31,186 +200,53 @@ npc-studio
 - Python 3.8 or higher (for the backend)
 - Ollama (optional, for local models)
 
-# Using NPC Studio
+> **Note**: NPC Studio currently includes a way to install ollama and to manage ollama models, but this feature has had issues on different operating systems, so if you run into it, please report here and we can do our best to fix it.
 
-## Chat with Agents and organize by project path
-- NPC Studio gives users the capability to organize their conversations with AI agents in a natural and convenient way. Users can easily change working directories and separate their conversations by project path.
 
-![npc studio chat window interface](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/chat_window.png)
-
-See thinking traces from agents:
-![npc studio chat window thinking trace](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/reasoning.png)
-
-- Aggregate conversations:
-
-![select multiple conversations](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/convo_agg.png)
-
--![Aggregate messages](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/agg_messages.png) 
-
-
-
-## Use agent mode
-Coming soon...
-
-## Create and manage agents, tools
-- NPC Studio uses the `npcpy` agent framework to simplify the building and orchestration of AI agents.
-
-![edit your agents](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/edit_npcs.png)
-
-- Additionally, users can create and manage tools to be used by agents. 
-![edit your tools](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tool.png)
-
-
-## Edit plain text files
-- NPC Studio is not just a chat interface, users can also edit plain text files (with agent-based integrations soon to come).
-
-![npc studio interface for editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/code_editor.png)
-
-
-
-## Analyze text files with AI
-![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/fill_analyze.png)
-
-## Use tiles to have a conversation while editing
-
-![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_chat_ai.png)
-
-## Collapse Sidebar, Delete convos, access team menu, jinx menu, photo studio, data dash
-
-
-![Collapse the sidebar, delete](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/collapse_delete.png)
-
-
-## Or while browsing
-
-![Editing plain text files](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_pdf_browser.png)
-
-## Edit settings 
-
-### Global Settings
-
-![npc studio global settings](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/default_settings.png)
-
-
-### Project Settings
-
-![npc studio env variables for project settings](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/env_variables.png)
-
--When working in a specific folder, NPC Studio will discover an `.env` file if it's present and will use these API keys to determine which models can be used within the project.
-
-![npc studio chat model selector](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/model_selector.png)
-
-
-
-# Data Dashboard
-
-
-## Activity Dashboard
-
-The long-awaited for activity dashboard: now with composable widgets, a setup for running queries, exporting data, plotting data, and with natural language to sql!
-
-
-![Data Dash](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/data_dash.png)
-
-![Database Schema](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/db_viewer.png)
-
-![Database Querying](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/db_query.png)
-
-### Edit and manage memories
-
-![A database table showing user memories](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/memory_crud.png)
- 
-### Explore your knowledge graph
-
-![A knowledge graph showing nodes and edges and facts and concepts](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/kg_inspector.png)
-
-
-
-
-# Vixynt: Your visual playground and assistant
-
-## Use AI on photos
-
-![Photo Editing Tools](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/photo_editor.png)
-
-## Edit and generate Photos with AI
-
-![Vixynt editing](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/vixynt_image_edit.png)
-
-
-## Edit photos in DarkRoom
-
-![Simple photo editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/darkroom.png)
-
-## Adjust Metadata
-Coming Soon...
-
-## Label images
-Coming Soon...
-
-
-# Web Browsing
-## Browse the web with AI at your fingertips
-![AI powered web browser](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/ai_web_browsing.png)
-
-
-# PDF Analysis
-
-## Analyze and highlight in pdfs 
-![PDF Analysis](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/pdf_highlight.png)
-
-
+---
 
 ## Getting Started with Development
 
-NPC studio is electron-based frontend with a python flask backend.
+NPC Studio is an Electron-based frontend with a Python Flask backend.
 
+### Prerequisites
 
-Before getting started with development, ensure that you have the following installed
 - [npcpy](https://github.com/npc-worldwide/npcpy)
-- node+npm
-- ollama (if you plan to rely on local models)
+- [npcsh](https://github.com/npc-worldwide/npcsh)
+- Node.js + npm
+- Ollama (if using local models)
 
+### Setup
+Users can set up NPC studio manually:
 ```bash
 git clone https://github.com/npc-worldwide/npc-studio.git
-```
-
-```bash
+cd npc-studio
 npm install
 ```
-Start the electron backend:
-```bash
-npm run dev
-```
-Start the flask backend:
+or you can use `npcsh` to set it up, which will install the git folder in `~/.npcsh/npc_studio`
 
 ```
-Alternatively use the wrapper script that is provided
+npcsh> /npc-studio
+```
+
+### Running in Development
+
+Start the Flask backend:
 ```bash
 python npc_studio_serve.py
 ```
-Start the electron frontend:
+
+Start the Electron frontend:
+```bash
+npm run dev
+```
+
+Or start both together:
 ```bash
 npm start
 ```
 
 
-## Build 
-Linux:
-```bash
-./build.sh
-```
-This will build the frontend and backend into a single executable file. 
+## License
 
-Mac:
-```bash
-./build-mac.sh
-```
-Windows:
-```
-.\build.bat
-```
-
-### License
-NPC Studio is licensed under AGPLv3 with additional terms explicitly prohibiting the offering of third-party SaaS services which provide a user access to any web-hosted version of the software as well as prohibiting the packaged re-sale of the product. Please see the [LICENSE](LICENSE) file for further details.
-
+NPC Studio is licensed under AGPLv3 with additional terms prohibiting third-party SaaS services and packaged resale. See the [LICENSE](LICENSE) file for details.
