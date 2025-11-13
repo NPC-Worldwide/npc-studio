@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, shell } = require('electron');
 contextBridge.exposeInMainWorld('api', {
 readCsvContent: (filePath) => 
   ipcRenderer.invoke('read-csv-content', filePath),
+readFileBuffer: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
 readDocxContent: (filePath) => 
   ipcRenderer.invoke('read-docx-content', filePath),
     getDefaultConfig: () => ipcRenderer.invoke('getDefaultConfig'),

@@ -1150,3 +1150,26 @@ body.light-mode .hover\:bg-gray-800:hover,
 body.light-mode .hover\:bg-gray-700:hover {
     background-color: #fce7f3 !important;
 }
+/* Force scrollbars to be visible */
+.overflow-auto {
+    scrollbar-width: thin;
+    scrollbar-color: var(--theme-border-secondary) var(--theme-bg-tertiary);
+}
+
+.overflow-auto::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.overflow-auto::-webkit-scrollbar-track {
+    background: var(--theme-bg-tertiary);
+}
+
+.overflow-auto::-webkit-scrollbar-thumb {
+    background: var(--theme-border-secondary);
+    border-radius: 6px;
+}
+
+.overflow-auto::-webkit-scrollbar-thumb:hover {
+    background: var(--theme-text-muted);
+}

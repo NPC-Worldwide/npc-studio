@@ -216,7 +216,7 @@ const DocxViewer = ({
     if (!content && !htmlContent) return <div className="p-4">Loading...</div>;
 
     return (
-        <div className="flex-1 flex flex-col theme-bg-secondary">
+    <div className="h-full flex flex-col theme-bg-secondary overflow-hidden">
             {/* Header */}
             <div 
                 draggable="true"
@@ -370,29 +370,31 @@ const DocxViewer = ({
             </div>
 
             {/* Editor */}
-            <div className="flex-1 overflow-auto p-6 theme-bg-primary">
-                <div 
-                    ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={handleInput}
-                    onKeyDown={handleKeyDown}
-                    onPaste={handlePaste}
-                    onCut={handleCut}
-                    dangerouslySetInnerHTML={{ __html: htmlContent }}
-                    className="max-w-4xl mx-auto p-8 theme-bg-secondary rounded-lg shadow-lg outline-none"
-                    style={{
-                        minHeight: '11in',
-                        maxWidth: '8.5in',
-                        padding: '1in',
-                        lineHeight: '1.6',
-                        fontSize: '14px',
-                        color: 'var(--theme-text)',
-                        fontFamily: 'system-ui, -apple-system, sans-serif'
-                    }}
-                />
-            </div>
-        </div>
+{/* Editor */}
+<div className="flex-1 overflow-auto p-6 theme-bg-primary">
+    <div className="max-w-4xl mx-auto">
+        <div 
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onCut={handleCut}
+            dangerouslySetInnerHTML={{ __html: htmlContent }}
+            className="p-8 theme-bg-secondary rounded-lg shadow-lg outline-none"
+            style={{
+                maxWidth: '8.5in',
+                padding: '1in',
+                lineHeight: '1.6',
+                fontSize: '14px',
+                color: 'var(--theme-text)',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                minHeight: '100vh'
+            }}
+        />
+    </div>
+</div>        </div>
     );
 };
 
