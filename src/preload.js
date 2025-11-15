@@ -234,6 +234,8 @@ onTerminalClosed: (callback) => {
     generativeFill: async (params) => {
     return ipcRenderer.invoke('generative-fill', params);
 },
+getFileStats: (filePath) => ipcRenderer.invoke('getFileStats', filePath),
+
     getNPCTeamProject: async (currentPath) => {
         if (!currentPath || typeof currentPath !== 'string') {
           throw new Error('currentPath must be a string');

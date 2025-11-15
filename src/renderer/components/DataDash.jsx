@@ -859,7 +859,8 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
     const [widgetToEdit, setWidgetToEdit] = useState(null);
 
     const [tableSchemaCache, setTableSchemaCache] = useState({});
-    
+    const [isMlPanelOpen, setIsMlPanelOpen] = useState(false);
+
    
     const [sqlQuery, setSqlQuery] = useState('SELECT * FROM conversation_history LIMIT 10;');
     const [queryResult, setQueryResult] = useState(null);
@@ -981,6 +982,237 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
         }
     };
 
+const ModelBuilderModal = () => {
+    if (!showModelBuilder || !queryResult) return null;
+    
+    const columns = queryResult.length > 0 ? Object.keys(queryResult[0]) : [];
+    
+    const modelTypes = [
+        { value: 'linear_regression', label: 'Linear Regression' },
+        { value: 'logistic_regression', label: 'Logistic Regression' },
+        { value: 'random_forest', label: 'Random Forest' },
+        { value: 'time_series', label: 'Time Series (ARIMA)' },
+        { value: 'clustering', label: 'K-Means Clustering' },
+        { value: 'decision_tree', label: 'Decision Tree' },
+        { value: 'gradient_boost', label: 'Gradient Boosting' }
+    ];
+    
+    return (
+        <div className="fixed inset-0 bg-black/70 flex items-center 
+            justify-center z-[60]">
+            <div className="theme-bg-secondary p-6 rounded-lg 
+                shadow-xl w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+                <h3 className="text-lg font-semibold mb-4 
+                    flex items-center gap-2">
+                    <BrainCircuit className="text-purple-400" />
+                    Create ML Model
+                </h3>
+                
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-sm theme-text-secondary 
+                            block mb-1">
+                            Model Name
+                        </label>
+                        <input
+                            type="text"
+                            value={modelConfig.name}
+                            onChange={(e) => setModelConfig({
+                                ...modelConfig, 
+                                name: e.target.value
+                            })}
+                            placeholder="my_prediction_model"
+                            className="w-full theme-input p-2 text-sm"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-sm theme-text-secondary 
+                            block mb-1">
+                            Model Type
+                        </label>
+                        <select
+                            value={modelConfig.type}
+                            onChange={(e) => setModelConfig({
+                                ...modelConfig, 
+                                type: e.target.value
+                            })}
+                            className="w-full theme-input p-2 text-sm"
+                        >
+                            {modelTypes.map(t => (
+                                <option key={t.value} value={t.value}>
+                                    {t.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {modelConfig.type !== 'clustering' && (
+                        <div>
+                            <label className="text-sm theme-text-secondary 
+                                block mb-1">
+                                Target Column (what to predict)
+                            </label>
+                            <select
+                                value={modelConfig.targetColumn}
+                                onChange={(e) => setModelConfig({
+                                    ...modelConfig, 
+                                    targetColumn: e.target.value
+                                })}
+                                className="w-full theme-input p-2 text-sm"
+                            >
+                                <option value="">Select target...</option>
+                                {columns.map(col => (
+                                    <option key={col} value={col}>{col}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="text-sm theme-text-secondary 
+                            block mb-1">
+                            Feature Columns (inputs)
+                        </label>
+                        <div className="max-h-40 overflow-y-auto 
+                            theme-bg-primary p-2 rounded">
+                            {columns.map(col => (
+                                <div key={col} className="flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        id={`feat_${col}`}
+                                        checked={modelConfig.featureColumns.includes(col)}
+                                        onChange={(e) => {
+                                            const newFeatures = e.target.checked
+                                                ? [...modelConfig.featureColumns, col]
+                                                : modelConfig.featureColumns
+                                                    .filter(c => c !== col);
+                                            setModelConfig({
+                                                ...modelConfig,
+                                                featureColumns: newFeatures
+                                            });
+                                        }}
+                                        className="w-4 h-4"
+                                        disabled={col === modelConfig.targetColumn}
+                                    />
+                                    <label htmlFor={`feat_${col}`} 
+                                        className="ml-2 text-sm">
+                                        {col}
+                                    </label>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {modelConfig.type === 'time_series' && (
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs 
+                                    theme-text-secondary">
+                                    Forecast Periods
+                                </label>
+                                <input
+                                    type="number"
+                                    value={modelConfig.hyperparameters.periods || 10}
+                                    onChange={(e) => setModelConfig({
+                                        ...modelConfig,
+                                        hyperparameters: {
+                                            ...modelConfig.hyperparameters,
+                                            periods: parseInt(e.target.value)
+                                        }
+                                    })}
+                                    className="w-full theme-input p-1 text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs 
+                                    theme-text-secondary">
+                                    Seasonality
+                                </label>
+                                <select
+                                    value={modelConfig.hyperparameters.seasonality || 'auto'}
+                                    onChange={(e) => setModelConfig({
+                                        ...modelConfig,
+                                        hyperparameters: {
+                                            ...modelConfig.hyperparameters,
+                                            seasonality: e.target.value
+                                        }
+                                    })}
+                                    className="w-full theme-input p-1 text-sm"
+                                >
+                                    <option value="auto">Auto-detect</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                    <option value="yearly">Yearly</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
+
+                    {modelConfig.type === 'clustering' && (
+                        <div>
+                            <label className="text-xs theme-text-secondary">
+                                Number of Clusters
+                            </label>
+                            <input
+                                type="number"
+                                value={modelConfig.hyperparameters.n_clusters || 3}
+                                onChange={(e) => setModelConfig({
+                                    ...modelConfig,
+                                    hyperparameters: {
+                                        ...modelConfig.hyperparameters,
+                                        n_clusters: parseInt(e.target.value)
+                                    }
+                                })}
+                                className="w-full theme-input p-1 text-sm"
+                                min={2}
+                                max={20}
+                            />
+                        </div>
+                    )}
+
+                    <div className="text-sm theme-text-secondary 
+                        bg-gray-900/50 p-3 rounded">
+                        <div className="font-semibold mb-1">Training Data:</div>
+                        <div>{queryResult.length} rows</div>
+                        <div>{modelConfig.featureColumns.length} features selected</div>
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6">
+                    <button
+                        onClick={() => setShowModelBuilder(false)}
+                        className="theme-button px-4 py-2 text-sm rounded"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={trainModel}
+                        disabled={modelTraining || 
+                            (modelConfig.type !== 'clustering' && !modelConfig.targetColumn) ||
+                            modelConfig.featureColumns.length === 0}
+                        className="theme-button-primary px-4 py-2 
+                            text-sm rounded flex items-center gap-2 
+                            disabled:opacity-50"
+                    >
+                        {modelTraining ? (
+                            <>
+                                <Loader size={14} className="animate-spin" />
+                                Training...
+                            </>
+                        ) : (
+                            <>
+                                <Zap size={14} />
+                                Train Model
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
     const handleContextMenuSelect = async (action) => {
         console.log(`[DataDash] handleContextMenuSelect: Action received: '${action}' for widget ID ${contextMenu.widgetId}`);
         const selectedWidget = widgets.find(w => w.id === contextMenu.widgetId);
@@ -1188,7 +1420,143 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
             setQueryHistory(newHistory); localStorage.setItem('dataDashQueryHistory', JSON.stringify(newHistory));
         } catch (err) { setQueryError(err.message); } finally { setLoadingQuery(false); }
     };
+    const [mlModels, setMlModels] = useState([]);
+const [showModelBuilder, setShowModelBuilder] = useState(false);
+const [modelConfig, setModelConfig] = useState({
+    name: '',
+    type: 'linear_regression',
+    targetColumn: '',
+    featureColumns: [],
+    hyperparameters: {}
+});
+const [modelTraining, setModelTraining] = useState(false);
+const [selectedNpcForSql, setSelectedNpcForSql] = useState(null);
+const [availableNpcs, setAvailableNpcs] = useState([]);
+
+// Load NPCs and models on mount
+useEffect(() => {
+    if (isOpen) {
+        const loadNpcs = async () => {
+            const npcResponse = await window.api.getNPCTeamGlobal();
+            setAvailableNpcs(npcResponse.npcs || []);
+        };
+        loadNpcs();
+        
+        const savedModels = localStorage.getItem('dataDashMLModels');
+        if (savedModels) {
+            setMlModels(JSON.parse(savedModels));
+        }
+    }
+}, [isOpen]);
+
+// Model training function
+const trainModel = async () => {
+    if (!queryResult || queryResult.length === 0) return;
+    setModelTraining(true);
     
+    const trainingData = {
+        name: modelConfig.name || `model_${Date.now()}`,
+        type: modelConfig.type,
+        target: modelConfig.targetColumn,
+        features: modelConfig.featureColumns,
+        data: queryResult,
+        hyperparameters: modelConfig.hyperparameters
+    };
+    
+    const response = await fetch('http://127.0.0.1:5337/api/ml/train', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(trainingData)
+    });
+    
+    const result = await response.json();
+    
+    if (!result.error) {
+        const newModel = {
+            id: result.model_id,
+            name: trainingData.name,
+            type: modelConfig.type,
+            target: modelConfig.targetColumn,
+            features: modelConfig.featureColumns,
+            metrics: result.metrics,
+            created: new Date().toISOString()
+        };
+        
+        const updatedModels = [...mlModels, newModel];
+        setMlModels(updatedModels);
+        localStorage.setItem('dataDashMLModels', JSON.stringify(updatedModels));
+        setShowModelBuilder(false);
+    }
+    
+    setModelTraining(false);
+};
+
+// NPC-enhanced SQL generation
+const handleGenerateSqlWithNpc = async () => {
+    if (!nlQuery.trim()) return;
+    setGeneratingSql(true);
+    setGeneratedSql('');
+    setQueryError(null);
+    
+    const schemaInfo = await Promise.all(
+        dbTables.map(async (table) => {
+            const schemaRes = await window.api.getTableSchema({ tableName: table });
+            if (schemaRes.error) return `/* Could not load schema for ${table} */`;
+            const columns = schemaRes.schema
+                .map(col => `  ${col.name} ${col.type}`)
+                .join(',\n');
+            return `TABLE ${table}(\n${columns}\n);`;
+        })
+    );
+    
+    let npcContext = '';
+    if (selectedNpcForSql) {
+        npcContext = `
+You are ${selectedNpcForSql.name}.
+${selectedNpcForSql.primary_directive || ''}
+
+Use your expertise to generate the most appropriate SQL query.
+`;
+    }
+    
+    const modelInfo = mlModels.length > 0 ? `
+Available ML Models (can be called via ML_PREDICT function):
+${mlModels.map(m => `- ${m.name}: ${m.type} (features: ${m.features.join(', ')}, target: ${m.target})`).join('\n')}
+` : '';
+    
+    const prompt = `${npcContext}
+Given this database schema:
+
+${schemaInfo.join('\n\n')}
+
+${modelInfo}
+
+Generate a SQL query for: ${nlQuery}
+
+If using ML models, use syntax: ML_PREDICT('model_name', feature1, feature2, ...)
+
+Return only the SQL query without markdown formatting.`;
+
+    const newStreamId = generateId();
+    setNlToSqlStreamId(newStreamId);
+    
+    const result = await window.api.executeCommandStream({
+        commandstr: prompt,
+        currentPath: '/',
+        conversationId: null,
+        model: currentModel,
+        provider: currentProvider,
+        npc: selectedNpcForSql?.name || currentNPC,
+        streamId: newStreamId,
+        attachments: []
+    });
+    
+    if (result?.error) {
+        setQueryError(result.error);
+        setGeneratingSql(false);
+        setNlToSqlStreamId(null);
+    }
+};
 const handleGenerateSql = async () => {
     if (!nlQuery.trim()) return;
     setGeneratingSql(true);
@@ -1399,6 +1767,7 @@ const handleAcceptGeneratedSql = () => {
                     fetchSchema={fetchSchemaForTable}
                 />
             )}
+            <ModelBuilderModal isOpen={isMlPanelOpen} onClose={() => setIsMlPanelOpen(false)} />    
 
             {contextMenu.visible && <WidgetContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu({visible: false})} onSelect={handleContextMenuSelect} />}
 
@@ -1539,47 +1908,84 @@ const handleAcceptGeneratedSql = () => {
 </div>
 
 {sqlInputMode === 'nl' ? (
-    <div className="grid grid-cols-2 gap-3 items-start">
-        <div>
-            <textarea 
-                value={nlQuery} 
-                onChange={(e) => setNlQuery(e.target.value)} 
-                rows={4}
-                className="w-full p-2 theme-input font-mono text-sm" 
-                placeholder="e.g., show me average message length per model..." 
-            />
-            <button 
-                onClick={handleGenerateSql} 
-                disabled={generatingSql} 
-                className="w-full mt-2 px-4 py-2 
-                    theme-button-primary rounded text-sm 
-                    disabled:opacity-50"
-            >
-                {generatingSql 
-                    ? 'Generating SQL...' 
-                    : 'Generate SQL'}
-            </button>
-        </div>
-        <div className="theme-bg-tertiary p-2 rounded-lg h-full 
-            flex flex-col">
-            <pre className="flex-1 text-xs font-mono p-2 
-                overflow-auto">
-                {generatedSql || 
-                    'Generated SQL will appear here...'}
-            </pre>
-            {generatedSql && (
-                <button 
-                    onClick={handleAcceptGeneratedSql} 
-                    className="mt-2 w-full theme-button-success 
-                        text-sm py-1 rounded"
+    <div className="space-y-3">
+        <div className="flex items-center gap-3">
+            <div className="flex-1">
+                <label className="text-xs theme-text-secondary 
+                    block mb-1">
+                    NPC Context (optional)
+                </label>
+                <select
+                    value={selectedNpcForSql?.name || ''}
+                    onChange={(e) => {
+                        const npc = availableNpcs.find(
+                            n => n.name === e.target.value
+                        );
+                        setSelectedNpcForSql(npc || null);
+                    }}
+                    className="w-full theme-input p-2 text-sm"
                 >
-                    Use this SQL
-                </button>
+                    <option value="">No NPC (general query)</option>
+                    {availableNpcs.map(npc => (
+                        <option key={npc.name} value={npc.name}>
+                            {npc.name}
+                        </option>
+                    ))}
+                </select>
+            </div>
+            {selectedNpcForSql && (
+                <div className="text-xs theme-text-secondary 
+                    max-w-xs">
+                    {selectedNpcForSql.primary_directive?.substring(0, 100)}...
+                </div>
             )}
+        </div>
+        
+        <div className="grid grid-cols-2 gap-3">
+            <div>
+                <textarea
+                    value={nlQuery}
+                    onChange={(e) => setNlQuery(e.target.value)}
+                    rows={4}
+                    className="w-full p-2 theme-input font-mono text-sm"
+                    placeholder="e.g., predict next month's revenue using sales data..."
+                />
+                <button
+                    onClick={handleGenerateSqlWithNpc}
+                    disabled={generatingSql}
+                    className="w-full mt-2 px-4 py-2 
+                        theme-button-primary rounded text-sm 
+                        disabled:opacity-50"
+                >
+                    {generatingSql
+                        ? 'Generating SQL...'
+                        : selectedNpcForSql
+                            ? `Generate with ${selectedNpcForSql.name}`
+                            : 'Generate SQL'}
+                </button>
+            </div>
+            <div className="theme-bg-tertiary p-2 rounded-lg 
+                flex flex-col">
+                <pre className="flex-1 text-xs font-mono p-2 
+                    overflow-auto">
+                    {generatedSql ||
+                        'Generated SQL will appear here...'}
+                </pre>
+                {generatedSql && (
+                    <button
+                        onClick={handleAcceptGeneratedSql}
+                        className="mt-2 w-full theme-button-success 
+                            text-sm py-1 rounded"
+                    >
+                        Use this SQL
+                    </button>
+                )}
+            </div>
         </div>
     </div>
 ) : (
-    <>
+
+<>
         <textarea 
             value={sqlQuery} 
             onChange={(e) => setSqlQuery(e.target.value)} 
@@ -1607,21 +2013,35 @@ const handleAcceptGeneratedSql = () => {
                                         <div className="mt-4">
                                             <div className="flex justify-between items-center mb-4">
                                                 <h5 className="font-semibold">Query Results</h5>
-                                                <div className="flex items-center gap-2">
-                                                    <button onClick={() => { 
-                                                        setCustomWidgetContext({ query: sqlQuery, result: queryResult }); 
-                                                        setIsAddCustomWidgetModalOpen(true); 
-                                                    }} className="px-3 py-1 text-xs theme-button-primary rounded flex items-center gap-2">
-                                                        <Plus size={14} /> Add to Dashboard
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => exportToCSV(queryResult, sqlQuery)}
-                                                        disabled={!queryResult || queryResult.length === 0} 
-                                                        className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2 disabled:opacity-50"
-                                                    >
-                                                        <Download size={14} /> Export to CSV
-                                                    </button>
-                                                </div>
+<div className="flex items-center gap-2">
+    <button 
+        onClick={() => setShowModelBuilder(true)} 
+        className="px-3 py-1 text-xs theme-button rounded 
+            flex items-center gap-2"
+    >
+        <BrainCircuit size={14} /> Create ML Model
+    </button>
+    <button 
+        onClick={() => { 
+            setCustomWidgetContext({ query: sqlQuery, result: queryResult }); 
+            setIsAddCustomWidgetModalOpen(true); 
+        }} 
+        className="px-3 py-1 text-xs theme-button-primary rounded 
+            flex items-center gap-2"
+    >
+        <Plus size={14} /> Add to Dashboard
+    </button>
+    <button 
+        onClick={() => exportToCSV(queryResult, sqlQuery)}
+        disabled={!queryResult || queryResult.length === 0} 
+        className="px-3 py-1 text-xs theme-button rounded 
+            flex items-center gap-2 disabled:opacity-50"
+    >
+        <Download size={14} /> Export to CSV
+    </button>
+</div>
+                                                
+                                                
                                             </div>
 
                                             <div className="border theme-border rounded-lg p-3 mb-4 theme-bg-tertiary">
@@ -1748,6 +2168,101 @@ const handleAcceptGeneratedSql = () => {
                                     </div>
                             )}
                         </section>
+                        <section id="ml-models" className="border theme-border rounded-lg">
+    <button 
+        onClick={() => setIsMlPanelOpen(!isMlPanelOpen)} 
+        className="w-full p-4 flex justify-between items-center theme-hover"
+    >
+        <h4 className="text-lg font-semibold flex items-center gap-3">
+            <BrainCircuit className="text-purple-400"/>
+            ML Models ({mlModels.length})
+        </h4>
+        {isMlPanelOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+    </button>
+    {isMlPanelOpen && (
+        <div className="p-4 border-t theme-border">
+            {mlModels.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 
+                    lg:grid-cols-3 gap-4">
+                    {mlModels.map(model => (
+                        <div key={model.id} className="p-4 
+                            theme-bg-tertiary rounded-lg">
+                            <div className="flex justify-between 
+                                items-start mb-2">
+                                <h5 className="font-semibold">
+                                    {model.name}
+                                </h5>
+                                <button
+                                    onClick={() => {
+                                        const updated = mlModels.filter(
+                                            m => m.id !== model.id
+                                        );
+                                        setMlModels(updated);
+                                        localStorage.setItem(
+                                            'dataDashMLModels',
+                                            JSON.stringify(updated)
+                                        );
+                                    }}
+                                    className="p-1 theme-button-danger-subtle 
+                                        rounded"
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                            <div className="text-xs space-y-1 
+                                theme-text-secondary">
+                                <div>Type: <span className="text-blue-400">
+                                    {model.type}
+                                </span></div>
+                                <div>Target: <span className="font-mono">
+                                    {model.target}
+                                </span></div>
+                                <div>Features: <span className="font-mono">
+                                    {model.features.join(', ')}
+                                </span></div>
+                                {model.metrics && (
+                                    <div className="mt-2 pt-2 border-t 
+                                        theme-border">
+                                        <div className="font-semibold 
+                                            text-green-400">
+                                            Metrics:
+                                        </div>
+                                        {Object.entries(model.metrics).map(
+                                            ([k, v]) => (
+                                                <div key={k}>
+                                                    {k}: {typeof v === 'number' 
+                                                        ? v.toFixed(4) 
+                                                        : v}
+                                                </div>
+                                            )
+                                        )}
+                                    </div>
+                                )}
+                                <div className="text-[10px] 
+                                    text-gray-500 mt-2">
+                                    Created: {new Date(model.created)
+                                        .toLocaleString()}
+                                </div>
+                            </div>
+                            <div className="mt-3">
+                                <div className="text-xs font-mono 
+                                    bg-gray-900/50 p-2 rounded">
+                                    ML_PREDICT('{model.name}', {model.features.join(', ')})
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="text-center theme-text-secondary p-4">
+                    No models trained yet. Run a query and click 
+                    "Create Model" to train your first ML model.
+                </div>
+            )}
+        </div>
+    )}
+</section>
+
 
                         <section id="memory-management" className="border theme-border rounded-lg">
     <button 

@@ -452,35 +452,7 @@ const [generateFilename, setGenerateFilename] = useState('vixynt_gen');
 
   
 
-const handleImageClick = (e, imgPath, index) => {
-    e.stopPropagation(); 
-    setRenamingImage({ path: null, newName: '' });
-    
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-      const newSelection = new Set(selectedImageGroup);
-      if (e.shiftKey && lastClickedIndex !== null) {
-        const start = Math.min(lastClickedIndex, index);
-        const end = Math.max(lastClickedIndex, index);
-        for (let i = start; i <= end; i++) {
-          newSelection.add(filteredImages[i]);
-        }
-      } else { 
-        if (newSelection.has(imgPath)) {
-          newSelection.delete(imgPath);
-        } else {
-          newSelection.add(imgPath);
-        }
-      }
-      setSelectedImageGroup(newSelection);
-      setLastClickedIndex(index);
-    } else {
-      setLightboxIndex(index);
-      const newSelection = new Set([imgPath]);
-      setSelectedImageGroup(newSelection);
-      setSelectedImage(imgPath);
-      setLastClickedIndex(index);
-    }
-  };
+  
 
   const handleContextMenu = (e, imgPath) => { /* ... (unchanged) ... */ 
     e.preventDefault(); e.stopPropagation();
@@ -796,8 +768,7 @@ useEffect(() => {
           if (lightboxIndex !== null) {
               if (e.key === 'ArrowLeft' && lightboxIndex > 0) {
                   setLightboxIndex(i => i - 1);
-              } else if (e.key === 'ArrowRight' && lightboxIndex < filteredImages.length - 1) {
-                  setLightboxIndex(i => i + 1);
+} else if (e.key === 'ArrowRight' && lightboxIndex < sortedAndFilteredImages.length - 1) {                  setLightboxIndex(i => i + 1);
               }
           }
 
@@ -845,65 +816,8 @@ useEffect(() => {
           };
       }
   }, [isOpen, contextMenu.visible, renamingImage.path, isEditingPath, selectionPath, isCropping, textEditState.editing, onClose, lightboxIndex, filteredImages.length]);
-  const renderLightbox = () => {
-    if (lightboxIndex === null) return null;
 
-    const currentImage = filteredImages[lightboxIndex];
-    if (!currentImage) return null;
-
-    const hasPrev = lightboxIndex > 0;
-    const hasNext = lightboxIndex < filteredImages.length - 1;
-
-    const goToPrev = (e) => {
-        e.stopPropagation();
-        if (hasPrev) setLightboxIndex(lightboxIndex - 1);
-    };
-    const goToNext = (e) => {
-        e.stopPropagation();
-        if (hasNext) setLightboxIndex(lightboxIndex + 1);
-    };
-    const closeLightbox = () => setLightboxIndex(null);
-
-    return (
-        <div 
-            className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-8"
-            onClick={closeLightbox}
-        >
-            <button onClick={closeLightbox} className="absolute top-4 right-4 text-white hover:text-gray-300 z-[70]" title="Close (Esc)">
-                <X size={32} />
-            </button>
-            
-            {hasPrev && (
-                <button onClick={goToPrev} className="absolute left-4 top-1/2 -translate-y-1/2 text-white p-4 bg-black/30 rounded-full hover:bg-black/60 z-[70]" title="Previous (Left Arrow)">
-                    <ChevronLeft size={32} />
-                </button>
-            )}
-
-            <div 
-              className="relative max-w-full max-h-full flex items-center justify-center" 
-              onClick={e => e.stopPropagation()}
-              onContextMenu={(e) => handleImageContextMenu(e, currentImage)}
-            >
-                <img src={currentImage} alt="Expanded view" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-                    style={{ maxWidth: '90vw', maxHeight: '90vh' }}
-                />
-            </div>
-            
-            {hasNext && (
-                <button onClick={goToNext} className="absolute right-4 top-1/2 -translate-y-1/2 text-white p-4 bg-black/30 rounded-full hover:bg-black/60 z-[70]" title="Next (Right Arrow)">
-                    <ChevronRight size={32} />
-                </button>
-            )}
-             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white bg-black/50 px-3 py-1 rounded-full text-sm z-[70]">
-                {lightboxIndex + 1} / {filteredImages.length}
-            </div>
-        </div>
-    );
-};
   
-
-
-
 
   const startDraw = (e) => {
     if (!selectedImage) return;
@@ -1103,62 +1017,481 @@ useEffect(() => {
     </div>
   );
 
-  const renderGallery = () => (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 border-b theme-border bg-gray-800/40">
-        <div className="flex items-center gap-2 text-xs theme-text-muted">
-          <span>{filteredImages.length} items</span>
-          {selectedImageGroup.size > 0 && <span>• {selectedImageGroup.size} selected</span>}
-        </div>
-        <div className="flex items-center gap-2">
-          <button className="theme-button px-3 py-1 text-sm rounded" onClick={() => setActiveTab('metadata')}>
-            <Info size={14} /> Edit Metadata</button>
-          <button className="theme-button px-3 py-1 text-sm rounded" onClick={() => setActiveTab('labeling')}>
-            <Tag size={14} /> Label</button>
-        </div>
-      </div>
-      <div className="flex-1 p-4 overflow-y-auto">
-        <div className={`gap-4 ${viewMode === 'grid' ? 'grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8' : 'space-y-2'}`}>
-          {loading ? (
-            <div className="col-span-full flex justify-center p-8"><Loader className="animate-spin" /></div>
-          ) : filteredImages.length > 0 ? (
-            filteredImages.slice(0, displayedImagesCount).map((img, index) => {
-              const isSelected = selectedImageGroup.has(img);
-              const isRenaming = renamingImage.path === img;
-              return isRenaming ? (
-                <div key={img} className="relative aspect-square">
-                  <input type="text" value={renamingImage.newName}
-                    onChange={(e) => setRenamingImage(p => ({ ...p, newName: e.target.value }))}
-                    onKeyDown={(e) => e.key === 'Enter' && handleRenameSubmit()}
-                    onBlur={handleRenameSubmit} className="w-full h-full p-2 theme-input text-xs" autoFocus />
-                </div>
-              ) : (
-<button key={img}
-  onClick={(e) => handleImageClick(e, img, index)}
-  onContextMenu={(e) => handleContextMenu(e, img)} 
-  className="group relative block rounded-lg overflow-hidden focus:outline-none aspect-square">
-  <img src={img} alt="" className="w-full h-full object-cover bg-gray-800" />
-  <div className={`absolute inset-0 transition-all duration-200 ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : 'group-hover:bg-black/40'}`}></div>
-  {isSelected && <div className="absolute top-2 right-2 bg-blue-500 rounded-full p-1"><Check size={12} className="text-white" /></div>}
-</button>
-
-              );
-            })
-          ) : (
-            <div className="col-span-full text-center p-8 theme-text-muted">No images found.</div>
-          )}
-        </div>
-      </div>
-      {filteredImages.length > displayedImagesCount && (
-        <div className="p-4 border-t theme-border text-center">
-          <button onClick={() => setDisplayedImagesCount(prev => prev + IMAGES_PER_PAGE)}
-            className="theme-button px-4 py-2 text-sm rounded">Load More</button>
-        </div>
-      )}
-    </div>
-  );
-
   
+useEffect(() => {
+    const savedView = localStorage.getItem('vixynt_viewMode');
+    if (savedView) setViewMode(savedView);
+}, []);
+
+useEffect(() => {
+    localStorage.setItem('vixynt_viewMode', viewMode);
+}, [viewMode]);
+
+
+const [sortBy, setSortBy] = useState('name');
+const [sortOrder, setSortOrder] = useState('asc');
+const [filterType, setFilterType] = useState('all');
+const [imageMetaCache, setImageMetaCache] = useState({});
+
+const sortedAndFilteredImages = React.useMemo(() => {
+    const source = imageSources.find(s => s.id === activeSourceId);
+    const allImages = source?.images || [];
+    
+    let result = allImages.filter(img => 
+        img.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    
+    if (filterType !== 'all') {
+        result = result.filter(img => {
+            const ext = img.split('.').pop().toLowerCase();
+            if (filterType === 'jpg') return ext === 'jpg' || ext === 'jpeg';
+            if (filterType === 'png') return ext === 'png';
+            if (filterType === 'webp') return ext === 'webp';
+            if (filterType === 'gif') return ext === 'gif';
+            return true;
+        });
+    }
+    
+    result.sort((a, b) => {
+        const nameA = a.split('/').pop().toLowerCase();
+        const nameB = b.split('/').pop().toLowerCase();
+        const extA = a.split('.').pop().toLowerCase();
+        const extB = b.split('.').pop().toLowerCase();
+        const metaA = imageMetaCache[a] || {};
+        const metaB = imageMetaCache[b] || {};
+        
+        let comparison = 0;
+        if (sortBy === 'name') {
+            comparison = nameA.localeCompare(nameB);
+        } else if (sortBy === 'type') {
+            comparison = extA.localeCompare(extB);
+        } else if (sortBy === 'size') {
+            const sizeA = metaA?.size || metaA?.file?.size || 0;
+            const sizeB = metaB?.size || metaB?.file?.size || 0;
+            comparison = sizeA - sizeB;
+        } else if (sortBy === 'date') {
+            const dateA = metaA?.mtime || metaA?.file?.modified || 0;
+            const dateB = metaB?.mtime || metaB?.file?.modified || 0;
+            comparison = new Date(dateA) - new Date(dateB);
+        }
+        
+        return sortOrder === 'asc' ? comparison : -comparison;
+    });
+    
+    return result;
+}, [imageSources, activeSourceId, searchTerm, sortBy, sortOrder, filterType, imageMetaCache]);
+
+useEffect(() => {
+    if (viewMode !== 'list') return;
+    
+    const visible = sortedAndFilteredImages.slice(0, displayedImagesCount);
+    const toLoad = visible.filter(img => !imageMetaCache[img]);
+    
+    if (toLoad.length === 0) return;
+    
+    let cancelled = false;
+    
+    const loadBatch = async () => {
+        for (const img of toLoad) {
+            if (cancelled) break;
+            const fsPath = img.replace('media://', '');
+            const stats = await window.api?.getFileStats?.(fsPath);
+            if (!cancelled && stats) {
+                setImageMetaCache(prev => ({ ...prev, [img]: stats }));
+            }
+        }
+    };
+    
+    loadBatch();
+    
+    return () => { cancelled = true; };
+}, [viewMode, sortedAndFilteredImages, displayedImagesCount]);
+const formatFileSize = (bytes) => {
+    if (!bytes) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+};
+
+const formatDate = (dateVal) => {
+    if (!dateVal) return '—';
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString();
+};
+useEffect(() => {
+    if (viewMode !== 'list') return;
+    
+    const visible = sortedAndFilteredImages.slice(0, displayedImagesCount);
+    const toLoad = visible.filter(img => !imageMetaCache[img]);
+    
+    if (toLoad.length === 0) return;
+    
+    let cancelled = false;
+    
+    const loadBatch = async () => {
+        for (const img of toLoad) {
+            if (cancelled) break;
+            const fsPath = img.replace('media://', '');
+            console.log('Loading stats for:', fsPath);
+            const stats = await window.api?.getFileStats?.(fsPath);
+            console.log('Got stats:', stats);
+            if (!cancelled && stats) {
+                setImageMetaCache(prev => ({ ...prev, [img]: stats }));
+            }
+        }
+    };
+    
+    loadBatch();
+    
+    return () => { cancelled = true; };
+}, [viewMode, sortedAndFilteredImages, displayedImagesCount]);
+
+
+const handleImageClick = (e, imgPath, index) => {
+    e.stopPropagation(); 
+    setRenamingImage({ path: null, newName: '' });
+    
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+        const newSelection = new Set(selectedImageGroup);
+        if (e.shiftKey && lastClickedIndex !== null) {
+            const start = Math.min(lastClickedIndex, index);
+            const end = Math.max(lastClickedIndex, index);
+            for (let i = start; i <= end; i++) {
+                newSelection.add(sortedAndFilteredImages[i]);
+            }
+        } else { 
+            if (newSelection.has(imgPath)) {
+                newSelection.delete(imgPath);
+            } else {
+                newSelection.add(imgPath);
+            }
+        }
+        setSelectedImageGroup(newSelection);
+        setLastClickedIndex(index);
+    } else {
+        setLightboxIndex(index);
+        const newSelection = new Set([imgPath]);
+        setSelectedImageGroup(newSelection);
+        setSelectedImage(imgPath);
+        setLastClickedIndex(index);
+    }
+};
+
+const renderLightbox = () => {
+    if (lightboxIndex === null) return null;
+
+    const currentImage = sortedAndFilteredImages[lightboxIndex];
+    if (!currentImage) return null;
+
+    const hasPrev = lightboxIndex > 0;
+    const hasNext = lightboxIndex < sortedAndFilteredImages.length - 1;
+
+    const goToPrev = (e) => {
+        e.stopPropagation();
+        if (hasPrev) setLightboxIndex(lightboxIndex - 1);
+    };
+    const goToNext = (e) => {
+        e.stopPropagation();
+        if (hasNext) setLightboxIndex(lightboxIndex + 1);
+    };
+    const closeLightbox = () => setLightboxIndex(null);
+
+    return (
+        <div 
+            className="fixed inset-0 bg-black/90 z-[60] flex items-center 
+                justify-center p-8"
+            onClick={closeLightbox}
+        >
+            <button 
+                onClick={closeLightbox} 
+                className="absolute top-4 right-4 text-white 
+                    hover:text-gray-300 z-[70]" 
+                title="Close (Esc)"
+            >
+                <X size={32} />
+            </button>
+            
+            {hasPrev && (
+                <button 
+                    onClick={goToPrev} 
+                    className="absolute left-4 top-1/2 -translate-y-1/2 
+                        text-white p-4 bg-black/30 rounded-full 
+                        hover:bg-black/60 z-[70]" 
+                    title="Previous (Left Arrow)"
+                >
+                    <ChevronLeft size={32} />
+                </button>
+            )}
+
+            <div 
+                className="relative max-w-full max-h-full flex items-center 
+                    justify-center" 
+                onClick={e => e.stopPropagation()}
+                onContextMenu={(e) => handleImageContextMenu(e, currentImage)}
+            >
+                <img 
+                    src={currentImage} 
+                    alt="Expanded view" 
+                    className="max-w-full max-h-full object-contain 
+                        rounded-lg shadow-2xl"
+                    style={{ maxWidth: '90vw', maxHeight: '90vh' }}
+                />
+            </div>
+            
+            {hasNext && (
+                <button 
+                    onClick={goToNext} 
+                    className="absolute right-4 top-1/2 -translate-y-1/2 
+                        text-white p-4 bg-black/30 rounded-full 
+                        hover:bg-black/60 z-[70]" 
+                    title="Next (Right Arrow)"
+                >
+                    <ChevronRight size={32} />
+                </button>
+            )}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 
+                text-white bg-black/50 px-3 py-1 rounded-full text-sm z-[70]">
+                {lightboxIndex + 1} / {sortedAndFilteredImages.length}
+            </div>
+        </div>
+    );
+};
+
+const renderGallery = () => (
+    <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b 
+            theme-border bg-gray-800/40">
+            <div className="flex items-center gap-2 text-xs theme-text-muted">
+                <span>{sortedAndFilteredImages.length} items</span>
+                {selectedImageGroup.size > 0 && (
+                    <span>• {selectedImageGroup.size} selected</span>
+                )}
+            </div>
+            
+            <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1">
+                    <span className="text-xs theme-text-muted">Sort:</span>
+                    <select
+                        value={sortBy}
+                        onChange={e => setSortBy(e.target.value)}
+                        className="theme-input text-xs py-1"
+                    >
+                      <option value="name">Name</option>
+                      <option value="type">Type</option>
+                      <option value="size">Size</option>
+                      <option value="date">Date</option>
+                    </select>
+                    <button
+                        onClick={() => setSortOrder(
+                            sortOrder === 'asc' ? 'desc' : 'asc'
+                        )}
+                        className="theme-button px-2 py-1 text-xs"
+                        title={sortOrder === 'asc' 
+                            ? 'Ascending' 
+                            : 'Descending'}
+                    >
+                        {sortOrder === 'asc' ? '↑' : '↓'}
+                    </button>
+                </div>
+                
+                <div className="flex items-center gap-1">
+                    <span className="text-xs theme-text-muted">Type:</span>
+                    <select
+                        value={filterType}
+                        onChange={e => setFilterType(e.target.value)}
+                        className="theme-input text-xs py-1"
+                    >
+                        <option value="all">All</option>
+                        <option value="jpg">JPG</option>
+                        <option value="png">PNG</option>
+                        <option value="webp">WebP</option>
+                        <option value="gif">GIF</option>
+                    </select>
+                </div>
+                
+                <button 
+                    className="theme-button px-3 py-1 text-sm rounded 
+                        flex items-center gap-1" 
+                    onClick={() => setActiveTab('metadata')}
+                >
+                    <Info size={14} /> Metadata
+                </button>
+                <button 
+                    className="theme-button px-3 py-1 text-sm rounded 
+                        flex items-center gap-1" 
+                    onClick={() => setActiveTab('labeling')}
+                >
+                    <Tag size={14} /> Label
+                </button>
+            </div>
+        </div>
+        
+        <div className="flex-1 p-4 overflow-y-auto">
+            {viewMode === 'grid' ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+                    {loading ? (
+                        <div className="col-span-full flex justify-center p-8">
+                            <Loader className="animate-spin" />
+                        </div>
+                    ) : sortedAndFilteredImages.length > 0 ? (
+                        sortedAndFilteredImages
+                            .slice(0, displayedImagesCount)
+                            .map((img, index) => {
+                                const isSelected = selectedImageGroup.has(img);
+                                const isRenaming = renamingImage.path === img;
+                                return isRenaming ? (
+                                    <div key={img} className="relative aspect-square">
+                                        <input 
+                                            type="text" 
+                                            value={renamingImage.newName}
+                                            onChange={(e) => setRenamingImage(
+                                                p => ({ ...p, newName: e.target.value })
+                                            )}
+                                            onKeyDown={(e) => 
+                                                e.key === 'Enter' && handleRenameSubmit()
+                                            }
+                                            onBlur={handleRenameSubmit} 
+                                            className="w-full h-full p-2 theme-input text-xs" 
+                                            autoFocus 
+                                        />
+                                    </div>
+                                ) : (
+                                    <button 
+                                        key={img}
+                                        onClick={(e) => handleImageClick(e, img, index)}
+                                        onContextMenu={(e) => handleContextMenu(e, img)} 
+                                        className="group relative block rounded-lg 
+                                            overflow-hidden focus:outline-none aspect-square"
+                                    >
+                                        <img 
+                                            src={img} 
+                                            alt="" 
+                                            className="w-full h-full object-cover bg-gray-800" 
+                                        />
+                                        <div className={`absolute inset-0 transition-all 
+                                            duration-200 
+                                            ${isSelected 
+                                                ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' 
+                                                : 'group-hover:bg-black/40'}`}
+                                        />
+                                        {isSelected && (
+                                            <div className="absolute top-2 right-2 bg-blue-500 
+                                                rounded-full p-1">
+                                                <Check size={12} className="text-white" />
+                                            </div>
+                                        )}
+                                    </button>
+                                );
+                            })
+                    ) : (
+                        <div className="col-span-full text-center p-8 theme-text-muted">
+                            No images found.
+                        </div>
+                    )}
+                </div>
+            ) : (
+    <div className="space-y-1">
+        <div className="grid grid-cols-12 gap-2 px-2 py-1 text-xs 
+            font-semibold theme-text-secondary border-b theme-border">
+            <div className="col-span-1"></div>
+            <div className="col-span-5">Name</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-2">Size</div>
+            <div className="col-span-2">Date</div>
+        </div>
+                    
+        {loading ? (
+            <div className="flex justify-center p-8">
+                <Loader className="animate-spin" />
+            </div>
+        ) : sortedAndFilteredImages.length > 0 ? (
+            sortedAndFilteredImages
+                .slice(0, displayedImagesCount)
+                .map((img, index) => {
+                    const isSelected = selectedImageGroup.has(img);
+                    const isRenaming = renamingImage.path === img;
+                    const filename = img.split('/').pop();
+                    const ext = filename.split('.').pop().toUpperCase();
+                    const meta = imageMetaCache[img] || {};
+                    
+                    return (
+                        <div
+                            key={img}
+                            onClick={(e) => handleImageClick(e, img, index)}
+                            onContextMenu={(e) => handleContextMenu(e, img)}
+                            className={`grid grid-cols-12 gap-2 px-2 py-2 
+                                rounded cursor-pointer items-center
+                                ${isSelected 
+                                    ? 'bg-blue-900/30 ring-1 ring-blue-500' 
+                                    : 'theme-hover'}`}
+                        >
+                            <div className="col-span-1">
+                                <img 
+                                    src={img} 
+                                    alt="" 
+                                    className="w-10 h-10 object-cover rounded"
+                                />
+                            </div>
+                            <div className="col-span-5 truncate text-sm">
+                                {isRenaming ? (
+                                    <input
+                                        type="text"
+                                        value={renamingImage.newName}
+                                        onChange={(e) => setRenamingImage(
+                                            p => ({ ...p, newName: e.target.value })
+                                        )}
+                                        onKeyDown={(e) => {
+                                            e.stopPropagation();
+                                            if (e.key === 'Enter') handleRenameSubmit();
+                                            if (e.key === 'Escape') setRenamingImage({ 
+                                                path: null, 
+                                                newName: '' 
+                                            });
+                                        }}
+                                        onBlur={handleRenameSubmit}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="w-full theme-input text-xs py-1"
+                                        autoFocus
+                                    />
+                                ) : (
+                                    <span title={filename}>{filename}</span>
+                                )}
+                            </div>
+                            <div className="col-span-2 text-xs theme-text-muted">
+                                {ext}
+                            </div>
+<div className="col-span-2 text-xs theme-text-muted">
+    {formatFileSize(meta?.size)}
+</div>
+<div className="col-span-2 text-xs theme-text-muted">
+    {formatDate(meta?.mtime)}
+</div>
+
+                        </div>
+                    );
+                })
+        ) : (
+            <div className="text-center p-8 theme-text-muted">
+                No images found.
+            </div>
+        )}
+    </div>
+)}
+        </div>
+
+        {sortedAndFilteredImages.length > displayedImagesCount && (
+            <div className="p-4 border-t theme-border text-center">
+                <button 
+                    onClick={() => setDisplayedImagesCount(prev => prev + IMAGES_PER_PAGE)}
+                    className="theme-button px-4 py-2 text-sm rounded"
+                >
+                    Load More ({sortedAndFilteredImages.length - displayedImagesCount} remaining)
+                </button>
+            </div>
+        )}
+    </div>
+);
   const renderImageContextMenu = () => (
     contextMenu.visible && (
         <>

@@ -1786,6 +1786,22 @@ app.on('will-quit', () => {
       };
     }
   });
+  ipcMain.handle('getFileStats', async (event, filePath) => {
+    const fs = require('fs').promises;
+    const path = require('path');
+    
+    let resolvedPath = filePath;
+    if (filePath.startsWith('~')) {
+        resolvedPath = filePath.replace('~', os.homedir());
+    }
+    
+    const stats = await fs.stat(resolvedPath);
+    return {
+        size: stats.size,
+        mtime: stats.mtime,
+        ctime: stats.ctime
+    };
+});
 
 
   ipcMain.handle('loadGlobalSettings',  async () => {
