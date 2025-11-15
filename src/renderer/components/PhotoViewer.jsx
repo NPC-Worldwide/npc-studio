@@ -154,7 +154,264 @@ const [selectionDragStart, setSelectionDragStart] = useState(null);
   
    
     const [generating, setGenerating] = useState(false);
-  
+  const [fineTuneConfig, setFineTuneConfig] = useState({
+    outputName: 'my_diffusion_model',
+    epochs: 100,
+    batchSize: 4,
+    learningRate: 1e-4,
+    captions: []
+});
+
+const [captionMode, setCaptionMode] = useState('auto');
+const [manualCaptions, setManualCaptions] = useState({});
+const [showFineTuneModal, setShowFineTuneModal] = useState(false);
+const [isFineTuning, setIsFineTuning] = useState(false);
+const [fineTuneStatus, setFineTuneStatus] = useState(null);
+const pollFineTuneStatus = async (jobId) => {
+    const interval = setInterval(async () => {
+        const status = await window.api?.getFineTuneStatus?.(jobId);
+        if (status?.complete) {
+            clearInterval(interval);
+            setFineTuneStatus(`Complete! Model saved to ${status.outputPath}`);
+            setIsFineTuning(false);
+            await loadImagesForAllSources(imageSources);
+        } else if (status?.error) {
+            clearInterval(interval);
+            setFineTuneStatus(null);
+            setIsFineTuning(false);
+            setError('Training failed: ' + status.error);
+        } else if (status?.step) {
+            setFineTuneStatus(`Epoch ${status.step}/${status.total}`);
+        }
+    }, 5000);
+};
+
+const handleStartFineTune = async () => {
+    if (selectedImageGroup.size === 0) {
+        setError('Select images first');
+        return;
+    }
+    
+    setIsFineTuning(true);
+    setFineTuneStatus('Preparing training...');
+    
+    const imagePaths = Array.from(selectedImageGroup).map(
+        p => p.replace('media://', '')
+    );
+    
+    let captions = [];
+    if (captionMode === 'manual') {
+        captions = imagePaths.map(p => manualCaptions[p] || '');
+    } else if (captionMode === 'filename') {
+        captions = imagePaths.map(p => {
+            const name = p.split('/').pop().replace(/\.[^/.]+$/, '');
+            return name.replace(/_/g, ' ').replace(/-/g, ' ');
+        });
+    }
+    
+    const config = {
+        images: imagePaths,
+        captions: captions,
+        outputName: fineTuneConfig.outputName,
+        epochs: fineTuneConfig.epochs,
+        batchSize: fineTuneConfig.batchSize,
+        learningRate: fineTuneConfig.learningRate,
+        outputPath: activeSource?.path || currentPath
+    };
+    
+    const response = await window.api?.fineTuneDiffusers?.(config);
+    
+    if (response?.error) {
+        setError('Fine-tuning failed: ' + response.error);
+        setFineTuneStatus(null);
+        setIsFineTuning(false);
+    } else if (response?.status === 'started') {
+        setFineTuneStatus('Training started...');
+        pollFineTuneStatus(response.jobId);
+    }
+};
+
+const renderFineTuneModal = () => {
+    if (!showFineTuneModal) return null;
+    
+    const selectedImages = Array.from(selectedImageGroup);
+    
+    return (
+        <div className="fixed inset-0 bg-black/70 z-[90] flex items-center 
+            justify-center p-8">
+            <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl 
+                space-y-4 max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold">
+                        Fine-tune Diffusion Model
+                    </h3>
+                    <button onClick={() => setShowFineTuneModal(false)}>
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                <div className="text-sm text-gray-400">
+                    Training on {selectedImages.length} images
+                </div>
+                
+                <div className="space-y-3">
+                    <div>
+                        <label className="text-sm font-medium">
+                            Output Model Name
+                        </label>
+                        <input
+                            type="text"
+                            value={fineTuneConfig.outputName}
+                            onChange={e => setFineTuneConfig(
+                                p => ({ ...p, outputName: e.target.value })
+                            )}
+                            className="w-full theme-input mt-1 text-sm"
+                            placeholder="my_diffusion_model"
+                        />
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                        <div>
+                            <label className="text-xs font-medium">Epochs</label>
+                            <input
+                                type="number"
+                                value={fineTuneConfig.epochs}
+                                onChange={e => setFineTuneConfig(
+                                    p => ({ ...p, epochs: parseInt(e.target.value) })
+                                )}
+                                className="w-full theme-input mt-1 text-sm"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium">
+                                Batch Size
+                            </label>
+                            <input
+                                type="number"
+                                value={fineTuneConfig.batchSize}
+                                onChange={e => setFineTuneConfig(
+                                    p => ({ ...p, batchSize: parseInt(e.target.value) })
+                                )}
+                                className="w-full theme-input mt-1 text-sm"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium">
+                                Learning Rate
+                            </label>
+                            <input
+                                type="number"
+                                step="0.0001"
+                                value={fineTuneConfig.learningRate}
+                                onChange={e => setFineTuneConfig(
+                                    p => ({ 
+                                        ...p, 
+                                        learningRate: parseFloat(e.target.value) 
+                                    })
+                                )}
+                                className="w-full theme-input mt-1 text-sm"
+                            />
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label className="text-sm font-medium">
+                            Caption Mode
+                        </label>
+                        <div className="grid grid-cols-3 gap-2 mt-1">
+                            <button
+                                onClick={() => setCaptionMode('auto')}
+                                className={`p-2 text-xs rounded border 
+                                    ${captionMode === 'auto' 
+                                        ? 'theme-button-primary' 
+                                        : 'theme-button'}`}
+                            >
+                                No Captions
+                            </button>
+                            <button
+                                onClick={() => setCaptionMode('filename')}
+                                className={`p-2 text-xs rounded border 
+                                    ${captionMode === 'filename' 
+                                        ? 'theme-button-primary' 
+                                        : 'theme-button'}`}
+                            >
+                                From Filename
+                            </button>
+                            <button
+                                onClick={() => setCaptionMode('manual')}
+                                className={`p-2 text-xs rounded border 
+                                    ${captionMode === 'manual' 
+                                        ? 'theme-button-primary' 
+                                        : 'theme-button'}`}
+                            >
+                                Manual
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {captionMode === 'manual' && (
+                        <div className="space-y-2 max-h-48 overflow-y-auto 
+                            border theme-border rounded p-2">
+                            {selectedImages.map(img => {
+                                const path = img.replace('media://', '');
+                                const name = path.split('/').pop();
+                                return (
+                                    <div key={img} className="flex gap-2 
+                                        items-center">
+                                        <img 
+                                            src={img} 
+                                            className="w-10 h-10 object-cover 
+                                                rounded"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={manualCaptions[path] || ''}
+                                            onChange={e => setManualCaptions(
+                                                p => ({ 
+                                                    ...p, 
+                                                    [path]: e.target.value 
+                                                })
+                                            )}
+                                            placeholder={name}
+                                            className="flex-1 theme-input text-xs"
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+                
+                {fineTuneStatus && (
+                    <div className="bg-blue-900/30 p-3 rounded text-sm 
+                        flex items-center gap-2">
+                        <Loader size={14} className="animate-spin" />
+                        {fineTuneStatus}
+                    </div>
+                )}
+                
+                <div className="flex justify-end gap-2">
+                    <button 
+                        onClick={() => setShowFineTuneModal(false)}
+                        className="theme-button px-4 py-2"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleStartFineTune}
+                        disabled={isFineTuning || selectedImages.length === 0}
+                        className="theme-button-primary px-4 py-2 
+                            disabled:opacity-50"
+                    >
+                        {isFineTuning ? 'Training...' : 'Start Training'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
    
     const [activeTool, setActiveTool] = useState('rect');
     const [editingLabelId, setEditingLabelId] = useState(null); // Add this line
@@ -1000,6 +1257,14 @@ useEffect(() => {
         {selectedImageGroup.size > 0 && (
           <div className="space-y-2">
             <h4 className="text-xs font-semibold theme-text-secondary uppercase tracking-wider">Batch Actions</h4>
+        <button 
+            className="w-full theme-button flex items-center gap-2 
+                justify-center text-sm py-2 rounded"
+            onClick={() => setShowFineTuneModal(true)}
+        >
+            <Wand2 size={14} /> Fine-tune Model
+        </button>
+
             <button className="w-full theme-button flex items-center gap-2 justify-center text-sm py-2 rounded"
               onClick={applyMetadataToSelection}><Save size={14} /> Apply Metadata</button>
             <button className="w-full theme-button flex items-center gap-2 justify-center text-sm py-2 rounded"
@@ -2510,6 +2775,7 @@ const renderDarkRoom = () => {
 )}
                 </div>
             </div>
+
         </div>
     );
 };
@@ -2544,6 +2810,8 @@ return (
           {activeTab === 'generator' && renderGenerator()}
           {activeTab === 'metadata' && renderMetadata()}
           {activeTab === 'labeling' && renderLabeling()}
+                      {renderFineTuneModal()}
+
         </main>
       </div>
       {renderImageContextMenu()}

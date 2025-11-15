@@ -1173,3 +1173,17 @@ body.light-mode .hover\:bg-gray-700:hover {
 .overflow-auto::-webkit-scrollbar-thumb:hover {
     background: var(--theme-text-muted);
 }
+
+/* Exception for PPTX slide content - let inline styles win */
+.pptx-slide-content,
+.pptx-slide-content * {
+    color: inherit !important;
+}
+
+.pptx-slide-content span[style*="color"] {
+    color: revert !important;
+}
+
+.pptx-slide-content span[style*="font-weight"] {
+    font-weight: revert !important;
+}

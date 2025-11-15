@@ -236,6 +236,12 @@ onTerminalClosed: (callback) => {
 },
 getFileStats: (filePath) => ipcRenderer.invoke('getFileStats', filePath),
 
+openFile: (path) => ipcRenderer.invoke('open-file', path),
+
+writeFileBuffer: (path, uint8) => ipcRenderer.invoke('write-file-buffer', path, uint8),
+
+compileLatex: (path, opts) => ipcRenderer.invoke('compile-latex', path, opts),
+
     getNPCTeamProject: async (currentPath) => {
         if (!currentPath || typeof currentPath !== 'string') {
           throw new Error('currentPath must be a string');

@@ -27,6 +27,8 @@ import TerminalView from './Terminal';
 import PdfViewer from './PdfViewer';
 import WebBrowserViewer from './WebBrowserViewer';
 import BrowserUrlDialog from './BrowserUrlDialog';
+import PptxViewer from './PptxViewer';
+import LatexViewer from './LatexViewer';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -188,6 +190,7 @@ const LayoutNode = memo(({ node, path, component }) => {
             updateContentPane, performSplit, 
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
+            renderPptxViewer, renderLatexViewer,
             moveContentPane
         } = component;
 
@@ -237,25 +240,33 @@ const LayoutNode = memo(({ node, path, component }) => {
             const contentType = contentDataRef.current[node.id]?.contentType;
             console.log('[RENDER_CONTENT] NodeId:', node.id, 'ContentType:', contentType);
             
-            switch (contentType) {
-                case 'chat':
-                    return renderChatView({ nodeId: node.id });
-                case 'editor':
-                    return renderFileEditor({ nodeId: node.id });
-                case 'terminal':
-                    return renderTerminalView({ nodeId: node.id });
-                case 'pdf':
-                    return renderPdfViewer({ nodeId: node.id });
-                case 'csv':
-                    return renderCsvViewer({ nodeId: node.id });
-                case 'docx':
-                    return renderDocxViewer({ nodeId: node.id });
-                case 'browser':
-                    return renderBrowserViewer({ nodeId: node.id });
-                default:
-                    console.log('[RENDER_CONTENT] Unknown/empty content type');
-                    return <div className="p-4 theme-text-muted">Empty pane.</div>;
-            }
+switch (contentType) {
+    case 'chat':
+        return renderChatView({ nodeId: node.id });
+    case 'editor':
+        return renderFileEditor({ nodeId: node.id });
+    case 'terminal':
+        return renderTerminalView({ nodeId: node.id });
+    case 'pdf':
+        return renderPdfViewer({ nodeId: node.id });
+    case 'csv':
+        return renderCsvViewer({ nodeId: node.id });
+    case 'docx':
+        return renderDocxViewer({ nodeId: node.id });
+    case 'browser':
+        return renderBrowserViewer({ nodeId: node.id });
+
+    // ADD THESE ↓↓↓
+    case 'pptx':
+        return renderPptxViewer({ nodeId: node.id });
+
+    case 'latex':
+        return renderLatexViewer({ nodeId: node.id });
+    // END ADD ↑↑↑
+
+    default:
+        return <div className="p-4 theme-text-muted">Empty pane.</div>;
+}
         };
 
         return (
@@ -280,7 +291,6 @@ const LayoutNode = memo(({ node, path, component }) => {
     }
     return null;
 });
-
 const getFileIcon = (filename) => {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     const iconProps = { size: 16, className: "flex-shrink-0" };
@@ -299,10 +309,19 @@ const getFileIcon = (filename) => {
             className={`${iconProps.className} text-blue-600`} />;
         case 'pdf': return <FileText {...iconProps} 
             className={`${iconProps.className} text-purple-400`} />;
+
+        // ✅ ADD THESE TWO ↓↓↓
+        case 'pptx': return <FileText {...iconProps}
+            className={`${iconProps.className} text-red-500`} />;
+        case 'tex': return <FileText {...iconProps}
+            className={`${iconProps.className} text-yellow-500`} />;
+        // ✅ END ADD ↑↑↑
+
         default: return <File {...iconProps} 
             className={`${iconProps.className} text-gray-400`} />;
     }
 };
+
 
 const convertFileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
@@ -1338,14 +1357,20 @@ const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
 
     if (missingPaneIds.length > 0) {
         console.warn('[SYNC] Found orphaned panes in contentData:', missingPaneIds);
-        // Clean them up instead of trying to add them
-        missingPaneIds.forEach(id => delete contentData[id]);
+        // CHANGE: Only remove if the pane has no contentType or contentId (truly empty)
+        missingPaneIds.forEach(id => {
+            const paneData = contentData[id];
+            if (!paneData || (!paneData.contentType && !paneData.contentId)) {
+                console.log('[SYNC] Removing truly empty orphaned pane:', id);
+                delete contentData[id];
+            } else {
+                console.warn('[SYNC] Keeping orphaned pane with content:', id, paneData);
+            }
+        });
     }
 
     return layoutNode;
 }, []);
-
-  
 
 const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
   // Verify this paneId exists in the layout tree
@@ -3153,7 +3178,11 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
         const newLayout = { id: newPaneId, type: 'content' };
         
         // Initialize contentData SYNCHRONOUSLY with layout
-        contentDataRef.current[newPaneId] = {};
+        contentDataRef.current[newPaneId] = {
+            contentType: 'chat',
+            contentId: conversationId,
+            chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+        };
         setRootLayoutNode(newLayout);
         
         // NOW update the content
@@ -3164,14 +3193,20 @@ const handleConversationSelect = async (conversationId, skipMessageLoad = false)
     } 
     else {
         paneIdToUpdate = activeContentPaneId || Object.keys(contentDataRef.current)[0];
-        if (paneIdToUpdate) {
+        
+        // ADD THIS CHECK: Only update if the pane exists and is not empty
+        if (paneIdToUpdate && contentDataRef.current[paneIdToUpdate]) {
             await updateContentPane(paneIdToUpdate, 'chat', conversationId, skipMessageLoad);
             setRootLayoutNode(prev => ({...prev}));
+        } else {
+            console.warn('[SELECT_CONVO] No valid pane to update, creating new one');
+            const newPaneId = createAndAddPaneNodeToLayout();
+            await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
+            paneIdToUpdate = newPaneId;
         }
     }
     return paneIdToUpdate;
 };
-
 
 
 const cleanupPhantomPanes = useCallback(() => {
@@ -3211,6 +3246,9 @@ const handleFileClick = useCallback(async (filePath) => {
     
     if (extension === 'pdf') contentType = 'pdf';
     else if (['csv', 'xlsx', 'xls'].includes(extension)) contentType = 'csv';
+    else if (extension === 'pptx') contentType = 'pptx';
+    else if (extension === 'tex') contentType = 'latex';
+
     else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
 
     console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
@@ -3684,6 +3722,39 @@ useEffect(() => {
     );
 }, [rootLayoutNode, findNodePath, setDraggedItem, setPaneContextMenu, 
     closeContentPane]);
+const renderPptxViewer = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData?.contentId) return null;
+
+    return (
+        <PptxViewer
+            filePath={paneData.contentId}
+            nodeId={nodeId}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [rootLayoutNode, findNodePath, setDraggedItem, setPaneContextMenu, closeContentPane]);
+
+const renderLatexViewer = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData?.contentId) return null;
+
+    return (
+        <LatexViewer
+            filePath={paneData.contentId}
+            nodeId={nodeId}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [rootLayoutNode, findNodePath, setDraggedItem, setPaneContextMenu, closeContentPane]);
 
 const renderDocxViewer = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -5004,87 +5075,128 @@ const handleAIStreamComplete = async (_, { streamId }) => {
             return null;
         }
     };
-
-    const refreshConversations = async () => {
-        if (currentPath) {
-            console.log('[REFRESH] Starting conversation refresh for path:', currentPath);
-            try {
-                const normalizedPath = normalizePath(currentPath);
-                const response = await window.api.getConversations(normalizedPath);
-                console.log('[REFRESH] Got response:', response);
+const refreshDirectoryStructureOnly = async () => {
+    try {
+        if (!currentPath) {
+            console.error('No directory path provided');
+            return {};
+        }
+        const structureResult = await window.api.readDirectoryStructure(currentPath);
+        if (structureResult && !structureResult.error) {
+            setFolderStructure(structureResult);
+        } else {
+            console.error('Error loading structure:', structureResult?.error);
+            setFolderStructure({ error: structureResult?.error || 'Failed' });
+        }
+        
+        // DON'T load conversations - just refresh the file structure
+        console.log('[REFRESH_STRUCTURE] Refreshed folder structure only');
+        return structureResult;
+    } catch (err) {
+        console.error('Error loading structure:', err);
+        setError(err.message);
+        setFolderStructure({ error: err.message });
+        return { error: err.message };
+    }
+};
+const refreshConversations = async () => {
+    if (currentPath) {
+        console.log('[REFRESH] Starting conversation refresh for path:', currentPath);
+        try {
+            const normalizedPath = normalizePath(currentPath);
+            const response = await window.api.getConversations(normalizedPath);
+            console.log('[REFRESH] Got response:', response);
+            
+            if (response?.conversations) {
+                const formattedConversations = response.conversations.map(conv => ({
+                    id: conv.id,
+                    title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
+                    preview: conv.preview || 'No content',
+                    timestamp: conv.timestamp || Date.now(),
+                    last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
+                }));
                 
-                if (response?.conversations) {
-                    const formattedConversations = response.conversations.map(conv => ({
-                        id: conv.id,
-                        title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
-                        preview: conv.preview || 'No content',
-                        timestamp: conv.timestamp || Date.now(),
-                        last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
-                    }));
-                    
-                   
-                    formattedConversations.sort((a, b) => 
-                        new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
-                    );
-                    
-                    console.log('[REFRESH] Setting conversations:', formattedConversations.length);
-                    setDirectoryConversations([...formattedConversations]);
-                } else {
-                    console.error('[REFRESH] No conversations in response');
-                    setDirectoryConversations([]);
-                }
-            } catch (err) {
-                console.error('[REFRESH] Error:', err);
+                formattedConversations.sort((a, b) => 
+                    new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
+                );
+                
+                console.log('[REFRESH] Setting conversations:', formattedConversations.length);
+                setDirectoryConversations([...formattedConversations]);
+                
+                // ADD THIS: Don't auto-select anything - just update the list
+                console.log('[REFRESH] Refresh complete, preserving current selection');
+            } else {
+                console.error('[REFRESH] No conversations in response');
                 setDirectoryConversations([]);
             }
-        }
-    };
-    
-    const loadConversations = async (dirPath) => {
-        let currentActiveId = activeConversationId;
-        try {
-            const normalizedPath = normalizePath(dirPath);
-            if (!normalizedPath) return;
-            const response = await window.api.getConversations(normalizedPath);
-            const formattedConversations = response?.conversations?.map(conv => ({
-                id: conv.id,
-                title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
-                preview: conv.preview || 'No content',
-                timestamp: conv.timestamp || Date.now(),
-                last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
-            })) || [];
-    
-           
-            formattedConversations.sort((a, b) => 
-                new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
-            );
-            
-            setDirectoryConversations(formattedConversations);
-    
-            const activeExists = formattedConversations.some(c => c.id === currentActiveId);
-    
-            if (!activeExists && initialLoadComplete.current) {
-                if (formattedConversations.length > 0) {
-                    await handleConversationSelect(formattedConversations[0].id);
-                } else {
-                    await createNewConversation();
-                }
-            } else if (!currentActiveId && formattedConversations.length > 0 && initialLoadComplete.current) {
-                 await handleConversationSelect(formattedConversations[0].id);
-            } else if (!currentActiveId && formattedConversations.length === 0 && initialLoadComplete.current) {
-                 await createNewConversation();
-            }
-    
         } catch (err) {
-            console.error('Error loading conversations:', err);
-            setError(err.message);
+            console.error('[REFRESH] Error:', err);
             setDirectoryConversations([]);
-             if (!activeConversationId && initialLoadComplete.current) {
-                 await createNewConversation();
-            }
         }
-    };
+    }
+};
 
+    const loadConversations = async (dirPath) => {
+    let currentActiveId = activeConversationId;
+    try {
+        const normalizedPath = normalizePath(dirPath);
+        if (!normalizedPath) return;
+        const response = await window.api.getConversations(normalizedPath);
+        const formattedConversations = response?.conversations?.map(conv => ({
+            id: conv.id,
+            title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
+            preview: conv.preview || 'No content',
+            timestamp: conv.timestamp || Date.now(),
+            last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
+        })) || [];
+
+        formattedConversations.sort((a, b) => 
+            new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
+        );
+        
+        setDirectoryConversations(formattedConversations);
+
+        // CHANGE THIS SECTION:
+        // Check if any conversation is already open in a pane
+        const hasOpenConversation = Object.values(contentDataRef.current).some(
+            paneData => paneData?.contentType === 'chat' && paneData?.contentId
+        );
+
+        // Only auto-select if:
+        // 1. Initial load is complete
+        // 2. No conversation is currently open in ANY pane
+        // 3. Current active conversation doesn't exist anymore
+        const activeExists = formattedConversations.some(c => c.id === currentActiveId);
+
+        if (!activeExists && !hasOpenConversation && initialLoadComplete.current) {
+            if (formattedConversations.length > 0) {
+                await handleConversationSelect(formattedConversations[0].id);
+            } else {
+                await createNewConversation();
+            }
+        } else if (!currentActiveId && !hasOpenConversation && formattedConversations.length > 0 && initialLoadComplete.current) {
+            await handleConversationSelect(formattedConversations[0].id);
+        } else if (!currentActiveId && !hasOpenConversation && formattedConversations.length === 0 && initialLoadComplete.current) {
+            await createNewConversation();
+        } else {
+            console.log('[LOAD_CONVOS] Preserving existing conversation selection');
+        }
+
+    } catch (err) {
+        console.error('Error loading conversations:', err);
+        setError(err.message);
+        setDirectoryConversations([]);
+        
+        // Also check for open conversations here
+        const hasOpenConversation = Object.values(contentDataRef.current).some(
+            paneData => paneData?.contentType === 'chat' && paneData?.contentId
+        );
+        
+        if (!activeConversationId && !hasOpenConversation && initialLoadComplete.current) {
+            await createNewConversation();
+        }
+    }
+};
     const loadDirectoryStructure = async (dirPath) => {
         try {
             if (!dirPath) {
@@ -8360,7 +8472,6 @@ const handleSearchResultSelect = async (conversationId, searchTerm) => {
         });
     }, 100);
 };
-
 const layoutComponentApi = useMemo(() => ({
     rootLayoutNode,
     setRootLayoutNode,
@@ -8379,6 +8490,12 @@ const layoutComponentApi = useMemo(() => ({
     renderCsvViewer,
     renderDocxViewer,
     renderBrowserViewer,
+
+    // ✅ ADD THESE TWO ↓↓↓
+    renderPptxViewer,
+    renderLatexViewer,
+    // ✅ END ADD ↑↑↑
+
     setPaneContextMenu
 }), [
     rootLayoutNode,
@@ -8387,6 +8504,8 @@ const layoutComponentApi = useMemo(() => ({
     moveContentPane, createAndAddPaneNodeToLayout,
     renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer, 
     renderCsvViewer, renderDocxViewer, renderBrowserViewer,
+    renderPptxViewer,
+    renderLatexViewer,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu
 ]);

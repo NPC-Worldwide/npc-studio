@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, memo } from 'react';
+import React, { useState, useRef, useCallback, memo, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -49,6 +49,7 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
   const [showFloatingButton, setShowFloatingButton] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const scrollContainerRef = useRef(null);
+  const expandedScrollContainerRef = useRef(null); 
 
   const match = /language-(\w+)/.exec(className || '');
   const codeString = String(children).replace(/\n$/, '');
@@ -74,6 +75,13 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
     setShowFloatingButton(false);
   }, []);
 
+  useEffect(() => {
+    if (isExpanded && expandedScrollContainerRef.current) {
+      const { scrollHeight } = expandedScrollContainerRef.current;
+      expandedScrollContainerRef.current.scrollTop = scrollHeight;
+    }
+  }, [isExpanded, codeString]); 
+
   const isDarkMode = document.body.classList.contains('dark-mode');
 
   const shouldRenderInline = inline || codeString.length <= 60;
@@ -90,7 +98,8 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
       {/* Expanded overlay */}
       {isExpanded && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-6xl h-full max-h-[90vh] theme-bg-tertiary rounded-md overflow-hidden theme-border border">
+          {/* Added h-full here to ensure the inner container takes full height */}
+          <div className="w-full max-w-6xl h-full max-h-[calc(100vh-2rem)] theme-bg-tertiary rounded-md overflow-hidden theme-border border">
             <div className="flex items-center justify-between px-4 py-2 theme-bg-secondary text-sm theme-text-muted">
               <span>{match?.[1] || 'code'}</span>
               <div className="flex gap-2">
@@ -110,7 +119,7 @@ const CodeBlock = memo(({ node, inline, className, children, ...props }) => {
                 </button>
               </div>
             </div>
-            <div className="overflow-auto h-[calc(100%-48px)]">
+            <div ref={expandedScrollContainerRef} className="overflow-auto h-[calc(100%-2.25rem)]">
 <SyntaxHighlighter
   style={isDarkMode ? atomDark : customLightStyle}
   language={match?.[1]}

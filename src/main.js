@@ -936,6 +936,15 @@ ipcMain.handle('removeDaemon', (event, id) => {
     }
   });
 
+ipcMain.handle('open-file', async (_event, filePath) => {
+  const { shell } = require('electron');
+  try {
+    await shell.openPath(filePath);
+    return true;
+  } catch (err) {
+    return { error: err.message };
+  }
+});
 
   
   ipcMain.handle('show-open-dialog', async (event, options) => {
@@ -2184,6 +2193,64 @@ ipcMain.handle('read-docx-content', async (_, filePath) => {
     return { content: null, error: err.message };
   }
 });
+ipcMain.handle('write-file-buffer', async (_e, path, uint8) => {
+  try {
+    const fs = require('fs');
+    fs.writeFileSync(path, Buffer.from(uint8));
+    return true;
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('compile-latex', async (_event, texPath, opts) => {
+  const { spawnSync } = require('child_process');
+  const path = require('path');
+
+  console.log('[LATEX] compile-latex called with:', texPath, opts);
+
+  const engine = opts?.engine || 'pdflatex';
+
+  const args = [
+    '-interaction=nonstopmode',
+    '-halt-on-error',
+    '-file-line-error',
+    texPath
+  ];
+
+  if (opts?.shellEscape) args.unshift('-shell-escape');
+
+  console.log('[LATEX] Running first pass:', engine, args);
+  const first = spawnSync(engine, args, { encoding: 'utf8' });
+  console.log('[LATEX] First pass stdout:', first.stdout);
+  console.log('[LATEX] First pass stderr:', first.stderr);
+
+  if (opts?.bibtex) {
+    const base = texPath.replace(/\.tex$/, '');
+    console.log('[LATEX] Running bibtex on:', base);
+    const bib = spawnSync('bibtex', [base], { encoding: 'utf8' });
+    console.log('[LATEX] Bibtex stdout:', bib.stdout);
+    console.log('[LATEX] Bibtex stderr:', bib.stderr);
+  }
+
+  console.log('[LATEX] Running second pass:', engine, args);
+  const result = spawnSync(engine, args, { encoding: 'utf8' });
+  console.log('[LATEX] Second pass stdout:', result.stdout);
+  console.log('[LATEX] Second pass stderr:', result.stderr);
+
+  const pdfPath = texPath.replace(/\.tex$/, '.pdf');
+  const ok = result.status === 0;
+
+  console.log('[LATEX] DONE. Status:', ok ? 'OK' : 'ERROR', 'PDF:', pdfPath);
+
+  return {
+    ok,
+    pdfPath,
+    error: !ok ? result.stderr : null
+  };
+});
+
+
 ipcMain.handle('read-file-buffer', async (event, filePath) => {
   try {
     console.log(`[Main Process] Reading file buffer for: ${filePath}`);
@@ -2830,6 +2897,9 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
                              '.ts', 
                              '.json', 
                              '.txt', 
+                             '.tex', 
+                             '.bib', 
+                             '.pptx', 
                              '.yaml', 
                              '.yml', 
                              '.html', 
