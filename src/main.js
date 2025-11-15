@@ -2203,6 +2203,56 @@ ipcMain.handle('write-file-buffer', async (_e, path, uint8) => {
   }
 });
 
+
+ipcMain.handle('finetune-diffusers', async (event, params) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/finetune_diffusers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Finetuning failed');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Finetune diffusers error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('get-finetune-status', async (event, jobId) => {
+    try {
+        const response = await fetch(`http://127.0.0.1:5337/api/finetune_status/${jobId}`);
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to get finetune status');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Get finetune status error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('save-generated-image', async (event, blob, folderPath, filename) => {
+    try {
+        const buffer = Buffer.from(await blob.arrayBuffer());
+        const fullPath = path.join(folderPath, filename);
+        await fsPromises.writeFile(fullPath, buffer);
+        return { success: true, path: fullPath };
+    } catch (error) {
+        console.error('Error saving generated image:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+
 ipcMain.handle('compile-latex', async (_event, texPath, opts) => {
   const { spawnSync } = require('child_process');
   const path = require('path');
@@ -2282,8 +2332,16 @@ ipcMain.handle('getAvailableImageModels', async (event, currentPath) => {
       }
 
       const data = await response.json();
+      // <--- CRITICAL FIX: Ensure data.models is an array before attempting to push
+      if (!Array.isArray(data.models)) {
+          log('Warning: Backend /api/image_models did not return an array for data.models. Initializing as empty array.');
+          data.models = [];
+      }
+      
       log('Received image models:', data.models?.length);
-      return data;
+      
+
+      return data; // This `data` object now contains the combined list from Python
   } catch (err) {
       log('Error in getAvailableImageModels handler:', err);
       return { models: [], error: err.message || 'Failed to fetch image models from backend' };

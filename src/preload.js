@@ -234,6 +234,11 @@ onTerminalClosed: (callback) => {
     generativeFill: async (params) => {
     return ipcRenderer.invoke('generative-fill', params);
 },
+    fineTuneDiffusers: (params) => ipcRenderer.invoke('finetune-diffusers', params),
+    getFineTuneStatus: (jobId) => ipcRenderer.invoke('get-finetune-status', jobId),
+    saveGeneratedImage: (blob, folderPath, filename) => ipcRenderer.invoke('save-generated-image', blob, folderPath, filename),
+
+
 getFileStats: (filePath) => ipcRenderer.invoke('getFileStats', filePath),
 
 openFile: (path) => ipcRenderer.invoke('open-file', path),

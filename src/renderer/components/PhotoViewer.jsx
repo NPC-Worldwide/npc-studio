@@ -209,6 +209,22 @@ const handleStartFineTune = async () => {
         });
     }
     
+    // --- CRITICAL FIX: Update the outputPath here! ---
+    // Ensure it points to the dedicated models directory.
+    // We'll use a consistent path for fine-tuned models.
+    const modelsOutputPath = `${currentPath}/models`; // Or a fixed global path like '~/.npcsh/models'
+    // For now, let's use a project-relative models folder for better organization.
+    // If currentPath is /Users/caug/.npcsh/npc-studio, this will be /Users/caug/.npcsh/npc-studio/models
+    // If you prefer a single global models folder, you can hardcode it:
+    // const modelsOutputPath = '~/.npcsh/models'; 
+    // Just ensure your backend's get_finetuned_models scans the same path.
+    // The previous backend change already defaults to '~/.npcsh/models' for scanning.
+    // So, let's make the frontend save to a project-specific models folder, or default to global.
+    // Given the backend's default scan, let's make the frontend save to the global models path for now.
+
+    const finalOutputPath = '~/.npcsh/models'; // This will expand to /Users/caug/.npcsh/models
+    // --------------------------------------------------
+
     const config = {
         images: imagePaths,
         captions: captions,
@@ -216,7 +232,7 @@ const handleStartFineTune = async () => {
         epochs: fineTuneConfig.epochs,
         batchSize: fineTuneConfig.batchSize,
         learningRate: fineTuneConfig.learningRate,
-        outputPath: activeSource?.path || currentPath
+        outputPath: finalOutputPath // <--- UPDATED THIS LINE
     };
     
     const response = await window.api?.fineTuneDiffusers?.(config);
@@ -473,94 +489,106 @@ const renderFineTuneModal = () => {
       setLoading(false);
     }
   }, []);
-  useEffect(() => {
-    const loadAllData = async () => {
-        if (!isOpen) {
-           
-            setActiveTab('gallery');
-            setSelectedImage(null);
-            setSelectedImageGroup(new Set());
-            setDisplayedImagesCount(IMAGES_PER_PAGE);
-            setLayers([]);
-            setLabels([]);
-            setMetadata(null);
-            setCustomTags([]);
-            setRating(0);
-            setAvailableModels([]);
-            setSelectedModel('');
-            setSelectedProvider('');
-            return;
-        }
-
-        const initialSources = [
-            { id: 'project-images', name: 'Project Images', path: currentPath, icon: Folder },
-            { id: 'global-images', name: 'Global Images', path: '~/.npcsh/images', icon: ImageIcon },
-            { id: 'screenshots', name: 'Screenshots', path: '~/.npcsh/screenshots', icon: Camera },
-        ];
-        
-       
-        setLoading(true); 
-        setError(null);
-        try {
-            const updatedSources = await Promise.all(
-                initialSources.map(async (source) => {
-                    try {
-                        await window.api?.ensureDirectory?.(source.path);
-                        const images = await window.api?.readDirectoryImages?.(source.path) || [];
-                        return { ...source, images };
-                    } catch (err) {
-                        console.error('Source load failed:', source, err);
-                        return { ...source, images: [] };
-                    }
-                })
-            );
-            setImageSources(updatedSources);
-            
-           
-            const projectSource = updatedSources.find(s => s.id === 'project-images');
-            const projectHasImages = projectSource?.images?.length > 0;
-            
-            if (projectHasImages) {
-                setActiveSourceId('project-images');
-            } else {
-                setActiveSourceId('global-images');
+    useEffect(() => {
+        const loadAllData = async () => {
+            if (!isOpen) {
+               
+                setActiveTab('gallery');
+                setSelectedImage(null);
+                setSelectedImageGroup(new Set());
+                setDisplayedImagesCount(IMAGES_PER_PAGE);
+                setLayers([]);
+                setLabels([]);
+                setMetadata(null);
+                setCustomTags([]);
+                setRating(0);
+                // Clear available models and selections when closing
+                setAvailableModels([]);
+                setSelectedModel('');
+                setSelectedProvider('');
+                return;
             }
-            
-        } catch (err) {
-            setError('Failed to load image sources: ' + err.message);
-        } finally {
-            setLoading(false);
-        }
 
-       
-        if (currentPath) {
-          try {
-            const imageModelsResponse = await window.api.getAvailableImageModels(currentPath);
-            if (imageModelsResponse?.models) {
-              setAvailableModels(imageModelsResponse.models);
-              
-              const stableDiffusionModel = imageModelsResponse.models.find(
-                model => model.value.toLowerCase().includes('stable-diffusion') || 
-                        model.value.toLowerCase().includes('stable_diffusion')
-              );
-              
-              if (stableDiffusionModel) {
-                setSelectedModel(stableDiffusionModel.value);
-                setSelectedProvider('diffusers');
-              } else if (imageModelsResponse.models.length > 0) {
-                setSelectedModel(imageModelsResponse.models[0].value);
+            const initialSources = [
+                { id: 'project-images', name: 'Project Images', path: currentPath, icon: Folder },
+                { id: 'global-images', name: 'Global Images', path: '~/.npcsh/images', icon: ImageIcon },
+                { id: 'screenshots', name: 'Screenshots', path: '~/.npcsh/screenshots', icon: Camera },
+            ];
+            
+           
+            setLoading(true); 
+            setError(null);
+            try {
+                const updatedSources = await Promise.all(
+                    initialSources.map(async (source) => {
+                        try {
+                            await window.api?.ensureDirectory?.(source.path);
+                            const images = await window.api?.readDirectoryImages?.(source.path) || [];
+                            return { ...source, images };
+                        } catch (err) {
+                            console.error('Source load failed:', source, err);
+                            return { ...source, images: [] };
+                        }
+                    })
+                );
+                setImageSources(updatedSources);
+                
+               
+                const projectSource = updatedSources.find(s => s.id === 'project-images');
+                const projectHasImages = projectSource?.images?.length > 0;
+                
+                if (projectHasImages) {
+                    setActiveSourceId('project-images');
+                } else {
+                    setActiveSourceId('global-images');
+                }
+                
+            } catch (err) {
+                setError('Failed to load image sources: ' + err.message);
+            } finally {
+                setLoading(false);
+            }
+
+           
+            if (currentPath) {
+              try {
+                const imageModelsResponse = await window.api.getAvailableImageModels(currentPath);
+                if (imageModelsResponse?.models) {
+                  // <--- CRITICAL FIX: Directly set the models
+                  setAvailableModels(imageModelsResponse.models);
+                  
+                  // Prioritize the fine-tuned Diffusers model if available
+                  const fineTunedDiffusersModel = imageModelsResponse.models.find(
+                    model => model.provider === 'diffusers' && model.display_name.includes('Fine-tuned Diffuser')
+                  );
+                  // Fallback to a standard Diffusers model
+                  const standardDiffusersModel = imageModelsResponse.models.find(
+                    model => model.provider === 'diffusers' && model.value.toLowerCase().includes('stable-diffusion')
+                  );
+                  
+                  if (fineTunedDiffusersModel) {
+                    setSelectedModel(fineTunedDiffusersModel.value);
+                    setSelectedProvider('diffusers');
+                  } else if (standardDiffusersModel) {
+                    setSelectedModel(standardDiffusersModel.value);
+                    setSelectedProvider('diffusers');
+                  } else if (imageModelsResponse.models.length > 0) {
+                    // If no Diffusers models, select the first available model
+                    setSelectedModel(imageModelsResponse.models[0].value);
+                    setSelectedProvider(imageModelsResponse.models[0].provider);
+                  }
+                }
+              } catch (error) {
+                console.error('Error loading image models:', error);
+                // Fallback to a default if fetching fails
                 setSelectedProvider('diffusers');
               }
             }
-          } catch (error) {
-            console.error('Error loading image models:', error);
-            setSelectedProvider('diffusers');
-          }
-        }
-    };
-    
-    loadAllData();
-}, [isOpen, currentPath, projectPath]);
+        };
+        
+        loadAllData();
+    }, [isOpen, currentPath, projectPath]);
+
 
 
 const [selectedGeneratedImage, setSelectedGeneratedImage] = useState(null);
@@ -2013,6 +2041,11 @@ const handleUseForGeneration = () => {
 
     const gridColsClass = getGridCols(generatedImages.length);
 
+    // Filter models based on the currently selected provider
+    const filteredAvailableModels = availableModels.filter(
+        model => model.provider === selectedProvider
+    );
+
     return (
         <div className="flex-1 flex overflow-hidden">
             <div className="flex-1 p-4 overflow-y-auto relative">
@@ -2155,16 +2188,32 @@ const handleUseForGeneration = () => {
                     </div>
                     <div>
                         <label className="text-sm font-medium">Model</label>
-                        <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="mt-1 w-full theme-input">
-                            {availableModels.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
+                        <select 
+                            value={selectedModel} 
+                            onChange={e => setSelectedModel(e.target.value)} 
+                            className="mt-1 w-full theme-input"
+                        >
+                            {/* <--- CRITICAL FIX: Filter models here based on selectedProvider */}
+                            {filteredAvailableModels.map(model => (
+                                <option key={model.value} value={model.value}>
+                                    {model.display_name}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div>
                         <label className="text-sm font-medium">Provider</label>
-                        <select value={selectedProvider} onChange={e => setSelectedProvider(e.target.value)} className="mt-1 w-full theme-input">
-                            <option value="diffusers">HF Diffusers</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="gemini">Gemini</option>
+                        <select 
+                            value={selectedProvider} 
+                            onChange={e => setSelectedProvider(e.target.value)} 
+                            className="mt-1 w-full theme-input"
+                        >
+                            {/* <--- CRITICAL FIX: Dynamically list unique providers */}
+                            {[...new Set(availableModels.map(model => model.provider))].map(provider => (
+                                <option key={provider} value={provider}>
+                                    {provider === 'diffusers' ? 'HF Diffusers' : provider.charAt(0).toUpperCase() + provider.slice(1)}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
@@ -2222,6 +2271,7 @@ const handleUseForGeneration = () => {
     setSelectedModel, setSelectedProvider, setGenerating, setGeneratedFilenames,
     generateFilename, setGenerateFilename, setError
 ]);
+
 const handleCanvasMouseDown = (e) => {
   if (!canvasContainerRef.current) return;
   const p = getRelativeCoords(e, canvasContainerRef.current);
