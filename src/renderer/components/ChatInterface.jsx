@@ -5511,7 +5511,21 @@ if (!hasExistingWorkspace) {
     };
 
     initApplicationData();
+
 }, [currentPath, config]);
+
+const handleOpenFolderAsWorkspace = useCallback(async (folderPath) => {
+    if (folderPath === currentPath) {
+        console.log("Already in this workspace, no need to switch!");
+        setSidebarItemContextMenuPos(null); // Close context menu if open
+        return;
+    }
+    console.log(`Opening folder as workspace: ${folderPath} 🔥`);
+    await switchToPath(folderPath);
+    setSidebarItemContextMenuPos(null); // Close context menu if open
+}, [currentPath, switchToPath]);
+
+
 const goUpDirectory = async () => {
     try {
         if (!currentPath || currentPath === baseDir) return;
@@ -6678,6 +6692,19 @@ const renderSidebarItemContextMenu = () => {
                         <div className="border-t theme-border my-1"></div>
                     </>
                 )}
+
+                {type === 'directory' && (
+                    <>
+                        <button
+                            onClick={() => handleOpenFolderAsWorkspace(path)}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <Folder size={16} />
+                            <span>Open as Workspace</span>
+                        </button>
+                        <div className="border-t theme-border my-1"></div>
+                    </>
+                )}
                 
                 <button
                     onClick={handleSidebarRenameStart}
@@ -6698,8 +6725,6 @@ const renderSidebarItemContextMenu = () => {
         </>
     );
 };
-
-// Update renderFolderList to handle inline rename
 const renderFolderList = (structure) => {
     if (!structure || typeof structure !== 'object' || structure.error) {
         return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>;
@@ -6797,14 +6822,20 @@ const renderFolderList = (structure) => {
                 return (
                     <div key={fullPath} className="pl-4">
                         <button
-                            onClick={() => {
-                                setExpandedFolders(prev => {
-                                    const newSet = new Set(prev);
-                                    if (newSet.has(fullPath)) newSet.delete(fullPath);
-                                    else newSet.add(fullPath);
-                                    return newSet;
-                                });
+                            onClick={(e) => {
+                                // Check for Ctrl or Meta key (Command on Mac)
+                                if (e.ctrlKey || e.metaKey) {
+                                    handleOpenFolderAsWorkspace(fullPath);
+                                } else {
+                                    setExpandedFolders(prev => {
+                                        const newSet = new Set(prev);
+                                        if (newSet.has(fullPath)) newSet.delete(fullPath);
+                                        else newSet.add(fullPath);
+                                        return newSet;
+                                    });
+                                }
                             }}
+                            onDoubleClick={() => handleOpenFolderAsWorkspace(fullPath)} // ADDED THIS LINE
                             onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')}
                             className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
                             title={`Click to expand/collapse ${name}`}
@@ -6914,7 +6945,6 @@ const renderFolderList = (structure) => {
         </div>
     );
 };
-
     const handleAttachFileClick = async () => {
         try {
             const fileData = await window.api.showOpenDialog({
