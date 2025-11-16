@@ -580,8 +580,98 @@ const ChatMessage = memo(({
     );
 });
 
+// ChatInterface.jsx - Replace your existing PredictiveTextOverlay component definition with this:
+const PredictiveTextOverlay = ({
+    predictionSuggestion,
+    predictionTargetElement,
+    isPredictiveTextEnabled,
+    setPredictionSuggestion,
+    setPredictionTargetElement
+}) => {
+    if (!predictionSuggestion || !predictionTargetElement || !isPredictiveTextEnabled) {
+        return null;
+    }
+
+    const targetRect = predictionTargetElement.getBoundingClientRect();
+    const overlayRef = useRef(null);
+
+    const handleAcceptSuggestion = useCallback(() => {
+        if (predictionTargetElement && predictionSuggestion) {
+            const suggestionToInsert = predictionSuggestion.trim(); // Trim whitespace
+
+            if (predictionTargetElement instanceof HTMLTextAreaElement || predictionTargetElement instanceof HTMLInputElement) {
+                const start = predictionTargetElement.selectionStart;
+                const end = predictionTargetElement.selectionEnd;
+                const value = predictionTargetElement.value;
+
+                predictionTargetElement.value = value.substring(0, start) + suggestionToInsert + value.substring(end);
+                predictionTargetElement.selectionStart = predictionTargetElement.selectionEnd = start + suggestionToInsert.length;
+                // Manually trigger an input event for React to pick up the change
+                const event = new Event('input', { bubbles: true });
+                predictionTargetElement.dispatchEvent(event);
+
+            } else if (predictionTargetElement.isContentEditable) {
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    range.deleteContents(); // Remove any selected text
+                    range.insertNode(document.createTextNode(suggestionToInsert));
+                    range.setStart(range.endContainer, range.endOffset); // Move cursor to end of inserted text
+                    range.collapse(true);
+                }
+            }
+            setPredictionSuggestion('');
+            setPredictionTargetElement(null);
+        }
+    }, [predictionSuggestion, predictionTargetElement, setPredictionSuggestion, setPredictionTargetElement]);
+
+    useEffect(() => {
+        const handleOverlayKeyDown = (e) => {
+            if (e.key === 'Tab' && predictionSuggestion) {
+                e.preventDefault(); // Prevent default tab behavior
+                handleAcceptSuggestion();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setPredictionSuggestion('');
+                setPredictionTargetElement(null);
+            }
+        };
+        document.addEventListener('keydown', handleOverlayKeyDown);
+        return () => document.removeEventListener('keydown', handleOverlayKeyDown);
+    }, [handleAcceptSuggestion, predictionSuggestion, setPredictionSuggestion, setPredictionTargetElement]);
 
 
+    // Calculate position
+    // We want it to appear just below the cursor, or at the end of the input field
+    const style = {
+        position: 'fixed',
+        left: targetRect.left,
+        top: targetRect.bottom + 5, // 5px below the input field
+        zIndex: 1000,
+        maxWidth: targetRect.width, // Limit width to input field width
+        backgroundColor: 'var(--theme-bg-secondary)',
+        border: '1px solid var(--theme-border)',
+        borderRadius: '4px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+        padding: '8px',
+        color: 'var(--theme-text-muted)',
+        fontSize: '0.875rem', // text-sm
+        whiteSpace: 'pre-wrap', // Preserve whitespace and wrap
+        cursor: 'text',
+    };
+
+    return (
+        <div ref={overlayRef} style={style} onClick={handleAcceptSuggestion}>
+            {predictionSuggestion}
+            {predictionSuggestion === 'Generating...' && (
+                 <span className="ml-1 inline-block w-1.5 h-1.5 theme-text-muted rounded-full animate-bounce" style={{ animationDelay: '0.15s' }}></span>
+            )}
+            <div className="text-xs text-blue-400 mt-1">
+                Press <span className="font-bold">Tab</span> to accept, <span className="font-bold">Esc</span> to dismiss.
+            </div>
+        </div>
+    );
+};
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true); // <--- NEW STATE: Default to collapsed
@@ -589,6 +679,13 @@ const [pdfHighlightsTrigger, setPdfHighlightsTrigger] = useState(0);
 const [conversationBranches, setConversationBranches] = useState(new Map());
 const [currentBranchId, setCurrentBranchId] = useState('main');
 const [showBranchingUI, setShowBranchingUI] = useState(false);
+const [isPredictiveTextEnabled, setIsPredictiveTextEnabled] = useState(false);
+const [predictiveTextModel, setPredictiveTextModel] = useState(null);
+const [predictiveTextProvider, setPredictiveTextProvider] = useState(null);
+const [predictionSuggestion, setPredictionSuggestion] = useState('');
+const [predictionTargetElement, setPredictionTargetElement] = useState(null);
+const predictionStreamIdRef = useRef(null); // To manage the streaming prediction
+const predictionTimeoutRef = useRef(null); // To debounce prediction requests
 
 
     const [isEditingPath, setIsEditingPath] = useState(false);
@@ -5422,7 +5519,13 @@ useEffect(() => {
                 return;
             }
         }
-
+        const globalSettings = await window.api.loadGlobalSettings();
+        if (globalSettings) {
+            // ... (existing global settings loading) ...
+            setIsPredictiveTextEnabled(globalSettings.global_settings?.is_predictive_text_enabled || false);
+            setPredictiveTextModel(globalSettings.global_settings?.predictive_text_model || 'llama3.2'); // Default to a reasonable model
+            setPredictiveTextProvider(globalSettings.global_settings?.predictive_text_provider || 'ollama'); // Default to a reasonable provider
+        }
         let initialPathToLoad = config.baseDir;
         const storedPath = localStorage.getItem(LAST_ACTIVE_PATH_KEY);
         if (storedPath) {
@@ -5596,6 +5699,9 @@ if (!hasExistingWorkspace) {
     initApplicationData();
 
 }, [currentPath, config]);
+
+
+
 
 const handleOpenFolderAsWorkspace = useCallback(async (folderPath) => {
     if (folderPath === currentPath) {
@@ -6555,6 +6661,259 @@ const handleSidebarRenameSubmit = async () => {
         setEditedSidebarItemName('');
     }
 };
+
+// put near your other refs
+const PRED_PLACEHOLDER = 'Generating...';
+const streamBuffersRef = useRef(new Map()); // streamId -> pending buffer
+
+const handleGlobalPredictionTrigger = useCallback((e) => {
+    if (!isPredictiveTextEnabled || !predictiveTextModel || !predictiveTextProvider) {
+        setPredictionSuggestion('');
+        setPredictionTargetElement(null);
+        return;
+    }
+
+    // ---- ACCEPT WITH TAB ----
+    if (e.key === 'Tab') {
+        if (predictionSuggestion && predictionTargetElement) {
+            e.preventDefault();
+
+            const suggestion = predictionSuggestion.replace(/^Generating\.\.\.\s*/, '');
+            if (!suggestion) return;
+
+            const el = predictionTargetElement;
+            if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+                const start = el.selectionStart ?? 0;
+                const end   = el.selectionEnd ?? start;
+                const before = el.value.slice(0, start);
+                const after  = el.value.slice(end);
+                el.value = before + suggestion + after;
+
+                const newPos = before.length + suggestion.length;
+                el.selectionStart = newPos;
+                el.selectionEnd   = newPos;
+
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+            } else if (el && el.isContentEditable) {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    range.deleteContents();
+                    range.insertNode(document.createTextNode(suggestion));
+                    range.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+            }
+
+            setPredictionSuggestion('');
+            setPredictionTargetElement(null);
+            if (predictionStreamIdRef.current) {
+                window.api.interruptStream?.(predictionStreamIdRef.current);
+                predictionStreamIdRef.current = null;
+            }
+        }
+        return; // never start a new prediction on Tab
+    }
+
+    // ---- REJECT WITH ESC ----
+    if (e.key === 'Escape') {
+        setPredictionSuggestion('');
+        setPredictionTargetElement(null);
+        if (predictionStreamIdRef.current) {
+            window.api.interruptStream?.(predictionStreamIdRef.current);
+            predictionStreamIdRef.current = null;
+        }
+        return;
+    }
+
+    // ---- UNCONDITIONAL PREDICT ON TYPING (no ctrl/meta/alt) ----
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const activeElement = document.activeElement;
+    const isEditable = activeElement &&
+        (activeElement instanceof HTMLTextAreaElement ||
+         activeElement instanceof HTMLInputElement ||
+         activeElement.isContentEditable);
+
+    if (!isEditable) {
+        setPredictionSuggestion('');
+        setPredictionTargetElement(null);
+        return;
+    }
+
+    const textContent = activeElement.value || activeElement.textContent || '';
+    let cursorPosition = 0;
+
+    if (activeElement instanceof HTMLTextAreaElement || activeElement instanceof HTMLInputElement) {
+        cursorPosition = activeElement.selectionStart ?? textContent.length;
+    } else if (activeElement.isContentEditable) {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            const pre = range.cloneRange();
+            pre.selectNodeContents(activeElement);
+            pre.setEnd(range.endContainer, range.endOffset);
+            cursorPosition = pre.toString().length;
+        }
+    }
+
+    if (textContent.length === 0) {
+        setPredictionSuggestion('');
+        setPredictionTargetElement(null);
+        return;
+    }
+
+    // kill prior stream so tokens don't interleave
+    if (predictionStreamIdRef.current) {
+        window.api.interruptStream?.(predictionStreamIdRef.current);
+        predictionStreamIdRef.current = null;
+    }
+
+    setPredictionTargetElement(activeElement);
+    setPredictionSuggestion(PRED_PLACEHOLDER);
+
+    const newStreamId = generateId();
+    predictionStreamIdRef.current = newStreamId;
+
+    let contextType = 'general';
+    let filePathForContext = null;
+    if (activeElement.dataset?.contextType) {
+        contextType = activeElement.dataset.contextType;
+        filePathForContext = activeElement.dataset.filePath ?? null;
+    } else if (activeElement.classList?.contains('chat-input-textarea')) {
+        contextType = 'chat';
+    } else if (activeElement.classList?.contains('browser-url-input')) {
+        contextType = 'browser';
+    }
+
+    if (predictionTimeoutRef.current) {
+        clearTimeout(predictionTimeoutRef.current);
+        predictionTimeoutRef.current = null;
+    }
+
+    predictionTimeoutRef.current = setTimeout(async () => {
+        await window.api.textPredict({
+            streamId: newStreamId,
+            text_content: textContent,
+            cursor_position: cursorPosition,
+            currentPath,
+            model: predictiveTextModel,
+            provider: predictiveTextProvider,
+            context_type: contextType,
+            file_path: filePathForContext,
+        });
+    }, 250);
+}, [
+    isPredictiveTextEnabled,
+    predictiveTextModel,
+    predictiveTextProvider,
+    currentPath,
+    setPredictionSuggestion,
+    setPredictionTargetElement,
+    predictionStreamIdRef,
+    predictionTimeoutRef,
+    predictionSuggestion,
+    predictionTargetElement
+]);
+useEffect(() => {
+  const handleStreamData = (_, { streamId: sid, chunk }) => {
+    if (!sid) return;
+    if (predictionStreamIdRef.current !== sid) return;
+
+    let piece = '';
+    try {
+      piece = typeof chunk === 'string' ? chunk : chunk?.toString?.() || '';
+    } catch { return; }
+    if (!piece) return;
+
+    // append to buffer for this stream id
+    const prev = streamBuffersRef.current.get(sid) || '';
+    let buf = (prev + piece).replace(/\r\n/g, '\n');
+
+    // process complete SSE frames separated by blank line
+    while (true) {
+      const sep = buf.indexOf('\n\n');
+      if (sep === -1) break;
+
+      const frame = buf.slice(0, sep);
+      buf = buf.slice(sep + 2);
+
+      // collect all "data:" lines in this frame
+      const dataLines = frame
+        .split('\n')
+        .filter(l => l.startsWith('data:'))
+        .map(l => l.slice(5).trim());
+
+      if (dataLines.length === 0) continue;
+
+      const payload = dataLines.join('\n');
+      if (payload === '[DONE]') continue;
+
+      let text = '';
+      try {
+        const parsed = JSON.parse(payload);
+        text = parsed?.choices?.[0]?.delta?.content || '';
+      } catch {
+        continue;
+      }
+      if (!text) continue;
+
+      // replace placeholder on first token, then append
+      setPredictionSuggestion(prev =>
+        prev === PRED_PLACEHOLDER ? text : prev + text
+      );
+    }
+
+    // keep any partial frame for next chunk
+    streamBuffersRef.current.set(sid, buf);
+  };
+
+  const handleStreamComplete = (_, { streamId }) => {
+    if (predictionStreamIdRef.current === streamId) {
+      predictionStreamIdRef.current = null;
+    }
+    streamBuffersRef.current.delete(streamId);
+  };
+
+  const handleStreamError = (_, { streamId, error }) => {
+    console.error('[STREAM ERROR]', error);
+    if (predictionStreamIdRef.current === streamId) {
+      setPredictionSuggestion('');
+      predictionStreamIdRef.current = null;
+    }
+    streamBuffersRef.current.delete(streamId);
+  };
+
+  const offData = window.api.onStreamData(handleStreamData);
+  const offComplete = window.api.onStreamComplete(handleStreamComplete);
+  const offError = window.api.onStreamError(handleStreamError);
+
+  return () => {
+    offData();
+    offComplete();
+    offError();
+  };
+}, [setPredictionSuggestion]);
+
+
+useEffect(() => {
+    // capture=true so Tab acceptance beats focus navigation
+    window.addEventListener('keydown', handleGlobalPredictionTrigger, true);
+    return () => window.removeEventListener('keydown', handleGlobalPredictionTrigger, true);
+}, [handleGlobalPredictionTrigger]);
+
+
+useEffect(() => {
+    window.addEventListener('keydown', handleGlobalPredictionTrigger);
+
+    return () => {
+        window.removeEventListener('keydown', handleGlobalPredictionTrigger);
+        if (predictionTimeoutRef.current) {
+            clearTimeout(predictionTimeoutRef.current);
+        }
+    };
+}, [handleGlobalPredictionTrigger, predictionTimeoutRef]);
 
 // Update renderFileEditor to properly handle double-click rename
 const renderFileEditor = useCallback(({ nodeId }) => {
@@ -7944,7 +8303,21 @@ const renderAttachmentThumbnails = () => {
 
 
 
-            <SettingsMenu isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} currentPath={currentPath} onPathChange={(newPath) => { setCurrentPath(newPath); }}/>
+<SettingsMenu
+    isOpen={settingsOpen}
+    onClose={() => setSettingsOpen(false)}
+    currentPath={currentPath}
+    onPathChange={(newPath) => { setCurrentPath(newPath); }}
+    // NEW PROPS FOR PREDICTIVE TEXT:
+    isPredictiveTextEnabled={isPredictiveTextEnabled}
+    setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
+    predictiveTextModel={predictiveTextModel}
+    setPredictiveTextModel={setPredictiveTextModel}
+    predictiveTextProvider={predictiveTextProvider}
+    setPredictiveTextProvider={setPredictiveTextProvider}
+    availableModels={availableModels} // Pass available models for dropdown
+/>
+
         {resendModal.isOpen && (
             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                 <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-md w-full">
@@ -8089,20 +8462,19 @@ const renderAttachmentThumbnails = () => {
                 <h3 className="text-lg font-medium mb-2 theme-text-primary">{promptModal.title}</h3>
                 <p className="theme-text-muted mb-4 text-sm">{promptModal.message}</p>
             </div>
-            <textarea
-                className="w-full h-24 theme-input border rounded p-2 mb-4 font-mono text-sm"
-                defaultValue={promptModal.defaultValue}
-                id="customPromptInput"
-                autoFocus
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        const value = document.getElementById('customPromptInput').value;
-                        promptModal.onConfirm?.(value);
-                        setPromptModal({ ...promptModal, isOpen: false });
-                    }
-                }}
-            />
+<textarea
+    value={input}
+    onChange={(e) => setInput(e.target.value)}
+    onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
+    placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
+    className={`chat-input-textarea w-full theme-input text-sm rounded-lg pl-4 pr-20 py-3 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
+    style={{
+        height: `${Math.max(56, inputHeight - 120)}px`,
+        maxHeight: `${inputHeight - 120}px`
+    }}
+    disabled={isStreaming}
+/>
+
             <div className="flex justify-end gap-3">
                 <button
                     className="px-4 py-2 theme-button theme-hover rounded text-sm"
@@ -8611,6 +8983,14 @@ const renderMainContent = () => {
 <div className="flex flex-1 overflow-hidden">
     {renderSidebar()}
     {renderMainContent()}
+        <PredictiveTextOverlay
+            predictionSuggestion={predictionSuggestion}
+            predictionTargetElement={predictionTargetElement}
+            isPredictiveTextEnabled={isPredictiveTextEnabled}
+            setPredictionSuggestion={setPredictionSuggestion}
+            setPredictionTargetElement={setPredictionTargetElement}
+        /> {/* ADD THIS LINE WITH PROPS */}
+
 </div>
             {renderModals()}
         <BranchingUI />

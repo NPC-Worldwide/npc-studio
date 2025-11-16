@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Check } from 'lucide-react';
 
-const HOME_DIR = '/home/caug/.npcsh'; 
+const HOME_DIR = '/home/caug/.npcsh';
 
 const defaultSettings = {
-    NPC_STUDIO_LICENSE_KEY: '',
     model: 'llama3.2',
     provider: 'ollama',
     embedding_model: 'nomic-text-embed',
@@ -12,42 +11,10 @@ const defaultSettings = {
     search_provider: 'google',
     default_folder: HOME_DIR,
     darkThemeColor: "#000000",
-    lightThemeColor: "#FFFFFF"
-};
-
-const PricingSelection = ({ onClose }) => {
-    useEffect(() => {
-        const script = document.createElement('script');
-        script.src = 'https://js.stripe.com/v3/pricing-table.js';
-        script.async = true;
-        document.head.appendChild(script);
-        
-        return () => {
-            if (document.head.contains(script)) {
-                document.head.removeChild(script);
-            }
-        };
-    }, []);
-
-    return (
-        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-            <div className="bg-[#0b1017] rounded-lg w-full max-w-4xl text-white relative">
-                <div className="absolute top-4 right-4 z-10">
-                    <button onClick={onClose} 
-                            className="text-gray-400 hover:text-white bg-[#0b1017] p-2 rounded">
-                        <X size={24} />
-                    </button>
-                </div>
-                
-                <div className="p-6">
-                    <stripe-pricing-table 
-                        pricing-table-id="prctbl_1SBHU54hTG5LW2A0MHtyz7VW"
-                        publishable-key="pk_live_51RlDLN4hTG5LW2A0ZS9ZJSAOPVzfbHpaPNLmUQHr1bagBBTiZi6ZMTroYOj5YyUL8h55XgxY1CQpcQpjZzFCDgs300yaaTVkcL">
-                    </stripe-pricing-table>
-                </div>
-            </div>
-        </div>
-    );
+    lightThemeColor: "#FFFFFF",
+    is_predictive_text_enabled: false,
+    predictive_text_model: 'llama3.2',
+    predictive_text_provider: 'ollama',
 };
 
 const ModelManager = () => {
@@ -83,12 +50,12 @@ const ModelManager = () => {
         console.log('React received progress:', progress);
         setPullProgress(progress);
     };
-    
+
     const handleComplete = () => {
         console.log('React received pull complete signal.');
         setIsPulling(false);
         setPullProgress({ status: 'Success!', details: 'Model installed.'});
-       
+
         setTimeout(() => {
             setPullProgress(null);
             setPullModelName('');
@@ -101,7 +68,7 @@ const ModelManager = () => {
         setIsPulling(false);
         setPullProgress({ status: 'Error', details: error });
     };
-    
+
         const cleanupPullProgress = window.api.onOllamaPullProgress(handleProgress);
         const cleanupPullComplete = window.api.onOllamaPullComplete(handleComplete);
         const cleanupPullError = window.api.onOllamaPullError(handleError);
@@ -134,7 +101,7 @@ const ModelManager = () => {
         fetchLocalModels();
         setIsDeleting(null);
     };
-    
+
     const renderContent = () => {
         switch (ollamaStatus) {
             case 'checking':
@@ -225,7 +192,20 @@ const ModelManager = () => {
     return <div className="space-y-4">{renderContent()}</div>;
 };
 
-const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
+const SettingsMenu = ({
+    isOpen,
+    onClose,
+    currentPath,
+    onPathChange,
+    // NEW PROPS FOR PREDICTIVE TEXT:
+    isPredictiveTextEnabled,
+    setIsPredictiveTextEnabled,
+    predictiveTextModel,
+    setPredictiveTextModel,
+    predictiveTextProvider,
+    setPredictiveTextProvider,
+    availableModels, // Pass available models for dropdown
+}) => {
     const [activeTab, setActiveTab] = useState('global');
     const [globalSettings, setGlobalSettings] = useState(defaultSettings);
     const [envSettings, setEnvSettings] = useState(defaultSettings);
@@ -233,133 +213,81 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange }) => {
     const [customEnvVars, setCustomEnvVars] = useState([{ key: '', value: '' }]);
     const [placeholders, setPlaceholders] = useState(defaultSettings);
     const [visibleFields, setVisibleFields] = useState({});
-    const [showPricing, setShowPricing] = useState(false);
 
-    const [verificationStatus, setVerificationStatus] = useState({
-        isVerifying: false,
-        status: null,
-        message: null
-    });
-
-
-    
-    const handleLicenseValidation = async () => {
-        if (!globalSettings.NPC_STUDIO_LICENSE_KEY) {
-            setVerificationStatus({ isVerifying: false, status: 'error', message: 'Please enter a license key' });
-            return;
-        }
-        setVerificationStatus({ isVerifying: true, status: null, message: 'Verifying license...' });
-        try {
-            const response = await fetch('https://license-verification-120419531021.us-central1.run.app', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ license_key: globalSettings.NPC_STUDIO_LICENSE_KEY, timestamp: Date.now() })
+    const _parseCustomProvidersFromGlobalVars = useCallback((globalVars) => {
+        const providers = [];
+        if (globalVars) {
+            Object.keys(globalVars).forEach(key => {
+                if (key.startsWith('CUSTOM_PROVIDER_')) {
+                    const providerName = key.replace('CUSTOM_PROVIDER_', '');
+                    try {
+                        const config = JSON.parse(globalVars[key]);
+                        providers.push({
+                            name: providerName.toLowerCase(),
+                            baseUrl: config.base_url || '',
+                            apiKeyVar: config.api_key_var || '',
+                            headers: config.headers ? JSON.stringify(config.headers, null, 2) : ''
+                        });
+                    } catch (e) {
+                        console.error(`Failed to parse custom provider ${providerName}:`, e);
+                    }
+                }
             });
-            const data = await response.json();
-            if (data.valid) {
-                localStorage.setItem('npc_session_token', data.sessionToken);
-                localStorage.setItem('npc_license_expiry', data.expiresAt);
-                setVerificationStatus({ isVerifying: false, status: 'success', message: 'License verified successfully' });
-                setGlobalSettings({ ...globalSettings, licenseStatus: 'verified' });
-            } else {
-                setVerificationStatus({ isVerifying: false, status: 'error', message: data.error || 'License verification failed' });
-            }
-        } catch (error) {
-            console.error('License verification error:', error);
-            setVerificationStatus({ isVerifying: false, status: 'error', message: 'Connection error during verification' });
         }
-    };
+        if (providers.length === 0) {
+            providers.push({ name: '', baseUrl: '', apiKeyVar: '', headers: '' });
+        }
+        return providers;
+    }, []);
+
+    const [customProviders, setCustomProviders] = useState(() => _parseCustomProvidersFromGlobalVars(null));
 
     useEffect(() => {
         if (isOpen) {
-            loadGlobalSettings();
-            if (currentPath) {
-                loadProjectSettings();
-            }
-        }
-    }, [isOpen, currentPath]);
-const [customProviders, setCustomProviders] = useState([
-    { name: '', baseUrl: '', apiKeyVar: '', headers: '' }
-]);
-
-useEffect(() => {
-    if (isOpen) {
-        loadGlobalSettings();
-        loadCustomProviders();
-        if (currentPath) {
-            loadProjectSettings();
-        }
-    }
-}, [isOpen, currentPath]);
-
-const loadCustomProviders = async () => {
-    const data = await window.api.loadGlobalSettings();
-    const providers = [];
-    
-    if (data.global_vars) {
-        Object.keys(data.global_vars).forEach(key => {
-            if (key.startsWith('CUSTOM_PROVIDER_')) {
-                const providerName = key.replace('CUSTOM_PROVIDER_', '');
-                try {
-                    const config = JSON.parse(data.global_vars[key]);
-                    providers.push({
-                        name: providerName.toLowerCase(),
-                        baseUrl: config.base_url || '',
-                        apiKeyVar: config.api_key_var || '',
-                        headers: config.headers ? 
-                            JSON.stringify(config.headers) : ''
-                    });
-                } catch (e) {
-                    console.error(
-                        `Failed to parse custom provider ${providerName}:`, 
-                        e
-                    );
+            // Ensure setters are available before attempting to load settings
+            if (typeof setIsPredictiveTextEnabled === 'function' &&
+                typeof setPredictiveTextModel === 'function' &&
+                typeof setPredictiveTextProvider === 'function') {
+                loadGlobalSettings();
+                if (currentPath) {
+                    loadProjectSettings();
                 }
+            } else {
+                console.warn("Predictive text setters not yet available in SettingsMenu. Skipping loadGlobalSettings for now.");
             }
-        });
-    }
-    
-    if (providers.length === 0) {
-        providers.push({ 
-            name: '', 
-            baseUrl: '', 
-            apiKeyVar: '', 
-            headers: '' 
-        });
-    }
-    setCustomProviders(providers);
-};
-
-const addCustomProvider = () => {
-    setCustomProviders([
-        ...customProviders, 
-        { name: '', baseUrl: '', apiKeyVar: '', headers: '' }
-    ]);
-};
-
-const removeCustomProvider = (index) => {
-    const newProviders = [...customProviders];
-    newProviders.splice(index, 1);
-    if (newProviders.length === 0) {
-        newProviders.push({ 
-            name: '', 
-            baseUrl: '', 
-            apiKeyVar: '', 
-            headers: '' 
-        });
-    }
-    setCustomProviders(newProviders);
-};    
+        }
+    }, [isOpen, currentPath, setIsPredictiveTextEnabled, setPredictiveTextModel, setPredictiveTextProvider]);
 
     const loadGlobalSettings = async () => {
         const data = await window.api.loadGlobalSettings();
         if (data.error) throw new Error(data.error);
-        setPlaceholders(data.global_settings || defaultSettings);
-        setGlobalSettings(data.global_settings || defaultSettings);
+
+        const loadedSettings = data.global_settings || defaultSettings;
+
+        setPlaceholders(loadedSettings);
+        setGlobalSettings(loadedSettings);
+
         if (data.global_vars && Object.keys(data.global_vars).length > 0) {
-            setCustomGlobalVars(Object.entries(data.global_vars).map(([key, value]) => ({ key, value })));
+            const parsedCustomVars = Object.entries(data.global_vars)
+                .filter(([key]) => !key.startsWith('CUSTOM_PROVIDER_'))
+                .map(([key, value]) => ({ key, value }));
+            setCustomGlobalVars(parsedCustomVars.length > 0 ? parsedCustomVars : [{ key: '', value: '' }]);
         } else {
             setCustomGlobalVars([{ key: '', value: '' }]);
+        }
+
+        setCustomProviders(_parseCustomProvidersFromGlobalVars(data.global_vars));
+
+        // Update external states (passed as props) for predictive text
+        // Add runtime checks to ensure setters are functions
+        if (typeof setIsPredictiveTextEnabled === 'function') {
+            setIsPredictiveTextEnabled(loadedSettings.is_predictive_text_enabled);
+        }
+        if (typeof setPredictiveTextModel === 'function') {
+            setPredictiveTextModel(loadedSettings.predictive_text_model);
+        }
+        if (typeof setPredictiveTextProvider === 'function') {
+            setPredictiveTextProvider(loadedSettings.predictive_text_provider);
         }
     };
 
@@ -372,70 +300,70 @@ const removeCustomProvider = (index) => {
             setCustomEnvVars([{ key: '', value: '' }]);
         }
     };
-    
+
     const isSensitiveField = (key) => {
         const sensitiveWords = ['key', 'token', 'secret', 'password', 'api'];
         return sensitiveWords.some(word => key.toLowerCase().includes(word));
     };
 
-const handleSave = async () => {
-    const globalVars = customGlobalVars.reduce((acc, { key, value }) => {
-        if (key && value) acc[key] = value;
-        return acc;
-    }, {});
-    
-    customProviders.forEach(provider => {
-        if (provider.name && provider.baseUrl) {
-            const config = {
-                base_url: provider.baseUrl,
-                api_key_var: provider.apiKeyVar || 
-                    `${provider.name.toUpperCase()}_API_KEY`,
-            };
-            
-            if (provider.headers) {
-                try {
-                    config.headers = JSON.parse(provider.headers);
-                } catch (e) {
-                    console.error(
-                        'Invalid JSON for headers:', 
-                        e
-                    );
-                }
-            }
-            
-            globalVars[`CUSTOM_PROVIDER_${provider.name.toUpperCase()}`] = 
-                JSON.stringify(config);
-        }
-    });
-    
-    await window.api.saveGlobalSettings({ 
-        global_settings: globalSettings, 
-        global_vars: globalVars 
-    });
+    const handleSave = async () => {
+        const globalVars = customGlobalVars.reduce((acc, { key, value }) => {
+            if (key && value) acc[key] = value;
+            return acc;
+        }, {});
 
-    const envVars = customEnvVars.reduce((acc, { key, value }) => {
-        if (key && value) acc[key] = value;
-        return acc;
-    }, {});
-    
-    if (currentPath) {
-        await window.api.saveProjectSettings({ 
-            path: currentPath, 
-            env_vars: envVars 
+        customProviders.forEach(provider => {
+            if (provider.name && provider.baseUrl) {
+                const config = {
+                    base_url: provider.baseUrl,
+                    api_key_var: provider.apiKeyVar || `${provider.name.toUpperCase()}_API_KEY`,
+                };
+
+                if (provider.headers) {
+                    try {
+                        config.headers = JSON.parse(provider.headers);
+                    } catch (e) {
+                        console.error('Invalid JSON for headers:', e);
+                    }
+                }
+                globalVars[`CUSTOM_PROVIDER_${provider.name.toUpperCase()}`] = JSON.stringify(config);
+            }
         });
-    }
-    
-    onClose();
-};
-    const handlePurchase = () => setShowPricing(true);
-    
+
+        const settingsToSave = {
+            ...globalSettings,
+            is_predictive_text_enabled: isPredictiveTextEnabled,
+            predictive_text_model: predictiveTextModel,
+            predictive_text_provider: predictiveTextProvider,
+        };
+
+        await window.api.saveGlobalSettings({
+            global_settings: settingsToSave,
+            global_vars: globalVars
+        });
+
+        const envVars = customEnvVars.reduce((acc, { key, value }) => {
+            if (key && value) acc[key] = value;
+            return acc;
+        }, {});
+
+        if (currentPath) {
+            await window.api.saveProjectSettings({
+                path: currentPath,
+                env_vars: envVars
+            });
+        }
+
+        onClose();
+    };
+
     const handleFolderPicker = async () => {
         const selectedPath = await window.api.open_directory_picker();
         if (selectedPath && typeof onPathChange === 'function') onPathChange(selectedPath);
     };
-    
+
     const toggleFieldVisibility = (fieldName) => setVisibleFields(prev => ({ ...prev, [fieldName]: !prev[fieldName] }));
-    
+
     const addVariable = (type) => {
         if (type === 'global') {
             setCustomGlobalVars([...customGlobalVars, { key: '', value: '' }]);
@@ -458,67 +386,30 @@ const handleSave = async () => {
         }
     };
 
+    const addCustomProvider = () => {
+        setCustomProviders([
+            ...customProviders,
+            { name: '', baseUrl: '', apiKeyVar: '', headers: '' }
+        ]);
+    };
+
+    const removeCustomProvider = (index) => {
+        const newProviders = [...customProviders];
+        newProviders.splice(index, 1);
+        if (newProviders.length === 0) {
+            newProviders.push({
+                name: '', baseUrl: '', apiKeyVar: '', headers: ''
+            });
+        }
+        setCustomProviders(newProviders);
+    };
+
     const renderSettingsFields = (type) => {
         const settings = type === 'global' ? globalSettings : envSettings;
         const setSettings = type === 'global' ? setGlobalSettings : setEnvSettings;
 
         return (
             <div className="space-y-4">
-                {type === 'global' && (
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">License Key</label>
-                        <div className="space-y-2">
-                            <div className="relative">
-                                <input
-                                    type={visibleFields.licenseKey ? "text" : "password"}
-                                    value={settings.NPC_STUDIO_LICENSE_KEY || ''}
-                                    onChange={(e) => setSettings({...settings, NPC_STUDIO_LICENSE_KEY: e.target.value})}
-                                    className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 pr-10"
-                                    placeholder={placeholders.NPC_STUDIO_LICENSE_KEY || "Enter your license key"}
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => toggleFieldVisibility('licenseKey')}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                                >
-                                    {visibleFields.licenseKey ? <EyeOff size={20} /> : <Eye size={20} />}
-                                </button>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <button onClick={handlePurchase} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded text-white transition-colors">
-                                    Purchase a license
-                                </button>
-                                <button onClick={handleLicenseValidation} disabled={verificationStatus.isVerifying} className={`text-sm px-3 py-2 rounded text-white ${verificationStatus.isVerifying ? 'bg-gray-500' : verificationStatus.status === 'success' ? 'bg-green-600 hover:bg-green-500' : 'bg-blue-600 hover:bg-blue-500'}`}>
-                                    {verificationStatus.isVerifying ? 'Verifying...' : verificationStatus.status === 'success' ? 'Verified' : 'Validate License'}
-                                </button>
-                            </div>
-                             {verificationStatus.message && <span className={`text-sm ${verificationStatus.status === 'success' ? 'text-green-400' : 'text-red-400'}`}>{verificationStatus.message}</span>}
-                        </div>
-                    </div>
-                )}
-                <div>
-                    <label className="block text-sm text-gray-400 mb-1">Global Shortcut</label>
-                    <input
-                        type="text"
-                        value={settings.shortcut || 'CommandOrControl+Space'}
-                        onKeyDown={(e) => {
-                            e.preventDefault();
-                            const keys = [];
-                            if (e.ctrlKey) keys.push('Control');
-                            if (e.metaKey) keys.push('Command');
-                            if (e.altKey) keys.push('Alt');
-                            if (e.shiftKey) keys.push('Shift');
-                            if (!['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) keys.push(e.key.toUpperCase());
-                            if (keys.length > 0) {
-                                const shortcut = keys.join('+');
-                                setSettings({...settings, shortcut});
-                                window.electron.updateShortcut(shortcut);
-                            }
-                        }}
-                        className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2"
-                        placeholder="Press keys to set shortcut"
-                    />
-                </div>
                 {type === 'global' && (
                     <>
                         <div>
@@ -545,6 +436,71 @@ const handleSave = async () => {
                             <label className="block text-sm text-gray-400 mb-1">Search Provider</label>
                             <input type="text" value={settings.search_provider || ''} onChange={(e) => setSettings({...settings, search_provider: e.target.value})} className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2" placeholder={placeholders.search_provider} />
                         </div>
+                        {/* NEW: Predictive Text (Copilot) Settings */}
+                        <div className="mt-6 border-t border-gray-700 pt-4">
+                            <h4 className="text-sm text-blue-400 font-semibold mb-2">Predictive Text (Copilot)</h4>
+                            <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={isPredictiveTextEnabled}
+                                    onChange={(e) => {
+                                        if (typeof setIsPredictiveTextEnabled === 'function') {
+                                            setIsPredictiveTextEnabled(e.target.checked);
+                                        } else {
+                                            console.error("setIsPredictiveTextEnabled is not a function when handling checkbox change.");
+                                        }
+                                    }}
+                                    className="w-4 h-4 text-blue-600 bg-[#1a2634] border-gray-700 rounded focus:ring-blue-500"
+                                />
+                                <span className="text-sm text-gray-300">Enable Predictive Text (Ctrl/Cmd + Space)</span>
+                            </label>
+                            {isPredictiveTextEnabled && (
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Model for Predictions</label>
+                                        <select
+                                            value={predictiveTextModel || ''}
+                                            onChange={(e) => {
+                                                if (typeof setPredictiveTextModel === 'function') {
+                                                    const selectedModel = availableModels.find(m => m.value === e.target.value);
+                                                    setPredictiveTextModel(e.target.value);
+                                                    if (selectedModel?.provider && typeof setPredictiveTextProvider === 'function') {
+                                                        setPredictiveTextProvider(selectedModel.provider);
+                                                    }
+                                                } else {
+                                                    console.error("setPredictiveTextModel is not a function when handling select change.");
+                                                }
+                                            }}
+                                            className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 text-white text-sm"
+                                        >
+                                            {availableModels.length === 0 && (
+                                                <option value="">No Models Available</option>
+                                            )}
+                                            {availableModels.map(model => (
+                                                <option key={model.value} value={model.value}>{model.display_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Provider for Predictions</label>
+                                        <input
+                                            type="text"
+                                            value={predictiveTextProvider || ''}
+                                            onChange={(e) => {
+                                                if (typeof setPredictiveTextProvider === 'function') {
+                                                    setPredictiveTextProvider(e.target.value);
+                                                } else {
+                                                    console.error("setPredictiveTextProvider is not a function when handling input change.");
+                                                }
+                                            }}
+                                            className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 text-white text-sm"
+                                            placeholder="e.g., ollama, openai"
+                                            readOnly // Provider is typically derived from the model, or set via custom providers
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </>
                 )}
             </div>
@@ -565,16 +521,6 @@ const handleSave = async () => {
                         <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
                             <X size={24} />
                         </button>
-<button 
-    onClick={() => setActiveTab('providers')} 
-    className={`px-4 py-2 text-sm ${
-        activeTab === 'providers' 
-            ? 'border-b-2 border-blue-500 text-white' 
-            : 'text-gray-400'
-    }`}
->
-    Custom Providers
-</button>                        
                     </header>
 
                     <div className="border-b border-gray-700">
@@ -588,6 +534,16 @@ const handleSave = async () => {
                             <button onClick={() => setActiveTab('models')} className={`px-4 py-2 text-sm ${activeTab === 'models' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400'}`}>
                                 Model Management
                             </button>
+                            <button
+                                onClick={() => setActiveTab('providers')}
+                                className={`px-4 py-2 text-sm ${
+                                    activeTab === 'providers'
+                                        ? 'border-b-2 border-blue-500 text-white'
+                                        : 'text-gray-400'
+                                }`}
+                            >
+                                Custom Providers
+                            </button>
                         </div>
                     </div>
 
@@ -595,7 +551,7 @@ const handleSave = async () => {
                         {activeTab === 'global' && (
                             <>
                                 {renderSettingsFields('global')}
-                                <div className="mt-6">
+                                <div className="mt-6 border-t border-gray-700 pt-4">
                                     <h4 className="text-sm text-gray-400 mb-2">Custom Global Variables</h4>
                                     {customGlobalVars.map((variable, index) => (
                                         <div key={index} className="flex gap-2 mb-2">
@@ -620,7 +576,7 @@ const handleSave = async () => {
                                         <button onClick={handleFolderPicker} className="p-2 bg-[#1a2634] rounded hover:bg-gray-600"><FolderOpen size={20} /></button>
                                     </div>
                                 </div>
-                                <div className="mt-6">
+                                <div className="mt-6 border-t border-gray-700 pt-4">
                                     <h4 className="text-sm text-gray-400 mb-2">Custom Environment Variables</h4>
                                     {customEnvVars.map((variable, index) => (
                                         <div key={index} className="flex gap-2 mb-2">
@@ -637,123 +593,109 @@ const handleSave = async () => {
                             </div>
                         )}
                         {activeTab === 'models' && <ModelManager />}
-{activeTab === 'providers' && (
-    <div className="space-y-4">
-        <div className="text-sm text-gray-400 mb-4">
-            Add custom API providers. These will appear 
-            in your model dropdown with a "custom-" prefix.
-        </div>
-        
-        {customProviders.map((provider, index) => (
-            <div key={index} 
-                 className="p-4 border theme-border rounded-lg space-y-3">
-                <div className="flex justify-between items-start">
-                    <h5 className="text-sm font-semibold">
-                        Provider {index + 1}
-                    </h5>
-                    <button 
-                        onClick={() => removeCustomProvider(index)} 
-                        className="p-1 text-gray-400 hover:text-white"
-                    >
-                        <X size={16} />
-                    </button>
-                </div>
-                
-                <div>
-                    <label className="block text-xs text-gray-400 mb-1">
-                        Provider Name (lowercase, no spaces)
-                    </label>
-                    <input 
-                        type="text"
-                        value={provider.name}
-                        onChange={(e) => {
-                            const newProviders = [...customProviders];
-                            newProviders[index].name = 
-                                e.target.value.toLowerCase()
-                                    .replace(/[^a-z0-9_]/g, '');
-                            setCustomProviders(newProviders);
-                        }}
-                        className="w-full bg-[#1a2634] border 
-                            border-gray-700 rounded px-3 py-2 
-                            font-mono text-sm"
-                        placeholder="myapi"
-                    />
-                </div>
-                
-                <div>
-                    <label className="block text-xs text-gray-400 mb-1">
-                        Base URL
-                    </label>
-                    <input 
-                        type="text"
-                        value={provider.baseUrl}
-                        onChange={(e) => {
-                            const newProviders = [...customProviders];
-                            newProviders[index].baseUrl = e.target.value;
-                            setCustomProviders(newProviders);
-                        }}
-                        className="w-full bg-[#1a2634] border 
-                            border-gray-700 rounded px-3 py-2 
-                            font-mono text-sm"
-                        placeholder="https://api.example.com/v1"
-                    />
-                </div>
-                
-                <div>
-                    <label className="block text-xs text-gray-400 mb-1">
-                        API Key Environment Variable 
-                        (optional, defaults to PROVIDERNAME_API_KEY)
-                    </label>
-                    <input 
-                        type="text"
-                        value={provider.apiKeyVar}
-                        onChange={(e) => {
-                            const newProviders = [...customProviders];
-                            newProviders[index].apiKeyVar = e.target.value;
-                            setCustomProviders(newProviders);
-                        }}
-                        className="w-full bg-[#1a2634] border 
-                            border-gray-700 rounded px-3 py-2 
-                            font-mono text-sm"
-                        placeholder={
-                            provider.name ? 
-                            `${provider.name.toUpperCase()}_API_KEY` : 
-                            'MYAPI_API_KEY'
-                        }
-                    />
-                </div>
-                
-                <div>
-                    <label className="block text-xs text-gray-400 mb-1">
-                        Custom Headers (JSON format, optional)
-                    </label>
-                    <textarea 
-                        value={provider.headers}
-                        onChange={(e) => {
-                            const newProviders = [...customProviders];
-                            newProviders[index].headers = e.target.value;
-                            setCustomProviders(newProviders);
-                        }}
-                        rows={3}
-                        className="w-full bg-[#1a2634] border 
-                            border-gray-700 rounded px-3 py-2 
-                            font-mono text-xs"
-                        placeholder='{"X-Custom-Header": "value"}'
-                    />
-                </div>
-            </div>
-        ))}
-        
-        <button 
-            onClick={addCustomProvider} 
-            className="w-full border border-gray-700 rounded py-2 
-                hover:bg-[#1a2634] text-sm"
-        >
-            Add Custom Provider
-        </button>
-    </div>
-)}
+                        {activeTab === 'providers' && (
+                            <div className="space-y-4">
+                                <p className="text-sm text-gray-400 mb-4">
+                                    Define custom API providers. These will be available in your model dropdowns.
+                                </p>
 
+                                {customProviders.map((provider, index) => (
+                                    <div key={index} className="p-4 border border-gray-700 rounded-lg space-y-3 relative">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h5 className="text-sm font-semibold text-white">Provider Configuration {index + 1}</h5>
+                                            <button
+                                                onClick={() => removeCustomProvider(index)}
+                                                className="p-1 text-red-400 hover:text-red-300 rounded-md hover:bg-red-500/10"
+                                                title="Remove provider"
+                                            >
+                                                <X size={16} />
+                                            </button>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs text-gray-400 mb-1">
+                                                Provider Name (lowercase, no spaces/special chars)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={provider.name}
+                                                onChange={(e) => {
+                                                    const newProviders = [...customProviders];
+                                                    newProviders[index].name =
+                                                        e.target.value.toLowerCase()
+                                                            .replace(/[^a-z0-9_]/g, '');
+                                                    setCustomProviders(newProviders);
+                                                }}
+                                                className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 font-mono text-sm text-white"
+                                                placeholder="e.g., mycustomllm"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs text-gray-400 mb-1">
+                                                Base URL (e.g., https://api.myllm.com/v1)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={provider.baseUrl}
+                                                onChange={(e) => {
+                                                    const newProviders = [...customProviders];
+                                                    newProviders[index].baseUrl = e.target.value;
+                                                    setCustomProviders(newProviders);
+                                                }}
+                                                className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 font-mono text-sm text-white"
+                                                placeholder="https://api.example.com/v1"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs text-gray-400 mb-1">
+                                                API Key Environment Variable (e.g., MYCUSTOMLLM_API_KEY)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={provider.apiKeyVar}
+                                                onChange={(e) => {
+                                                    const newProviders = [...customProviders];
+                                                    newProviders[index].apiKeyVar = e.target.value;
+                                                    setCustomProviders(newProviders);
+                                                }}
+                                                className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 font-mono text-sm text-white"
+                                                placeholder={
+                                                    provider.name ?
+                                                    `${provider.name.toUpperCase()}_API_KEY` :
+                                                    'MYAPI_API_KEY'
+                                                }
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs text-gray-400 mb-1">
+                                                Custom Headers (JSON format, optional)
+                                            </label>
+                                            <textarea
+                                                value={provider.headers}
+                                                onChange={(e) => {
+                                                    const newProviders = [...customProviders];
+                                                    newProviders[index].headers = e.target.value;
+                                                    setCustomProviders(newProviders);
+                                                }}
+                                                rows={3}
+                                                className="w-full bg-[#1a2634] border border-gray-700 rounded px-3 py-2 font-mono text-xs text-white"
+                                                placeholder='{"X-Custom-Header": "value"}'
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+
+                                <button
+                                    onClick={addCustomProvider}
+                                    className="w-full border border-gray-700 rounded py-2 hover:bg-[#1a2634] text-sm text-white"
+                                >
+                                    Add Custom Provider
+                                </button>
+                            </div>
+                        )}
                     </main>
 
                     <footer className="border-t border-gray-700 p-4 flex justify-end">
@@ -764,16 +706,6 @@ const handleSave = async () => {
                     </footer>
                 </div>
             </div>
-
-            {showPricing && (
-                <PricingSelection 
-                    onPurchase={(planData) => {
-                        console.log('Selected plan:', planData);
-                        setShowPricing(false);
-                    }} 
-                    onClose={() => setShowPricing(false)} 
-                />
-            )}
         </>
     );
 };

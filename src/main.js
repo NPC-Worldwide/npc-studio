@@ -2941,6 +2941,98 @@ ipcMain.handle('getConversations', async (_, path) => {
       return [];
     }
   });
+
+  ipcMain.handle('text-predict', async (event, data) => {
+  const currentStreamId = data.streamId || generateId();
+  log(`[Main] text-predict: Starting stream ${currentStreamId}`);
+
+  try {
+    const apiUrl = 'http://127.0.0.1:5337/api/text_predict';
+
+    const payload = {
+      streamId: currentStreamId,
+      text_content: data.text_content,        // FIXED
+      cursor_position: data.cursor_position,
+      currentPath: data.currentPath,
+      model: data.model,
+      provider: data.provider,
+      context_type: data.context_type,
+      file_path: data.file_path
+    };
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    log(`[Main] Backend status ${response.status} for stream ${currentStreamId}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const stream = response.body;
+    if (!stream) {
+      event.sender.send('stream-error', {
+        streamId: currentStreamId,
+        error: 'No stream body returned from backend.'
+      });
+      return { error: 'No stream body', streamId: currentStreamId };
+    }
+
+    activeStreams.set(currentStreamId, { stream, eventSender: event.sender });
+
+    (function(capturedStreamId) {
+      stream.on('data', (chunk) => {
+        if (event.sender.isDestroyed()) {
+          stream.destroy();
+          activeStreams.delete(capturedStreamId);
+          return;
+        }
+        event.sender.send('stream-data', {
+          streamId: capturedStreamId,
+          chunk: chunk.toString()
+        });
+      });
+
+      stream.on('end', () => {
+        log(`[Main] Stream ${capturedStreamId} ended.`);
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('stream-complete', { streamId: capturedStreamId });
+        }
+        activeStreams.delete(capturedStreamId);
+      });
+
+      stream.on('error', err => {
+        log(`[Main] Stream ${capturedStreamId} error: ${err.message}`);
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('stream-error', {
+            streamId: capturedStreamId,
+            error: err.message
+          });
+        }
+        activeStreams.delete(capturedStreamId);
+      });
+    })(currentStreamId);
+
+    return { streamId: currentStreamId };
+
+  } catch (err) {
+    log(`[Main] Error setting up text prediction stream ${currentStreamId}:`, err.message);
+    if (event.sender && !event.sender.isDestroyed()) {
+      event.sender.send('stream-error', {
+        streamId: currentStreamId,
+        error: err.message
+      });
+    }
+    return { error: err.message, streamId: currentStreamId };
+  }
+});
+
+
+
 ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
   const allowedExtensions = ['.py', 
                              '.md', 
