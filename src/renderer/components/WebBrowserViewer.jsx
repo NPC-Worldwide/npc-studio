@@ -1,16 +1,17 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
 import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X } from 'lucide-react';
 
-const WebBrowserViewer = memo(({ 
-    initialUrl, 
-    viewId, 
-    currentPath,
-    nodeId, 
-    findNodePath, 
-    rootLayoutNode, 
-    setDraggedItem, 
-    setPaneContextMenu, 
-    closeContentPane
+const WebBrowserViewer = memo(({
+    initialUrl,
+    viewId,
+    currentPath
+    // Removed these props as they are now handled by the PaneHeader in LayoutNode:
+    // nodeId,
+    // findNodePath,
+    // rootLayoutNode,
+    // setDraggedItem,
+    // setPaneContextMenu,
+    // closeContentPane
 }) => {
     const webviewRef = useRef(null);
     const [currentUrl, setCurrentUrl] = useState('');
@@ -95,33 +96,32 @@ const WebBrowserViewer = memo(({
     const handleForward = () => webviewRef.current?.goForward();
     const handleRefresh = () => webviewRef.current?.reload();
     const handleHome = () => handleNavigate(initialUrl || 'https://google.com');
-    
-    const nodePath = findNodePath(rootLayoutNode, nodeId);
-    
-    const handleDragStart = (e) => {
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
-        setTimeout(() => setDraggedItem({ type: 'pane', id: nodeId, nodePath }), 0);
-    };
 
-    const handleDragEnd = () => setDraggedItem(null);
-    const handleContextMenu = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setPaneContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, nodeId, nodePath });
-    };
+    // REMOVED: Layout-related functions and variables
+    // const nodePath = findNodePath(rootLayoutNode, nodeId);
+    // const handleDragStart = (e) => {
+    //     e.dataTransfer.effectAllowed = 'move';
+    //     e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
+    //     setTimeout(() => setDraggedItem({ type: 'pane', id: nodeId, nodePath }), 0);
+    // };
+    // const handleDragEnd = () => setDraggedItem(null);
+    // const handleContextMenu = (e) => {
+    //     e.preventDefault();
+    //     e.stopPropagation();
+    //     setPaneContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, nodeId, nodePath });
+    // };
 
     return (
-        <div 
-            className="flex flex-col flex-1 w-full min-h-0 bg-gray-900" // <-- CRITICAL FIX HERE
-            draggable="true"
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onContextMenu={handleContextMenu}
+        <div
+            className="flex flex-col flex-1 w-full min-h-0 bg-gray-900"
+            // REMOVED: Layout-related drag-and-drop and context menu attributes
+            // draggable="true"
+            // onDragStart={handleDragStart}
+            // onDragEnd={handleDragEnd}
+            // onContextMenu={handleContextMenu}
         >
             {/* Browser Toolbar */}
             <div className="flex items-center gap-2 p-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
-                {/* ... (toolbar content remains the same) ... */}
                 <button onClick={handleBack} disabled={!canGoBack} className="p-1.5 theme-hover rounded disabled:opacity-30 flex-shrink-0" title="Back"><ArrowLeft size={16} /></button>
                 <button onClick={handleForward} disabled={!canGoForward} className="p-1.5 theme-hover rounded disabled:opacity-30 flex-shrink-0" title="Forward"><ArrowRight size={16} /></button>
                 <button onClick={handleRefresh} className="p-1.5 theme-hover rounded flex-shrink-0" title="Refresh"><RotateCcw size={16} className={loading ? 'animate-spin' : ''} /></button>
@@ -139,9 +139,10 @@ const WebBrowserViewer = memo(({
                     />
                 </div>
 
-                <button onClick={(e) => { e.stopPropagation(); closeContentPane(nodeId, nodePath); }} onMouseDown={(e) => e.stopPropagation()} className="p-1.5 theme-hover rounded-full flex-shrink-0 hover:bg-red-500/20" title="Close pane">
+                {/* REMOVED: The close button, as it's now in PaneHeader */}
+                {/* <button onClick={(e) => { e.stopPropagation(); closeContentPane(nodeId, nodePath); }} onMouseDown={(e) => e.stopPropagation()} className="p-1.5 theme-hover rounded-full flex-shrink-0 hover:bg-red-500/20" title="Close pane">
                     <X size={14} className="hover:text-red-400" />
-                </button>
+                </button> */}
             </div>
 
             {/* Webview Container */}
