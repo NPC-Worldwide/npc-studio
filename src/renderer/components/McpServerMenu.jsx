@@ -1,16 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import {
-    Server, Loader, ChevronRight, X, Save, Plus, Trash2,
-    CheckCircle, XCircle, SlidersHorizontal
-} from 'lucide-react';
+import { Server, Loader, ChevronRight, X, Play, Square, RefreshCw, SlidersHorizontal } from 'lucide-react';
 
-const McpServerMenu = ({ isOpen, onClose }) => {
+const McpServerMenu = ({ isOpen, onClose, currentPath }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [servers, setServers] = useState([]);
     const [selectedServer, setSelectedServer] = useState(null);
-    const [editedServer, setEditedServer] = useState(null);
-    const [testStatus, setTestStatus] = useState({});
+    const [tools, setTools] = useState([]);
+    const [toolLoading, setToolLoading] = useState(false);
 
     useEffect(() => {
         const handleKeyDown = (event) => {
@@ -20,231 +17,160 @@ const McpServerMenu = ({ isOpen, onClose }) => {
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, onClose]);
 
-    useEffect(() => {
-        const loadServers = async () => {
-            if (!isOpen) return;
-            setLoading(true);
-            setError(null);
-
-            //  window.api.getMcpServers is a placeholder
-            const response = await window.api.getMcpServers();
-
-            if (response.error) {
-                setError(response.error);
-                setLoading(false);
-                return;
-            }
-
-            setServers(response.servers || []);
+    const loadServers = async () => {
+        if (!isOpen) return;
+        setLoading(true);
+        setError(null);
+        const response = await window.api.getMcpServers(currentPath);
+        if (response.error) {
+            setError(response.error);
             setLoading(false);
-        };
+            return;
+        }
+        setServers(response.servers || []);
+        setLoading(false);
+    };
+
+    useEffect(() => {
         loadServers();
     }, [isOpen]);
 
-    const handleServerSelect = (server) => {
-        setSelectedServer(server);
-        setEditedServer({ ...server });
-    };
-
-    const handleNewServer = () => {
-        const newServer = {
-            name: 'New Server',
-            url: 'http://localhost:8080',
-            tools: {}
-        };
-        setSelectedServer(newServer);
-        setEditedServer(newServer);
-    };
-
-    const handleInputChange = (field, value) => {
-        setEditedServer(prev => ({ ...prev, [field]: value }));
-    };
-
-    const handleToolToggle = (toolName) => {
-        setEditedServer(prev => {
-            const newTools = { ...prev.tools };
-            newTools[toolName] = !newTools[toolName];
-            return { ...prev, tools: newTools };
-        });
-    };
-
-    const handleSave = async () => {
-        //  window.api.saveMcpServer is a placeholder
-        const response = await window.api.saveMcpServer(editedServer);
-
-        if (response.error) {
-            setError(response.error);
+    const refreshTools = async (serverPath) => {
+        setToolLoading(true);
+        const res = await window.api.listMcpTools({ serverPath, currentPath });
+        setToolLoading(false);
+        if (res.error) {
+            setError(res.error);
+            setTools([]);
             return;
         }
-
-        //  window.api.getMcpServers is a placeholder
-        const refreshed = await window.api.getMcpServers();
-        setServers(refreshed.servers || []);
-        setSelectedServer(editedServer);
+        setTools(res.tools || []);
     };
 
-    const handleTestServer = async (server) => {
-        setTestStatus(prev => ({ ...prev, [server.name]: 'testing' }));
-        //  window.api.testMcpServer is a placeholder
-        const response = await window.api.testMcpServer(server);
-        setTestStatus(prev => ({ ...prev, [server.name]: response.status }));
+    const handleStart = async () => {
+        if (!selectedServer) return;
+        setToolLoading(true);
+        await window.api.startMcpServer({ serverPath: selectedServer.serverPath, currentPath });
+        await loadServers();
+        await refreshTools(selectedServer.serverPath);
+        setToolLoading(false);
+    };
+
+    const handleStop = async () => {
+        if (!selectedServer) return;
+        setToolLoading(true);
+        await window.api.stopMcpServer({ serverPath: selectedServer.serverPath });
+        await loadServers();
+        setToolLoading(false);
+    };
+
+    const renderStatus = (server) => {
+        const status = server.status || 'unknown';
+        const color = status === 'running' ? 'text-green-400' : status === 'exited' ? 'text-yellow-400' : 'text-gray-400';
+        return <span className={`text-xs ${color}`}>{status}</span>;
     };
 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/60 flex items-center 
-            justify-center z-50 p-4">
-            <div className="theme-bg-secondary rounded-lg shadow-xl 
-                w-full max-w-4xl h-[70vh] flex flex-col">
-                <header className="w-full border-b theme-border p-4 
-                    flex justify-between items-center flex-shrink-0">
-                    <h3 className="text-lg font-semibold flex 
-                        items-center gap-2">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="theme-bg-secondary rounded-lg shadow-xl w-full max-w-4xl h-[70vh] flex flex-col">
+                <header className="w-full border-b theme-border p-4 flex justify-between items-center flex-shrink-0">
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
                         <SlidersHorizontal className="text-blue-400" /> MCP Server Management
                     </h3>
-                    <button
-                        onClick={onClose}
-                        className="p-1 rounded-full theme-hover">
+                    <button onClick={onClose} className="p-1 rounded-full theme-hover">
                         <X size={20} />
                     </button>
                 </header>
 
                 <main className="flex flex-1 min-h-0">
-                    <div className="w-1/3 border-r theme-border 
-                        flex flex-col min-h-0">
-                        <div className="p-2 border-b theme-border flex-shrink-0">
-                            <button
-                                onClick={handleNewServer}
-                                className="theme-button-primary w-full p-2 
-                                    rounded text-sm flex items-center 
-                                    justify-center gap-2">
-                                <Plus size={16} /> New Server
+                    <div className="w-1/3 border-r theme-border flex flex-col min-h-0">
+                        <div className="p-2 border-b theme-border flex-shrink-0 flex items-center justify-between">
+                            <span className="text-xs theme-text-secondary">From .ctx</span>
+                            <button onClick={loadServers} className="theme-button px-2 py-1 text-xs rounded flex items-center gap-1">
+                                <RefreshCw size={12} /> Refresh
                             </button>
                         </div>
                         <div className="flex-1 overflow-y-auto p-2">
                             {loading ? (
-                                <div className="flex items-center 
-                                    justify-center p-8">
-                                    <Loader className="animate-spin 
-                                        text-blue-400" />
+                                <div className="flex items-center justify-center p-8">
+                                    <Loader className="animate-spin" />
                                 </div>
                             ) : error ? (
-                                <div className="text-red-400 p-4 text-center">
-                                    {error}
-                                </div>
-                            ) : servers.length > 0 ? (
-                                servers.map(server => (
-                                    <button
-                                        key={server.name}
-                                        onClick={() => handleServerSelect(server)}
-                                        className={`flex items-center gap-2 w-full p-2 
-                                            rounded text-sm text-left 
-                                            ${selectedServer?.name === server.name
-                                                ? 'bg-blue-600/50'
-                                                : 'theme-hover'}`}>
-                                        <Server size={14} className="text-gray-400" />
-                                        <span className="flex-1 truncate">{server.name}</span>
-                                        {testStatus[server.name] === 'testing' && <Loader size={14} className="animate-spin" />}
-                                        {testStatus[server.name] === 'success' && <CheckCircle size={14} className="text-green-500" />}
-                                        {testStatus[server.name] === 'error' && <XCircle size={14} className="text-red-500" />}
-                                    </button>
-                                ))
+                                <div className="text-red-400 p-4">{error}</div>
                             ) : (
-                                <div className="theme-text-secondary text-sm 
-                                    p-4 text-center">
-                                    No MCP servers found.
+                                <div className="space-y-2">
+                                    {servers.map((server, idx) => (
+                                        <button
+                                            key={idx}
+                                            onClick={() => {
+                                                setSelectedServer(server);
+                                                refreshTools(server.serverPath);
+                                            }}
+                                            className={`w-full flex items-center justify-between p-3 rounded border theme-border hover:border-blue-500 transition ${selectedServer === server ? 'border-blue-500 bg-blue-500/10' : ''}`}>
+                                            <div className="flex items-center gap-2">
+                                                <Server className="text-blue-400" size={16} />
+                                                <div className="text-left">
+                                                    <div className="text-sm theme-text-primary font-medium">{server.serverPath}</div>
+                                                </div>
+                                            </div>
+                                            {renderStatus(server)}
+                                            <ChevronRight size={16} className="theme-text-muted" />
+                                        </button>
+                                    ))}
+                                    {servers.length === 0 && (
+                                        <div className="text-center theme-text-secondary py-8 text-sm">
+                                            No MCP servers found in contexts.
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
                     </div>
 
-                    <div className="w-2/3 flex flex-col min-h-0">
-                        {selectedServer && editedServer ? (
-                            <div className="flex-1 overflow-y-auto p-6">
-                                <div className="space-y-6">
-                                    <div className="flex justify-between 
-                                        items-start gap-4">
-                                        <div className="flex-grow space-y-2">
-                                            <div>
-                                                <label className="block text-xs 
-                                                    theme-text-secondary mb-1">
-                                                    Server Name
-                                                </label>
-                                                <input
-                                                    className="w-full theme-input 
-                                                        text-xl font-bold p-2"
-                                                    value={editedServer.name || ''}
-                                                    onChange={(e) => handleInputChange(
-                                                        'name',
-                                                        e.target.value
-                                                    )}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs 
-                                                    theme-text-secondary mb-1">
-                                                    Server URL
-                                                </label>
-                                                <input
-                                                    className="w-full theme-input 
-                                                        p-2 text-sm font-mono"
-                                                    value={editedServer.url || ''}
-                                                    onChange={(e) => handleInputChange(
-                                                        'url',
-                                                        e.target.value
-                                                    )}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-2 mt-6">
-                                            <button
-                                                onClick={() => handleTestServer(editedServer)}
-                                                className="theme-button px-3 
-                                                    py-2 rounded text-sm flex 
-                                                    items-center gap-2">
-                                                Test
-                                            </button>
-                                            <button
-                                                onClick={handleSave}
-                                                className="theme-button-success px-4 
-                                                    py-2 rounded text-sm flex 
-                                                    items-center gap-2">
-                                                <Save size={16} /> Save
-                                            </button>
-                                        </div>
+                    <div className="flex-1 flex flex-col">
+                        {selectedServer ? (
+                            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-semibold theme-text-primary break-all">
+                                        {selectedServer.serverPath}
+                                    </h4>
+                                    <div className="flex gap-2">
+                                        <button onClick={handleStart} className="theme-button-primary px-3 py-1 rounded text-sm flex items-center gap-2">
+                                            <Play size={14} /> Start
+                                        </button>
+                                        <button onClick={handleStop} className="theme-button px-3 py-1 rounded text-sm flex items-center gap-2">
+                                            <Square size={14} /> Stop
+                                        </button>
                                     </div>
+                                </div>
 
+                                <div className="flex items-center gap-2 text-xs theme-text-secondary">
+                                    Status: {renderStatus(selectedServer)}
+                                </div>
+
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h5 className="font-semibold text-sm theme-text-primary">Tools (via /api/mcp_tools)</h5>
+                                        {toolLoading && <Loader size={14} className="animate-spin" />}
+                                    </div>
                                     <div className="space-y-2">
-                                        <h3 className="text-sm font-semibold 
-                                            theme-text-secondary">
-                                            Tools
-                                        </h3>
-                                        {Object.keys(editedServer.tools).length > 0 ? (
-                                            <div className="grid grid-cols-2 gap-2">
-                                                {Object.keys(editedServer.tools).map(toolName => (
-                                                    <label key={toolName} className="flex items-center gap-2 p-2 rounded theme-hover">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={editedServer.tools[toolName]}
-                                                            onChange={() => handleToolToggle(toolName)}
-                                                        />
-                                                        <span className="text-sm">{toolName}</span>
-                                                    </label>
-                                                ))}
+                                        {tools.map((tool, idx) => (
+                                            <div key={idx} className="p-2 rounded border theme-border">
+                                                <div className="text-sm theme-text-primary font-medium">{tool.function?.name}</div>
+                                                <div className="text-xs theme-text-secondary">{tool.function?.description}</div>
                                             </div>
-                                        ) : (
-                                            <div className="theme-text-secondary text-sm p-4 text-center">
-                                                No tools found on this server.
-                                            </div>
+                                        ))}
+                                        {tools.length === 0 && (
+                                            <div className="text-xs theme-text-muted">No tools available.</div>
                                         )}
                                     </div>
                                 </div>
                             </div>
                         ) : (
-                            <div className="flex items-center justify-center 
-                                h-full theme-text-secondary">
-                                Select or create an MCP server
+                            <div className="flex items-center justify-center h-full theme-text-secondary">
+                                Select an MCP server
                             </div>
                         )}
                     </div>

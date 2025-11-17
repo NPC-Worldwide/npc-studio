@@ -3,7 +3,7 @@ import {
     Folder, File, Globe, ChevronRight, ChevronLeft, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, 
-    Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami,
+    Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
     Clock, // Add Clock icon for cron jobs
 
 } from 'lucide-react';
@@ -1099,6 +1099,12 @@ const ACTIVE_WINDOWS_KEY = 'npcStudioActiveWindows';
         onConfirm: null
     });
     const [mcpServerPath, setMcpServerPath] = useState('~/.npcsh/npc_team/mcp_server.py');
+    const [selectedMcpTools, setSelectedMcpTools] = useState([]);
+    const [availableMcpTools, setAvailableMcpTools] = useState([]);
+    const [mcpToolsLoading, setMcpToolsLoading] = useState(false);
+    const [mcpToolsError, setMcpToolsError] = useState(null);
+    const [availableMcpServers, setAvailableMcpServers] = useState([]);
+    const [showMcpServersDropdown, setShowMcpServersDropdown] = useState(false);
     const [browserContextMenu, setBrowserContextMenu] = useState({
         isOpen: false,
         x: 0,
@@ -1983,11 +1989,7 @@ const createDefaultWorkspace = useCallback(async () => {
     const [showAllModels, setShowAllModels] = useState(true); // Change default to true
 
 
-    const [availableJinxs, setAvailableJinxs] = useState({
-        code: [],
-        modes: [],
-        utils: []
-    });
+    const [availableJinxs, setAvailableJinxs] = useState([]); // [{name, description, path, origin, group}]
 
     const [selectedJinx, setSelectedJinx] = useState(null);
     const [jinxLoadingError, setJinxLoadingError] = useState(null); // This already exists
@@ -2001,74 +2003,143 @@ const createDefaultWorkspace = useCallback(async () => {
 useEffect(() => {
     const fetchJinxs = async () => {
         try {
-            const [projectResponse, globalResponse] = await Promise.all([
-                window.api.getJinxsProject(currentPath), // Correct function name
-                window.api.getJinxsGlobal() // Correct function name
-            ]);
+            const globalResp = await window.api.getJinxsGlobal(); // { jinxs: [...] }
+            let projectResp = { jinxs: [] };
+            if (currentPath) {
+                try {
+                    projectResp = await window.api.getJinxsProject(currentPath); // { jinxs: [...] }
+                } catch (e) {
+                    console.warn('Project jinxs fetch failed:', e?.message || e);
+                }
+            }
 
-            // Backend now returns { code: [], modes: [], utils: [] }
-            const combined = {
-                code: [
-                    ...(projectResponse.code || []),
-                    ...(globalResponse.code || [])
-                ],
-                modes: [
-                    ...(projectResponse.modes || []),
-                    ...(globalResponse.modes || [])
-                ],
-                utils: [
-                    ...(projectResponse.utils || []),
-                    ...(globalResponse.utils || [])
-                ]
-            };
+            // Normalize entries and tag origin
+            const normalize = (arr, origin) =>
+                (arr || []).map(j => {
+                    let nm, desc = '', pathVal = '', group = '', inputs = [];
+                    if (typeof j === 'string') {
+                        nm = j;
+                    } else if (j) {
+                        nm = j.jinx_name || j.name;
+                        desc = j.description || '';
+                        pathVal = j.path || '';
+                        inputs = Array.isArray(j.inputs) ? j.inputs : [];
+                    }
+                    if (!nm) return null;
+                    // group from first path segment (subfolder) or 'root'
+                    if (pathVal) {
+                        const parts = pathVal.split(/[\\/]/);
+                        group = parts.length > 1 ? parts[0] : 'root';
+                    } else {
+                        group = 'root';
+                    }
+                    return { name: nm, description: desc, path: pathVal, origin, group, inputs };
+                }).filter(Boolean);
 
-            setAvailableJinxs(combined);
+            const merged = [
+                ...normalize(projectResp.jinxs, 'project'),
+                ...normalize(globalResp.jinxs, 'global'),
+            ];
+
+            // Deduplicate by name, prefer project over global (project entries come first)
+            const seen = new Set();
+            const deduped = [];
+            for (const j of merged) {
+                const key = j.name;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                deduped.push(j);
+            }
+
+            setAvailableJinxs(deduped);
         } catch (err) {
             console.error('Error fetching jinxs:', err);
             setJinxLoadingError(err.message);
+            setAvailableJinxs([]);
         }
     };
 
     fetchJinxs();
 }, [currentPath]);
+
+// Load MCP tools when in Tool Agent mode or when server path changes
+useEffect(() => {
+    const loadMcpTools = async () => {
+        if (executionMode !== 'tool_agent') return;
+        setMcpToolsLoading(true);
+        setMcpToolsError(null);
+        const res = await window.api.listMcpTools({ serverPath: mcpServerPath, currentPath });
+        setMcpToolsLoading(false);
+        if (res.error) {
+            setMcpToolsError(res.error);
+            setAvailableMcpTools([]);
+            return;
+        }
+        const tools = res.tools || [];
+        setAvailableMcpTools(tools);
+        const names = tools.map(t => t.function?.name).filter(Boolean);
+        setSelectedMcpTools(prev => prev.filter(n => names.includes(n)));
+    };
+    loadMcpTools();
+}, [executionMode, mcpServerPath, currentPath]);
+
+// Load MCP servers from contexts for selection in Tool Agent mode
+useEffect(() => {
+    const loadServers = async () => {
+        if (executionMode !== 'tool_agent') return;
+        const res = await window.api.getMcpServers(currentPath);
+        if (res && Array.isArray(res.servers)) {
+            setAvailableMcpServers(res.servers);
+            if (!res.servers.find(s => s.serverPath === mcpServerPath) && res.servers.length > 0) {
+                setMcpServerPath(res.servers[0].serverPath);
+            }
+        } else {
+            setAvailableMcpServers([]);
+        }
+    };
+    loadServers();
+}, [executionMode, currentPath]);
     
-const executionModes = useMemo(() => {
-    const modes = [
-        { id: 'chat', name: 'Chat', icon: MessageCircle, builtin: true }
-    ];
-    
-    // Now availableJinxs is an object with code, modes, utils arrays
-    const allJinxs = [
-        ...(availableJinxs.code || []),
-        ...(availableJinxs.modes || []),
-        ...(availableJinxs.utils || [])
-    ];
-    
-    allJinxs.forEach(jinx => {
-        modes.push({
-            id: jinx.name,
-            name: jinx.display_name || jinx.name,
-            icon: Wrench,
-            jinx: jinx,
-            builtin: false
+    const executionModes = useMemo(() => {
+        const modes = [
+            { id: 'chat', name: 'Chat', icon: MessageCircle, builtin: true },
+            { id: 'tool_agent', name: 'Tool Agent (MCP)', icon: Wrench, builtin: true },
+        ];
+
+        (availableJinxs || []).forEach(jinx => {
+            modes.push({
+                id: jinx.name,
+                name: `Jinx Agent: ${jinx.name}`,
+                icon: Wrench,
+                jinx,
+                builtin: false
+            });
         });
-    });
-    
-    return modes;
-}, [availableJinxs]);
+
+        return modes;
+    }, [availableJinxs]);
 
 
 useEffect(() => {
-    if (selectedJinx) {
+    if (selectedJinx && Array.isArray(selectedJinx.inputs)) {
         setJinxInputValues(prev => {
             const currentJinxValues = prev[selectedJinx.name] || {};
             const newJinxValues = { ...currentJinxValues };
 
             // Ensure all inputs defined by the jinx have an entry in currentJinxValues
             selectedJinx.inputs.forEach(inputDef => {
-                const inputName = Object.keys(inputDef)[0];
-                if (newJinxValues[inputName] === undefined) {
-                    newJinxValues[inputName] = inputDef[inputName] || ''; // Use default from jinx definition
+                let inputName = '';
+                let defaultVal = '';
+                if (typeof inputDef === 'string') {
+                    inputName = inputDef;
+                } else if (inputDef && typeof inputDef === 'object') {
+                    inputName = Object.keys(inputDef)[0];
+                    defaultVal = inputDef[inputName] || '';
+                }
+                if (inputName) {
+                    if (newJinxValues[inputName] === undefined) {
+                        newJinxValues[inputName] = defaultVal;
+                    }
                 }
             });
             return { ...prev, [selectedJinx.name]: newJinxValues };
@@ -2583,6 +2654,8 @@ const handleAIEdit = async (action, customPrompt = null) => {
             streamId: newStreamId, 
             executionMode: executionMode,
             tools: executionMode === 'agent' ? selectedTools : [],
+            mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+            selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
         
         });
 
@@ -2834,7 +2907,10 @@ const handleApplyPromptToFiles = async (operationType, customPrompt = '') => {
             npc: selectedNpc ? selectedNpc.name : currentNPC,
             npcSource: selectedNpc ? selectedNpc.source : 'global',
             attachments: [],
-            streamId: newStreamId
+            streamId: newStreamId,
+            executionMode,
+            mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+            selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
         });
 
     } catch (err) {
@@ -4500,6 +4576,8 @@ ${contextPrompt}`;
                 }),
                 streamId: newStreamId,
                 executionMode: executionMode,
+                mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+                selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
             });
         }
     } catch (err) {
@@ -4895,18 +4973,20 @@ Only show the lines that change, with a few lines of context. Multiple files = m
     try {
         const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
         
-        await window.api.executeCommandStream({
-            commandstr: fullPrompt,
-            currentPath,
-            conversationId: null,
-            model: currentModel,
-            provider: currentProvider,
-            npc: selectedNpc ? selectedNpc.name : currentNPC,
-            npcSource: selectedNpc ? selectedNpc.source : 'global',
-            attachments: [],
-            streamId: newStreamId,
-            executionMode: 'chat'
-        });
+            await window.api.executeCommandStream({
+                commandstr: fullPrompt,
+                currentPath,
+                conversationId: null,
+                model: currentModel,
+                provider: currentProvider,
+                npc: selectedNpc ? selectedNpc.name : currentNPC,
+                npcSource: selectedNpc ? selectedNpc.source : 'global',
+                attachments: [],
+                streamId: newStreamId,
+                executionMode: executionMode,
+                mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+                selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined
+            });
     } catch (err) {
         console.error('Error starting agentic edit:', err);
         setError(err.message);
@@ -6250,7 +6330,10 @@ const handleSummarizeAndStart = async () => {
                 npc: selectedNpc ? selectedNpc.name : currentNPC,
                 npcSource: selectedNpc ? selectedNpc.source : 'global',
                 attachments: [],
-                streamId: newStreamId
+                streamId: newStreamId,
+                executionMode,
+                mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+                selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
             });
 
         } catch (err) {
@@ -6346,7 +6429,10 @@ const handleSummarizeAndPrompt = async () => {
                     npc: selectedNpc ? selectedNpc.name : currentNPC,
                     npcSource: selectedNpc ? selectedNpc.source : 'global',
                     attachments: [],
-                    streamId: newStreamId
+                    streamId: newStreamId,
+                    executionMode,
+                    mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+                    selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
                 });
 
             } catch (err) {
@@ -8091,20 +8177,109 @@ const renderInputArea = () => {
                     </div>
                 </div>
 
+                {executionMode === 'tool_agent' && (
+                    <div className="px-2 pb-2 border-t theme-border">
+                        <div className="relative">
+                            <button
+                                type="button"
+                                className="theme-input text-xs w-full text-left px-2 py-1 flex items-center justify-between rounded border"
+                                disabled={isStreaming || availableMcpServers.length === 0}
+                                onClick={() => setShowMcpServersDropdown(prev => !prev)}
+                            >
+                                <span className="truncate">
+                                    {availableMcpServers.find(s => s.serverPath === mcpServerPath)?.serverPath || 'Select MCP server & tools'}
+                                </span>
+                                <ChevronDown size={12} />
+                            </button>
+                            {showMcpServersDropdown && (
+                                <div className="absolute z-50 w-full mt-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto">
+                                    {availableMcpServers.length === 0 && (
+                                        <div className="px-2 py-1 text-xs theme-text-muted">No MCP servers in ctx</div>
+                                    )}
+                                    {availableMcpServers.map((srv) => (
+                                        <div key={srv.serverPath} className="border-b theme-border last:border-b-0">
+                                            <div
+                                                className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center justify-between"
+                                                onClick={() => {
+                                                    setMcpServerPath(srv.serverPath);
+                                                    setSelectedMcpTools([]);
+                                                    setMcpToolsLoading(true);
+                                                    window.api.listMcpTools({ serverPath: srv.serverPath, currentPath }).then((res) => {
+                                                        setMcpToolsLoading(false);
+                                                        if (res.error) {
+                                                            setMcpToolsError(res.error);
+                                                            setAvailableMcpTools([]);
+                                                        } else {
+                                                            setMcpToolsError(null);
+                                                            const tools = res.tools || [];
+                                                            setAvailableMcpTools(tools);
+                                                            const names = tools.map(t => t.function?.name).filter(Boolean);
+                                                            setSelectedMcpTools(prev => prev.filter(n => names.includes(n)));
+                                                        }
+                                                    });
+                                                }}
+                                            >
+                                                <span className="truncate">{srv.serverPath}</span>
+                                            </div>
+                                            {srv.serverPath === mcpServerPath && (
+                                                <div className="px-3 py-1 space-y-1">
+                                                    {mcpToolsLoading && <div className="text-xs theme-text-muted">Loading MCP tools…</div>}
+                                                    {mcpToolsError && <div className="text-xs text-red-400">Error: {mcpToolsError}</div>}
+                                                    {!mcpToolsLoading && !mcpToolsError && (
+                                                        <div className="flex flex-col gap-1">
+                                                            {availableMcpTools.length === 0 && (
+                                                                <div className="text-xs theme-text-muted">No tools available.</div>
+                                                            )}
+                                                            {availableMcpTools.map(tool => {
+                                                                const name = tool.function?.name || '';
+                                                                const desc = tool.function?.description || '';
+                                                                if (!name) return null;
+                                                                const checked = selectedMcpTools.includes(name);
+                                                                return (
+                                                                    <details key={name} className="bg-black/30 border theme-border rounded px-2 py-1">
+                                                                        <summary className="flex items-center gap-2 text-xs theme-text-primary cursor-pointer">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={checked}
+                                                                                disabled={isStreaming}
+                                                                                onChange={() => {
+                                                                                    setSelectedMcpTools(prev => {
+                                                                                        if (prev.includes(name)) {
+                                                                                            return prev.filter(n => n !== name);
+                                                                                        }
+                                                                                        return [...prev, name];
+                                                                                    });
+                                                                                }}
+                                                                            />
+                                                                            <span>{name}</span>
+                                                                        </summary>
+                                                                        <div className="ml-6 text-[11px] theme-text-muted whitespace-pre-wrap">
+                                                                            {desc || 'No description.'}
+                                                                        </div>
+                                                                    </details>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 <div className={`flex items-center gap-2 px-2 pb-2 border-t theme-border ${isStreaming ? 'opacity-50' : ''}`}>
                     <select
                         value={executionMode}
                         onChange={(e) => {
                             setExecutionMode(e.target.value);
-                            if (e.target.value === 'chat') {
+                            if (e.target.value === 'chat' || e.target.value === 'corca') {
                                 setSelectedJinx(null);
                             } else {
-                                const allJinxs = [
-                                    ...(availableJinxs.code || []),
-                                    ...(availableJinxs.modes || []),
-                                    ...(availableJinxs.utils || [])
-                                ];
-                                const foundJinx = allJinxs.find(j => j.name === e.target.value);
+                                const foundJinx = (availableJinxs || []).find(j => j.name === e.target.value);
                                 setSelectedJinx(foundJinx || null);
                             }
                         }}
@@ -8112,36 +8287,47 @@ const renderInputArea = () => {
                         disabled={isStreaming}
                     >
                         <option value="chat">💬 Chat</option>
+                        <option value="tool_agent">🛠 Tool Agent (MCP)</option>
                         
-                        {availableJinxs.code?.length > 0 && (
-                            <optgroup label="Code">
-                                {availableJinxs.code.map(jinx => (
-                                    <option key={jinx.name} value={jinx.name}>
-                                        📝 {jinx.name.length > 15 ? jinx.name.substring(0, 15) + '...' : jinx.name}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        )}
-                        
-                        {availableJinxs.modes?.length > 0 && (
-                            <optgroup label="Modes">
-                                {availableJinxs.modes.map(jinx => (
-                                    <option key={jinx.name} value={jinx.name}>
-                                        🎯 {jinx.name.length > 15 ? jinx.name.substring(0, 15) + '...' : jinx.name}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        )}
-                        
-                        {availableJinxs.utils?.length > 0 && (
-                            <optgroup label="Utils">
-                                {availableJinxs.utils.map(jinx => (
-                                    <option key={jinx.name} value={jinx.name}>
-                                        🔧 {jinx.name.length > 15 ? jinx.name.substring(0, 15) + '...' : jinx.name}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        )}
+                        {['project', 'global'].map(origin => {
+                            const originJinxs = availableJinxs.filter(j => (j.origin || 'unknown') === origin);
+                            if (!originJinxs.length) return null;
+                            const label = origin === 'project' ? 'Project Jinxs' : 'Global Jinxs';
+
+                            const grouped = originJinxs.reduce((acc, j) => {
+                                const g = j.group || 'root';
+                                if (!acc[g]) acc[g] = [];
+                                acc[g].push(j);
+                                return acc;
+                            }, {});
+
+                            const entries = [];
+                            Object.entries(grouped)
+                                .sort(([a],[b]) => a.localeCompare(b))
+                                .forEach(([gName, jinxs]) => {
+                                    entries.push(
+                                        <option key={`${origin}-${gName}`} value="" disabled>
+                                            {gName}:
+                                        </option>
+                                    );
+                                    jinxs
+                                        .sort((a,b) => a.name.localeCompare(b.name))
+                                        .forEach(jinx => {
+                                            const nm = jinx.name;
+                                            entries.push(
+                                                <option key={`${origin}-${gName}-${nm}`} value={nm}>
+                                                    {'\u00a0\u00a0'}{nm}
+                                                </option>
+                                            );
+                                        });
+                                });
+
+                            return (
+                                <optgroup key={origin} label={label}>
+                                    {entries}
+                                </optgroup>
+                            );
+                        })}
                     </select>
 
                     <div className="flex-grow flex items-center gap-1">
@@ -8392,6 +8578,7 @@ const renderAttachmentThumbnails = () => {
                         </button>
                     </div>
                 </div>
+
             </div>
         )}
         {memoryApprovalModal.isOpen && (
@@ -8639,7 +8826,7 @@ const renderAttachmentThumbnails = () => {
             onClose={() => setCronDaemonPanelOpen(false)}
             currentPath={currentPath}
             npcList={availableNPCs.map(npc => ({ name: npc.name, display_name: npc.display_name }))} // Pass available NPCs
-            jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.jinx_name, description: jinx.description }))} // Pass available Jinxs
+            jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.name, description: jinx.description }))} // Pass available Jinxs
             onAddCronJob={window.api.addCronJob}
             onAddDaemon={window.api.addDaemon}
             onRemoveCronJob={window.api.removeCronJob}

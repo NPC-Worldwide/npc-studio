@@ -1631,6 +1631,120 @@ ipcMain.handle('saveGlobalSettings', async (event, { global_settings, global_var
     }
 });
 
+// --- MCP Server helpers ---
+async function fetchCtxMcpServers(currentPath) {
+  const servers = new Set();
+  const addServer = (entry) => {
+    if (!entry) return;
+    if (typeof entry === 'string') {
+      servers.add(entry);
+    } else if (entry.value) {
+      servers.add(entry.value);
+    }
+  };
+  try {
+    const globalRes = await fetch('http://127.0.0.1:5337/api/context/global');
+    const globalJson = await globalRes.json();
+    (globalJson.context?.mcp_servers || []).forEach(addServer);
+  } catch (e) {
+    console.warn('Failed to load global ctx for MCP servers', e.message);
+  }
+
+  if (currentPath) {
+    try {
+      const projRes = await fetch(`http://127.0.0.1:5337/api/context/project?path=${encodeURIComponent(currentPath)}`);
+      const projJson = await projRes.json();
+      (projJson.context?.mcp_servers || []).forEach(addServer);
+    } catch (e) {
+      console.warn('Failed to load project ctx for MCP servers', e.message);
+    }
+  }
+  return Array.from(servers);
+}
+
+ipcMain.handle('mcp:getServers', async (event, { currentPath } = {}) => {
+  try {
+    const serverList = await fetchCtxMcpServers(currentPath);
+    const statuses = [];
+    for (const serverPath of serverList) {
+      try {
+        const statusRes = await fetch(`http://127.0.0.1:5337/api/mcp/server/status?serverPath=${encodeURIComponent(serverPath)}${currentPath ? `&currentPath=${encodeURIComponent(currentPath)}` : ''}`);
+        const statusJson = await statusRes.json();
+        statuses.push({ serverPath, status: statusJson.status || (statusJson.running ? 'running' : 'unknown'), details: statusJson });
+      } catch (err) {
+        statuses.push({ serverPath, status: 'error', error: err.message });
+      }
+    }
+    return { servers: statuses, error: null };
+  } catch (err) {
+    console.error('Error in mcp:getServers', err);
+    return { servers: [], error: err.message };
+  }
+});
+
+ipcMain.handle('mcp:startServer', async (event, { serverPath, currentPath } = {}) => {
+  try {
+    const res = await fetch('http://127.0.0.1:5337/api/mcp/server/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serverPath, currentPath })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return { result: json, error: null };
+  } catch (err) {
+    console.error('Error starting MCP server', err);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('mcp:stopServer', async (event, { serverPath } = {}) => {
+  try {
+    const res = await fetch('http://127.0.0.1:5337/api/mcp/server/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serverPath })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return { result: json, error: null };
+  } catch (err) {
+    console.error('Error stopping MCP server', err);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('mcp:status', async (event, { serverPath, currentPath } = {}) => {
+  try {
+    const res = await fetch(`http://127.0.0.1:5337/api/mcp/server/status?serverPath=${encodeURIComponent(serverPath || '')}${currentPath ? `&currentPath=${encodeURIComponent(currentPath)}` : ''}`);
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return { status: json, error: null };
+  } catch (err) {
+    console.error('Error fetching MCP server status', err);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('mcp:listTools', async (event, { serverPath, conversationId, npc, selected, currentPath } = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (serverPath) params.append('mcpServerPath', serverPath);
+    if (conversationId) params.append('conversationId', conversationId);
+    if (npc) params.append('npc', npc);
+    if (currentPath) params.append('currentPath', currentPath);
+    if (selected && selected.length) params.append('selected', selected.join(','));
+    const res = await fetch(`http://127.0.0.1:5337/api/mcp_tools?${params.toString()}`);
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return { tools: json.tools || [], error: null };
+  } catch (err) {
+    console.error('Error listing MCP tools', err);
+    return { tools: [], error: err.message };
+  }
+});
+
+
 ipcMain.handle('kg:getNetworkStats', async (event, { generation }) => {
   const params = generation !== null ? `?generation=${generation}` : '';
  
@@ -3356,4 +3470,3 @@ ipcMain.handle('renameFile', async (_, oldPath, newPath) => {
     }
   }
 );
-
