@@ -552,8 +552,33 @@ const ChatMessage = memo(({
                         <div className="text-xs text-blue-400 mb-1 font-semibold">Function Calls:</div>
                         {message.toolCalls.map((tool, idx) => (
                             <div key={idx} className="mb-2 last:mb-0">
-                                <div className="text-blue-300 text-sm">{tool.function_name || tool.function?.name || "Function"}</div>
-                                <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">{JSON.stringify(tool.arguments || tool.function?.arguments || {}, null, 2)}</pre>
+                        <div className="text-blue-300 text-sm">{tool.function_name || tool.function?.name || "Function"}</div>
+                        {(() => {
+                            const argVal = tool.arguments !== undefined ? tool.arguments : tool.function?.arguments;
+                            const resultVal = tool.result_preview || '';
+                            const argDisplay = argVal && String(argVal).trim().length > 0
+                                ? (typeof argVal === 'string' ? argVal : JSON.stringify(argVal, null, 2))
+                                : 'No arguments';
+                            const resDisplay = resultVal && String(resultVal).trim().length > 0
+                                ? (typeof resultVal === 'string' ? resultVal : JSON.stringify(resultVal, null, 2))
+                                : null;
+                            return (
+                                <>
+                                    <div className="text-[11px] theme-text-muted mb-1">Args:</div>
+                                    <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">
+                                        {argDisplay}
+                                    </pre>
+                                    {resDisplay && (
+                                        <>
+                                            <div className="text-[11px] theme-text-muted mb-1">Result:</div>
+                                            <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">
+                                                {resDisplay}
+                                            </pre>
+                                        </>
+                                    )}
+                                </>
+                            );
+                        })()}
                             </div>
                         ))}
                     </div>
@@ -1621,9 +1646,59 @@ const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
     } else {
       try {
         const msgs = await window.api.getConversationMessages(newContentId);
-        const formatted = (msgs && Array.isArray(msgs))
-          ? msgs.map(m => ({ ...m, id: m.id || generateId() }))
-          : [];
+        const parseMaybeJson = (val) => {
+          if (!val || typeof val !== 'string') return val;
+          try { return JSON.parse(val); } catch { return val; }
+        };
+        const formatted = [];
+        let lastAssistant = null;
+        if (msgs && Array.isArray(msgs)) {
+          msgs.forEach(raw => {
+            const msg = { ...raw, id: raw.id || generateId() };
+            msg.content = parseMaybeJson(msg.content);
+            if (msg.role === 'assistant') {
+              if (!Array.isArray(msg.toolCalls)) msg.toolCalls = [];
+              // If content is a tool_call wrapper, normalize into toolCalls list
+              if (msg.content && typeof msg.content === 'object' && msg.content.tool_call) {
+                const tc = msg.content.tool_call;
+                msg.toolCalls.push({
+                  id: tc.id || tc.tool_call_id || generateId(),
+                  function: { name: tc.function_name || tc.name || 'tool', arguments: tc.arguments || '' }
+                });
+                msg.content = '';
+              }
+              formatted.push(msg);
+              lastAssistant = msg;
+            } else if (msg.role === 'tool') {
+              const toolPayload = msg.content && typeof msg.content === 'object' ? msg.content : { content: msg.content };
+              const tcId = toolPayload.tool_call_id || generateId();
+              const tcName = toolPayload.tool_name || 'tool';
+              const tcContent = toolPayload.content !== undefined ? toolPayload.content : msg.content;
+              if (lastAssistant) {
+                if (!Array.isArray(lastAssistant.toolCalls)) lastAssistant.toolCalls = [];
+                lastAssistant.toolCalls.push({
+                  id: tcId,
+                  function: { name: tcName, arguments: toolPayload.arguments || '' },
+                  result_preview: typeof tcContent === 'string' ? tcContent : JSON.stringify(tcContent)
+                });
+              } else {
+                formatted.push({
+                  id: generateId(),
+                  role: 'assistant',
+                  content: '',
+                  toolCalls: [{
+                    id: tcId,
+                    function: { name: tcName, arguments: toolPayload.arguments || '' },
+                    result_preview: typeof tcContent === 'string' ? tcContent : JSON.stringify(tcContent)
+                  }]
+                });
+                lastAssistant = formatted[formatted.length - 1];
+              }
+            } else {
+              formatted.push(msg);
+            }
+          });
+        }
 
         paneData.chatMessages.allMessages = formatted;
         const count = paneData.chatMessages.displayedMessageCount || 20;
@@ -1990,6 +2065,9 @@ const createDefaultWorkspace = useCallback(async () => {
 
 
     const [availableJinxs, setAvailableJinxs] = useState([]); // [{name, description, path, origin, group}]
+    const [favoriteJinxs, setFavoriteJinxs] = useState(new Set());
+    const [showAllJinxs, setShowAllJinxs] = useState(false);
+    const [collapsedJinxGroups, setCollapsedJinxGroups] = useState({});
 
     const [selectedJinx, setSelectedJinx] = useState(null);
     const [jinxLoadingError, setJinxLoadingError] = useState(null); // This already exists
@@ -2103,7 +2181,7 @@ useEffect(() => {
     const executionModes = useMemo(() => {
         const modes = [
             { id: 'chat', name: 'Chat', icon: MessageCircle, builtin: true },
-            { id: 'tool_agent', name: 'Tool Agent (MCP)', icon: Wrench, builtin: true },
+            { id: 'tool_agent', name: 'Agent', icon: Wrench, builtin: true },
         ];
 
         (availableJinxs || []).forEach(jinx => {
@@ -2168,20 +2246,45 @@ useEffect(() => {
         });
     };
     
-const modelsToDisplay = useMemo(() => {
-    // If no favorites are set, always show all models
-    if (favoriteModels.size === 0) {
-        return availableModels;
-    }
+    const modelsToDisplay = useMemo(() => {
+        // If no favorites are set, always show all models
+        if (favoriteModels.size === 0) {
+            return availableModels;
+        }
     
     // If showing all or no favorites exist, show all
     if (showAllModels) {
         return availableModels;
     }
     
-    // Filter to favorites
-    return availableModels.filter(m => favoriteModels.has(m.value));
-}, [availableModels, favoriteModels, showAllModels]);
+        // Filter to favorites
+        return availableModels.filter(m => favoriteModels.has(m.value));
+    }, [availableModels, favoriteModels, showAllModels]);
+
+
+    // Jinx favorites + filtering
+    useEffect(() => {
+        const savedJinxFavs = localStorage.getItem('npcStudioFavoriteJinxs');
+        if (savedJinxFavs) {
+            setFavoriteJinxs(new Set(JSON.parse(savedJinxFavs)));
+        }
+    }, []);
+
+    const toggleFavoriteJinx = (jinxName) => {
+        if (!jinxName) return;
+        setFavoriteJinxs(prev => {
+            const next = new Set(prev);
+            if (next.has(jinxName)) next.delete(jinxName);
+            else next.add(jinxName);
+            localStorage.setItem('npcStudioFavoriteJinxs', JSON.stringify(Array.from(next)));
+            return next;
+        });
+    };
+
+    const jinxsToDisplay = useMemo(() => {
+        if (favoriteJinxs.size === 0 || showAllJinxs) return availableJinxs;
+        return availableJinxs.filter(j => favoriteJinxs.has(j.name));
+    }, [availableJinxs, favoriteJinxs, showAllJinxs]);
 
 
    
@@ -5151,7 +5254,17 @@ useEffect(() => {
             if (typeof chunk === 'string') {
                 if (chunk.startsWith('data:')) {
                     const dataContent = chunk.replace(/^data:\s*/, '').trim();
-                    if (dataContent === '[DONE]') return;
+                    if (dataContent === '[DONE]') {
+                        const idx = paneData.chatMessages.allMessages.findIndex(m => m.id === incomingStreamId);
+                        if (idx !== -1) {
+                            const msg = paneData.chatMessages.allMessages[idx];
+                            msg.isStreaming = false;
+                            msg.streamId = null;
+                            paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+                            setRootLayoutNode(prev => ({ ...prev }));
+                        }
+                        return;
+                    }
                     if (dataContent) {
                         const parsed = JSON.parse(dataContent);
                         if (parsed.type === 'memory_approval') {
@@ -5957,8 +6070,8 @@ useEffect(() => {
         const paneData = contentDataRef.current[targetPaneId];
         if (!paneData || !paneData.chatMessages) return;
 
-        try {
-           
+            try {
+               
             let content = '', reasoningContent = '', toolCalls = null, isDecision = false;
             if (typeof chunk === 'string') {
                 if (chunk.startsWith('data:')) {
@@ -5969,7 +6082,26 @@ useEffect(() => {
                         isDecision = parsed.choices?.[0]?.delta?.role === 'decision';
                         content = parsed.choices?.[0]?.delta?.content || '';
                         reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content || '';
-                        toolCalls = parsed.tool_calls || null;
+                        if (parsed.type) {
+                            // Handle tool events coming as standalone payloads
+                            const type = parsed.type;
+                            if (type === 'tool_execution_start' && Array.isArray(parsed.tool_calls)) {
+                                toolCalls = parsed.tool_calls;
+                            } else if ((type === 'tool_start' || type === 'tool_complete' || type === 'tool_error') && parsed.name) {
+                                toolCalls = [{
+                                    id: parsed.id || '',
+                                    type: 'function',
+                                    function: {
+                                        name: parsed.name,
+                                        arguments: parsed.args ? (typeof parsed.args === 'object' ? JSON.stringify(parsed.args, null, 2) : String(parsed.args)) : ''
+                                    },
+                                    status: type === 'tool_error' ? 'error' : (type === 'tool_complete' ? 'complete' : 'running'),
+                                    result_preview: parsed.result_preview || parsed.error || ''
+                                }];
+                            }
+                        } else {
+                            toolCalls = parsed.tool_calls || null;
+                        }
                     }
                 } else { content = chunk; }
             } else if (chunk?.choices) {
@@ -5977,6 +6109,23 @@ useEffect(() => {
                 content = chunk.choices[0]?.delta?.content || '';
                 reasoningContent = chunk.choices[0]?.delta?.reasoning_content || '';
                 toolCalls = chunk.tool_calls || null;
+            } else if (chunk?.type) {
+                // tool event payloads
+                const type = chunk.type;
+                if (type === 'tool_execution_start' && Array.isArray(chunk.tool_calls)) {
+                    toolCalls = chunk.tool_calls;
+                } else if ((type === 'tool_start' || type === 'tool_complete' || type === 'tool_error') && chunk.name) {
+                    toolCalls = [{
+                        id: chunk.id || '',
+                        type: 'function',
+                        function: {
+                            name: chunk.name,
+                            arguments: chunk.args ? (typeof chunk.args === 'object' ? JSON.stringify(chunk.args, null, 2) : String(chunk.args)) : ''
+                        },
+                        status: type === 'tool_error' ? 'error' : (type === 'tool_complete' ? 'complete' : 'running'),
+                        result_preview: chunk.result_preview || chunk.error || ''
+                    }];
+                }
             }
 
            
@@ -5987,7 +6136,46 @@ useEffect(() => {
                 message.content = (message.content || '') + content;
                 message.reasoningContent = (message.reasoningContent || '') + reasoningContent;
                 if (toolCalls) {
-                    message.toolCalls = (message.toolCalls || []).concat(toolCalls);
+                    const normalizedCalls = (Array.isArray(toolCalls) ? toolCalls : []).map(tc => ({
+                        id: tc.id || '',
+                        type: tc.type || 'function',
+                        function: {
+                            name: tc.function?.name || (tc.name || ''),
+                            arguments: (() => {
+                                if (tc.args) {
+                                    return typeof tc.args === 'object' ? JSON.stringify(tc.args, null, 2) : String(tc.args);
+                                }
+                                const argVal = tc.function?.arguments;
+                                if (typeof argVal === 'object') return JSON.stringify(argVal, null, 2);
+                                return argVal || '';
+                            })()
+                        },
+                        status: tc.status,
+                        result_preview: tc.result_preview || ''
+                    }));
+                    console.log('[STREAM][TOOLCALLS]', normalizedCalls);
+                    // merge by id/name
+                    const existing = message.toolCalls || [];
+                    const merged = [...existing];
+                    normalizedCalls.forEach(tc => {
+                        const idx = merged.findIndex(mtc => mtc.id === tc.id || mtc.function.name === tc.function.name);
+                        if (idx >= 0) {
+                            const existing = merged[idx];
+                            const newArgs = tc.function?.arguments;
+                            const shouldReplaceArgs = newArgs && String(newArgs).trim().length > 0;
+                            merged[idx] = {
+                                ...existing,
+                                ...tc,
+                                function: {
+                                    name: tc.function?.name || existing.function?.name || '',
+                                    arguments: shouldReplaceArgs ? newArgs : (existing.function?.arguments || '')
+                                }
+                            };
+                        } else {
+                            merged.push(tc);
+                        }
+                    });
+                    message.toolCalls = merged;
                 }
 
                
@@ -8192,7 +8380,7 @@ const renderInputArea = () => {
                                 <ChevronDown size={12} />
                             </button>
                             {showMcpServersDropdown && (
-                                <div className="absolute z-50 w-full mt-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto">
+                                <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto">
                                     {availableMcpServers.length === 0 && (
                                         <div className="px-2 py-1 text-xs theme-text-muted">No MCP servers in ctx</div>
                                     )}
@@ -8287,10 +8475,11 @@ const renderInputArea = () => {
                         disabled={isStreaming}
                     >
                         <option value="chat">💬 Chat</option>
-                        <option value="tool_agent">🛠 Tool Agent (MCP)</option>
+                        <option value="tool_agent">🛠 Agent</option>
                         
                         {['project', 'global'].map(origin => {
-                            const originJinxs = availableJinxs.filter(j => (j.origin || 'unknown') === origin);
+                            if (collapsedJinxGroups[origin]) return null;
+                            const originJinxs = jinxsToDisplay.filter(j => (j.origin || 'unknown') === origin);
                             if (!originJinxs.length) return null;
                             const label = origin === 'project' ? 'Project Jinxs' : 'Global Jinxs';
 
@@ -8329,6 +8518,33 @@ const renderInputArea = () => {
                             );
                         })}
                     </select>
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => toggleFavoriteJinx(selectedJinx?.name)}
+                            className={`p-1 rounded ${selectedJinx && favoriteJinxs.has(selectedJinx.name) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`}
+                            disabled={!selectedJinx}
+                            title="Toggle Jinx favorite"
+                        >
+                            <Star size={14}/>
+                        </button>
+                        <button
+                            onClick={() => setShowAllJinxs(!showAllJinxs)}
+                            className="p-1 theme-hover rounded theme-text-muted"
+                            title={showAllJinxs ? "Show favorite Jinxs only" : "Show all Jinxs"}
+                        >
+                            <ListFilter size={14} className={favoriteJinxs.size === 0 ? 'opacity-30' : ''} />
+                        </button>
+                        {['project','global'].map(origin => (
+                            <button
+                                key={`collapse-${origin}`}
+                                onClick={() => setCollapsedJinxGroups(prev => ({...prev, [origin]: !prev[origin]}))}
+                                className="p-1 theme-hover rounded theme-text-muted text-[11px]"
+                                title={`Toggle ${origin} Jinxs`}
+                            >
+                                {collapsedJinxGroups[origin] ? `Show ${origin}` : `Hide ${origin}`}
+                            </button>
+                        ))}
+                    </div>
 
                     <div className="flex-grow flex items-center gap-1">
                         <select
