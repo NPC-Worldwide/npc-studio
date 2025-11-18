@@ -58,6 +58,10 @@ Organize conversations by project path and chat with multiple AI models.
 
 ![Model Selector](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/model_selector.png)
 
+**Agentic Tool use**: Enable agents to use tools from MCP Servers or your local Jinxs during conversations:
+
+![MCP Tool Use](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/mcp_tool_use.png)
+
 ---
 
 ### File Editing
@@ -150,7 +154,7 @@ Composable widgets for analytics, querying, and visualization.
 
 **Jinx Management**: Create and manage Jinxs for agents:
 
-![Jinx Editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tool.png)
+![Jinx Editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/jinx.png)
 
 **Jinx Execution**: Run jinx workflows:
 

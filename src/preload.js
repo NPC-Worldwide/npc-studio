@@ -201,6 +201,13 @@ onTerminalClosed: (callback) => {
         ipcRenderer.on('stream-error', handler);
         return () => ipcRenderer.removeListener('stream-error', handler);
     },
+
+    // MCP server management
+    getMcpServers: (currentPath) => ipcRenderer.invoke('mcp:getServers', { currentPath }),
+    startMcpServer: (args) => ipcRenderer.invoke('mcp:startServer', args),
+    stopMcpServer: (args) => ipcRenderer.invoke('mcp:stopServer', args),
+    getMcpStatus: (args) => ipcRenderer.invoke('mcp:status', args),
+    listMcpTools: (args) => ipcRenderer.invoke('mcp:listTools', args),
     showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
     showBrowser: (args) => ipcRenderer.invoke('show-browser', args),
     hideBrowser: (args) => ipcRenderer.invoke('hide-browser', args),

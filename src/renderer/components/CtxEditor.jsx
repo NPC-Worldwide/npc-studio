@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FileJson, X, Save, Plus, Trash2 } from 'lucide-react';
 import AutosizeTextarea from './AutosizeTextarea';
+import McpServerMenu from './McpServerMenu';
 
 const CtxEditor = ({ isOpen, onClose, currentPath }) => {
    
@@ -9,6 +10,7 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
     const [projectCtx, setProjectCtx] = useState({});
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [mcpMenuOpen, setMcpMenuOpen] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -128,7 +130,18 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
                 </div>
                 
                 <DynamicValueListEditor type={type} listName="databases" title="Databases" placeholder="e.g., ~/npcsh_history.db" items={ctx.databases || []} onValueChange={handleDynamicValueChange} onAddItem={addDynamicValueItem} onRemoveItem={removeDynamicValueItem} />
-                <DynamicValueListEditor type={type} listName="mcp_servers" title="MCP Servers" placeholder="e.g., ~/.npcsh/mcp_server.py" items={ctx.mcp_servers || []} onValueChange={handleDynamicValueChange} onAddItem={addDynamicValueItem} onRemoveItem={removeDynamicValueItem} />
+                <div className="space-y-2">
+                    <DynamicValueListEditor type={type} listName="mcp_servers" title="MCP Servers" placeholder="e.g., ~/.npcsh/mcp_server.py" items={ctx.mcp_servers || []} onValueChange={handleDynamicValueChange} onAddItem={addDynamicValueItem} onRemoveItem={removeDynamicValueItem} />
+                    <div className="flex justify-end">
+                        <button
+                            onClick={() => setMcpMenuOpen(true)}
+                            className="text-xs theme-button px-3 py-1 rounded"
+                            title="Manage MCP servers and tools"
+                        >
+                            Open MCP Server Manager
+                        </button>
+                    </div>
+                </div>
                 <DynamicValueListEditor type={type} listName="preferences" title="Preferences" placeholder="e.g., 'Never change function names unless requested.'" items={ctx.preferences || []} onValueChange={handleDynamicValueChange} onAddItem={addDynamicValueItem} onRemoveItem={removeDynamicValueItem} />
             </div>
         );
@@ -171,6 +184,12 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
                     </button>
                 </footer>
             </div>
+
+            <McpServerMenu
+                isOpen={mcpMenuOpen}
+                onClose={() => setMcpMenuOpen(false)}
+                currentPath={activeTab === 'project' ? currentPath : null}
+            />
         </div>
     );
 };

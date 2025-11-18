@@ -3,8 +3,8 @@ import {
     Folder, File, Globe, ChevronRight, ChevronLeft, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, 
-    Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami,
-    Clock, // Add Clock icon for cron jobs
+    Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
+    Clock,FolderTree // Add Clock icon for cron jobs
 
 } from 'lucide-react';
 
@@ -552,8 +552,33 @@ const ChatMessage = memo(({
                         <div className="text-xs text-blue-400 mb-1 font-semibold">Function Calls:</div>
                         {message.toolCalls.map((tool, idx) => (
                             <div key={idx} className="mb-2 last:mb-0">
-                                <div className="text-blue-300 text-sm">{tool.function_name || tool.function?.name || "Function"}</div>
-                                <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">{JSON.stringify(tool.arguments || tool.function?.arguments || {}, null, 2)}</pre>
+                        <div className="text-blue-300 text-sm">{tool.function_name || tool.function?.name || "Function"}</div>
+                        {(() => {
+                            const argVal = tool.arguments !== undefined ? tool.arguments : tool.function?.arguments;
+                            const resultVal = tool.result_preview || '';
+                            const argDisplay = argVal && String(argVal).trim().length > 0
+                                ? (typeof argVal === 'string' ? argVal : JSON.stringify(argVal, null, 2))
+                                : 'No arguments';
+                            const resDisplay = resultVal && String(resultVal).trim().length > 0
+                                ? (typeof resultVal === 'string' ? resultVal : JSON.stringify(resultVal, null, 2))
+                                : null;
+                            return (
+                                <>
+                                    <div className="text-[11px] theme-text-muted mb-1">Args:</div>
+                                    <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">
+                                        {argDisplay}
+                                    </pre>
+                                    {resDisplay && (
+                                        <>
+                                            <div className="text-[11px] theme-text-muted mb-1">Result:</div>
+                                            <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">
+                                                {resDisplay}
+                                            </pre>
+                                        </>
+                                    )}
+                                </>
+                            );
+                        })()}
                             </div>
                         ))}
                     </div>
@@ -722,6 +747,7 @@ const predictionTimeoutRef = useRef(null); // To debounce prediction requests
     const [availableModels, setAvailableModels] = useState([]);
     const [modelsLoading, setModelsLoading] = useState(false);
     const [modelsError, setModelsError] = useState(null);
+    const [ollamaToolModels, setOllamaToolModels] = useState(new Set());
     const [currentFile, setCurrentFile] = useState(null);
     const [fileContent, setFileContent] = useState('');
     const [isEditing, setIsEditing] = useState(false);
@@ -850,7 +876,7 @@ const renderWebsiteList = () => {
     const header = (
         <div className="flex items-center justify-between px-4 py-2 mt-4">
             <div className="text-xs text-gray-500 font-medium">Websites</div>
-            <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 w-[66%]">
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
@@ -1099,6 +1125,12 @@ const ACTIVE_WINDOWS_KEY = 'npcStudioActiveWindows';
         onConfirm: null
     });
     const [mcpServerPath, setMcpServerPath] = useState('~/.npcsh/npc_team/mcp_server.py');
+    const [selectedMcpTools, setSelectedMcpTools] = useState([]);
+    const [availableMcpTools, setAvailableMcpTools] = useState([]);
+    const [mcpToolsLoading, setMcpToolsLoading] = useState(false);
+    const [mcpToolsError, setMcpToolsError] = useState(null);
+    const [availableMcpServers, setAvailableMcpServers] = useState([]);
+    const [showMcpServersDropdown, setShowMcpServersDropdown] = useState(false);
     const [browserContextMenu, setBrowserContextMenu] = useState({
         isOpen: false,
         x: 0,
@@ -1615,9 +1647,59 @@ const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
     } else {
       try {
         const msgs = await window.api.getConversationMessages(newContentId);
-        const formatted = (msgs && Array.isArray(msgs))
-          ? msgs.map(m => ({ ...m, id: m.id || generateId() }))
-          : [];
+        const parseMaybeJson = (val) => {
+          if (!val || typeof val !== 'string') return val;
+          try { return JSON.parse(val); } catch { return val; }
+        };
+        const formatted = [];
+        let lastAssistant = null;
+        if (msgs && Array.isArray(msgs)) {
+          msgs.forEach(raw => {
+            const msg = { ...raw, id: raw.id || generateId() };
+            msg.content = parseMaybeJson(msg.content);
+            if (msg.role === 'assistant') {
+              if (!Array.isArray(msg.toolCalls)) msg.toolCalls = [];
+              // If content is a tool_call wrapper, normalize into toolCalls list
+              if (msg.content && typeof msg.content === 'object' && msg.content.tool_call) {
+                const tc = msg.content.tool_call;
+                msg.toolCalls.push({
+                  id: tc.id || tc.tool_call_id || generateId(),
+                  function: { name: tc.function_name || tc.name || 'tool', arguments: tc.arguments || '' }
+                });
+                msg.content = '';
+              }
+              formatted.push(msg);
+              lastAssistant = msg;
+            } else if (msg.role === 'tool') {
+              const toolPayload = msg.content && typeof msg.content === 'object' ? msg.content : { content: msg.content };
+              const tcId = toolPayload.tool_call_id || generateId();
+              const tcName = toolPayload.tool_name || 'tool';
+              const tcContent = toolPayload.content !== undefined ? toolPayload.content : msg.content;
+              if (lastAssistant) {
+                if (!Array.isArray(lastAssistant.toolCalls)) lastAssistant.toolCalls = [];
+                lastAssistant.toolCalls.push({
+                  id: tcId,
+                  function: { name: tcName, arguments: toolPayload.arguments || '' },
+                  result_preview: typeof tcContent === 'string' ? tcContent : JSON.stringify(tcContent)
+                });
+              } else {
+                formatted.push({
+                  id: generateId(),
+                  role: 'assistant',
+                  content: '',
+                  toolCalls: [{
+                    id: tcId,
+                    function: { name: tcName, arguments: toolPayload.arguments || '' },
+                    result_preview: typeof tcContent === 'string' ? tcContent : JSON.stringify(tcContent)
+                  }]
+                });
+                lastAssistant = formatted[formatted.length - 1];
+              }
+            } else {
+              formatted.push(msg);
+            }
+          });
+        }
 
         paneData.chatMessages.allMessages = formatted;
         const count = paneData.chatMessages.displayedMessageCount || 20;
@@ -1983,11 +2065,10 @@ const createDefaultWorkspace = useCallback(async () => {
     const [showAllModels, setShowAllModels] = useState(true); // Change default to true
 
 
-    const [availableJinxs, setAvailableJinxs] = useState({
-        code: [],
-        modes: [],
-        utils: []
-    });
+    const [availableJinxs, setAvailableJinxs] = useState([]); // [{name, description, path, origin, group}]
+    const [favoriteJinxs, setFavoriteJinxs] = useState(new Set());
+    const [showAllJinxs, setShowAllJinxs] = useState(false);
+    const [showJinxDropdown, setShowJinxDropdown] = useState(false);
 
     const [selectedJinx, setSelectedJinx] = useState(null);
     const [jinxLoadingError, setJinxLoadingError] = useState(null); // This already exists
@@ -2001,74 +2082,143 @@ const createDefaultWorkspace = useCallback(async () => {
 useEffect(() => {
     const fetchJinxs = async () => {
         try {
-            const [projectResponse, globalResponse] = await Promise.all([
-                window.api.getJinxsProject(currentPath), // Correct function name
-                window.api.getJinxsGlobal() // Correct function name
-            ]);
+            const globalResp = await window.api.getJinxsGlobal(); // { jinxs: [...] }
+            let projectResp = { jinxs: [] };
+            if (currentPath) {
+                try {
+                    projectResp = await window.api.getJinxsProject(currentPath); // { jinxs: [...] }
+                } catch (e) {
+                    console.warn('Project jinxs fetch failed:', e?.message || e);
+                }
+            }
 
-            // Backend now returns { code: [], modes: [], utils: [] }
-            const combined = {
-                code: [
-                    ...(projectResponse.code || []),
-                    ...(globalResponse.code || [])
-                ],
-                modes: [
-                    ...(projectResponse.modes || []),
-                    ...(globalResponse.modes || [])
-                ],
-                utils: [
-                    ...(projectResponse.utils || []),
-                    ...(globalResponse.utils || [])
-                ]
-            };
+            // Normalize entries and tag origin
+            const normalize = (arr, origin) =>
+                (arr || []).map(j => {
+                    let nm, desc = '', pathVal = '', group = '', inputs = [];
+                    if (typeof j === 'string') {
+                        nm = j;
+                    } else if (j) {
+                        nm = j.jinx_name || j.name;
+                        desc = j.description || '';
+                        pathVal = j.path || '';
+                        inputs = Array.isArray(j.inputs) ? j.inputs : [];
+                    }
+                    if (!nm) return null;
+                    // group from first path segment (subfolder) or 'root'
+                    if (pathVal) {
+                        const parts = pathVal.split(/[\\/]/);
+                        group = parts.length > 1 ? parts[0] : 'root';
+                    } else {
+                        group = 'root';
+                    }
+                    return { name: nm, description: desc, path: pathVal, origin, group, inputs };
+                }).filter(Boolean);
 
-            setAvailableJinxs(combined);
+            const merged = [
+                ...normalize(projectResp.jinxs, 'project'),
+                ...normalize(globalResp.jinxs, 'global'),
+            ];
+
+            // Deduplicate by name, prefer project over global (project entries come first)
+            const seen = new Set();
+            const deduped = [];
+            for (const j of merged) {
+                const key = j.name;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                deduped.push(j);
+            }
+
+            setAvailableJinxs(deduped);
         } catch (err) {
             console.error('Error fetching jinxs:', err);
             setJinxLoadingError(err.message);
+            setAvailableJinxs([]);
         }
     };
 
     fetchJinxs();
 }, [currentPath]);
+
+// Load MCP tools when in Tool Agent mode or when server path changes
+useEffect(() => {
+    const loadMcpTools = async () => {
+        if (executionMode !== 'tool_agent') return;
+        setMcpToolsLoading(true);
+        setMcpToolsError(null);
+        const res = await window.api.listMcpTools({ serverPath: mcpServerPath, currentPath });
+        setMcpToolsLoading(false);
+        if (res.error) {
+            setMcpToolsError(res.error);
+            setAvailableMcpTools([]);
+            return;
+        }
+        const tools = res.tools || [];
+        setAvailableMcpTools(tools);
+        const names = tools.map(t => t.function?.name).filter(Boolean);
+        setSelectedMcpTools(prev => prev.filter(n => names.includes(n)));
+    };
+    loadMcpTools();
+}, [executionMode, mcpServerPath, currentPath]);
+
+// Load MCP servers from contexts for selection in Tool Agent mode
+useEffect(() => {
+    const loadServers = async () => {
+        if (executionMode !== 'tool_agent') return;
+        const res = await window.api.getMcpServers(currentPath);
+        if (res && Array.isArray(res.servers)) {
+            setAvailableMcpServers(res.servers);
+            if (!res.servers.find(s => s.serverPath === mcpServerPath) && res.servers.length > 0) {
+                setMcpServerPath(res.servers[0].serverPath);
+            }
+        } else {
+            setAvailableMcpServers([]);
+        }
+    };
+    loadServers();
+}, [executionMode, currentPath]);
     
-const executionModes = useMemo(() => {
-    const modes = [
-        { id: 'chat', name: 'Chat', icon: MessageCircle, builtin: true }
-    ];
-    
-    // Now availableJinxs is an object with code, modes, utils arrays
-    const allJinxs = [
-        ...(availableJinxs.code || []),
-        ...(availableJinxs.modes || []),
-        ...(availableJinxs.utils || [])
-    ];
-    
-    allJinxs.forEach(jinx => {
-        modes.push({
-            id: jinx.name,
-            name: jinx.display_name || jinx.name,
-            icon: Wrench,
-            jinx: jinx,
-            builtin: false
+    const executionModes = useMemo(() => {
+        const modes = [
+            { id: 'chat', name: 'Chat', icon: MessageCircle, builtin: true },
+            { id: 'tool_agent', name: 'Agent', icon: Wrench, builtin: true },
+        ];
+
+        (availableJinxs || []).forEach(jinx => {
+            modes.push({
+                id: jinx.name,
+                name: `Jinx Agent: ${jinx.name}`,
+                icon: Wrench,
+                jinx,
+                builtin: false
+            });
         });
-    });
-    
-    return modes;
-}, [availableJinxs]);
+
+        return modes;
+    }, [availableJinxs]);
 
 
 useEffect(() => {
-    if (selectedJinx) {
+    if (selectedJinx && Array.isArray(selectedJinx.inputs)) {
         setJinxInputValues(prev => {
             const currentJinxValues = prev[selectedJinx.name] || {};
             const newJinxValues = { ...currentJinxValues };
 
             // Ensure all inputs defined by the jinx have an entry in currentJinxValues
             selectedJinx.inputs.forEach(inputDef => {
-                const inputName = Object.keys(inputDef)[0];
-                if (newJinxValues[inputName] === undefined) {
-                    newJinxValues[inputName] = inputDef[inputName] || ''; // Use default from jinx definition
+                let inputName = '';
+                let defaultVal = '';
+                if (typeof inputDef === 'string') {
+                    inputName = inputDef;
+                } else if (inputDef && typeof inputDef === 'object') {
+                    inputName = Object.keys(inputDef)[0];
+                    defaultVal = inputDef[inputName] || '';
+                }
+                if (inputName) {
+                    if (newJinxValues[inputName] === undefined) {
+                        newJinxValues[inputName] = defaultVal;
+                    }
                 }
             });
             return { ...prev, [selectedJinx.name]: newJinxValues };
@@ -2081,6 +2231,22 @@ useEffect(() => {
         if (savedFavorites) {
             setFavoriteModels(new Set(JSON.parse(savedFavorites)));
         }
+    }, []);
+    
+    useEffect(() => {
+        // Fetch tool-capable Ollama models
+        const fetchOllamaToolModels = async () => {
+            try {
+                const res = await fetch('http://localhost:5337/api/ollama/tool_models');
+                const data = await res.json();
+                if (data?.models) {
+                    setOllamaToolModels(new Set(data.models));
+                }
+            } catch (e) {
+                console.warn('Failed to fetch Ollama tool-capable models', e);
+            }
+        };
+        fetchOllamaToolModels();
     }, []);
     
     const toggleFavoriteModel = (modelValue) => {
@@ -2097,20 +2263,45 @@ useEffect(() => {
         });
     };
     
-const modelsToDisplay = useMemo(() => {
-    // If no favorites are set, always show all models
-    if (favoriteModels.size === 0) {
-        return availableModels;
-    }
+    const modelsToDisplay = useMemo(() => {
+        // If no favorites are set, always show all models
+        if (favoriteModels.size === 0) {
+            return availableModels;
+        }
     
     // If showing all or no favorites exist, show all
     if (showAllModels) {
         return availableModels;
     }
     
-    // Filter to favorites
-    return availableModels.filter(m => favoriteModels.has(m.value));
-}, [availableModels, favoriteModels, showAllModels]);
+        // Filter to favorites
+        return availableModels.filter(m => favoriteModels.has(m.value));
+    }, [availableModels, favoriteModels, showAllModels]);
+
+
+    // Jinx favorites + filtering
+    useEffect(() => {
+        const savedJinxFavs = localStorage.getItem('npcStudioFavoriteJinxs');
+        if (savedJinxFavs) {
+            setFavoriteJinxs(new Set(JSON.parse(savedJinxFavs)));
+        }
+    }, []);
+
+    const toggleFavoriteJinx = (jinxName) => {
+        if (!jinxName) return;
+        setFavoriteJinxs(prev => {
+            const next = new Set(prev);
+            if (next.has(jinxName)) next.delete(jinxName);
+            else next.add(jinxName);
+            localStorage.setItem('npcStudioFavoriteJinxs', JSON.stringify(Array.from(next)));
+            return next;
+        });
+    };
+
+    const jinxsToDisplay = useMemo(() => {
+        if (favoriteJinxs.size === 0 || showAllJinxs) return availableJinxs;
+        return availableJinxs.filter(j => favoriteJinxs.has(j.name));
+    }, [availableJinxs, favoriteJinxs, showAllJinxs]);
 
 
    
@@ -2583,6 +2774,8 @@ const handleAIEdit = async (action, customPrompt = null) => {
             streamId: newStreamId, 
             executionMode: executionMode,
             tools: executionMode === 'agent' ? selectedTools : [],
+            mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+            selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
         
         });
 
@@ -2834,7 +3027,10 @@ const handleApplyPromptToFiles = async (operationType, customPrompt = '') => {
             npc: selectedNpc ? selectedNpc.name : currentNPC,
             npcSource: selectedNpc ? selectedNpc.source : 'global',
             attachments: [],
-            streamId: newStreamId
+            streamId: newStreamId,
+            executionMode,
+            mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+            selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
         });
 
     } catch (err) {
@@ -4500,6 +4696,8 @@ ${contextPrompt}`;
                 }),
                 streamId: newStreamId,
                 executionMode: executionMode,
+                mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+                selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
             });
         }
     } catch (err) {
@@ -4895,18 +5093,20 @@ Only show the lines that change, with a few lines of context. Multiple files = m
     try {
         const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
         
-        await window.api.executeCommandStream({
-            commandstr: fullPrompt,
-            currentPath,
-            conversationId: null,
-            model: currentModel,
-            provider: currentProvider,
-            npc: selectedNpc ? selectedNpc.name : currentNPC,
-            npcSource: selectedNpc ? selectedNpc.source : 'global',
-            attachments: [],
-            streamId: newStreamId,
-            executionMode: 'chat'
-        });
+            await window.api.executeCommandStream({
+                commandstr: fullPrompt,
+                currentPath,
+                conversationId: null,
+                model: currentModel,
+                provider: currentProvider,
+                npc: selectedNpc ? selectedNpc.name : currentNPC,
+                npcSource: selectedNpc ? selectedNpc.source : 'global',
+                attachments: [],
+                streamId: newStreamId,
+                executionMode: executionMode,
+                mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+                selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined
+            });
     } catch (err) {
         console.error('Error starting agentic edit:', err);
         setError(err.message);
@@ -5071,7 +5271,17 @@ useEffect(() => {
             if (typeof chunk === 'string') {
                 if (chunk.startsWith('data:')) {
                     const dataContent = chunk.replace(/^data:\s*/, '').trim();
-                    if (dataContent === '[DONE]') return;
+                    if (dataContent === '[DONE]') {
+                        const idx = paneData.chatMessages.allMessages.findIndex(m => m.id === incomingStreamId);
+                        if (idx !== -1) {
+                            const msg = paneData.chatMessages.allMessages[idx];
+                            msg.isStreaming = false;
+                            msg.streamId = null;
+                            paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+                            setRootLayoutNode(prev => ({ ...prev }));
+                        }
+                        return;
+                    }
                     if (dataContent) {
                         const parsed = JSON.parse(dataContent);
                         if (parsed.type === 'memory_approval') {
@@ -5877,8 +6087,8 @@ useEffect(() => {
         const paneData = contentDataRef.current[targetPaneId];
         if (!paneData || !paneData.chatMessages) return;
 
-        try {
-           
+            try {
+               
             let content = '', reasoningContent = '', toolCalls = null, isDecision = false;
             if (typeof chunk === 'string') {
                 if (chunk.startsWith('data:')) {
@@ -5889,7 +6099,26 @@ useEffect(() => {
                         isDecision = parsed.choices?.[0]?.delta?.role === 'decision';
                         content = parsed.choices?.[0]?.delta?.content || '';
                         reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content || '';
-                        toolCalls = parsed.tool_calls || null;
+                        if (parsed.type) {
+                            // Handle tool events coming as standalone payloads
+                            const type = parsed.type;
+                            if (type === 'tool_execution_start' && Array.isArray(parsed.tool_calls)) {
+                                toolCalls = parsed.tool_calls;
+                            } else if ((type === 'tool_start' || type === 'tool_complete' || type === 'tool_error') && parsed.name) {
+                                toolCalls = [{
+                                    id: parsed.id || '',
+                                    type: 'function',
+                                    function: {
+                                        name: parsed.name,
+                                        arguments: parsed.args ? (typeof parsed.args === 'object' ? JSON.stringify(parsed.args, null, 2) : String(parsed.args)) : ''
+                                    },
+                                    status: type === 'tool_error' ? 'error' : (type === 'tool_complete' ? 'complete' : 'running'),
+                                    result_preview: parsed.result_preview || parsed.error || ''
+                                }];
+                            }
+                        } else {
+                            toolCalls = parsed.tool_calls || null;
+                        }
                     }
                 } else { content = chunk; }
             } else if (chunk?.choices) {
@@ -5897,6 +6126,23 @@ useEffect(() => {
                 content = chunk.choices[0]?.delta?.content || '';
                 reasoningContent = chunk.choices[0]?.delta?.reasoning_content || '';
                 toolCalls = chunk.tool_calls || null;
+            } else if (chunk?.type) {
+                // tool event payloads
+                const type = chunk.type;
+                if (type === 'tool_execution_start' && Array.isArray(chunk.tool_calls)) {
+                    toolCalls = chunk.tool_calls;
+                } else if ((type === 'tool_start' || type === 'tool_complete' || type === 'tool_error') && chunk.name) {
+                    toolCalls = [{
+                        id: chunk.id || '',
+                        type: 'function',
+                        function: {
+                            name: chunk.name,
+                            arguments: chunk.args ? (typeof chunk.args === 'object' ? JSON.stringify(chunk.args, null, 2) : String(chunk.args)) : ''
+                        },
+                        status: type === 'tool_error' ? 'error' : (type === 'tool_complete' ? 'complete' : 'running'),
+                        result_preview: chunk.result_preview || chunk.error || ''
+                    }];
+                }
             }
 
            
@@ -5907,7 +6153,46 @@ useEffect(() => {
                 message.content = (message.content || '') + content;
                 message.reasoningContent = (message.reasoningContent || '') + reasoningContent;
                 if (toolCalls) {
-                    message.toolCalls = (message.toolCalls || []).concat(toolCalls);
+                    const normalizedCalls = (Array.isArray(toolCalls) ? toolCalls : []).map(tc => ({
+                        id: tc.id || '',
+                        type: tc.type || 'function',
+                        function: {
+                            name: tc.function?.name || (tc.name || ''),
+                            arguments: (() => {
+                                if (tc.args) {
+                                    return typeof tc.args === 'object' ? JSON.stringify(tc.args, null, 2) : String(tc.args);
+                                }
+                                const argVal = tc.function?.arguments;
+                                if (typeof argVal === 'object') return JSON.stringify(argVal, null, 2);
+                                return argVal || '';
+                            })()
+                        },
+                        status: tc.status,
+                        result_preview: tc.result_preview || ''
+                    }));
+                    console.log('[STREAM][TOOLCALLS]', normalizedCalls);
+                    // merge by id/name
+                    const existing = message.toolCalls || [];
+                    const merged = [...existing];
+                    normalizedCalls.forEach(tc => {
+                        const idx = merged.findIndex(mtc => mtc.id === tc.id || mtc.function.name === tc.function.name);
+                        if (idx >= 0) {
+                            const existing = merged[idx];
+                            const newArgs = tc.function?.arguments;
+                            const shouldReplaceArgs = newArgs && String(newArgs).trim().length > 0;
+                            merged[idx] = {
+                                ...existing,
+                                ...tc,
+                                function: {
+                                    name: tc.function?.name || existing.function?.name || '',
+                                    arguments: shouldReplaceArgs ? newArgs : (existing.function?.arguments || '')
+                                }
+                            };
+                        } else {
+                            merged.push(tc);
+                        }
+                    });
+                    message.toolCalls = merged;
                 }
 
                
@@ -6250,7 +6535,10 @@ const handleSummarizeAndStart = async () => {
                 npc: selectedNpc ? selectedNpc.name : currentNPC,
                 npcSource: selectedNpc ? selectedNpc.source : 'global',
                 attachments: [],
-                streamId: newStreamId
+                streamId: newStreamId,
+                executionMode,
+                mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+                selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
             });
 
         } catch (err) {
@@ -6346,7 +6634,10 @@ const handleSummarizeAndPrompt = async () => {
                     npc: selectedNpc ? selectedNpc.name : currentNPC,
                     npcSource: selectedNpc ? selectedNpc.source : 'global',
                     attachments: [],
-                    streamId: newStreamId
+                    streamId: newStreamId,
+                    executionMode,
+                    mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+                    selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
                 });
 
             } catch (err) {
@@ -7844,6 +8135,10 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
 };
 const renderInputArea = () => {
     const isJinxMode = executionMode !== 'chat' && selectedJinx;
+    const jinxInputsForSelected = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
+    const hasJinxContent = isJinxMode && Object.values(jinxInputsForSelected).some(val => val !== null && String(val).trim());
+    const hasInputContent = input.trim() || uploadedFiles.length > 0 || hasJinxContent;
+    const canSend = !isStreaming && hasInputContent && (activeConversationId || isJinxMode);
 
     if (isInputMinimized) {
         return (
@@ -7979,49 +8274,61 @@ const renderInputArea = () => {
                                                     );
                                                 }
 
-                                                const inputPlaceholder = inputDef[inputName] || '';
-                                                const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command'].includes(inputName.toLowerCase());
+                                                            const inputPlaceholder = inputDef[inputName] || '';
+                                                            const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command'].includes(inputName.toLowerCase());
 
-                                                return (
-                                                    <div key={`${selectedJinx.name}-${inputName}`} className="flex flex-col">
+                                                            return (
+                                                                <div key={`${selectedJinx.name}-${inputName}`} className="flex flex-col">
                                                         <label htmlFor={`jinx-input-${selectedJinx.name}-${inputName}`} className="text-xs theme-text-muted mb-1 capitalize">
                                                             {inputName}:
                                                         </label>
-                                                        {isTextArea ? (
-                                                            <textarea
-                                                                id={`jinx-input-${selectedJinx.name}-${inputName}`}
-                                                                value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                                onChange={(e) => setJinxInputValues(prev => ({
-                                                                    ...prev,
+                                                            {isTextArea ? (
+                                                                <textarea
+                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
+                                                                    onChange={(e) => setJinxInputValues(prev => ({
+                                                                        ...prev,
                                                                     [selectedJinx.name]: {
                                                                         ...prev[selectedJinx.name],
                                                                         [inputName]: e.target.value
                                                                     }
                                                                 }))}
-                                                                placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                                className="theme-input text-sm rounded px-2 py-1 border min-h-[60px] resize-vertical"
-                                                                rows={3}
-                                                                disabled={isStreaming}
-                                                            />
-                                                        ) : (
-                                                            <input
-                                                                id={`jinx-input-${selectedJinx.name}-${inputName}`}
-                                                                type="text"
-                                                                value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                                onChange={(e) => setJinxInputValues(prev => ({
-                                                                    ...prev,
-                                                                    [selectedJinx.name]: {
-                                                                        ...prev[selectedJinx.name],
-                                                                        [inputName]: e.target.value
-                                                                    }
-                                                                }))}
-                                                                placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                                className="theme-input text-sm rounded px-2 py-1 border"
-                                                                disabled={isStreaming}
-                                                            />
-                                                        )}
-                                                    </div>
-                                                );
+                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
+                                                                    className="theme-input text-sm rounded px-2 py-1 border min-h-[60px] resize-vertical"
+                                                                    rows={3}
+                                                                    onKeyDown={(e) => {
+                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            handleInputSubmit(e);
+                                                                        }
+                                                                    }}
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            ) : (
+                                                                <input
+                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
+                                                                    type="text"
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
+                                                                    onChange={(e) => setJinxInputValues(prev => ({
+                                                                        ...prev,
+                                                                        [selectedJinx.name]: {
+                                                                            ...prev[selectedJinx.name],
+                                                                            [inputName]: e.target.value
+                                                                        }
+                                                                    }))}
+                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
+                                                                    className="theme-input text-sm rounded px-2 py-1 border"
+                                                                    onKeyDown={(e) => {
+                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            handleInputSubmit(e);
+                                                                        }
+                                                                    }}
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    );
                                             })}
                                         </div>
                                     )}
@@ -8084,65 +8391,195 @@ const renderInputArea = () => {
                                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
                             </button>
                         ) : (
-                            <button type="button" onClick={handleInputSubmit} disabled={(!input.trim() && uploadedFiles.length === 0 && !isJinxMode) || (isJinxMode && Object.values(jinxInputValues[selectedJinx?.name] || {}).every(val => !String(val).trim())) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
+                            <button type="button" onClick={handleInputSubmit} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
                                 <Send size={16}/>
                             </button>
                         )}
                     </div>
                 </div>
 
+                {executionMode === 'tool_agent' && (
+                    <div className="px-2 pb-1 border-t theme-border">
+                        <div className="relative w-1/2">
+                            <button
+                                type="button"
+                                className="theme-input text-xs w-full text-left px-2 py-1 flex items-center justify-between rounded border"
+                                disabled={isStreaming || availableMcpServers.length === 0}
+                                onClick={() => setShowMcpServersDropdown(prev => !prev)}
+                            >
+                                <span className="truncate">
+                                    {availableMcpServers.find(s => s.serverPath === mcpServerPath)?.serverPath || 'Select MCP server & tools'}
+                                </span>
+                                <ChevronDown size={12} />
+                            </button>
+                            {showMcpServersDropdown && (
+                                <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto">
+                                    {availableMcpServers.length === 0 && (
+                                        <div className="px-2 py-1 text-xs theme-text-muted">No MCP servers in ctx</div>
+                                    )}
+                                    {availableMcpServers.map((srv) => (
+                                        <div key={srv.serverPath} className="border-b theme-border last:border-b-0">
+                                            <div
+                                                className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center justify-between"
+                                                onClick={() => {
+                                                    setMcpServerPath(srv.serverPath);
+                                                    setSelectedMcpTools([]);
+                                                    setMcpToolsLoading(true);
+                                                    window.api.listMcpTools({ serverPath: srv.serverPath, currentPath }).then((res) => {
+                                                        setMcpToolsLoading(false);
+                                                        if (res.error) {
+                                                            setMcpToolsError(res.error);
+                                                            setAvailableMcpTools([]);
+                                                        } else {
+                                                            setMcpToolsError(null);
+                                                            const tools = res.tools || [];
+                                                            setAvailableMcpTools(tools);
+                                                            const names = tools.map(t => t.function?.name).filter(Boolean);
+                                                            setSelectedMcpTools(prev => prev.filter(n => names.includes(n)));
+                                                        }
+                                                    });
+                                                }}
+                                            >
+                                                <span className="truncate">{srv.serverPath}</span>
+                                            </div>
+                                            {srv.serverPath === mcpServerPath && (
+                                                <div className="px-3 py-1 space-y-1">
+                                                    {mcpToolsLoading && <div className="text-xs theme-text-muted">Loading MCP tools…</div>}
+                                                    {mcpToolsError && <div className="text-xs text-red-400">Error: {mcpToolsError}</div>}
+                                                    {!mcpToolsLoading && !mcpToolsError && (
+                                                        <div className="flex flex-col gap-1">
+                                                            {availableMcpTools.length === 0 && (
+                                                                <div className="text-xs theme-text-muted">No tools available.</div>
+                                                            )}
+                                                            {availableMcpTools.map(tool => {
+                                                                const name = tool.function?.name || '';
+                                                                const desc = tool.function?.description || '';
+                                                                if (!name) return null;
+                                                                const checked = selectedMcpTools.includes(name);
+                                                                return (
+                                                                    <details key={name} className="bg-black/30 border theme-border rounded px-2 py-1">
+                                                                        <summary className="flex items-center gap-2 text-xs theme-text-primary cursor-pointer">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={checked}
+                                                                                disabled={isStreaming}
+                                                                                onChange={() => {
+                                                                                    setSelectedMcpTools(prev => {
+                                                                                        if (prev.includes(name)) {
+                                                                                            return prev.filter(n => n !== name);
+                                                                                        }
+                                                                                        return [...prev, name];
+                                                                                    });
+                                                                                }}
+                                                                            />
+                                                                            <span>{name}</span>
+                                                                        </summary>
+                                                                        <div className="ml-6 text-[11px] theme-text-muted whitespace-pre-wrap">
+                                                                            {desc || 'No description.'}
+                                                                        </div>
+                                                                    </details>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 <div className={`flex items-center gap-2 px-2 pb-2 border-t theme-border ${isStreaming ? 'opacity-50' : ''}`}>
-                    <select
-                        value={executionMode}
-                        onChange={(e) => {
-                            setExecutionMode(e.target.value);
-                            if (e.target.value === 'chat') {
-                                setSelectedJinx(null);
-                            } else {
-                                const allJinxs = [
-                                    ...(availableJinxs.code || []),
-                                    ...(availableJinxs.modes || []),
-                                    ...(availableJinxs.utils || [])
-                                ];
-                                const foundJinx = allJinxs.find(j => j.name === e.target.value);
-                                setSelectedJinx(foundJinx || null);
-                            }
-                        }}
-                        className="theme-input text-xs rounded px-2 py-1 border min-w-[150px]"
-                        disabled={isStreaming}
-                    >
-                        <option value="chat">💬 Chat</option>
-                        
-                        {availableJinxs.code?.length > 0 && (
-                            <optgroup label="Code">
-                                {availableJinxs.code.map(jinx => (
-                                    <option key={jinx.name} value={jinx.name}>
-                                        📝 {jinx.name.length > 15 ? jinx.name.substring(0, 15) + '...' : jinx.name}
-                                    </option>
-                                ))}
-                            </optgroup>
+                    <div className="relative min-w-[180px]">
+                        <button
+                            type="button"
+                            className="theme-input text-xs rounded px-2 py-1 border w-full flex items-center justify-between"
+                            disabled={isStreaming}
+                            onClick={() => setShowJinxDropdown(prev => !prev)}
+                        >
+                            <span className="truncate">
+                                {executionMode === 'chat' && '💬 Chat'}
+                                {executionMode === 'tool_agent' && '🛠 Agent'}
+                                {executionMode !== 'chat' && executionMode !== 'tool_agent' && (selectedJinx?.name || executionMode)}
+                            </span>
+                            <ChevronDown size={12}/>
+                        </button>
+                        {showJinxDropdown && (
+                            <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-72 overflow-y-auto">
+                                <div
+                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
+                                    onClick={() => {
+                                        setExecutionMode('chat');
+                                        setSelectedJinx(null);
+                                        setShowJinxDropdown(false);
+                                    }}
+                                >
+                                    💬 Chat
+                                </div>
+                                <div
+                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
+                                    onClick={() => {
+                                        const selectedModelObj = availableModels.find(m => m.value === currentModel);
+                                        const providerForModel = selectedModelObj?.provider || currentProvider;
+                                        const toolCapable = providerForModel !== 'ollama' || (currentModel && ollamaToolModels.has(currentModel));
+                                        if (!toolCapable) {
+                                            setError('Selected model does not support native tool-calling; using chat or Jinx instead.');
+                                            setShowJinxDropdown(false);
+                                            return;
+                                        }
+                                        setExecutionMode('tool_agent');
+                                        setSelectedJinx(null);
+                                        setShowJinxDropdown(false);
+                                    }}
+                                >
+                                    🛠 Agent
+                                </div>
+                                {['project','global'].map(origin => {
+                                    const originJinxs = jinxsToDisplay.filter(j => (j.origin || 'unknown') === origin);
+                                    if (!originJinxs.length) return null;
+                                    const grouped = originJinxs.reduce((acc, j) => {
+                                        const g = j.group || 'root';
+                                        if (!acc[g]) acc[g] = [];
+                                        acc[g].push(j);
+                                        return acc;
+                                    }, {});
+                                    return (
+                                        <div key={origin} className="border-t theme-border">
+                                            <div className="px-2 py-1 text-[11px] uppercase theme-text-muted">{origin === 'project' ? 'Project Jinxs' : 'Global Jinxs'}</div>
+                                            {Object.entries(grouped)
+                                                .filter(([gName]) => gName.toLowerCase() !== 'modes')
+                                                .sort(([a],[b]) => a.localeCompare(b))
+                                                .map(([gName, jinxs]) => (
+                                                    <details key={`${origin}-${gName}`} className="px-2">
+                                                        <summary className="text-xs theme-text-primary cursor-pointer py-1 flex items-center gap-2">
+                                                            <FolderTree size={12}/> {gName}
+                                                        </summary>
+                                                        <div className="pl-4 pb-1 flex flex-col gap-1">
+                                                            {jinxs.sort((a,b)=>a.name.localeCompare(b.name)).map(jinx => (
+                                                                <div
+                                                                    key={`${origin}-${gName}-${jinx.name}`}
+                                                                    className="flex items-center gap-2 text-xs theme-hover cursor-pointer"
+                                                                    onClick={() => {
+                                                                        setExecutionMode(jinx.name);
+                                                                        setSelectedJinx(jinx);
+                                                                        setShowJinxDropdown(false);
+                                                                    }}
+                                                                >
+                                                                    <span className="truncate">{jinx.name}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </details>
+                                                ))}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         )}
-                        
-                        {availableJinxs.modes?.length > 0 && (
-                            <optgroup label="Modes">
-                                {availableJinxs.modes.map(jinx => (
-                                    <option key={jinx.name} value={jinx.name}>
-                                        🎯 {jinx.name.length > 15 ? jinx.name.substring(0, 15) + '...' : jinx.name}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        )}
-                        
-                        {availableJinxs.utils?.length > 0 && (
-                            <optgroup label="Utils">
-                                {availableJinxs.utils.map(jinx => (
-                                    <option key={jinx.name} value={jinx.name}>
-                                        🔧 {jinx.name.length > 15 ? jinx.name.substring(0, 15) + '...' : jinx.name}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        )}
-                    </select>
+                    </div>
 
                     <div className="flex-grow flex items-center gap-1">
                         <select
@@ -8392,6 +8829,7 @@ const renderAttachmentThumbnails = () => {
                         </button>
                     </div>
                 </div>
+
             </div>
         )}
         {memoryApprovalModal.isOpen && (
@@ -8639,7 +9077,7 @@ const renderAttachmentThumbnails = () => {
             onClose={() => setCronDaemonPanelOpen(false)}
             currentPath={currentPath}
             npcList={availableNPCs.map(npc => ({ name: npc.name, display_name: npc.display_name }))} // Pass available NPCs
-            jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.jinx_name, description: jinx.description }))} // Pass available Jinxs
+            jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.name, description: jinx.description }))} // Pass available Jinxs
             onAddCronJob={window.api.addCronJob}
             onAddDaemon={window.api.addDaemon}
             onRemoveCronJob={window.api.removeCronJob}
