@@ -4,7 +4,7 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, 
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
-    Clock, // Add Clock icon for cron jobs
+    Clock,FolderTree // Add Clock icon for cron jobs
 
 } from 'lucide-react';
 
@@ -747,6 +747,7 @@ const predictionTimeoutRef = useRef(null); // To debounce prediction requests
     const [availableModels, setAvailableModels] = useState([]);
     const [modelsLoading, setModelsLoading] = useState(false);
     const [modelsError, setModelsError] = useState(null);
+    const [ollamaToolModels, setOllamaToolModels] = useState(new Set());
     const [currentFile, setCurrentFile] = useState(null);
     const [fileContent, setFileContent] = useState('');
     const [isEditing, setIsEditing] = useState(false);
@@ -875,7 +876,7 @@ const renderWebsiteList = () => {
     const header = (
         <div className="flex items-center justify-between px-4 py-2 mt-4">
             <div className="text-xs text-gray-500 font-medium">Websites</div>
-            <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 w-[66%]">
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
@@ -2067,7 +2068,7 @@ const createDefaultWorkspace = useCallback(async () => {
     const [availableJinxs, setAvailableJinxs] = useState([]); // [{name, description, path, origin, group}]
     const [favoriteJinxs, setFavoriteJinxs] = useState(new Set());
     const [showAllJinxs, setShowAllJinxs] = useState(false);
-    const [collapsedJinxGroups, setCollapsedJinxGroups] = useState({});
+    const [showJinxDropdown, setShowJinxDropdown] = useState(false);
 
     const [selectedJinx, setSelectedJinx] = useState(null);
     const [jinxLoadingError, setJinxLoadingError] = useState(null); // This already exists
@@ -2230,6 +2231,22 @@ useEffect(() => {
         if (savedFavorites) {
             setFavoriteModels(new Set(JSON.parse(savedFavorites)));
         }
+    }, []);
+    
+    useEffect(() => {
+        // Fetch tool-capable Ollama models
+        const fetchOllamaToolModels = async () => {
+            try {
+                const res = await fetch('http://localhost:5337/api/ollama/tool_models');
+                const data = await res.json();
+                if (data?.models) {
+                    setOllamaToolModels(new Set(data.models));
+                }
+            } catch (e) {
+                console.warn('Failed to fetch Ollama tool-capable models', e);
+            }
+        };
+        fetchOllamaToolModels();
     }, []);
     
     const toggleFavoriteModel = (modelValue) => {
@@ -8118,6 +8135,10 @@ const handleResendWithSettings = async (messageToResend, selectedModel, selected
 };
 const renderInputArea = () => {
     const isJinxMode = executionMode !== 'chat' && selectedJinx;
+    const jinxInputsForSelected = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
+    const hasJinxContent = isJinxMode && Object.values(jinxInputsForSelected).some(val => val !== null && String(val).trim());
+    const hasInputContent = input.trim() || uploadedFiles.length > 0 || hasJinxContent;
+    const canSend = !isStreaming && hasInputContent && (activeConversationId || isJinxMode);
 
     if (isInputMinimized) {
         return (
@@ -8253,49 +8274,61 @@ const renderInputArea = () => {
                                                     );
                                                 }
 
-                                                const inputPlaceholder = inputDef[inputName] || '';
-                                                const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command'].includes(inputName.toLowerCase());
+                                                            const inputPlaceholder = inputDef[inputName] || '';
+                                                            const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command'].includes(inputName.toLowerCase());
 
-                                                return (
-                                                    <div key={`${selectedJinx.name}-${inputName}`} className="flex flex-col">
+                                                            return (
+                                                                <div key={`${selectedJinx.name}-${inputName}`} className="flex flex-col">
                                                         <label htmlFor={`jinx-input-${selectedJinx.name}-${inputName}`} className="text-xs theme-text-muted mb-1 capitalize">
                                                             {inputName}:
                                                         </label>
-                                                        {isTextArea ? (
-                                                            <textarea
-                                                                id={`jinx-input-${selectedJinx.name}-${inputName}`}
-                                                                value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                                onChange={(e) => setJinxInputValues(prev => ({
-                                                                    ...prev,
+                                                            {isTextArea ? (
+                                                                <textarea
+                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
+                                                                    onChange={(e) => setJinxInputValues(prev => ({
+                                                                        ...prev,
                                                                     [selectedJinx.name]: {
                                                                         ...prev[selectedJinx.name],
                                                                         [inputName]: e.target.value
                                                                     }
                                                                 }))}
-                                                                placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                                className="theme-input text-sm rounded px-2 py-1 border min-h-[60px] resize-vertical"
-                                                                rows={3}
-                                                                disabled={isStreaming}
-                                                            />
-                                                        ) : (
-                                                            <input
-                                                                id={`jinx-input-${selectedJinx.name}-${inputName}`}
-                                                                type="text"
-                                                                value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                                onChange={(e) => setJinxInputValues(prev => ({
-                                                                    ...prev,
-                                                                    [selectedJinx.name]: {
-                                                                        ...prev[selectedJinx.name],
-                                                                        [inputName]: e.target.value
-                                                                    }
-                                                                }))}
-                                                                placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                                className="theme-input text-sm rounded px-2 py-1 border"
-                                                                disabled={isStreaming}
-                                                            />
-                                                        )}
-                                                    </div>
-                                                );
+                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
+                                                                    className="theme-input text-sm rounded px-2 py-1 border min-h-[60px] resize-vertical"
+                                                                    rows={3}
+                                                                    onKeyDown={(e) => {
+                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            handleInputSubmit(e);
+                                                                        }
+                                                                    }}
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            ) : (
+                                                                <input
+                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
+                                                                    type="text"
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
+                                                                    onChange={(e) => setJinxInputValues(prev => ({
+                                                                        ...prev,
+                                                                        [selectedJinx.name]: {
+                                                                            ...prev[selectedJinx.name],
+                                                                            [inputName]: e.target.value
+                                                                        }
+                                                                    }))}
+                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
+                                                                    className="theme-input text-sm rounded px-2 py-1 border"
+                                                                    onKeyDown={(e) => {
+                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            handleInputSubmit(e);
+                                                                        }
+                                                                    }}
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    );
                                             })}
                                         </div>
                                     )}
@@ -8358,7 +8391,7 @@ const renderInputArea = () => {
                                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
                             </button>
                         ) : (
-                            <button type="button" onClick={handleInputSubmit} disabled={(!input.trim() && uploadedFiles.length === 0 && !isJinxMode) || (isJinxMode && Object.values(jinxInputValues[selectedJinx?.name] || {}).every(val => !String(val).trim())) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
+                            <button type="button" onClick={handleInputSubmit} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
                                 <Send size={16}/>
                             </button>
                         )}
@@ -8366,8 +8399,8 @@ const renderInputArea = () => {
                 </div>
 
                 {executionMode === 'tool_agent' && (
-                    <div className="px-2 pb-2 border-t theme-border">
-                        <div className="relative">
+                    <div className="px-2 pb-1 border-t theme-border">
+                        <div className="relative w-1/2">
                             <button
                                 type="button"
                                 className="theme-input text-xs w-full text-left px-2 py-1 flex items-center justify-between rounded border"
@@ -8460,90 +8493,92 @@ const renderInputArea = () => {
                 )}
 
                 <div className={`flex items-center gap-2 px-2 pb-2 border-t theme-border ${isStreaming ? 'opacity-50' : ''}`}>
-                    <select
-                        value={executionMode}
-                        onChange={(e) => {
-                            setExecutionMode(e.target.value);
-                            if (e.target.value === 'chat' || e.target.value === 'corca') {
-                                setSelectedJinx(null);
-                            } else {
-                                const foundJinx = (availableJinxs || []).find(j => j.name === e.target.value);
-                                setSelectedJinx(foundJinx || null);
-                            }
-                        }}
-                        className="theme-input text-xs rounded px-2 py-1 border min-w-[150px]"
-                        disabled={isStreaming}
-                    >
-                        <option value="chat">💬 Chat</option>
-                        <option value="tool_agent">🛠 Agent</option>
-                        
-                        {['project', 'global'].map(origin => {
-                            if (collapsedJinxGroups[origin]) return null;
-                            const originJinxs = jinxsToDisplay.filter(j => (j.origin || 'unknown') === origin);
-                            if (!originJinxs.length) return null;
-                            const label = origin === 'project' ? 'Project Jinxs' : 'Global Jinxs';
-
-                            const grouped = originJinxs.reduce((acc, j) => {
-                                const g = j.group || 'root';
-                                if (!acc[g]) acc[g] = [];
-                                acc[g].push(j);
-                                return acc;
-                            }, {});
-
-                            const entries = [];
-                            Object.entries(grouped)
-                                .sort(([a],[b]) => a.localeCompare(b))
-                                .forEach(([gName, jinxs]) => {
-                                    entries.push(
-                                        <option key={`${origin}-${gName}`} value="" disabled>
-                                            {gName}:
-                                        </option>
+                    <div className="relative min-w-[180px]">
+                        <button
+                            type="button"
+                            className="theme-input text-xs rounded px-2 py-1 border w-full flex items-center justify-between"
+                            disabled={isStreaming}
+                            onClick={() => setShowJinxDropdown(prev => !prev)}
+                        >
+                            <span className="truncate">
+                                {executionMode === 'chat' && '💬 Chat'}
+                                {executionMode === 'tool_agent' && '🛠 Agent'}
+                                {executionMode !== 'chat' && executionMode !== 'tool_agent' && (selectedJinx?.name || executionMode)}
+                            </span>
+                            <ChevronDown size={12}/>
+                        </button>
+                        {showJinxDropdown && (
+                            <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-72 overflow-y-auto">
+                                <div
+                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
+                                    onClick={() => {
+                                        setExecutionMode('chat');
+                                        setSelectedJinx(null);
+                                        setShowJinxDropdown(false);
+                                    }}
+                                >
+                                    💬 Chat
+                                </div>
+                                <div
+                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
+                                    onClick={() => {
+                                        const selectedModelObj = availableModels.find(m => m.value === currentModel);
+                                        const providerForModel = selectedModelObj?.provider || currentProvider;
+                                        const toolCapable = providerForModel !== 'ollama' || (currentModel && ollamaToolModels.has(currentModel));
+                                        if (!toolCapable) {
+                                            setError('Selected model does not support native tool-calling; using chat or Jinx instead.');
+                                            setShowJinxDropdown(false);
+                                            return;
+                                        }
+                                        setExecutionMode('tool_agent');
+                                        setSelectedJinx(null);
+                                        setShowJinxDropdown(false);
+                                    }}
+                                >
+                                    🛠 Agent
+                                </div>
+                                {['project','global'].map(origin => {
+                                    const originJinxs = jinxsToDisplay.filter(j => (j.origin || 'unknown') === origin);
+                                    if (!originJinxs.length) return null;
+                                    const grouped = originJinxs.reduce((acc, j) => {
+                                        const g = j.group || 'root';
+                                        if (!acc[g]) acc[g] = [];
+                                        acc[g].push(j);
+                                        return acc;
+                                    }, {});
+                                    return (
+                                        <div key={origin} className="border-t theme-border">
+                                            <div className="px-2 py-1 text-[11px] uppercase theme-text-muted">{origin === 'project' ? 'Project Jinxs' : 'Global Jinxs'}</div>
+                                            {Object.entries(grouped)
+                                                .filter(([gName]) => gName.toLowerCase() !== 'modes')
+                                                .sort(([a],[b]) => a.localeCompare(b))
+                                                .map(([gName, jinxs]) => (
+                                                    <details key={`${origin}-${gName}`} className="px-2">
+                                                        <summary className="text-xs theme-text-primary cursor-pointer py-1 flex items-center gap-2">
+                                                            <FolderTree size={12}/> {gName}
+                                                        </summary>
+                                                        <div className="pl-4 pb-1 flex flex-col gap-1">
+                                                            {jinxs.sort((a,b)=>a.name.localeCompare(b.name)).map(jinx => (
+                                                                <div
+                                                                    key={`${origin}-${gName}-${jinx.name}`}
+                                                                    className="flex items-center gap-2 text-xs theme-hover cursor-pointer"
+                                                                    onClick={() => {
+                                                                        setExecutionMode(jinx.name);
+                                                                        setSelectedJinx(jinx);
+                                                                        setShowJinxDropdown(false);
+                                                                    }}
+                                                                >
+                                                                    <span className="truncate">{jinx.name}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </details>
+                                                ))}
+                                        </div>
                                     );
-                                    jinxs
-                                        .sort((a,b) => a.name.localeCompare(b.name))
-                                        .forEach(jinx => {
-                                            const nm = jinx.name;
-                                            entries.push(
-                                                <option key={`${origin}-${gName}-${nm}`} value={nm}>
-                                                    {'\u00a0\u00a0'}{nm}
-                                                </option>
-                                            );
-                                        });
-                                });
-
-                            return (
-                                <optgroup key={origin} label={label}>
-                                    {entries}
-                                </optgroup>
-                            );
-                        })}
-                    </select>
-                    <div className="flex items-center gap-1">
-                        <button
-                            onClick={() => toggleFavoriteJinx(selectedJinx?.name)}
-                            className={`p-1 rounded ${selectedJinx && favoriteJinxs.has(selectedJinx.name) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`}
-                            disabled={!selectedJinx}
-                            title="Toggle Jinx favorite"
-                        >
-                            <Star size={14}/>
-                        </button>
-                        <button
-                            onClick={() => setShowAllJinxs(!showAllJinxs)}
-                            className="p-1 theme-hover rounded theme-text-muted"
-                            title={showAllJinxs ? "Show favorite Jinxs only" : "Show all Jinxs"}
-                        >
-                            <ListFilter size={14} className={favoriteJinxs.size === 0 ? 'opacity-30' : ''} />
-                        </button>
-                        {['project','global'].map(origin => (
-                            <button
-                                key={`collapse-${origin}`}
-                                onClick={() => setCollapsedJinxGroups(prev => ({...prev, [origin]: !prev[origin]}))}
-                                className="p-1 theme-hover rounded theme-text-muted text-[11px]"
-                                title={`Toggle ${origin} Jinxs`}
-                            >
-                                {collapsedJinxGroups[origin] ? `Show ${origin}` : `Hide ${origin}`}
-                            </button>
-                        ))}
+                                })}
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex-grow flex items-center gap-1">

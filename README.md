@@ -154,7 +154,7 @@ Composable widgets for analytics, querying, and visualization.
 
 **Jinx Management**: Create and manage Jinxs for agents:
 
-![Jinx Editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tool.png)
+![Jinx Editor](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/jinx.png)
 
 **Jinx Execution**: Run jinx workflows:
 
