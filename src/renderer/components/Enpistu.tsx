@@ -1,6 +1,6 @@
  import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
 import {
-    Folder, File, Globe, ChevronRight, ChevronLeft, Settings, Edit,
+    Folder, File as FileIcon,  Globe, ChevronRight, ChevronLeft, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, 
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
@@ -10,6 +10,7 @@ import {
 
 import { Icon } from 'lucide-react';
 import { avocado } from '@lucide/lab';
+import Sidebar from './Sidebar';
 import CronDaemonPanel from './CronDaemonPanel'; // <--- NEW IMPORT
 import CsvViewer from './CsvViewer';
 import DocxViewer from './DocxViewer';
@@ -24,16 +25,58 @@ import MarkdownRenderer from './MarkdownRenderer';
 import DataDash from './DataDash';
 import CodeEditor from './CodeEditor';
 import TerminalView from './Terminal';
-import PdfViewer from './PdfViewer';
+import PdfViewer, { loadPdfHighlightsForActivePane } from './PdfViewer';
 import WebBrowserViewer from './WebBrowserViewer';
 import BrowserUrlDialog from './BrowserUrlDialog';
 import PptxViewer from './PptxViewer';
 import LatexViewer from './LatexViewer';
-
-
-// Add these to your lucide-react imports if not already there
-// import { X, MessageSquare, Terminal, Globe, FileText, Code2, ListFilter, ArrowUp } from 'lucide-react';
-// And also ensure getFileIcon is accessible, usually it's defined near the top.
+import {
+    serializeWorkspace,
+    saveWorkspaceToStorage,
+    loadWorkspaceFromStorage,
+    deserializeWorkspace,
+    createDefaultWorkspace
+} from './workspaces';
+import {
+    generateId,
+    normalizePath,
+    getFileIcon,
+    convertFileToBase64,
+    useLoadWebsiteHistory,
+    handleBrowserCopyText,
+    handleBrowserAddToChat,
+    handleBrowserAiAction,
+    loadAvailableNPCs,
+    hashContext,
+    gatherWorkspaceContext,
+    useSwitchToPath,
+    useDebounce,
+    useAIEditModalStreamHandlers,
+    handleMemoryDecision,
+    handleBatchMemoryProcess,
+    toggleTheme,
+    loadDefaultPath,
+    fetchModels,
+    loadConversations,
+    loadDirectoryStructure as loadDirectoryStructureUtil,
+    goUpDirectory,
+    usePaneAwareStreamListeners,
+    useTrackLastActiveChatPane,
+    handleRenameFile,
+    getThumbnailIcon,
+    createToggleMessageSelectionMode,
+    findNodeByPath,
+    findNodePath
+} from './utils';
+import { BranchingUI, createBranchPoint } from './BranchingUI';
+import { syncLayoutWithContentData } from './LayoutNode';
+// Note: Sidebar.tsx, ChatViewer.tsx are code fragments, not proper modules yet
+import PaneHeader from './PaneHeader';
+import { LayoutNode } from './LayoutNode';
+import ConversationList from './ConversationList';
+import AutosizeTextarea from './AutosizeTextarea';
+import { ChatMessage } from './ChatMessage';
+import { PredictiveTextOverlay } from './PredictiveTextOverlay';
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true); // <--- NEW STATE: Default to collapsed
@@ -196,6 +239,7 @@ const ChatInterface = () => {
 
     const [selectedMessages, setSelectedMessages] = useState(new Set());
     const [messageSelectionMode, setMessageSelectionMode] = useState(false);
+    const toggleMessageSelectionMode = createToggleMessageSelectionMode(setMessageSelectionMode, setSelectedMessages);
     const [messageContextMenuPos, setMessageContextMenuPos] = useState(null);
     const [messageOperationModal, setMessageOperationModal] = useState({
         isOpen: false,
@@ -263,6 +307,8 @@ const ChatInterface = () => {
     const [showAllJinxs, setShowAllJinxs] = useState(false);
     const [showJinxDropdown, setShowJinxDropdown] = useState(false);
 
+    const [contextHash, setContextHash] = useState('');
+
     const [selectedJinx, setSelectedJinx] = useState(null);
     const [jinxLoadingError, setJinxLoadingError] = useState(null); // This already exists
     
@@ -285,11 +331,55 @@ const ChatInterface = () => {
         selectedNPC: ''
     });
 
+    // Resize handlers for sidebar and input area
+    const handleSidebarResize = useCallback((e) => {
+        if (!isResizingSidebar) return;
+        const newWidth = e.clientX;
+        // Constrain between 150px and 500px
+        if (newWidth >= 150 && newWidth <= 500) {
+            setSidebarWidth(newWidth);
+        }
+    }, [isResizingSidebar]);
 
-    window.addEventListener('beforeunload', saveCurrentWorkspace);
+    const handleInputResize = useCallback((e) => {
+        if (!isResizingInput) return;
+        const newHeight = window.innerHeight - e.clientY;
+        // Constrain between 100px and 600px
+        if (newHeight >= 100 && newHeight <= 600) {
+            setInputHeight(newHeight);
+        }
+    }, [isResizingInput]);
+
+    // Website history loader hook
+    const loadWebsiteHistory = useLoadWebsiteHistory(currentPath, setWebsiteHistory, setCommonSites);
+
     useEffect(() => {
         rootLayoutNodeRef.current = rootLayoutNode;
     }, [rootLayoutNode]);
+
+    useEffect(() => {
+        const saveCurrentWorkspace = () => {
+            if (currentPath && rootLayoutNode) {
+                const workspaceData = serializeWorkspace(
+                    rootLayoutNode,
+                    currentPath,
+                    contentDataRef.current,
+                    activeContentPaneId
+                );
+                if (workspaceData) {
+                    saveWorkspaceToStorage(currentPath, workspaceData);
+                    console.log(`Saved workspace for ${currentPath}`);
+                }
+            }
+        };
+
+        window.addEventListener('beforeunload', saveCurrentWorkspace);
+
+        return () => {
+            saveCurrentWorkspace();
+            window.removeEventListener('beforeunload', saveCurrentWorkspace);
+        };
+    }, [currentPath, rootLayoutNode, activeContentPaneId]);
 
     useEffect(() => {
         const handleMouseUp = () => {
@@ -308,8 +398,78 @@ const ChatInterface = () => {
         }
     }, [isResizingSidebar, isResizingInput, handleSidebarResize, handleInputResize]);
 
+    // Helper function for conversation stats
+    const getConversationStats = (messages: any[]) => {
+        if (!messages || messages.length === 0) {
+            return { messageCount: 0, tokenCount: 0, models: new Set(), agents: new Set(), providers: new Set() };
+        }
 
+        const stats = messages.reduce((acc, msg) => {
+            if (msg.content) {
+                acc.tokenCount += Math.ceil(msg.content.length / 4);
+            }
+            if (msg.reasoningContent) {
+                acc.tokenCount += Math.ceil(msg.reasoningContent.length / 4);
+            }
+            if (msg.role !== 'user') {
+                if (msg.model) acc.models.add(msg.model);
+                if (msg.npc) acc.agents.add(msg.npc);
+                if (msg.provider) acc.providers.add(msg.provider);
+            }
+            return acc;
+        }, { messageCount: messages.length, tokenCount: 0, models: new Set(), agents: new Set(), providers: new Set() });
 
+        return stats;
+    };
+
+    // Path switching hook
+    const switchToPath = useSwitchToPath(
+        windowId,
+        currentPath,
+        rootLayoutNode,
+        serializeWorkspace,
+        saveWorkspaceToStorage,
+        setRootLayoutNode,
+        setActiveContentPaneId,
+        contentDataRef,
+        setActiveConversationId,
+        setCurrentFile,
+        setCurrentPath
+    );
+
+    const toggleFavoriteModel = (modelValue: string) => {
+        if (!modelValue) return;
+        setFavoriteModels(prev => {
+            const newFavorites = new Set(prev);
+            if (newFavorites.has(modelValue)) {
+                newFavorites.delete(modelValue);
+            } else {
+                newFavorites.add(modelValue);
+            }
+            localStorage.setItem('npcStudioFavoriteModels', JSON.stringify(Array.from(newFavorites)));
+            return newFavorites;
+        });
+    };
+
+    const modelsToDisplay = useMemo(() => {
+        // If no favorites are set, always show all models
+        if (favoriteModels.size === 0) {
+            return availableModels;
+        }
+
+        // If showing all or no favorites exist, show all
+        if (showAllModels) {
+            return availableModels;
+        }
+
+        // Filter to favorites
+        return availableModels.filter((m: any) => favoriteModels.has(m.value));
+    }, [availableModels, favoriteModels, showAllModels]);
+
+    const jinxsToDisplay = useMemo(() => {
+        if (favoriteJinxs.size === 0 || showAllJinxs) return availableJinxs;
+        return availableJinxs.filter(j => favoriteJinxs.has(j.name));
+    }, [availableJinxs, favoriteJinxs, showAllJinxs]);
 
     useEffect(() => {
         const saveCurrentWorkspace = () => {
@@ -326,6 +486,22 @@ const ChatInterface = () => {
             window.removeEventListener('beforeunload', saveCurrentWorkspace);
         };
     }, [currentPath, rootLayoutNode, serializeWorkspace, saveWorkspaceToStorage]);
+
+    // Fetch tool-capable Ollama models
+    useEffect(() => {
+        const fetchOllamaToolModels = async () => {
+            try {
+                const res = await fetch('http://localhost:5337/api/ollama/tool_models');
+                const data = await res.json();
+                if (data?.models) {
+                    setOllamaToolModels(new Set(data.models));
+                }
+            } catch (e) {
+                console.warn('Failed to fetch Ollama tool-capable models', e);
+            }
+        };
+        fetchOllamaToolModels();
+    }, []);
 
     // In ChatInterface.jsx, update the useEffect that fetches Jinxs
     useEffect(() => {
@@ -547,16 +723,351 @@ const validateWorkspaceData = (workspaceData) => {
 
 const [pdfSelectionIndicator, setPdfSelectionIndicator] = useState(null);
 
+// Update content pane with new content type and ID
+const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
+    if (!contentDataRef.current[paneId]) {
+        contentDataRef.current[paneId] = {};
+    }
+    const paneData = contentDataRef.current[paneId];
+
+    paneData.contentType = newContentType;
+    paneData.contentId = newContentId;
+
+    if (newContentType === 'editor') {
+        try {
+            const response = await window.api.readFileContent(newContentId);
+            paneData.fileContent = response.error ? `Error: ${response.error}` : response.content;
+            paneData.fileChanged = false;
+        } catch (err) {
+            paneData.fileContent = `Error loading file: ${err.message}`;
+        }
+    } else if (newContentType === 'browser') {
+        paneData.chatMessages = null;
+        paneData.fileContent = null;
+        paneData.browserUrl = newContentId;
+    } else if (newContentType === 'chat') {
+        if (!paneData.chatMessages) {
+            paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+        }
+        if (skipMessageLoad) {
+            paneData.chatMessages.messages = [];
+            paneData.chatMessages.allMessages = [];
+        } else {
+            try {
+                const msgs = await window.api.getConversationMessages(newContentId);
+                const formatted = (msgs && Array.isArray(msgs))
+                    ? msgs.map((m) => ({ ...m, id: m.id || generateId() }))
+                    : [];
+                paneData.chatMessages.allMessages = formatted;
+                paneData.chatMessages.messages = formatted.slice(-paneData.chatMessages.displayedMessageCount);
+            } catch (err) {
+                paneData.chatMessages.messages = [];
+                paneData.chatMessages.allMessages = [];
+            }
+        }
+    } else if (newContentType === 'terminal' || newContentType === 'pdf') {
+        paneData.chatMessages = null;
+        paneData.fileContent = null;
+    }
+
+    setRootLayoutNode(oldRoot => syncLayoutWithContentData(oldRoot, contentDataRef.current));
+}, []);
+
+// Perform split on a pane - creates a new pane and splits the layout
+const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
+    setRootLayoutNode(oldRoot => {
+        if (!oldRoot) return oldRoot;
+
+        const newRoot = JSON.parse(JSON.stringify(oldRoot));
+        let targetNode = newRoot;
+
+        for (let i = 0; i < targetNodePath.length; i++) {
+            targetNode = targetNode.children[targetNodePath[i]];
+        }
+
+        const newPaneId = generateId();
+        const newPaneNode = { id: newPaneId, type: 'content' };
+
+        contentDataRef.current[newPaneId] = {};
+        updateContentPane(newPaneId, newContentType, newContentId);
+
+        const isHorizontalSplit = side === 'left' || side === 'right';
+        const newSplitNode = {
+            id: generateId(),
+            type: 'split',
+            direction: isHorizontalSplit ? 'horizontal' : 'vertical',
+            children: side === 'left' || side === 'top' ? [newPaneNode, targetNode] : [targetNode, newPaneNode],
+            sizes: [50, 50]
+        };
+
+        if (targetNodePath.length === 0) {
+            return newSplitNode;
+        }
+
+        let parentNode = newRoot;
+        for (let i = 0; i < targetNodePath.length - 1; i++) {
+            parentNode = parentNode.children[targetNodePath[i]];
+        }
+        parentNode.children[targetNodePath[targetNodePath.length - 1]] = newSplitNode;
+
+        setActiveContentPaneId(newPaneId);
+        return newRoot;
+    });
+}, [updateContentPane]);
+
+const closeContentPane = useCallback((paneId, nodePath) => {
+    setRootLayoutNode(oldRoot => {
+        if (!oldRoot) return oldRoot;
+
+        // If this is the root node and it's a content pane, can't close it
+        if (oldRoot.type === 'content' && oldRoot.id === paneId) {
+            console.warn('[CLOSE_PANE] Cannot close the only pane');
+            return oldRoot;
+        }
+
+        const newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+        // If path is empty, this is the root node
+        if (nodePath.length === 0) {
+            console.warn('[CLOSE_PANE] Cannot close root pane');
+            return oldRoot;
+        }
+
+        // Navigate to parent of the node we want to remove
+        let parentNode = newRoot;
+        for (let i = 0; i < nodePath.length - 1; i++) {
+            parentNode = parentNode.children[nodePath[i]];
+        }
+
+        const indexToRemove = nodePath[nodePath.length - 1];
+
+        // If parent is a split node with 2 children, replace parent with the sibling
+        if (parentNode.type === 'split' && parentNode.children.length === 2) {
+            const siblingIndex = indexToRemove === 0 ? 1 : 0;
+            const sibling = parentNode.children[siblingIndex];
+
+            // Replace parent with sibling
+            if (nodePath.length === 1) {
+                // Parent is root, replace root with sibling
+                delete contentDataRef.current[paneId];
+                return sibling;
+            } else {
+                // Navigate to grandparent and replace parent with sibling
+                let grandParentNode = newRoot;
+                for (let i = 0; i < nodePath.length - 2; i++) {
+                    grandParentNode = grandParentNode.children[nodePath[i]];
+                }
+                grandParentNode.children[nodePath[nodePath.length - 2]] = sibling;
+            }
+        } else if (parentNode.type === 'split' && parentNode.children.length > 2) {
+            // Remove the child and redistribute sizes
+            parentNode.children.splice(indexToRemove, 1);
+            const equalSize = 100 / parentNode.children.length;
+            parentNode.sizes = parentNode.children.map(() => equalSize);
+        }
+
+        // Clean up contentDataRef
+        delete contentDataRef.current[paneId];
+
+        // If we closed the active pane, switch to a different pane
+        if (activeContentPaneId === paneId) {
+            // Find first content pane in the tree
+            const findFirstContentPane = (node) => {
+                if (!node) return null;
+                if (node.type === 'content') return node.id;
+                if (node.type === 'split') {
+                    for (const child of node.children) {
+                        const found = findFirstContentPane(child);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            };
+            const firstPaneId = findFirstContentPane(newRoot);
+            if (firstPaneId) {
+                setActiveContentPaneId(firstPaneId);
+            }
+        }
+
+        return newRoot;
+    });
+}, [activeContentPaneId, setActiveContentPaneId]);
+
+// Render functions for different content pane types
+const renderChatView = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData || !paneData.chatMessages) {
+        return <div className="flex-1 flex items-center justify-center theme-text-muted">No messages</div>;
+    }
+
+    const messages = paneData.chatMessages.messages || [];
+
+    return (
+        <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.map((msg: any, idx: number) => (
+                    <ChatMessage
+                        key={msg.id || msg.timestamp || idx}
+                        message={msg}
+                        isSelected={selectedMessages.has(msg.id || msg.timestamp)}
+                        messageSelectionMode={messageSelectionMode}
+                        toggleMessageSelection={(msgId) => {
+                            const newSet = new Set(selectedMessages);
+                            if (newSet.has(msgId)) {
+                                newSet.delete(msgId);
+                            } else {
+                                newSet.add(msgId);
+                            }
+                            setSelectedMessages(newSet);
+                        }}
+                        handleMessageContextMenu={() => {}}
+                        searchTerm={searchTerm}
+                        isCurrentSearchResult={false}
+                        onResendMessage={() => {}}
+                        onCreateBranch={() => {}}
+                        messageIndex={idx}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+}, [selectedMessages, messageSelectionMode, searchTerm]);
+
+const renderFileEditor = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    if (!paneData || !paneData.contentId) {
+        return <div className="flex-1 flex items-center justify-center theme-text-muted">No file selected</div>;
+    }
+
+    return (
+        <CodeEditor
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            setRootLayoutNode={setRootLayoutNode}
+            activeContentPaneId={activeContentPaneId}
+            editorContextMenuPos={editorContextMenuPos}
+            setEditorContextMenuPos={setEditorContextMenuPos}
+            aiEditModal={aiEditModal}
+            renamingPaneId={renamingPaneId}
+            setRenamingPaneId={setRenamingPaneId}
+            editedFileName={editedFileName}
+            setEditedFileName={setEditedFileName}
+            handleTextSelection={() => {}}
+            handleEditorCopy={() => {}}
+            handleEditorPaste={() => {}}
+            handleAddToChat={() => {}}
+            setPromptModal={setPromptModal}
+        />
+    );
+}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode]);
+
+const renderTerminalView = useCallback(({ nodeId }) => {
+    return (
+        <TerminalView
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            currentPath={currentPath}
+            activeContentPaneId={activeContentPaneId}
+        />
+    );
+}, [currentPath, activeContentPaneId]);
+
+const renderPdfViewer = useCallback(({ nodeId }) => {
+    return (
+        <PdfViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            currentPath={currentPath}
+            activeContentPaneId={activeContentPaneId}
+            pdfContextMenuPos={pdfContextMenuPos}
+            setPdfContextMenuPos={setPdfContextMenuPos}
+            handleCopyPdfText={() => {}}
+            handleHighlightPdfSelection={() => {}}
+            handleApplyPromptToPdfText={() => {}}
+            pdfHighlights={pdfHighlights}
+            setPdfHighlights={setPdfHighlights}
+            pdfHighlightsTrigger={pdfHighlightsTrigger}
+        />
+    );
+}, [currentPath, activeContentPaneId, pdfContextMenuPos, pdfHighlights, pdfHighlightsTrigger]);
+
+const renderCsvViewer = useCallback(({ nodeId }) => {
+    return (
+        <CsvViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            currentPath={currentPath}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [currentPath, rootLayoutNode, closeContentPane]);
+
+const renderDocxViewer = useCallback(({ nodeId }) => {
+    return (
+        <DocxViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [rootLayoutNode, closeContentPane]);
+
+const renderBrowserViewer = useCallback(({ nodeId }) => {
+    return (
+        <WebBrowserViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+        />
+    );
+}, []);
+
+const renderPptxViewer = useCallback(({ nodeId }) => {
+    return (
+        <PptxViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [rootLayoutNode, closeContentPane]);
+
+const renderLatexViewer = useCallback(({ nodeId }) => {
+    return (
+        <LatexViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [rootLayoutNode, closeContentPane]);
+
+// Use the PDF highlights loader from PdfViewer module
 useEffect(() => {
-    loadPdfHighlightsForActivePane();
-}, [activeContentPaneId, pdfHighlightsTrigger, loadPdfHighlightsForActivePane]);
+    loadPdfHighlightsForActivePane(activeContentPaneId, contentDataRef, setPdfHighlights);
+}, [activeContentPaneId, pdfHighlightsTrigger]);
 
 
 
 
     useEffect(() => {
         if (currentPath) {
-            loadAvailableNPCs();
+            loadAvailableNPCs(currentPath, setNpcsLoading, setNpcsError, setAvailableNPCs);
         }
     }, [currentPath]);
     useEffect(() => {
@@ -1191,11 +1702,356 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
 
 
 
+    // Directory and conversation loading functions
+    const loadConversationsWithoutAutoSelect = async (dirPath: string) => {
+        try {
+            const normalizedPath = normalizePath(dirPath);
+            if (!normalizedPath) return;
+            const response = await window.api.getConversations(normalizedPath);
+            const formattedConversations = response?.conversations?.map((conv: any) => ({
+                id: conv.id,
+                title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
+                preview: conv.preview || 'No content',
+                timestamp: conv.timestamp || Date.now(),
+                last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
+            })) || [];
+            setDirectoryConversations(formattedConversations);
+            console.log('[loadConversationsWithoutAutoSelect] Loaded conversations without selecting');
+        } catch (err: any) {
+            console.error('Error loading conversations:', err);
+            setError(err.message);
+            setDirectoryConversations([]);
+        }
+    };
 
+    const loadDirectoryStructureWithoutConversationLoad = async (dirPath: string) => {
+        try {
+            if (!dirPath) {
+                console.error('No directory path provided');
+                return {};
+            }
+            const structureResult = await window.api.readDirectoryStructure(dirPath);
+            if (structureResult && !structureResult.error) {
+                setFolderStructure(structureResult);
+            } else {
+                console.error('Error loading structure:', structureResult?.error);
+                setFolderStructure({ error: structureResult?.error || 'Failed' });
+            }
+            await loadConversationsWithoutAutoSelect(dirPath);
+            return structureResult;
+        } catch (err: any) {
+            console.error('Error loading structure:', err);
+            setError(err.message);
+            setFolderStructure({ error: err.message });
+            return { error: err.message };
+        }
+    };
 
+    const loadDirectoryStructure = async (dirPath: string) => {
+        await loadDirectoryStructureUtil(
+            dirPath,
+            setFolderStructure,
+            loadConversationsWithoutAutoSelect,
+            setError
+        );
+    };
 
+    // File drag and drop handler
+    const handleDrop = async (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsHovering(false);
+        const files = Array.from(e.dataTransfer.files);
 
-  
+        const existingFileNames = new Set(uploadedFiles.map(f => f.name));
+        const newFiles = files.filter(file => !existingFileNames.has(file.name));
+
+        const attachmentPromises = newFiles.map(async (file) => {
+            try {
+                const { dataUrl, base64 } = await convertFileToBase64(file);
+                return {
+                    id: generateId(),
+                    name: file.name,
+                    type: file.type,
+                    data: base64,
+                    size: file.size,
+                    preview: file.type.startsWith('image/') ? dataUrl : null
+                };
+            } catch (error) {
+                console.error(`Failed to process dropped file ${file.name}:`, error);
+                return null;
+            }
+        });
+
+        const attachmentData = (await Promise.all(attachmentPromises)).filter(Boolean);
+
+        if (attachmentData.length > 0) {
+            setUploadedFiles(prev => [...prev, ...attachmentData]);
+        }
+    };
+
+    // File attachment click handler
+    const handleAttachFileClick = async () => {
+        try {
+            const fileData = await window.api.showOpenDialog({
+                properties: ['openFile', 'multiSelections'],
+            });
+
+            if (fileData && fileData.length > 0) {
+                const existingFileNames = new Set(uploadedFiles.map(f => f.name));
+                const newFiles = fileData.filter((file: any) => !existingFileNames.has(file.name));
+
+                const attachmentData = newFiles.map((file: any) => ({
+                    id: generateId(),
+                    name: file.name,
+                    type: file.type,
+                    path: file.path,
+                    size: file.size,
+                    preview: file.type.startsWith('image/') ? `file://${file.path}` : null
+                }));
+
+                if (attachmentData.length > 0) {
+                    setUploadedFiles(prev => [...prev, ...attachmentData]);
+                }
+            }
+        } catch (error) {
+            console.error('Error selecting files:', error);
+        }
+    };
+
+    // Main input submit handler
+    const handleInputSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        const isJinxMode = executionMode !== 'chat' && selectedJinx;
+        const currentJinxInputs = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
+
+        const hasContent = input.trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
+
+        if (isStreaming || !hasContent || (!activeContentPaneId && !isJinxMode)) {
+            if (!isJinxMode && !activeContentPaneId) {
+                console.error("No active chat pane to send message to.");
+            }
+            return;
+        }
+
+        const paneData = contentDataRef.current[activeContentPaneId];
+        if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) {
+            console.error("No active chat pane to send message to.");
+            return;
+        }
+
+        const conversationId = paneData.contentId;
+        const newStreamId = generateId();
+
+        streamToPaneRef.current[newStreamId] = activeContentPaneId;
+        setIsStreaming(true);
+
+        let finalPromptForUserMessage = input;
+        let jinxName = null;
+        let jinxArgsForApi: any[] = [];
+
+        if (isJinxMode) {
+            jinxName = selectedJinx.name;
+
+            selectedJinx.inputs.forEach((inputDef: any) => {
+                const inputName = typeof inputDef === 'string' ? inputDef : Object.keys(inputDef)[0];
+                const value = currentJinxInputs[inputName];
+                if (value !== null && String(value).trim()) {
+                    jinxArgsForApi.push(value);
+                } else {
+                    const defaultValue = typeof inputDef === 'object' ? inputDef[inputName] : '';
+                    jinxArgsForApi.push(defaultValue || '');
+                }
+            });
+
+            console.log(`[Jinx Submit] Jinx Name: ${jinxName}`);
+            console.log(`[Jinx Submit] jinxArgsForApi (ordered array before API call):`, JSON.stringify(jinxArgsForApi, null, 2));
+
+            const jinxCommandParts = [`/${selectedJinx.name}`];
+            selectedJinx.inputs.forEach((inputDef: any) => {
+                const inputName = typeof inputDef === 'string' ? inputDef : Object.keys(inputDef)[0];
+                const value = currentJinxInputs[inputName];
+                if (value !== null && String(value).trim()) {
+                    jinxCommandParts.push(`${inputName}="${String(value).replace(/"/g, '\\"')}"`);
+                }
+            });
+            finalPromptForUserMessage = jinxCommandParts.join(' ');
+
+        } else {
+            const contexts = gatherWorkspaceContext(contentDataRef);
+            const newHash = hashContext(contexts);
+            const contextChanged = newHash !== contextHash;
+
+            if (contexts.length > 0 && contextChanged) {
+                const fileContexts = contexts.filter((c: any) => c.type === 'file');
+                const browserContexts = contexts.filter((c: any) => c.type === 'browser');
+                let contextPrompt = '';
+
+                if (fileContexts.length > 0) {
+                    contextPrompt += fileContexts.map((ctx: any) =>
+                        `File: ${ctx.path}\n\`\`\`\n${ctx.content}\n\`\`\``
+                    ).join('\n\n');
+                }
+
+                if (browserContexts.length > 0) {
+                    if (contextPrompt) contextPrompt += '\n\n';
+
+                    const browserContentPromises = browserContexts.map(async (ctx: any) => {
+                        const result = await window.api.browserGetPageContent({
+                            viewId: ctx.viewId
+                        });
+                        if (result.success && result.content) {
+                            return `Webpage: ${result.title} (${result.url})\n\`\`\`\n${result.content}\n\`\`\``;
+                        }
+                        return `Currently viewing: ${ctx.url}`;
+                    });
+
+                    const browserContents = await Promise.all(browserContentPromises);
+                    contextPrompt += browserContents.join('\n\n');
+                }
+
+                if (executionMode === 'agent') {
+                    finalPromptForUserMessage = `${input}
+
+Available context:
+${contextPrompt}
+
+IMPORTANT: Propose changes as unified diffs, NOT full file contents.`;
+                } else {
+                    finalPromptForUserMessage = `${input}
+
+Context - currently open:
+${contextPrompt}`;
+                }
+
+                setContextHash(newHash);
+            }
+        }
+
+        const userMessage = {
+            id: generateId(),
+            role: 'user',
+            content: finalPromptForUserMessage,
+            timestamp: new Date().toISOString(),
+            attachments: uploadedFiles,
+            executionMode: executionMode,
+            isJinxCall: isJinxMode,
+            jinxName: isJinxMode ? jinxName : null,
+            jinxInputs: isJinxMode ? jinxArgsForApi : null
+        };
+
+        const assistantPlaceholder = {
+            id: newStreamId, role: 'assistant', content: '', timestamp: new Date().toISOString(),
+            isStreaming: true, streamId: newStreamId, npc: currentNPC, model: currentModel
+        };
+
+        if (!paneData.chatMessages) {
+            paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+        }
+        paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
+        paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+        paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
+
+        setRootLayoutNode(prev => ({ ...prev }));
+        setInput('');
+        setUploadedFiles([]);
+        if (isJinxMode) {
+            setJinxInputValues(prev => ({
+                ...prev,
+                [selectedJinx.name]: {}
+            }));
+        }
+
+        try {
+            const selectedNpc = availableNPCs.find((npc: any) => npc.value === currentNPC);
+
+            if (isJinxMode) {
+                await window.api.executeJinx({
+                    jinxName: jinxName,
+                    jinxArgs: jinxArgsForApi,
+                    currentPath,
+                    conversationId,
+                    model: currentModel,
+                    provider: currentProvider,
+                    npc: selectedNpc ? selectedNpc.name : currentNPC,
+                    npcSource: selectedNpc ? selectedNpc.source : 'global',
+                    streamId: newStreamId,
+                });
+            } else {
+                const commandData = {
+                    commandstr: finalPromptForUserMessage,
+                    currentPath,
+                    conversationId,
+                    model: currentModel,
+                    provider: currentProvider,
+                    npc: selectedNpc ? selectedNpc.name : currentNPC,
+                    npcSource: selectedNpc ? selectedNpc.source : 'global',
+                    attachments: uploadedFiles.map((f: any) => {
+                        if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
+                        else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
+                        return { name: f.name, type: f.type };
+                    }),
+                    streamId: newStreamId,
+                    executionMode: executionMode,
+                    mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+                    selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
+                };
+                console.log('[DEBUG] Sending to backend via executeCommandStream:', commandData);
+                await window.api.executeCommandStream(commandData);
+                console.log('[DEBUG] executeCommandStream call completed');
+            }
+        } catch (err: any) {
+            setError(err.message);
+            setIsStreaming(false);
+            delete streamToPaneRef.current[newStreamId];
+        }
+    };
+
+    const handleInterruptStream = async () => {
+        const activePaneData = contentDataRef.current[activeContentPaneId];
+        if (!activePaneData || !activePaneData.chatMessages) {
+            console.warn("Interrupt clicked but no active chat pane found.");
+            return;
+        }
+
+        const streamingMessage = activePaneData.chatMessages.allMessages.find((m: any) => m.isStreaming);
+        if (!streamingMessage || !streamingMessage.streamId) {
+            console.warn("Interrupt clicked, but no streaming message found in the active pane.");
+
+            if (isStreaming) {
+                const anyStreamId = Object.keys(streamToPaneRef.current)[0];
+                if (anyStreamId) {
+                    await window.api.interruptStream(anyStreamId);
+                    console.log(`Fallback interrupt sent for stream: ${anyStreamId}`);
+                }
+                setIsStreaming(false);
+            }
+            return;
+        }
+
+        const streamIdToInterrupt = streamingMessage.streamId;
+        console.log(`[REACT] handleInterruptStream: Attempting to interrupt stream: ${streamIdToInterrupt}`);
+
+        streamingMessage.content = (streamingMessage.content || '') + `\n\n[Stream Interrupted by User]`;
+        streamingMessage.isStreaming = false;
+        streamingMessage.streamId = null;
+
+        delete streamToPaneRef.current[streamIdToInterrupt];
+        if (Object.keys(streamToPaneRef.current).length === 0) {
+            setIsStreaming(false);
+        }
+
+        setRootLayoutNode(prev => ({ ...prev }));
+
+        try {
+            await window.api.interruptStream(streamIdToInterrupt);
+            console.log(`[REACT] handleInterruptStream: API call to interrupt stream ${streamIdToInterrupt} successful.`);
+        } catch (error) {
+            console.error(`[REACT] handleInterruptStream: API call to interrupt stream ${streamIdToInterrupt} failed:`, error);
+            streamingMessage.content += " [Interruption API call failed]";
+            setRootLayoutNode(prev => ({ ...prev }));
+        }
+    };
 
     const createNewConversation = useCallback(async (skipMessageLoad = false) => {
         try {
@@ -1295,7 +2151,87 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
             }
         };
 
+    // Refresh conversations list
+    const refreshConversations = useCallback(async () => {
+        if (currentPath) {
+            console.log('[REFRESH] Starting conversation refresh for path:', currentPath);
+            try {
+                const normalizedPath = normalizePath(currentPath);
+                const response = await window.api.getConversations(normalizedPath);
+                console.log('[REFRESH] Got response:', response);
 
+                if (response?.conversations) {
+                    const formattedConversations = response.conversations.map((conv: any) => ({
+                        id: conv.id,
+                        title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
+                        preview: conv.preview || 'No content',
+                        timestamp: conv.timestamp || Date.now(),
+                        last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
+                    }));
+
+                    formattedConversations.sort((a: any, b: any) =>
+                        new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
+                    );
+
+                    console.log('[REFRESH] Setting conversations:', formattedConversations.length);
+                    setDirectoryConversations([...formattedConversations]);
+                    console.log('[REFRESH] Refresh complete, preserving current selection');
+                } else {
+                    console.error('[REFRESH] No conversations in response');
+                    setDirectoryConversations([]);
+                }
+            } catch (err: any) {
+                console.error('[REFRESH] Error:', err);
+                setDirectoryConversations([]);
+            }
+        }
+    }, [currentPath, normalizePath]);
+
+    // Parse agentic responses for file changes
+    const parseAgenticResponse = useCallback((response: string, contexts: any[]) => {
+        const changes = [];
+        const fileRegex = /FILE:\s*(.+?)\s*\nREASONING:\s*(.+?)\s*\n```diff\n([\s\S]*?)```/gi;
+
+        let match;
+        while ((match = fileRegex.exec(response)) !== null) {
+            const filePath = match[1].trim();
+            const reasoning = match[2].trim();
+            const rawUnifiedDiffText = match[3].trim();
+
+            const context = contexts.find((c: any) =>
+                c.path.includes(filePath) || filePath.includes(c.path.split('/').pop())
+            );
+
+            if (context) {
+                changes.push({
+                    paneId: context.paneId,
+                    filePath: context.path,
+                    reasoning: reasoning,
+                    originalCode: context.content,
+                    newCode: rawUnifiedDiffText,
+                    diff: []
+                });
+            }
+        }
+
+        console.log('Parsed agent changes:', changes);
+        return changes;
+    }, []);
+
+    // Set up streaming listeners
+    console.log('[DEBUG] Setting up stream listeners. Config:', config, 'config.stream:', config?.stream);
+    usePaneAwareStreamListeners(
+        config,
+        listenersAttached,
+        streamToPaneRef,
+        contentDataRef,
+        setRootLayoutNode,
+        setIsStreaming,
+        setAiEditModal,
+        parseAgenticResponse,
+        getConversationStats,
+        refreshConversations
+    );
 
 
     const [isSaving, setIsSaving] = useState(false);
@@ -1359,6 +2295,19 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
                 localStorage.setItem(ACTIVE_WINDOWS_KEY, JSON.stringify(activeWindows));
             } catch (error) {
                 console.error('Error registering window:', error);
+            }
+        };
+
+        const updateActivity = () => {
+            try {
+                const activeWindows = JSON.parse(localStorage.getItem(ACTIVE_WINDOWS_KEY) || '{}');
+                if (activeWindows[windowId]) {
+                    activeWindows[windowId].lastActive = Date.now();
+                    activeWindows[windowId].currentPath = currentPath || '';
+                    localStorage.setItem(ACTIVE_WINDOWS_KEY, JSON.stringify(activeWindows));
+                }
+            } catch (error) {
+                console.error('Error updating window activity:', error);
             }
         };
 
@@ -1474,8 +2423,16 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
                     
                     // Load directory structure WITHOUT triggering conversation selection
                     await loadDirectoryStructureWithoutConversationLoad(currentPath);
-                    
-                    workspaceRestored = await deserializeWorkspace(savedWorkspace);
+
+                    workspaceRestored = await deserializeWorkspace(
+                        savedWorkspace,
+                        contentDataRef,
+                        setRootLayoutNode,
+                        setActiveContentPaneId,
+                        setIsLoadingWorkspace,
+                        generateId,
+                        getConversationStats
+                    );
                     
                     if (workspaceRestored) {
                         console.log(`[INIT] Successfully restored workspace with ${Object.keys(contentDataRef.current).length} panes`);
@@ -1510,8 +2467,8 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
                 await loadConversationsWithoutAutoSelect(currentPath);
             }
 
-            const fetchedModels = await fetchModels();
-            const fetchedNPCs = await loadAvailableNPCs();
+            const fetchedModels = await fetchModels(currentPath, setModelsLoading, setModelsError, setAvailableModels);
+            const fetchedNPCs = await loadAvailableNPCs(currentPath, setNpcsLoading, setNpcsError, setAvailableNPCs);
 
             let modelToSet = config.model || 'llama3.2';
             let providerToSet = config.provider || 'ollama';
@@ -1645,7 +2602,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
                         }`}
                     >
                         <div className="flex items-center gap-2">
-                            <File size={16} className="text-gray-400 flex-shrink-0" />
+                            <FileIcon size={16} className="text-gray-400 flex-shrink-0" />
                             <div className="flex flex-col overflow-hidden">
                                 <span className="text-sm truncate font-semibold">{result.conversationTitle || 'Conversation'}</span>
                                 <span className="text-xs text-gray-500">{new Date(result.timestamp).toLocaleString()}</span>
@@ -2151,6 +3108,722 @@ const layoutComponentApi = useMemo(() => ({
     conversationBranches, showBranchingUI, setShowBranchingUI,
 ]);
 
+// Handle conversation selection - opens conversation in a pane
+const handleConversationSelect = async (conversationId: string, skipMessageLoad = false) => {
+    setActiveConversationId(conversationId);
+    setCurrentFile(null);
+
+    // CRITICAL: Don't create/update panes if workspace is being restored
+    if (isLoadingWorkspace) {
+        console.log('[SELECT_CONVO] Skipping pane update - currently restoring workspace');
+        return null;
+    }
+
+    // NEW: Check if this conversation is already open in a pane
+    const existingPaneId = Object.keys(contentDataRef.current).find(paneId => {
+        const paneData = contentDataRef.current[paneId];
+        return paneData?.contentType === 'chat' && paneData?.contentId === conversationId;
+    });
+
+    if (existingPaneId) {
+        console.log('[SELECT_CONVO] Conversation already open in pane:', existingPaneId);
+        setActiveContentPaneId(existingPaneId);
+        return existingPaneId;
+    }
+
+    let paneIdToUpdate;
+
+    if (!rootLayoutNode) {
+        const newPaneId = generateId();
+        const newLayout = { id: newPaneId, type: 'content' };
+
+        // Initialize contentData SYNCHRONOUSLY with layout
+        contentDataRef.current[newPaneId] = {
+            contentType: 'chat',
+            contentId: conversationId,
+            chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+        };
+        setRootLayoutNode(newLayout);
+
+        // NOW update the content
+        await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
+
+        setActiveContentPaneId(newPaneId);
+        paneIdToUpdate = newPaneId;
+    }
+    else {
+        paneIdToUpdate = activeContentPaneId || Object.keys(contentDataRef.current)[0];
+
+        // ADD THIS CHECK: Only update if the pane exists and is not empty
+        if (paneIdToUpdate && contentDataRef.current[paneIdToUpdate]) {
+            await updateContentPane(paneIdToUpdate, 'chat', conversationId, skipMessageLoad);
+            setRootLayoutNode(prev => ({...prev}));
+        } else {
+            console.warn('[SELECT_CONVO] No valid pane to update, creating new one');
+            const newPaneId = createAndAddPaneNodeToLayout();
+            await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
+            paneIdToUpdate = newPaneId;
+        }
+    }
+    return paneIdToUpdate;
+};
+
+// Handle file click - opens file in a new pane
+const handleFileClick = useCallback(async (filePath: string) => {
+    setCurrentFile(filePath);
+    setActiveConversationId(null);
+
+    const extension = filePath.split('.').pop()?.toLowerCase();
+    let contentType = 'editor';
+
+    if (extension === 'pdf') contentType = 'pdf';
+    else if (['csv', 'xlsx', 'xls'].includes(extension)) contentType = 'csv';
+    else if (extension === 'pptx') contentType = 'pptx';
+    else if (extension === 'tex') contentType = 'latex';
+    else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
+
+    console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
+
+    const newPaneId = generateId();
+
+    setRootLayoutNode(oldRoot => {
+        contentDataRef.current[newPaneId] = {};
+
+        if (!oldRoot) {
+            return { id: newPaneId, type: 'content' };
+        }
+
+        let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+        if (activeContentPaneId) {
+            const pathToActive = findNodePath(newRoot, activeContentPaneId);
+            if (pathToActive && pathToActive.length > 0) {
+                const targetParent = findNodeByPath(newRoot,
+                    pathToActive.slice(0, -1)
+                );
+                const targetIndex = pathToActive[pathToActive.length - 1];
+
+                if (targetParent && targetParent.type === 'split') {
+                    const newChildren = [...targetParent.children];
+                    newChildren.splice(targetIndex + 1, 0,
+                        { id: newPaneId, type: 'content' }
+                    );
+                    const newSizes = new Array(newChildren.length)
+                        .fill(100 / newChildren.length);
+                    targetParent.children = newChildren;
+                    targetParent.sizes = newSizes;
+                    return newRoot;
+                }
+            }
+        }
+
+        if (newRoot.type === 'content') {
+            return {
+                id: generateId(),
+                type: 'split',
+                direction: 'horizontal',
+                children: [newRoot, { id: newPaneId, type: 'content' }],
+                sizes: [50, 50],
+            };
+        } else if (newRoot.type === 'split') {
+            newRoot.children.push({ id: newPaneId, type: 'content' });
+            const equalSize = 100 / newRoot.children.length;
+            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+            return newRoot;
+        }
+
+        return { id: newPaneId, type: 'content' };
+    });
+
+    setTimeout(async () => {
+        console.log('[FILE_CLICK] Updating content pane:', newPaneId, contentType, filePath);
+        await updateContentPane(newPaneId, contentType, filePath);
+        setRootLayoutNode(prev => ({ ...prev }));
+    }, 0);
+
+    setActiveContentPaneId(newPaneId);
+}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+// Open NPC Team Menu
+const handleOpenNpcTeamMenu = () => {
+    setNpcTeamMenuOpen(true);
+};
+
+// Close NPC Team Menu
+const handleCloseNpcTeamMenu = () => {
+    setNpcTeamMenuOpen(false);
+};
+
+// Start new conversation with NPC
+const startNewConversationWithNpc = async (npcName: string) => {
+    setCurrentNPC(npcName);
+    await createNewConversation();
+    setNpcTeamMenuOpen(false);
+};
+
+// Render pane context menu
+const renderPaneContextMenu = () => {
+    if (!paneContextMenu?.isOpen) return null;
+    const { x, y, nodeId, nodePath } = paneContextMenu;
+
+    const closePane = () => {
+        closeContentPane(nodeId, nodePath);
+        setPaneContextMenu(null);
+    };
+
+    const splitPane = (side: string) => {
+        performSplit(nodePath, side, 'chat', null);
+        setPaneContextMenu(null);
+    };
+
+    return (
+        <>
+            <div className="fixed inset-0 z-40" onClick={() => setPaneContextMenu(null)} />
+            <div
+                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
+                style={{ top: y, left: x }}
+                onMouseLeave={() => setPaneContextMenu(null)}
+            >
+                <button onClick={closePane} className="block px-4 py-2 w-full text-left theme-hover">
+                    Close Pane
+                </button>
+                <div className="border-t theme-border my-1" />
+                <button onClick={() => splitPane('left')} className="block px-4 py-2 w-full text-left theme-hover">
+                    Split Left
+                </button>
+                <button onClick={() => splitPane('right')} className="block px-4 py-2 w-full text-left theme-hover">
+                    Split Right
+                </button>
+                <button onClick={() => splitPane('top')} className="block px-4 py-2 w-full text-left theme-hover">
+                    Split Top
+                </button>
+                <button onClick={() => splitPane('bottom')} className="block px-4 py-2 w-full text-left theme-hover">
+                    Split Bottom
+                </button>
+            </div>
+        </>
+    );
+};
+
+// Render PDF context menu
+const renderPdfContextMenu = () => {
+    if (!pdfContextMenuPos) return null;
+    return <div>PDF Context Menu</div>;
+};
+
+// Render browser context menu
+const renderBrowserContextMenu = () => {
+    if (!browserContextMenuPos) return null;
+    return <div>Browser Context Menu</div>;
+};
+
+// Handle starting conversation from a viewer (PhotoViewer, etc.)
+const handleStartConversationFromViewer = async (content?: string) => {
+    await createNewConversation();
+    if (content) {
+        setInput(content);
+    }
+};
+
+// Sidebar rendering function
+// Input area rendering function
+const renderInputArea = () => {
+    const isJinxMode = executionMode !== 'chat' && selectedJinx;
+    const jinxInputsForSelected = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
+    const hasJinxContent = isJinxMode && Object.values(jinxInputsForSelected).some(val => val !== null && String(val).trim());
+    const hasInputContent = input.trim() || uploadedFiles.length > 0 || hasJinxContent;
+    const canSend = !isStreaming && hasInputContent && (activeConversationId || isJinxMode);
+
+    if (isInputMinimized) {
+        return (
+            <div className="px-4 py-1 border-t theme-border theme-bg-secondary flex-shrink-0">
+                <div className="flex justify-center">
+                    <button
+                        onClick={() => setIsInputMinimized(false)}
+                        className="p-2 w-full theme-button theme-hover rounded-full transition-all group"
+                        title="Expand input area"
+                    >
+                        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
+                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                className="transform rotate-180 group-hover:scale-75 transition-all duration-200"
+                            >
+                                <path d="M18 15l-6-6-6 6"/>
+                            </svg>
+                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    if (isInputExpanded) {
+        return (
+            <div className="fixed inset-0 bg-black/80 z-50 flex flex-col p-4">
+                <div className="flex-1 flex flex-col theme-bg-primary theme-border border rounded-lg">
+                    <div className="p-2 border-b theme-border flex-shrink-0 flex justify-end">
+                        <button
+                            type="button"
+                            onClick={() => setIsInputExpanded(false)}
+                            className="p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover"
+                            aria-label="Minimize input"
+                        >
+                            <Minimize2 size={20} />
+                        </button>
+                    </div>
+                    <div className="flex-1 p-2 flex">
+                         <textarea
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (!isStreaming && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                    e.preventDefault();
+                                    handleInputSubmit(e);
+                                    setIsInputExpanded(false);
+                                }
+                            }}
+                            placeholder={isStreaming ? "Streaming response..." : "Type a message... (Ctrl+Enter to send)"}
+                            className="w-full h-full theme-input text-base rounded-lg p-4 focus:outline-none border-0 resize-none bg-transparent"
+                            disabled={isStreaming}
+                            autoFocus
+                        />
+                    </div>
+                    <div className="p-2 border-t theme-border flex-shrink-0 flex items-center justify-end gap-2">
+                        {isStreaming ? (
+                            <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1" aria-label="Stop generating">
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
+                                Stop
+                            </button>
+                        ) : (
+                            <button type="button" onClick={(e) => { handleInputSubmit(e); setIsInputExpanded(false); }} disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <Send size={16}/>
+                                Send (Ctrl+Enter)
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div
+            className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0 relative"
+            style={{ height: `${inputHeight}px` }}
+        >
+            <div
+                className="absolute top-0 left-0 right-0 h-1 cursor-row-resize hover:bg-blue-500 transition-colors z-50"
+                onMouseDown={(e) => {
+                    e.preventDefault();
+                    setIsResizingInput(true);
+                }}
+                style={{
+                    backgroundColor: isResizingInput ? '#3b82f6' : 'transparent'
+                }}
+            />
+
+            <div
+                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col"
+                onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
+                onDragEnter={() => setIsHovering(true)}
+                onDragLeave={() => setIsHovering(false)}
+                onDrop={handleDrop}
+            >
+                {isHovering && (
+                    <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center z-10 pointer-events-none">
+                        <span className="text-blue-300 font-semibold">Drop files here</span>
+                    </div>
+                )}
+
+                <div className="flex-1 overflow-y-auto">
+                    {/* {renderAttachmentThumbnails()} */}
+
+                    <div className="flex items-end p-2 gap-2 relative z-0">
+                        <div className="flex-grow relative">
+                            {isJinxMode ? (
+                                <div className="flex flex-col gap-2 w-full">
+                                    {selectedJinx.inputs && selectedJinx.inputs.length > 0 && (
+                                        <div className="space-y-2">
+                                            {selectedJinx.inputs.map((rawInputDef, idx) => {
+                                                const inputDef = (typeof rawInputDef === 'string')
+                                                                 ? { [rawInputDef]: "" }
+                                                                 : rawInputDef;
+
+                                                const inputName = (inputDef && typeof inputDef === 'object' && Object.keys(inputDef).length > 0)
+                                                                  ? Object.keys(inputDef)[0]
+                                                                  : `__unnamed_input_${idx}__`;
+
+                                                if (!inputName || inputName.startsWith('__unnamed_input_')) {
+                                                    return (
+                                                        <div key={`malformed-${selectedJinx.name}-${idx}`} className="text-red-400 text-xs">
+                                                            Error: Malformed input definition for "{selectedJinx.name}" at index {idx}.
+                                                        </div>
+                                                    );
+                                                }
+
+                                                            const inputPlaceholder = inputDef[inputName] || '';
+                                                            const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command'].includes(inputName.toLowerCase());
+
+                                                            return (
+                                                                <div key={`${selectedJinx.name}-${inputName}`} className="flex flex-col">
+                                                        <label htmlFor={`jinx-input-${selectedJinx.name}-${inputName}`} className="text-xs theme-text-muted mb-1 capitalize">
+                                                            {inputName}:
+                                                        </label>
+                                                            {isTextArea ? (
+                                                                <textarea
+                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
+                                                                    onChange={(e) => setJinxInputValues(prev => ({
+                                                                        ...prev,
+                                                                    [selectedJinx.name]: {
+                                                                        ...prev[selectedJinx.name],
+                                                                        [inputName]: e.target.value
+                                                                    }
+                                                                }))}
+                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
+                                                                    className="theme-input text-sm rounded px-2 py-1 border min-h-[60px] resize-vertical"
+                                                                    rows={3}
+                                                                    onKeyDown={(e) => {
+                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            handleInputSubmit(e);
+                                                                        }
+                                                                    }}
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            ) : (
+                                                                <input
+                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
+                                                                    type="text"
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
+                                                                    onChange={(e) => setJinxInputValues(prev => ({
+                                                                        ...prev,
+                                                                        [selectedJinx.name]: {
+                                                                            ...prev[selectedJinx.name],
+                                                                            [inputName]: e.target.value
+                                                                        }
+                                                                    }))}
+                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
+                                                                    className="theme-input text-sm rounded px-2 py-1 border"
+                                                                    onKeyDown={(e) => {
+                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            handleInputSubmit(e);
+                                                                        }
+                                                                    }}
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <textarea
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
+                                    placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
+                                    className={`w-full theme-input text-sm rounded-lg pl-4 pr-20 py-3 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                    style={{
+                                        height: `${Math.max(56, inputHeight - 120)}px`,
+                                        maxHeight: `${inputHeight - 120}px`
+                                    }}
+                                    disabled={isStreaming}
+                                />
+                            )}
+
+                            <div className="absolute top-2 right-2 flex gap-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsInputMinimized(true)}
+                                    className="p-1 theme-text-muted hover:theme-text-primary rounded-lg theme-hover opacity-50 group-hover:opacity-100 transition-opacity"
+                                    aria-label="Minimize input"
+                                    title="Minimize input area"
+                                >
+                                    <svg
+                                        width="14"
+                                        height="14"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                    >
+                                        <path d="M18 15l-6-6-6 6"/>
+                                    </svg>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsInputExpanded(true)}
+                                    className="p-1 theme-text-muted hover:theme-text-primary rounded-lg theme-hover opacity-50 group-hover:opacity-100 transition-opacity"
+                                    aria-label="Expand input"
+                                >
+                                    <Maximize2 size={14} />
+                                </button>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleAttachFileClick}
+                            className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 self-end ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            aria-label="Attach file"
+                            disabled={isStreaming}
+                        >
+                            <Paperclip size={20} />
+                        </button>
+                         {isStreaming ? (
+                            <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 w-[76px] h-[40px] self-end" aria-label="Stop generating" title="Stop generating" >
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
+                            </button>
+                        ) : (
+                            <button type="button" onClick={handleInputSubmit} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
+                                <Send size={16}/>
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* MCP tools dropdown for tool_agent mode */}
+                {executionMode === 'tool_agent' && (
+                    <div className="px-2 pb-1 border-t theme-border">
+                        <div className="relative w-1/2">
+                            <button
+                                type="button"
+                                className="theme-input text-xs w-full text-left px-2 py-1 flex items-center justify-between rounded border"
+                                disabled={isStreaming || availableMcpServers.length === 0}
+                                onClick={() => setShowMcpServersDropdown(prev => !prev)}
+                            >
+                                <span className="truncate">
+                                    {availableMcpServers.find(s => s.serverPath === mcpServerPath)?.serverPath || 'Select MCP server & tools'}
+                                </span>
+                                <ChevronDown size={12} />
+                            </button>
+                            {showMcpServersDropdown && (
+                                <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto">
+                                    {availableMcpServers.length === 0 && (
+                                        <div className="px-2 py-1 text-xs theme-text-muted">No MCP servers in ctx</div>
+                                    )}
+                                    {availableMcpServers.map((srv) => (
+                                        <div key={srv.serverPath} className="border-b theme-border last:border-b-0">
+                                            <div
+                                                className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center justify-between"
+                                                onClick={() => {
+                                                    setMcpServerPath(srv.serverPath);
+                                                    setSelectedMcpTools([]);
+                                                    setMcpToolsLoading(true);
+                                                    window.api.listMcpTools({ serverPath: srv.serverPath, currentPath }).then((res) => {
+                                                        setMcpToolsLoading(false);
+                                                        if (res.error) {
+                                                            setMcpToolsError(res.error);
+                                                            setAvailableMcpTools([]);
+                                                        } else {
+                                                            setMcpToolsError(null);
+                                                            const tools = res.tools || [];
+                                                            setAvailableMcpTools(tools);
+                                                            const names = tools.map(t => t.function?.name).filter(Boolean);
+                                                            setSelectedMcpTools(prev => prev.filter(n => names.includes(n)));
+                                                        }
+                                                    });
+                                                }}
+                                            >
+                                                <span className="truncate">{srv.serverPath}</span>
+                                            </div>
+                                            {srv.serverPath === mcpServerPath && (
+                                                <div className="px-3 py-1 space-y-1">
+                                                    {mcpToolsLoading && <div className="text-xs theme-text-muted">Loading MCP tools…</div>}
+                                                    {mcpToolsError && <div className="text-xs text-red-400">Error: {mcpToolsError}</div>}
+                                                    {!mcpToolsLoading && !mcpToolsError && (
+                                                        <div className="flex flex-col gap-1">
+                                                            {availableMcpTools.length === 0 && (
+                                                                <div className="text-xs theme-text-muted">No tools available.</div>
+                                                            )}
+                                                            {availableMcpTools.map(tool => {
+                                                                const name = tool.function?.name || '';
+                                                                const desc = tool.function?.description || '';
+                                                                if (!name) return null;
+                                                                const checked = selectedMcpTools.includes(name);
+                                                                return (
+                                                                    <details key={name} className="bg-black/30 border theme-border rounded px-2 py-1">
+                                                                        <summary className="flex items-center gap-2 text-xs theme-text-primary cursor-pointer">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={checked}
+                                                                                disabled={isStreaming}
+                                                                                onChange={() => {
+                                                                                    setSelectedMcpTools(prev => {
+                                                                                        if (prev.includes(name)) {
+                                                                                            return prev.filter(n => n !== name);
+                                                                                        }
+                                                                                        return [...prev, name];
+                                                                                    });
+                                                                                }}
+                                                                            />
+                                                                            <span>{name}</span>
+                                                                        </summary>
+                                                                        <div className="ml-6 text-[11px] theme-text-muted whitespace-pre-wrap">
+                                                                            {desc || 'No description.'}
+                                                                        </div>
+                                                                    </details>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Bottom controls: Jinx/mode selector, model selector, NPC selector */}
+                <div className={`flex items-center gap-2 px-2 pb-2 border-t theme-border ${isStreaming ? 'opacity-50' : ''}`}>
+                    <div className="relative min-w-[180px]">
+                        <button
+                            type="button"
+                            className="theme-input text-xs rounded px-2 py-1 border w-full flex items-center justify-between"
+                            disabled={isStreaming}
+                            onClick={() => setShowJinxDropdown(prev => !prev)}
+                        >
+                            <span className="truncate">
+                                {executionMode === 'chat' && '💬 Chat'}
+                                {executionMode === 'tool_agent' && '🛠 Agent'}
+                                {executionMode !== 'chat' && executionMode !== 'tool_agent' && (selectedJinx?.name || executionMode)}
+                            </span>
+                            <ChevronDown size={12}/>
+                        </button>
+                        {showJinxDropdown && (
+                            <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-72 overflow-y-auto">
+                                <div
+                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
+                                    onClick={() => {
+                                        setExecutionMode('chat');
+                                        setSelectedJinx(null);
+                                        setShowJinxDropdown(false);
+                                    }}
+                                >
+                                    💬 Chat
+                                </div>
+                                <div
+                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
+                                    onClick={() => {
+                                        const selectedModelObj = availableModels.find(m => m.value === currentModel);
+                                        const providerForModel = selectedModelObj?.provider || currentProvider;
+                                        const toolCapable = providerForModel !== 'ollama' || (currentModel && ollamaToolModels.has(currentModel));
+                                        if (!toolCapable) {
+                                            setError('Selected model does not support native tool-calling; using chat or Jinx instead.');
+                                            setShowJinxDropdown(false);
+                                            return;
+                                        }
+                                        setExecutionMode('tool_agent');
+                                        setSelectedJinx(null);
+                                        setShowJinxDropdown(false);
+                                    }}
+                                >
+                                    🛠 Agent
+                                </div>
+                                {['project','global'].map(origin => {
+                                    const originJinxs = jinxsToDisplay.filter(j => (j.origin || 'unknown') === origin);
+                                    if (!originJinxs.length) return null;
+                                    const grouped = originJinxs.reduce((acc, j) => {
+                                        const g = j.group || 'root';
+                                        if (!acc[g]) acc[g] = [];
+                                        acc[g].push(j);
+                                        return acc;
+                                    }, {});
+                                    return (
+                                        <div key={origin} className="border-t theme-border">
+                                            <div className="px-2 py-1 text-[11px] uppercase theme-text-muted">{origin === 'project' ? 'Project Jinxs' : 'Global Jinxs'}</div>
+                                            {Object.entries(grouped)
+                                                .filter(([gName]) => gName.toLowerCase() !== 'modes')
+                                                .sort(([a],[b]) => a.localeCompare(b))
+                                                .map(([gName, jinxs]) => (
+                                                    <details key={`${origin}-${gName}`} className="px-2">
+                                                        <summary className="text-xs theme-text-primary cursor-pointer py-1 flex items-center gap-2">
+                                                            <FolderTree size={12}/> {gName}
+                                                        </summary>
+                                                        <div className="pl-4 pb-1 flex flex-col gap-1">
+                                                            {jinxs.sort((a,b)=>a.name.localeCompare(b.name)).map(jinx => (
+                                                                <div
+                                                                    key={`${origin}-${gName}-${jinx.name}`}
+                                                                    className="flex items-center gap-2 text-xs theme-hover cursor-pointer"
+                                                                    onClick={() => {
+                                                                        setExecutionMode(jinx.name);
+                                                                        setSelectedJinx(jinx);
+                                                                        setShowJinxDropdown(false);
+                                                                    }}
+                                                                >
+                                                                    <span className="truncate">{jinx.name}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </details>
+                                                ))}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex-grow flex items-center gap-1">
+                        <select
+                            value={currentModel || ''}
+                            onChange={(e) => {
+                                const selectedModel = availableModels.find(m => m.value === e.target.value);
+                                setCurrentModel(e.target.value);
+                                if (selectedModel?.provider) {
+                                    setCurrentProvider(selectedModel.provider);
+                                }
+                            }}
+                            className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
+                            disabled={modelsLoading || !!modelsError || isStreaming}
+                        >
+                            {modelsLoading && <option value="">Loading...</option>}
+                            {modelsError && <option value="">Error</option>}
+                            {!modelsLoading && !modelsError && modelsToDisplay.length === 0 && (
+                                <option value="">{favoriteModels.size > 0 ? "No Favorite Models" : "No Models"}</option>
+                            )}
+                            {!modelsLoading && !modelsError && modelsToDisplay.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
+                        </select>
+                        <button onClick={() => toggleFavoriteModel(currentModel)} className={`p-1 rounded ${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`} disabled={!currentModel} title="Toggle favorite"><Star size={14}/></button>
+                        <button
+                            onClick={() => setShowAllModels(!showAllModels)}
+                            className="p-1 theme-hover rounded theme-text-muted"
+                            title={showAllModels ? "Show Favorites Only" : "Show All Models"}
+                            disabled={favoriteModels.size === 0}
+                        >
+                            <ListFilter size={14} className={favoriteModels.size === 0 ? 'opacity-30' : ''} />
+                        </button>
+                    </div>
+                     <select
+                        value={currentNPC || ''}
+                        onChange={e => setCurrentNPC(e.target.value)}
+                        className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
+                        disabled={npcsLoading || !!npcsError || isStreaming}
+                     >
+                         {npcsLoading && <option value="">Loading NPCs...</option>}
+                         {npcsError && <option value="">Error loading NPCs</option>}
+                         {!npcsLoading && !npcsError && availableNPCs.length === 0 && (<option value="">No NPCs available</option>)}
+                         {!npcsLoading && !npcsError && availableNPCs.map(npc => ( <option key={`${npc.source}-${npc.value}`} value={npc.value}> {npc.display_name} </option>))}
+                    </select>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const renderMainContent = () => {
 
     if (!rootLayoutNode) {
@@ -2217,7 +3890,129 @@ const renderMainContent = () => {
     return (
         <div className={`chat-container ${isDarkMode ? 'dark-mode' : 'light-mode'} h-screen flex flex-col bg-gray-900 text-gray-100 font-mono`}>
 <div className="flex flex-1 overflow-hidden">
-    {renderSidebar()}
+    <Sidebar
+        // Pass all necessary state and functions as props
+        sidebarCollapsed={sidebarCollapsed}
+        sidebarWidth={sidebarWidth}
+        isResizingSidebar={isResizingSidebar}
+        contentDataRef={contentDataRef}
+        isDarkMode={isDarkMode}
+        currentPath={currentPath}
+        baseDir={baseDir}
+        selectedFiles={selectedFiles}
+        selectedConvos={selectedConvos}
+        windowId={windowId}
+        activeWindowsExpanded={activeWindowsExpanded}
+        workspaceIndicatorExpanded={workspaceIndicatorExpanded}
+        expandedFolders={expandedFolders}
+        renamingPath={renamingPath}
+        editedSidebarItemName={editedSidebarItemName}
+        currentFile={currentFile}
+        lastClickedIndex={lastClickedIndex}
+        lastClickedFileIndex={lastClickedFileIndex}
+        activeContentPaneId={activeContentPaneId}
+        activeConversationId={activeConversationId}
+        folderStructure={folderStructure}
+        directoryConversations={directoryConversations}
+        gitStatus={gitStatus}
+        gitPanelCollapsed={gitPanelCollapsed}
+        gitCommitMessage={gitCommitMessage}
+        gitLoading={gitLoading}
+        gitError={gitError}
+        rootLayoutNode={rootLayoutNode}
+        openBrowsers={openBrowsers}
+        commonSites={commonSites}
+        websiteHistory={websiteHistory}
+        filesCollapsed={filesCollapsed}
+        conversationsCollapsed={conversationsCollapsed}
+        websitesCollapsed={websitesCollapsed}
+        isGlobalSearch={isGlobalSearch}
+        searchTerm={searchTerm}
+        searchInputRef={searchInputRef}
+        loading={loading}
+        isSearching={isSearching}
+        contextMenuPos={contextMenuPos}
+        sidebarItemContextMenuPos={sidebarItemContextMenuPos}
+        fileContextMenuPos={fileContextMenuPos}
+        isEditingPath={isEditingPath}
+        editedPath={editedPath}
+        setSidebarWidth={setSidebarWidth}
+        setIsResizingSidebar={setIsResizingSidebar}
+        setSelectedFiles={setSelectedFiles}
+        setFileContextMenuPos={setFileContextMenuPos}
+        setError={setError}
+        setIsStreaming={setIsStreaming}
+        setRootLayoutNode={setRootLayoutNode}
+        setActiveWindowsExpanded={setActiveWindowsExpanded}
+        setWorkspaceIndicatorExpanded={setWorkspaceIndicatorExpanded}
+        setGitPanelCollapsed={setGitPanelCollapsed}
+        setExpandedFolders={setExpandedFolders}
+        setRenamingPath={setRenamingPath}
+        setEditedSidebarItemName={setEditedSidebarItemName}
+        setLastClickedIndex={setLastClickedIndex}
+        setLastClickedFileIndex={setLastClickedFileIndex}
+        setSelectedConvos={setSelectedConvos}
+        setActiveContentPaneId={setActiveContentPaneId}
+        setCurrentFile={setCurrentFile}
+        setActiveConversationId={setActiveConversationId}
+        setDirectoryConversations={setDirectoryConversations}
+        setFolderStructure={setFolderStructure}
+        setGitCommitMessage={setGitCommitMessage}
+        setGitLoading={setGitLoading}
+        setGitError={setGitError}
+        setGitStatus={setGitStatus}
+        setFilesCollapsed={setFilesCollapsed}
+        setConversationsCollapsed={setConversationsCollapsed}
+        setWebsitesCollapsed={setWebsitesCollapsed}
+        setInput={setInput}
+        setContextMenuPos={setContextMenuPos}
+        setSidebarItemContextMenuPos={setSidebarItemContextMenuPos}
+        setSearchTerm={setSearchTerm}
+        setIsSearching={setIsSearching}
+        setDeepSearchResults={setDeepSearchResults}
+        setMessageSearchResults={setMessageSearchResults}
+        setIsEditingPath={setIsEditingPath}
+        setEditedPath={setEditedPath}
+        setSettingsOpen={setSettingsOpen}
+        setBrowserUrlDialogOpen={setBrowserUrlDialogOpen}
+        setCronDaemonPanelOpen={setCronDaemonPanelOpen}
+        setPhotoViewerOpen={setPhotoViewerOpen}
+        setDashboardMenuOpen={setDashboardMenuOpen}
+        setJinxMenuOpen={setJinxMenuOpen}
+        setCtxEditorOpen={setCtxEditorOpen}
+        setSidebarCollapsed={setSidebarCollapsed}
+        createNewConversation={createNewConversation}
+        generateId={generateId}
+        streamToPaneRef={streamToPaneRef}
+        availableNPCs={availableNPCs}
+        currentNPC={currentNPC}
+        currentModel={currentModel}
+        currentProvider={currentProvider}
+        executionMode={executionMode}
+        mcpServerPath={mcpServerPath}
+        selectedMcpTools={selectedMcpTools}
+        updateContentPane={updateContentPane}
+        loadDirectoryStructure={loadDirectoryStructure}
+        loadWebsiteHistory={loadWebsiteHistory}
+        createNewBrowser={createNewBrowser}
+        handleGlobalDragStart={handleGlobalDragStart}
+        handleGlobalDragEnd={handleGlobalDragEnd}
+        normalizePath={normalizePath}
+        getFileIcon={getFileIcon}
+        serializeWorkspace={serializeWorkspace}
+        saveWorkspaceToStorage={saveWorkspaceToStorage}
+        handleConversationSelect={handleConversationSelect}
+        handleFileClick={handleFileClick}
+        handleInputSubmit={handleInputSubmit}
+        toggleTheme={toggleTheme}
+        goUpDirectory={goUpDirectory}
+        switchToPath={switchToPath}
+        handleCreateNewFolder={handleCreateNewFolder}
+        createNewTextFile={createNewTextFile}
+        createNewTerminal={createNewTerminal}
+        handleOpenNpcTeamMenu={handleOpenNpcTeamMenu}
+        renderSearchResults={renderSearchResults}
+    />
     {renderMainContent()}
         <PredictiveTextOverlay
             predictionSuggestion={predictionSuggestion}

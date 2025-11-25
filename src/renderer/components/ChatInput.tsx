@@ -1,3 +1,25 @@
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import {
+    Send, Paperclip, X, ChevronRight, ChevronDown, Star, ListFilter,
+    MessageCircle, Wrench
+} from 'lucide-react';
+
+const ChatInput = (props: any) => {
+    // Destructure all props from Enpistu
+    const {
+        // State
+        input, inputRef, inputHeight, isResizingInput, availableModels, modelsLoading,
+        modelsError, currentModel, currentProvider, availableNPCs, npcsLoading, npcsError,
+        currentNPC, activeContentPaneId, contentDataRef, isStreaming, executionMode,
+        rootLayoutNode, attachments, availableJinxs, favoriteModels, showAllModels,
+        mcpServerPath, selectedMcpTools, ollamaToolModels,
+        // Setters
+        setInput, setInputHeight, setIsResizingInput, setCurrentModel, setCurrentProvider,
+        setCurrentNPC, setExecutionMode, setAttachments, setFavoriteModels, setShowAllModels,
+        setMcpServerPath, setSelectedMcpTools, setOllamaToolModels,
+        // Functions
+        handleInputSubmit, handleInterruptStream
+    } = props;
 
 const handleInputResize = useCallback((e) => {
     if (!isResizingInput) return;
@@ -46,22 +68,24 @@ const handleInputResize = useCallback((e) => {
             setFavoriteModels(new Set(JSON.parse(savedFavorites)));
         }
     }, []);
-    
+
     useEffect(() => {
         // Fetch tool-capable Ollama models
-        const fetchOllamaToolModels = async () => {
-            try {
-                const res = await fetch('http://localhost:5337/api/ollama/tool_models');
-                const data = await res.json();
-                if (data?.models) {
-                    setOllamaToolModels(new Set(data.models));
+        if (setOllamaToolModels) {
+            const fetchOllamaToolModels = async () => {
+                try {
+                    const res = await fetch('http://localhost:5337/api/ollama/tool_models');
+                    const data = await res.json();
+                    if (data?.models) {
+                        setOllamaToolModels(new Set(data.models));
+                    }
+                } catch (e) {
+                    console.warn('Failed to fetch Ollama tool-capable models', e);
                 }
-            } catch (e) {
-                console.warn('Failed to fetch Ollama tool-capable models', e);
-            }
-        };
-        fetchOllamaToolModels();
-    }, []);
+            };
+            fetchOllamaToolModels();
+        }
+    }, [setOllamaToolModels]);
     
     
     const modelsToDisplay = useMemo(() => {
@@ -956,4 +980,6 @@ ${contextPrompt}`;
         </div>
     );
 };
+
+export default ChatInput;
 

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { Save, Download, Bold, Italic, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, Undo, Redo, X } from 'lucide-react';
 
 const DocxViewer = ({ 
-    filePath, 
     nodeId, 
+    contentDataRef,
     findNodePath, 
     rootLayoutNode, 
     setDraggedItem, 
@@ -19,6 +19,9 @@ const DocxViewer = ({
     const [historyIndex, setHistoryIndex] = useState(-1);
     const editorRef = useRef(null);
     const isUndoRedoRef = useRef(false);
+
+    const paneData = contentDataRef.current[nodeId];
+    const filePath = paneData?.contentId;
 
     useEffect(() => {
         const loadDocx = async () => {
@@ -41,7 +44,7 @@ const DocxViewer = ({
         loadDocx();
     }, [filePath]);
 
-    const addToHistory = (newContent) => {
+    const addToHistory = useCallback((newContent) => {
         if (isUndoRedoRef.current) {
             isUndoRedoRef.current = false;
             return;
@@ -50,7 +53,6 @@ const DocxViewer = ({
         const newHistory = history.slice(0, historyIndex + 1);
         newHistory.push(newContent);
         
-        // Limit history to 100 entries
         if (newHistory.length > 100) {
             newHistory.shift();
         } else {
@@ -58,16 +60,16 @@ const DocxViewer = ({
         }
         
         setHistory(newHistory);
-    };
+    }, [history, historyIndex]);
 
-    const handleInput = (e) => {
+    const handleInput = useCallback((e) => {
         const newContent = e.currentTarget.innerHTML;
         setHtmlContent(newContent);
         setHasChanges(true);
         addToHistory(newContent);
-    };
+    }, [addToHistory]);
 
-    const undo = () => {
+    const undo = useCallback(() => {
         if (historyIndex > 0) {
             isUndoRedoRef.current = true;
             const newIndex = historyIndex - 1;
@@ -75,14 +77,13 @@ const DocxViewer = ({
             setHtmlContent(history[newIndex]);
             setHasChanges(true);
             
-            // Update the editor
             if (editorRef.current) {
                 editorRef.current.innerHTML = history[newIndex];
             }
         }
-    };
+    }, [history, historyIndex]);
 
-    const redo = () => {
+    const redo = useCallback(() => {
         if (historyIndex < history.length - 1) {
             isUndoRedoRef.current = true;
             const newIndex = historyIndex + 1;
@@ -90,14 +91,13 @@ const DocxViewer = ({
             setHtmlContent(history[newIndex]);
             setHasChanges(true);
             
-            // Update the editor
             if (editorRef.current) {
                 editorRef.current.innerHTML = history[newIndex];
             }
         }
-    };
+    }, [history, historyIndex]);
 
-    const saveDocument = async () => {
+    const saveDocument = useCallback(async () => {
         if (!hasChanges) return;
         setIsSaving(true);
         try {
@@ -113,9 +113,9 @@ const DocxViewer = ({
         } finally {
             setIsSaving(false);
         }
-    };
+    }, [hasChanges, htmlContent, filePath]);
 
-    const exportAsMarkdown = async () => {
+    const exportAsMarkdown = useCallback(async () => {
         try {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = htmlContent;
@@ -127,13 +127,12 @@ const DocxViewer = ({
         } catch (err) {
             setError(err.message);
         }
-    };
+    }, [htmlContent, filePath]);
 
-    const execCommand = (command, value = null) => {
+    const execCommand = useCallback((command, value = null) => {
         document.execCommand(command, false, value);
         editorRef.current?.focus();
         
-        // Update content after command
         setTimeout(() => {
             if (editorRef.current) {
                 const newContent = editorRef.current.innerHTML;
@@ -142,49 +141,43 @@ const DocxViewer = ({
                 addToHistory(newContent);
             }
         }, 0);
-    };
+    }, [addToHistory]);
 
-    const handleKeyDown = (e) => {
-        // Ctrl+S to save
+    const handleKeyDown = useCallback((e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault();
             saveDocument();
             return;
         }
-        // Ctrl+Z for undo
         if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
             e.preventDefault();
             undo();
             return;
         }
-        // Ctrl+Shift+Z or Ctrl+Y for redo
         if (((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'Z' || e.key === 'z')) || 
             ((e.ctrlKey || e.metaKey) && e.key === 'y')) {
             e.preventDefault();
             redo();
             return;
         }
-        // Ctrl+B for bold
         if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
             e.preventDefault();
             execCommand('bold');
             return;
         }
-        // Ctrl+I for italic
         if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
             e.preventDefault();
             execCommand('italic');
             return;
         }
-        // Ctrl+U for underline
         if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
             e.preventDefault();
             execCommand('underline');
             return;
         }
-    };
+    }, [saveDocument, undo, redo, execCommand]);
 
-    const handlePaste = (e) => {
+    const handlePaste = useCallback((e) => {
         e.preventDefault();
         const text = e.clipboardData.getData('text/plain');
         document.execCommand('insertText', false, text);
@@ -197,9 +190,9 @@ const DocxViewer = ({
                 addToHistory(newContent);
             }
         }, 0);
-    };
+    }, [addToHistory]);
 
-    const handleCut = (e) => {
+    const handleCut = useCallback((e) => {
         setTimeout(() => {
             if (editorRef.current) {
                 const newContent = editorRef.current.innerHTML;
@@ -208,7 +201,13 @@ const DocxViewer = ({
                 addToHistory(newContent);
             }
         }, 0);
-    };
+    }, [addToHistory]);
+
+    useEffect(() => {
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [handleKeyDown]);
+
 
     if (error) return (
         <div className="p-4 text-red-500">Error: {error}</div>
@@ -217,7 +216,6 @@ const DocxViewer = ({
 
     return (
     <div className="h-full flex flex-col theme-bg-secondary overflow-hidden">
-            {/* Header */}
             <div 
                 draggable="true"
                 onDragStart={(e) => {
@@ -252,7 +250,7 @@ const DocxViewer = ({
             >
                 <div className="flex justify-between items-center">
                     <span className="truncate font-semibold">
-                        {filePath.split('/').pop()}{hasChanges ? ' *' : ''}
+                        {filePath ? filePath.split('/').pop() : 'Untitled'}{hasChanges ? ' *' : ''}
                     </span>
                     <div className="flex items-center gap-1">
                         <button 
@@ -283,7 +281,6 @@ const DocxViewer = ({
                 </div>
             </div>
 
-            {/* Toolbar */}
             <div className="p-2 border-b theme-border flex items-center gap-1 flex-wrap theme-bg-tertiary">
                 <button 
                     onClick={undo} 
@@ -369,33 +366,32 @@ const DocxViewer = ({
                 />
             </div>
 
-            {/* Editor */}
-{/* Editor */}
-<div className="flex-1 overflow-auto p-6 theme-bg-primary">
-    <div className="max-w-4xl mx-auto">
-        <div 
-            ref={editorRef}
-            contentEditable
-            suppressContentEditableWarning
-            onInput={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            onCut={handleCut}
-            dangerouslySetInnerHTML={{ __html: htmlContent }}
-            className="p-8 theme-bg-secondary rounded-lg shadow-lg outline-none"
-            style={{
-                maxWidth: '8.5in',
-                padding: '1in',
-                lineHeight: '1.6',
-                fontSize: '14px',
-                color: 'var(--theme-text)',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                minHeight: '100vh'
-            }}
-        />
-    </div>
-</div>        </div>
+            <div className="flex-1 overflow-auto p-6 theme-bg-primary">
+                <div className="max-w-4xl mx-auto">
+                    <div 
+                        ref={editorRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        onInput={handleInput}
+                        onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
+                        onCut={handleCut}
+                        dangerouslySetInnerHTML={{ __html: htmlContent }}
+                        className="p-8 theme-bg-secondary rounded-lg shadow-lg outline-none"
+                        style={{
+                            maxWidth: '8.5in',
+                            padding: '1in',
+                            lineHeight: '1.6',
+                            fontSize: '14px',
+                            color: 'var(--theme-text)',
+                            fontFamily: 'system-ui, -apple-system, sans-serif',
+                            minHeight: '100vh'
+                        }}
+                    />
+                </div>
+            </div>
+        </div>
     );
 };
 
-export default DocxViewer;
+export default memo(DocxViewer);

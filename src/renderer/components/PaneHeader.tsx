@@ -1,4 +1,7 @@
-export const PaneHeader = memo(({
+import React from 'react';
+import { X } from 'lucide-react';
+
+export const PaneHeader = React.memo(({
     nodeId,
     icon,
     title,
@@ -74,3 +77,5 @@ export const PaneHeader = memo(({
         </div>
     );
 });
+
+export default PaneHeader;

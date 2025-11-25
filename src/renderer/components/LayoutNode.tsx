@@ -1,5 +1,15 @@
+import React, { useCallback, memo } from 'react';
+import {
+    BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
+    ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
+    Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe, 
+    GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter,     File as FileIcon 
+} from 'lucide-react';
+import PaneHeader from './PaneHeader';
+import { getFileIcon } from './utils';
 
-const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
+// Exported utility function for syncing layout with content data
+export const syncLayoutWithContentData = (layoutNode: any, contentData: Record<string, any>): any => {
     if (!layoutNode) {
         // If layoutNode is null, ensure contentData is also empty
         if (Object.keys(contentData).length > 0) {
@@ -10,9 +20,50 @@ const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
         }
         return null; // Return null if the layout itself is null
     }
+
+    const collectPaneIds = (node: any): Set<string> => {
+        if (!node) return new Set();
+        if (node.type === 'content') return new Set([node.id]);
+        if (node.type === 'split') {
+            return node.children.reduce((acc: Set<string>, child: any) => {
+                const childIds = collectPaneIds(child);
+                childIds.forEach(id => acc.add(id));
+                return acc;
+            }, new Set());
+        }
+        return new Set();
+    };
+
+    const paneIdsInLayout = collectPaneIds(layoutNode);
+    const contentDataIds = new Set(Object.keys(contentData));
+
+    // 1. Remove orphaned panes from contentData (not in layout)
+    contentDataIds.forEach(id => {
+        if (!paneIdsInLayout.has(id)) {
+            console.warn('[SYNC] Removing orphaned pane from contentData:', id);
+            delete contentData[id];
+        }
+    });
+
+    // 2. Add missing panes to contentData (in layout but not in contentData)
+    paneIdsInLayout.forEach(id => {
+        if (!contentData.hasOwnProperty(id)) { // Use hasOwnProperty to check for actual property
+            console.warn('[SYNC] Adding missing pane to contentData:', id);
+            contentData[id] = {}; // Initialize with an empty object
+        }
+    });
+
+    return layoutNode;
+};
+
+// CODE FRAGMENTS BELOW - These are incomplete code snippets meant to be inside Enpistu.tsx
+// They reference parent scope variables and can't work as standalone exports
+// Commenting out to prevent module-level execution errors
+
+/*
 const cleanupPhantomPanes = useCallback(() => {
   const validPaneIds = new Set();
-  
+
   const collectPaneIds = (node) => {
     if (!node) return;
     if (node.type === 'content') validPaneIds.add(node.id);
@@ -20,9 +71,9 @@ const cleanupPhantomPanes = useCallback(() => {
       node.children.forEach(collectPaneIds);
     }
   };
-  
+
   collectPaneIds(rootLayoutNode);
-  
+
   // Remove any contentDataRef entries not in the layout
   Object.keys(contentDataRef.current).forEach(paneId => {
     if (!validPaneIds.has(paneId)) {
@@ -31,6 +82,7 @@ const cleanupPhantomPanes = useCallback(() => {
     }
   });
 }, [rootLayoutNode]);
+
 const renderPaneContextMenu = () => {
   if (!paneContextMenu?.isOpen) return null;
   const { x, y, nodeId, nodePath } = paneContextMenu;
@@ -69,12 +121,13 @@ const renderPaneContextMenu = () => {
         <button onClick={() => splitPane('bottom')} className="block px-4 py-2 w-full text-left theme-hover">
           Split Bottom
         </button>
-        {/* You can add Move options or drag instructions here */}
       </div>
     </>
   );
 };
+*/
 
+// End of commented-out fragments
 
 const collectPaneIds = (node) => {
     if (!node) return new Set();
@@ -206,15 +259,14 @@ export const LayoutNode = memo(({ node, path, component }) => {
         const contentType = paneData?.contentType;
         const contentId = paneData?.contentId;
 
-        // Determine icon and title for the PaneHeader
-        let headerIcon = <File size={14} className="text-gray-400" />; // Default icon
+        let headerIcon = <FileIcon size={14} className="text-gray-400" />;
         let headerTitle = 'Empty Pane';
 
         if (contentType === 'chat') {
             headerIcon = <MessageSquare size={14} />;
             headerTitle = `Conversation: ${contentId?.slice(-8) || 'None'}`;
         } else if (contentType === 'editor' && contentId) {
-            headerIcon = getFileIcon(contentId); // Assuming getFileIcon is accessible
+            headerIcon = getFileIcon(contentId); 
             headerTitle = contentId.split('/').pop();
         } else if (contentType === 'browser') {
             headerIcon = <Globe size={14} className="text-blue-400" />;
@@ -222,7 +274,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'terminal') {
             headerIcon = <Terminal size={14} />;
             headerTitle = 'Terminal';
-        } else if (contentId) { // For other file types like PDF, CSV, DOCX, PPTX, LATEX
+        } else if (contentId) {
             headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();
         }
@@ -268,81 +320,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 </>
             );
         }
-const closeContentPane = useCallback((paneId, nodePath) => {
-    console.log(`[closeContentPane] Attempting to close pane: ${paneId} with path:`, nodePath);
-    console.log(`[closeContentPane] Current rootLayoutNode before update:`, JSON.stringify(rootLayoutNode));
-    console.log(`[closeContentPane] Current contentDataRef.current before update:`, JSON.stringify(contentDataRef.current));
-
-    
-    
-    setRootLayoutNode(currentRoot => {
-        if (!currentRoot) {
-            console.log('[closeContentPane] No root layout node, nothing to close.');
-            return null;
-        }
-
-        let newRoot = JSON.parse(JSON.stringify(currentRoot));
-
-        if (newRoot.id === paneId) {
-            console.log(`[closeContentPane] Closing root node with ID: ${paneId}`);
-            delete contentDataRef.current[paneId];
-            setActiveContentPaneId(null);
-            return null;
-        }
-
-        if (!nodePath || nodePath.length === 0) {
-            console.error('[closeContentPane] Cannot close pane: nodePath is null or empty.');
-            return newRoot;
-        }
-
-        const parentPath = nodePath.slice(0, -1);
-        const childIndex = nodePath[nodePath.length - 1];
-        const parentNode = findNodeByPath(newRoot, parentPath);
-
-        if (!parentNode || !parentNode.children) {
-            console.error("[closeContentPane] Cannot close pane: parent not found or has no children.", { parentPath, childIndex, parentNode });
-            return currentRoot;
-        }
-
-        parentNode.children.splice(childIndex, 1);
-        parentNode.sizes.splice(childIndex, 1);
-        delete contentDataRef.current[paneId];
-        console.log(`[closeContentPane] Removed pane ${paneId} from contentDataRef and layout.`);
-
-
-        if (parentNode.children.length === 1) {
-            const remainingChild = parentNode.children[0];
-
-            if (parentPath.length === 0) {
-                newRoot = remainingChild;
-                console.log('[closeContentPane] Parent was root, new root is remaining child.');
-            } else {
-                const grandParentNode = findNodeByPath(newRoot, parentPath.slice(0, -1));
-                if (grandParentNode) {
-                    const parentIndex = parentPath[parentPath.length - 1];
-                    grandParentNode.children[parentIndex] = remainingChild;
-                    console.log('[closeContentPane] Replaced parent with its single remaining child.');
-                } else {
-                    console.warn('[closeContentPane] Grandparent not found when trying to replace parent with single child.');
-                }
-            }
-        } else if (parentNode.children.length > 1) {
-            const equalSize = 100 / parentNode.children.length;
-            parentNode.sizes = new Array(parentNode.children.length).fill(equalSize);
-            console.log('[closeContentPane] Recalculated sizes for remaining siblings.');
-        }
-
-        if (activeContentPaneId === paneId) {
-            const remainingPaneIds = Object.keys(contentDataRef.current);
-            const newActivePaneId = remainingPaneIds.length > 0 ? remainingPaneIds[0] : null;
-            setActiveContentPaneId(newActivePaneId);
-            console.log(`[closeContentPane] Active pane was closed, setting new active pane to: ${newActivePaneId}`);
-        }
-
-        console.log('[closeContentPane] Returning new root layout node.');
-        return newRoot;
-    });
-}, [activeContentPaneId, findNodeByPath,rootLayoutNode]);
+// DUPLICATE/CONFLICTING DECLARATION COMMENTED OUT - closeContentPane is expected to be passed via props
+// const closeContentPane = useCallback((paneId, nodePath) => { ... }, [activeContentPaneId, findNodeByPath,rootLayoutNode]);
 
 
         const renderPaneContent = () => { // Renamed from renderContent to avoid confusion
@@ -388,7 +367,6 @@ const closeContentPane = useCallback((paneId, nodePath) => {
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
                 onDrop={(e) => onDrop(e, 'center')}
             >
-                {/* ALWAYS render PaneHeader here */}
                 <PaneHeader
                     nodeId={node.id}
                     icon={headerIcon}
@@ -422,52 +400,14 @@ const closeContentPane = useCallback((paneId, nodePath) => {
 
 
 
-const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
-    if (!layoutNode) {
-        // If layoutNode is null, ensure contentData is also empty
-        if (Object.keys(contentData).length > 0) {
-            console.log('[SYNC] Layout node is null, clearing contentData.');
-            for (const key in contentData) {
-                delete contentData[key];
-            }
-        }
-        return null; // Return null if the layout itself is null
-    }
+// DUPLICATE REMOVED - syncLayoutWithContentData is now exported at the top of the file
+// const syncLayoutWithContentData = useCallback((layoutNode, contentData) => { ... }, []);
 
-    const collectPaneIds = (node) => {
-        if (!node) return new Set();
-        if (node.type === 'content') return new Set([node.id]);
-        if (node.type === 'split') {
-            return node.children.reduce((acc, child) => {
-                const childIds = collectPaneIds(child);
-                childIds.forEach(id => acc.add(id));
-                return acc;
-            }, new Set());
-        }
-        return new Set();
-    };
+/*
+// CODE FRAGMENTS BELOW - More incomplete code using hooks at module level
+// These reference parent scope variables and can't work as standalone exports
+// Commenting out to prevent hook errors
 
-    const paneIdsInLayout = collectPaneIds(layoutNode);
-    const contentDataIds = new Set(Object.keys(contentData));
-
-    // 1. Remove orphaned panes from contentData (not in layout)
-    contentDataIds.forEach(id => {
-        if (!paneIdsInLayout.has(id)) {
-            console.warn('[SYNC] Removing orphaned pane from contentData:', id);
-            delete contentData[id];
-        }
-    });
-
-    // 2. Add missing panes to contentData (in layout but not in contentData)
-    paneIdsInLayout.forEach(id => {
-        if (!contentData.hasOwnProperty(id)) { // Use hasOwnProperty to check for actual property
-            console.warn('[SYNC] Adding missing pane to contentData:', id);
-            contentData[id] = {}; // Initialize with an empty object
-        }
-    });
-
-    return layoutNode;
-}, []);
     const updateContentPane = useCallback(async (paneId, newContentType, newContentId, skipMessageLoad = false) => {
   // Verify this paneId exists in the layout tree
   const paneExistsInLayout = (node, targetId) => {
@@ -668,4 +608,8 @@ const syncLayoutWithContentData = useCallback((layoutNode, contentData) => {
             return newRoot;
         });
     }, [updateContentPane]);
-    
+
+*/
+
+// End of commented-out fragments with hooks
+// LayoutNode component export is at line 137

@@ -1,14 +1,63 @@
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import {
+    Folder, File, Globe, ChevronRight, Settings, Edit,
+    Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
+    X, Wrench, FileText, FileJson, BarChart3, Clock, Code2
+} from 'lucide-react';
+
+const Sidebar = (props: any) => {
+    // Destructure all props from Enpistu
+    const {
+        // State
+        sidebarCollapsed, sidebarWidth, isResizingSidebar, contentDataRef, isDarkMode,
+        currentPath, baseDir, selectedFiles, selectedConvos, windowId, activeWindowsExpanded,
+        workspaceIndicatorExpanded, expandedFolders, renamingPath, editedSidebarItemName,
+        currentFile, lastClickedIndex, lastClickedFileIndex, activeContentPaneId,
+        folderStructure, directoryConversations, gitStatus, gitPanelCollapsed,
+        gitCommitMessage, gitLoading, gitError, rootLayoutNode, openBrowsers, commonSites,
+        websiteHistory, filesCollapsed, conversationsCollapsed, websitesCollapsed,
+        isGlobalSearch, searchTerm, searchInputRef, loading, isSearching,
+        contextMenuPos, sidebarItemContextMenuPos, fileContextMenuPos,
+        isEditingPath, editedPath, isLoadingWorkspace, activeConversationId,
+        // Setters
+        setSidebarWidth, setIsResizingSidebar, setSelectedFiles, setFileContextMenuPos,
+        setError, setIsStreaming, setRootLayoutNode, setActiveWindowsExpanded,
+        setWorkspaceIndicatorExpanded, setGitPanelCollapsed, setExpandedFolders,
+        setRenamingPath, setEditedSidebarItemName, setLastClickedIndex, setLastClickedFileIndex,
+        setSelectedConvos, setActiveContentPaneId, setCurrentFile, setActiveConversationId,
+        setDirectoryConversations, setFolderStructure, setGitCommitMessage, setGitLoading,
+        setGitError, setGitStatus, setFilesCollapsed, setConversationsCollapsed, setWebsitesCollapsed,
+        setInput, setContextMenuPos, setSidebarItemContextMenuPos, setSearchTerm,
+        setIsSearching, setDeepSearchResults, setMessageSearchResults,
+        setIsEditingPath, setEditedPath, setSettingsOpen, setBrowserUrlDialogOpen,
+        setCronDaemonPanelOpen, setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
+        setCtxEditorOpen, setSidebarCollapsed,
+        // Functions from Enpistu
+        createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
+        currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
+        loadDirectoryStructure, loadWebsiteHistory, createNewBrowser,
+        handleGlobalDragStart, handleGlobalDragEnd, normalizePath, getFileIcon,
+        serializeWorkspace, saveWorkspaceToStorage, handleConversationSelect, handleFileClick,
+        handleInputSubmit, toggleTheme, goUpDirectory, switchToPath,
+        handleCreateNewFolder, createNewTextFile, createNewTerminal,
+        handleOpenNpcTeamMenu, renderSearchResults,
+        createAndAddPaneNodeToLayout, findNodePath, findNodeByPath
+    } = props;
+
+    const WINDOW_WORKSPACES_KEY = 'npcStudioWorkspaces';
+    const ACTIVE_WINDOWS_KEY = 'npcStudioActiveWindows';
+
+// ===== ALL THE SIDEBAR FUNCTIONS BELOW =====
+
 const handleSidebarResize = useCallback((e) => {
     if (!isResizingSidebar) return;
-
 
     const newWidth = e.clientX;
     // Constrain between 150px and 500px
     if (newWidth >= 150 && newWidth <= 500) {
         setSidebarWidth(newWidth);
     }
-}, [isResizingSidebar]);
-
+}, [isResizingSidebar, setSidebarWidth]);
 
 const handleApplyPromptToFiles = async (operationType, customPrompt = '') => {
     const selectedFilePaths = Array.from(selectedFiles);
@@ -151,6 +200,16 @@ const handleFileContextMenu = (e, filePath) => {
     setFileContextMenuPos({ x: e.clientX, y: e.clientY, filePath });
 };
 
+const handleOpenFolderAsWorkspace = useCallback(async (folderPath) => {
+    if (folderPath === currentPath) {
+        console.log("Already in this workspace, no need to switch!");
+        setSidebarItemContextMenuPos(null);
+        return;
+    }
+    console.log(`Opening folder as workspace: ${folderPath}`);
+    await switchToPath(folderPath);
+    setSidebarItemContextMenuPos(null);
+}, [currentPath, switchToPath]);
 
 const handleSidebarItemContextMenu = (e, path, type) => {
     e.preventDefault();
@@ -161,6 +220,134 @@ const handleSidebarItemContextMenu = (e, path, type) => {
     setSidebarItemContextMenuPos({ x: e.clientX, y: e.clientY, path, type });
 };
 
+const handleAnalyzeInDashboard = () => {
+    const selectedIds = Array.from(selectedConvos);
+    if (selectedIds.length === 0) return;
+    console.log(`Analyzing ${selectedIds.length} conversations in dashboard.`);
+    setDashboardMenuOpen(true);
+    setContextMenuPos(null);
+};
+
+const handleSummarizeAndStart = async () => {
+    const selectedIds = Array.from(selectedConvos);
+    if (selectedIds.length === 0) return;
+    setContextMenuPos(null);
+
+    try {
+        const { conversation: newConversation, paneId: newPaneId } = await createNewConversation();
+        if (!newConversation || !newPaneId) {
+            throw new Error('Failed to create new conversation');
+        }
+
+        const paneData = contentDataRef.current[newPaneId];
+        if (!paneData || paneData.contentType !== 'chat') {
+            throw new Error("Target pane is not a chat pane.");
+        }
+
+        const convosContentPromises = selectedIds.map(async (id, index) => {
+            const messages = await window.api.getConversationMessages(id);
+            if (!Array.isArray(messages)) {
+                console.warn(`Could not fetch messages for conversation ${id}`);
+                return `Conversation ${index + 1} (ID: ${id}): [Error fetching content]`;
+            }
+            const messagesText = messages.map(msg => `${msg.role}: ${msg.content}`).join('\n');
+            return `Conversation ${index + 1} (ID: ${id}):\n---\n${messagesText}\n---`;
+        });
+        const convosContent = await Promise.all(convosContentPromises);
+        const fullPrompt = `Please provide a concise summary of the following ${selectedIds.length} conversation(s):\n\n` + convosContent.join('\n\n');
+
+        const newStreamId = generateId();
+        streamToPaneRef.current[newStreamId] = newPaneId;
+        setIsStreaming(true);
+
+        const selectedNpc = availableNPCs.find(npc => npc.value === currentNPC);
+        const userMessage = { id: generateId(), role: 'user', content: fullPrompt, timestamp: new Date().toISOString() };
+        const assistantPlaceholderMessage = { id: newStreamId, role: 'assistant', content: '', isStreaming: true, timestamp: new Date().toISOString(), streamId: newStreamId, model: currentModel, npc: currentNPC };
+
+        paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholderMessage);
+        paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-paneData.chatMessages.displayedMessageCount);
+        setRootLayoutNode(prev => ({ ...prev }));
+
+        await window.api.executeCommandStream({
+            commandstr: fullPrompt,
+            currentPath,
+            conversationId: newConversation.id,
+            model: currentModel,
+            provider: currentProvider,
+            npc: selectedNpc ? selectedNpc.name : currentNPC,
+            npcSource: selectedNpc ? selectedNpc.source : 'global',
+            attachments: [],
+            streamId: newStreamId,
+            executionMode,
+            mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
+            selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
+        });
+    } catch (err) {
+        console.error('Error summarizing:', err);
+        setError(err.message);
+        setIsStreaming(false);
+    } finally {
+        setSelectedConvos(new Set());
+    }
+};
+
+const handleSummarizeAndDraft = async () => {
+    const selectedIds = Array.from(selectedConvos);
+    if (selectedIds.length === 0) return;
+    setContextMenuPos(null);
+
+    try {
+        const convosContentPromises = selectedIds.map(async (id, index) => {
+            const messages = await window.api.getConversationMessages(id);
+            if (!Array.isArray(messages)) {
+                console.warn(`Could not fetch messages for conversation ${id}`);
+                return `Conversation ${index + 1} (ID: ${id}): [Error fetching content]`;
+            }
+            const messagesText = messages.map(msg => `${msg.role}: ${msg.content}`).join('\n');
+            return `Conversation ${index + 1} (ID: ${id}):\n---\n${messagesText}\n---`;
+        });
+        const convosContent = await Promise.all(convosContentPromises);
+        const fullPrompt = `Please provide a concise summary of the following ${selectedIds.length} conversation(s):\n\n` + convosContent.join('\n\n');
+        setInput(fullPrompt);
+    } catch (err) {
+        console.error('Error summarizing for draft:', err);
+        setError(err.message);
+    } finally {
+        setSelectedConvos(new Set());
+    }
+};
+
+const handleSummarizeAndPrompt = async () => {
+    const selectedIds = Array.from(selectedConvos);
+    if (selectedIds.length === 0) return;
+    setContextMenuPos(null);
+
+    try {
+        const { conversation: newConversation, paneId: newPaneId } = await createNewConversation();
+        if (!newConversation || !newPaneId) {
+            throw new Error('Failed to create new conversation');
+        }
+
+        const paneData = contentDataRef.current[newPaneId];
+        const convosContentPromises = selectedIds.map(async (id, index) => {
+            const messages = await window.api.getConversationMessages(id);
+            if (!Array.isArray(messages)) {
+                return `Conversation ${index + 1} (ID: ${id}): [Error fetching content]`;
+            }
+            const messagesText = messages.map(msg => `${msg.role}: ${msg.content}`).join('\n');
+            return `Conversation ${index + 1} (ID: ${id}):\n---\n${messagesText}\n---`;
+        });
+        const convosContent = await Promise.all(convosContentPromises);
+        const customPrompt = 'Provide a detailed analysis of the key themes and insights from these conversations';
+        const fullPrompt = `${customPrompt}\n\nConversations to analyze:\n\n` + convosContent.join('\n\n');
+        setInput(fullPrompt);
+    } catch (err) {
+        console.error('Error:', err);
+        setError(err.message);
+    } finally {
+        setSelectedConvos(new Set());
+    }
+};
 
 const handleSidebarItemDelete = async () => {
     if (!sidebarItemContextMenuPos) return;
@@ -239,139 +426,6 @@ const handleFolderOverview = async () => {
     }
 };
 
-const handleConversationSelect = async (conversationId, skipMessageLoad = false) => {
-    setActiveConversationId(conversationId);
-    setCurrentFile(null);
-
-    // CRITICAL: Don't create/update panes if workspace is being restored
-    if (isLoadingWorkspace) {
-        console.log('[SELECT_CONVO] Skipping pane update - currently restoring workspace');
-        return null;
-    }
-
-    // NEW: Check if this conversation is already open in a pane
-    const existingPaneId = Object.keys(contentDataRef.current).find(paneId => {
-        const paneData = contentDataRef.current[paneId];
-        return paneData?.contentType === 'chat' && paneData?.contentId === conversationId;
-    });
-
-    if (existingPaneId) {
-        console.log('[SELECT_CONVO] Conversation already open in pane:', existingPaneId);
-        setActiveContentPaneId(existingPaneId);
-        return existingPaneId;
-    }
-
-    let paneIdToUpdate;
-
-    if (!rootLayoutNode) {
-        const newPaneId = generateId();
-        const newLayout = { id: newPaneId, type: 'content' };
-        
-        // Initialize contentData SYNCHRONOUSLY with layout
-        contentDataRef.current[newPaneId] = {
-            contentType: 'chat',
-            contentId: conversationId,
-            chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
-        };
-        setRootLayoutNode(newLayout);
-        
-        // NOW update the content
-        await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
-        
-        setActiveContentPaneId(newPaneId);
-        paneIdToUpdate = newPaneId;
-    } 
-    else {
-        paneIdToUpdate = activeContentPaneId || Object.keys(contentDataRef.current)[0];
-        
-        // ADD THIS CHECK: Only update if the pane exists and is not empty
-        if (paneIdToUpdate && contentDataRef.current[paneIdToUpdate]) {
-            await updateContentPane(paneIdToUpdate, 'chat', conversationId, skipMessageLoad);
-            setRootLayoutNode(prev => ({...prev}));
-        } else {
-            console.warn('[SELECT_CONVO] No valid pane to update, creating new one');
-            const newPaneId = createAndAddPaneNodeToLayout();
-            await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
-            paneIdToUpdate = newPaneId;
-        }
-    }
-    return paneIdToUpdate;
-};
-const handleFileClick = useCallback(async (filePath) => {
-    setCurrentFile(filePath);
-    setActiveConversationId(null);
-
-    const extension = filePath.split('.').pop()?.toLowerCase();
-    let contentType = 'editor';
-    
-    if (extension === 'pdf') contentType = 'pdf';
-    else if (['csv', 'xlsx', 'xls'].includes(extension)) contentType = 'csv';
-    else if (extension === 'pptx') contentType = 'pptx';
-    else if (extension === 'tex') contentType = 'latex';
-
-    else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
-
-    console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
-
-    const newPaneId = generateId();
-    
-    setRootLayoutNode(oldRoot => {
-        contentDataRef.current[newPaneId] = {};
-        
-        if (!oldRoot) {
-            return { id: newPaneId, type: 'content' };
-        }
-
-        let newRoot = JSON.parse(JSON.stringify(oldRoot));
-        
-        if (activeContentPaneId) {
-            const pathToActive = findNodePath(newRoot, activeContentPaneId);
-            if (pathToActive && pathToActive.length > 0) {
-                const targetParent = findNodeByPath(newRoot, 
-                    pathToActive.slice(0, -1)
-                );
-                const targetIndex = pathToActive[pathToActive.length - 1];
-                
-                if (targetParent && targetParent.type === 'split') {
-                    const newChildren = [...targetParent.children];
-                    newChildren.splice(targetIndex + 1, 0, 
-                        { id: newPaneId, type: 'content' }
-                    );
-                    const newSizes = new Array(newChildren.length)
-                        .fill(100 / newChildren.length);
-                    targetParent.children = newChildren;
-                    targetParent.sizes = newSizes;
-                    return newRoot;
-                }
-            }
-        }
-        
-        if (newRoot.type === 'content') {
-            return {
-                id: generateId(),
-                type: 'split',
-                direction: 'horizontal',
-                children: [newRoot, { id: newPaneId, type: 'content' }],
-                sizes: [50, 50],
-            };
-        } else if (newRoot.type === 'split') {
-            newRoot.children.push({ id: newPaneId, type: 'content' });
-            const equalSize = 100 / newRoot.children.length;
-            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-            return newRoot;
-        }
-        
-        return { id: newPaneId, type: 'content' };
-    });
-    
-    setTimeout(async () => {
-        console.log('[FILE_CLICK] Updating content pane:', newPaneId, contentType, filePath);
-        await updateContentPane(newPaneId, contentType, filePath);
-        setRootLayoutNode(prev => ({ ...prev }));
-    }, 0);
-    
-    setActiveContentPaneId(newPaneId);
-}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 const renderActiveWindowsIndicator = () => {
     const [otherWindows, setOtherWindows] = useState([]);
     
@@ -1083,8 +1137,7 @@ useEffect(() => {
                   setDeepSearchResults([]);
                   return;
               }
-          
-              setSearchLoading(true);
+
               setIsSearching(true);
               setDeepSearchResults([]);
               setError(null);
@@ -1108,7 +1161,7 @@ useEffect(() => {
                   setError(err.message);
                   setDeepSearchResults([]);
               } finally {
-                  setSearchLoading(false);
+                  setIsSearching(false);
               }
           };
       
@@ -1892,3 +1945,274 @@ const renderFolderList = (structure) => {
             </>
         )
     );
+
+    const renderFileContextMenu = () => (
+        fileContextMenuPos && (
+            <>
+                {/* Backdrop to catch outside clicks */}
+                <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setFileContextMenuPos(null)}
+                />
+                <div
+                    className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                    style={{ top: fileContextMenuPos.y, left: fileContextMenuPos.x }}
+                    onMouseLeave={() => setFileContextMenuPos(null)}
+                >
+                    <button
+                        onClick={() => handleApplyPromptToFiles('summarize')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <MessageSquare size={16} />
+                        <span>Summarize Files ({selectedFiles.size})</span>
+                    </button>
+                    <button
+                        onClick={() => handleApplyPromptToFilesInInput('summarize')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <MessageSquare size={16} />
+                        <span>Summarize in Input Field ({selectedFiles.size})</span>
+                    </button>
+                    <div className="border-t theme-border my-1"></div>
+                    <button
+                        onClick={() => handleApplyPromptToFiles('analyze')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <Edit size={16} />
+                        <span>Analyze Files ({selectedFiles.size})</span>
+                    </button>
+                    <button
+                        onClick={() => handleApplyPromptToFilesInInput('analyze')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <Edit size={16} />
+                        <span>Analyze in Input Field ({selectedFiles.size})</span>
+                    </button>
+                    <div className="border-t theme-border my-1"></div>
+                    <button
+                        onClick={() => handleApplyPromptToFiles('refactor')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <Code2 size={16} />
+                        <span>Refactor Code ({selectedFiles.size})</span>
+                    </button>
+                    <button
+                        onClick={() => handleApplyPromptToFiles('document')}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <FileText size={16} />
+                        <span>Document Code ({selectedFiles.size})</span>
+                    </button>
+                </div>
+            </>
+        )
+    );
+
+// Main Sidebar render
+const getPlaceholderText = () => {
+    if (isGlobalSearch) {
+        return "Global search (Ctrl+Shift+F)...";
+    }
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (activePaneData) {
+        switch (activePaneData.contentType) {
+            case 'editor':
+                return "Search in current file (Ctrl+F)...";
+            case 'chat':
+                return "Search in conversation (Ctrl+F)...";
+            default:
+                return "Local search (Ctrl+F)...";
+        }
+    }
+    return "Search (Ctrl+F)...";
+};
+
+return (
+    <div
+        className="border-r theme-border flex flex-col flex-shrink-0 theme-sidebar relative"
+        style={{
+            width: sidebarCollapsed ? '32px' : `${sidebarWidth}px`,
+            transition: sidebarCollapsed ? 'width 0.2s ease' : 'none'
+        }}
+    >
+        {!sidebarCollapsed && (
+            <div
+                className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-50"
+                onMouseDown={(e) => {
+                    e.preventDefault();
+                    setIsResizingSidebar(true);
+                }}
+                style={{
+                    backgroundColor: isResizingSidebar ? '#3b82f6' : 'transparent'
+                }}
+            />
+        )}
+
+        <div className={`p-4 border-b theme-border flex items-center justify-between flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}
+              style={{ WebkitAppRegion: 'drag' }}>
+            <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
+            <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
+                <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
+
+                <div className="relative group">
+                    <div className="flex">
+                        <button onClick={createNewConversation} className="p-2 theme-button-primary rounded-full flex items-center gap-1 transition-all" aria-label="New Conversation">
+                            <Plus size={14} />
+                            <ChevronRight size={10} className="transform rotate-90 opacity-60" />
+                        </button>
+                    </div>
+
+                    <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
+                        <button onClick={createNewConversation} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                            <MessageSquare size={12} />
+                            <span>New Conversation</span>
+                        </button>
+                        <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                            <Folder size={12} />
+                            <span>New Folder</span>
+                        </button>
+                        <button onClick={() => setBrowserUrlDialogOpen(true)} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                            <Globe size={12} />
+                            <span>New Browser</span>
+                        </button>
+                        <button onClick={createNewTextFile} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                            <FileText size={12} />
+                            <span>New Text File</span>
+                        </button>
+                        <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                            <Terminal size={12} />
+                            <span>New Terminal</span>
+                        </button>
+                    </div>
+                </div>
+
+                <button className="theme-toggle-btn p-1" onClick={toggleTheme}>{isDarkMode ? '🌙' : '☀️'}</button>
+            </div>
+        </div>
+
+        <div className={`p-2 border-b theme-border flex items-center gap-2 flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
+            <button onClick={goUpDirectory} className="p-2 theme-hover rounded-full transition-all" title="Go Up" aria-label="Go Up Directory"><ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/></button>
+                {isEditingPath ? (
+                    <input
+                        type="text"
+                        value={editedPath}
+                        onChange={(e) => setEditedPath(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                setIsEditingPath(false);
+                                switchToPath(editedPath);
+                            } else if (e.key === 'Escape') {
+                                setIsEditingPath(false);
+                            }
+                        }}
+                        onBlur={() => setIsEditingPath(false)}
+                        autoFocus
+                        className="text-xs theme-text-muted theme-input border rounded px-2 py-1 flex-1"
+                    />
+                ) : (
+                <div
+                    onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }}
+                    className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-1 rounded flex-1"
+                    title={currentPath}
+                >
+                    {currentPath || '...'}
+                </div>
+            )}
+        </div>
+
+        <div className={`p-2 border-b theme-border flex flex-col gap-2 flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
+            <div className="flex items-center gap-2">
+            <input
+                ref={searchInputRef}
+                type="text"
+                value={searchTerm}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                    }
+                }}
+                placeholder={getPlaceholderText()}
+                className="flex-grow theme-input text-xs rounded px-2 py-1 border focus:outline-none"
+            />
+                <button
+                    onClick={() => {
+                        setSearchTerm('');
+                        setIsSearching(false);
+                        setDeepSearchResults([]);
+                        setMessageSearchResults([]);
+                    }}
+                    className="p-2 theme-hover rounded-full transition-all"
+                    aria-label="Clear Search"
+                >
+                    <X size={14} className="text-gray-400" />
+                </button>
+            </div>
+        </div>
+
+        <div className={`flex-1 overflow-y-auto px-2 py-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
+            {loading ? (
+                <div className="p-4 theme-text-muted">Loading...</div>
+            ) : isSearching ? (
+                renderSearchResults()
+            ) : (
+                <>
+                    {renderWebsiteList()}
+                    {renderFolderList(folderStructure)}
+                    {renderConversationList(directoryConversations)}
+                    {renderGitPanel()}
+                </>
+            )}
+            {contextMenuPos && renderContextMenu()}
+            {sidebarItemContextMenuPos && renderSidebarItemContextMenu()}
+            {fileContextMenuPos && renderFileContextMenu()}
+        </div>
+
+        {sidebarCollapsed && <div className="flex-1"></div>}
+
+        <div className={sidebarCollapsed ? 'hidden' : ''}>
+            {renderActiveWindowsIndicator()}
+            {renderWorkspaceIndicator()}
+        </div>
+
+        <div className={`flex justify-center ${sidebarCollapsed ? 'hidden' : ''}`}>
+            <button
+                onClick={deleteSelectedConversations}
+                className="p-2 theme-hover rounded-full text-red-400 transition-all"
+                title="Delete selected items"
+            >
+                <Trash size={24} />
+            </button>
+        </div>
+
+        <div className="p-4 border-t theme-border flex-shrink-0">
+            {!sidebarCollapsed && (
+                <div className="grid grid-cols-3 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
+                    <button onClick={() => setCronDaemonPanelOpen(true)} className="action-grid-button" aria-label="Open Cron/Daemon Panel"><Clock size={16} /></button>
+                    <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer"><Image size={16} /></button>
+                    <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
+                    <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
+                    <button onClick={() => setCtxEditorOpen(true)} className="action-grid-button" aria-label="Open Context Editor"><FileJson size={16} /></button>
+                    <button onClick={handleOpenNpcTeamMenu} className="action-grid-button" aria-label="Open NPC Team Menu"><Users size={16} /></button>
+                </div>
+            )}
+
+            <div className={`flex justify-center ${!sidebarCollapsed ? 'mt-4' : ''}`}>
+                <button
+                    onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                    className="p-2 w-full theme-button theme-hover rounded-full transition-all group"
+                    title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                >
+                    <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
+                        <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                        <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
+                        <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+);
+
+};
+
+export default Sidebar;

@@ -1,3 +1,12 @@
+import React, { memo } from 'react';
+import MarkdownRenderer from './MarkdownRenderer';
+import { Paperclip } from 'lucide-react';
+
+const highlightSearchTerm = (content: string, searchTerm: string): string => {
+    if (!searchTerm || !content) return content;
+    const regex = new RegExp(`(${searchTerm})`, 'gi');
+    return content.replace(regex, '**$1**');
+};
 
 export const ChatMessage = memo(({ 
     message, 
