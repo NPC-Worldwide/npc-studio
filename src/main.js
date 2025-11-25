@@ -3170,14 +3170,21 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
                              '.css', 
                              '.npc', 
                              '.jinx', 
-                             '.pdf', 
-                             '.csv', 
-                             '.sh', 
-                             '.ctx', 
-                             '.cpp', 
-                             '.c', 
-                             '.r', 
-                             '.json', 
+                             '.pdf',
+                             '.csv',
+                             '.sh',
+                             '.ctx',
+                             '.cpp',
+                             '.c',
+                             '.r',
+                             '.json',
+                             '.jpg',
+                             '.jpeg',
+                             '.png',
+                             '.gif',
+                             '.webp',
+                             '.bmp',
+                             '.svg',
                             ];
   
   const ignorePatterns = ['node_modules', '.git', '.DS_Store'];
@@ -3457,6 +3464,99 @@ ipcMain.handle('get-directory-contents-recursive', async (_, directoryPath) => {
     } catch (err) {
         console.error('Error getting directory contents:', err);
         return { files: [], error: err.message };
+    }
+});
+
+// Disk usage analyzer handler
+ipcMain.handle('analyze-disk-usage', async (_, folderPath) => {
+    try {
+        const analyzePath = async (currentPath, depth = 0, maxDepth = 3) => {
+            const stats = await fsPromises.stat(currentPath);
+            const name = path.basename(currentPath);
+
+            if (stats.isFile()) {
+                return {
+                    name,
+                    path: currentPath,
+                    type: 'file',
+                    size: stats.size
+                };
+            }
+
+            if (stats.isDirectory()) {
+                let children = [];
+                let totalSize = 0;
+                let fileCount = 0;
+                let folderCount = 0;
+
+                try {
+                    const entries = await fsPromises.readdir(currentPath, { withFileTypes: true });
+
+                    // Only go deeper if we haven't hit max depth
+                    if (depth < maxDepth) {
+                        for (const entry of entries) {
+                            const childPath = path.join(currentPath, entry.name);
+                            try {
+                                const childResult = await analyzePath(childPath, depth + 1, maxDepth);
+                                if (childResult) {
+                                    children.push(childResult);
+                                    totalSize += childResult.size || 0;
+                                    if (childResult.type === 'file') {
+                                        fileCount++;
+                                    } else {
+                                        folderCount++;
+                                        fileCount += childResult.fileCount || 0;
+                                        folderCount += childResult.folderCount || 0;
+                                    }
+                                }
+                            } catch (childErr) {
+                                // Skip inaccessible files/folders
+                                console.warn(`Skipping inaccessible: ${childPath}`);
+                            }
+                        }
+                    } else {
+                        // At max depth, just count sizes without going deeper
+                        for (const entry of entries) {
+                            const childPath = path.join(currentPath, entry.name);
+                            try {
+                                const childStats = await fsPromises.stat(childPath);
+                                if (childStats.isFile()) {
+                                    totalSize += childStats.size;
+                                    fileCount++;
+                                } else if (childStats.isDirectory()) {
+                                    folderCount++;
+                                }
+                            } catch (e) {
+                                // Skip inaccessible
+                            }
+                        }
+                    }
+                } catch (readErr) {
+                    console.warn(`Cannot read directory: ${currentPath}`);
+                }
+
+                // Sort children by size (largest first)
+                children.sort((a, b) => (b.size || 0) - (a.size || 0));
+
+                return {
+                    name,
+                    path: currentPath,
+                    type: 'folder',
+                    size: totalSize,
+                    fileCount,
+                    folderCount,
+                    children
+                };
+            }
+
+            return null;
+        };
+
+        const result = await analyzePath(folderPath, 0, 3);
+        return result;
+    } catch (err) {
+        console.error('Error analyzing disk usage:', err);
+        throw err;
     }
 });
 

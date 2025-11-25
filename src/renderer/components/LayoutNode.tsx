@@ -2,8 +2,9 @@ import React, { useCallback, memo } from 'react';
 import {
     BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
-    Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe, 
-    GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter,     File as FileIcon 
+    Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe,
+    GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
+    Image as ImageIcon
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import { getFileIcon } from './utils';
@@ -202,7 +203,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             updateContentPane, performSplit,
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
-            renderPptxViewer, renderLatexViewer,
+            renderPptxViewer, renderLatexViewer, renderPicViewer,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -274,6 +275,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'terminal') {
             headerIcon = <Terminal size={14} />;
             headerTitle = 'Terminal';
+        } else if (contentType === 'image') {
+            headerIcon = <ImageIcon size={14} className="text-purple-400" />;
+            headerTitle = contentId?.split('/').pop() || 'Image Viewer';
         } else if (contentId) {
             headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();
@@ -346,6 +350,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderPptxViewer({ nodeId: node.id });
                 case 'latex':
                     return renderLatexViewer({ nodeId: node.id });
+                case 'image':
+                    return renderPicViewer({ nodeId: node.id });
                 default:
                     // This is the content for an empty pane
                     return (

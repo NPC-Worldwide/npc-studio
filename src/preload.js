@@ -55,6 +55,7 @@ readDocxContent: (filePath) =>
     createDirectory: (path) => ipcRenderer.invoke('create-directory', path),
     deleteDirectory: (path) => ipcRenderer.invoke('delete-directory', path),
     getDirectoryContentsRecursive: (path) => ipcRenderer.invoke('get-directory-contents-recursive', path),
+    analyzeDiskUsage: (path) => ipcRenderer.invoke('analyze-disk-usage', path),
     showPdf: (args) => ipcRenderer.send('show-pdf', args),
     updatePdfBounds: (bounds) => ipcRenderer.send('update-pdf-bounds', bounds),
     hidePdf: (filePath) => ipcRenderer.send('hide-pdf', filePath),

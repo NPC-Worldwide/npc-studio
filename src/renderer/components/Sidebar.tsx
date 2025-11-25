@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
-    X, Wrench, FileText, FileJson, BarChart3, Clock, Code2
+    X, Wrench, FileText, FileJson, BarChart3, Clock, Code2, HardDrive, ChevronDown
 } from 'lucide-react';
+import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 
 const Sidebar = (props: any) => {
     // Destructure all props from Enpistu
@@ -46,6 +47,9 @@ const Sidebar = (props: any) => {
 
     const WINDOW_WORKSPACES_KEY = 'npcStudioWorkspaces';
     const ACTIVE_WINDOWS_KEY = 'npcStudioActiveWindows';
+
+    // Local state for disk usage panel
+    const [diskUsageCollapsed, setDiskUsageCollapsed] = useState(true);
 
 // ===== ALL THE SIDEBAR FUNCTIONS BELOW =====
 
@@ -899,7 +903,42 @@ useEffect(() => {
         loadGitStatus();
     }
     }, [currentPath, loadGitStatus]);
-    
+
+    const renderDiskUsagePanel = () => {
+        console.log('[DiskUsage] renderDiskUsagePanel called, currentPath:', currentPath, 'diskUsageCollapsed:', diskUsageCollapsed);
+        if (!currentPath) {
+            console.log('[DiskUsage] No currentPath, returning null');
+            return null;
+        }
+
+        return (
+            <div className="mt-4 border-t theme-border pt-2">
+                {/* Header with collapse toggle */}
+                <div className="flex items-center justify-between px-4 py-2">
+                    <div className="text-xs text-gray-500 font-medium flex items-center gap-2">
+                        <HardDrive size={14} />
+                        Disk Usage
+                    </div>
+                    <button
+                        onClick={() => setDiskUsageCollapsed(!diskUsageCollapsed)}
+                        className="p-1 theme-hover rounded"
+                        title={diskUsageCollapsed ? "Expand disk usage" : "Collapse disk usage"}
+                    >
+                        <ChevronRight
+                            size={14}
+                            className={`transform transition-transform ${diskUsageCollapsed ? "" : "rotate-90"}`}
+                        />
+                    </button>
+                </div>
+                {!diskUsageCollapsed && (
+                    <div className="px-2">
+                        <DiskUsageAnalyzer path={currentPath} isDarkMode={isDarkMode} />
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     const renderGitPanel = () => {
         // Only render the panel if gitStatus is available
         if (!gitStatus) return null;
@@ -1348,10 +1387,11 @@ useEffect(() => {
                                   renderSearchResults()
                               ) : (
                                   <>
-                                      {renderWebsiteList()}                        
+                                      {renderWebsiteList()}
                                       {renderFolderList(folderStructure)}
                                       {renderConversationList(directoryConversations)}
                                       {renderGitPanel()}
+                                      {renderDiskUsagePanel()}
                                   </>
                               )}
                               {contextMenuPos && renderContextMenu()}
@@ -2160,6 +2200,7 @@ return (
                     {renderFolderList(folderStructure)}
                     {renderConversationList(directoryConversations)}
                     {renderGitPanel()}
+                    {renderDiskUsagePanel()}
                 </>
             )}
             {contextMenuPos && renderContextMenu()}

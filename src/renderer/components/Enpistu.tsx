@@ -30,6 +30,7 @@ import WebBrowserViewer from './WebBrowserViewer';
 import BrowserUrlDialog from './BrowserUrlDialog';
 import PptxViewer from './PptxViewer';
 import LatexViewer from './LatexViewer';
+import PicViewer from './PicViewer';
 import {
     serializeWorkspace,
     saveWorkspaceToStorage,
@@ -248,6 +249,12 @@ const ChatInterface = () => {
         defaultPrompt: '',
         onConfirm: null
     });
+    const [resendModal, setResendModal] = useState({
+        isOpen: false,
+        message: null,
+        selectedModel: '',
+        selectedNPC: ''
+    });
     const [mcpServerPath, setMcpServerPath] = useState('~/.npcsh/npc_team/mcp_server.py');
     const [selectedMcpTools, setSelectedMcpTools] = useState([]);
     const [availableMcpTools, setAvailableMcpTools] = useState([]);
@@ -324,12 +331,6 @@ const ChatInterface = () => {
     const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
     const rootLayoutNodeRef = useRef(rootLayoutNode);
     const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
-    const [resendModal, setResendModal] = useState({
-        isOpen: false,
-        message: null,
-        selectedModel: '',
-        selectedNPC: ''
-    });
 
     // Resize handlers for sidebar and input area
     const handleSidebarResize = useCallback((e) => {
@@ -819,18 +820,20 @@ const closeContentPane = useCallback((paneId, nodePath) => {
     setRootLayoutNode(oldRoot => {
         if (!oldRoot) return oldRoot;
 
-        // If this is the root node and it's a content pane, can't close it
+        // If this is the root node and it's a content pane, allow closing it (returns null)
         if (oldRoot.type === 'content' && oldRoot.id === paneId) {
-            console.warn('[CLOSE_PANE] Cannot close the only pane');
-            return oldRoot;
+            console.log('[CLOSE_PANE] Closing the last pane');
+            delete contentDataRef.current[paneId];
+            return null;
         }
 
         const newRoot = JSON.parse(JSON.stringify(oldRoot));
 
-        // If path is empty, this is the root node
+        // If path is empty, this is the root node - allow closing
         if (nodePath.length === 0) {
-            console.warn('[CLOSE_PANE] Cannot close root pane');
-            return oldRoot;
+            console.log('[CLOSE_PANE] Closing root pane');
+            delete contentDataRef.current[paneId];
+            return null;
         }
 
         // Navigate to parent of the node we want to remove
@@ -920,10 +923,10 @@ const renderChatView = useCallback(({ nodeId }) => {
                             }
                             setSelectedMessages(newSet);
                         }}
-                        handleMessageContextMenu={() => {}}
+                        handleMessageContextMenu={(e: React.MouseEvent) => handleMessageContextMenu(e, msg)}
                         searchTerm={searchTerm}
                         isCurrentSearchResult={false}
-                        onResendMessage={() => {}}
+                        onResendMessage={() => handleResendMessage(msg)}
                         onCreateBranch={() => {}}
                         messageIndex={idx}
                     />
@@ -1057,6 +1060,15 @@ const renderLatexViewer = useCallback(({ nodeId }) => {
     );
 }, [rootLayoutNode, closeContentPane]);
 
+const renderPicViewer = useCallback(({ nodeId }) => {
+    return (
+        <PicViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+        />
+    );
+}, []);
+
 // Use the PDF highlights loader from PdfViewer module
 useEffect(() => {
     loadPdfHighlightsForActivePane(activeContentPaneId, contentDataRef, setPdfHighlights);
@@ -1087,123 +1099,6 @@ useEffect(() => {
             window.removeEventListener('keydown', handleGlobalDismiss);
         };
     }, []);
-
-
-const handleApplyPromptToMessages = async (operationType, customPrompt = '') => {
-    const selectedIds = Array.from(selectedMessages);
-    if (selectedIds.length === 0) return;
-
-
-    const activePaneData = contentDataRef.current[activeContentPaneId];
-    if (!activePaneData || !activePaneData.chatMessages) {
-        console.error("No active chat pane data found for message operation.");
-        return;
-    }
-    const allMessagesInPane = activePaneData.chatMessages.allMessages;
-    const selectedMsgs = allMessagesInPane.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
-
-    
-    if (selectedMsgs.length === 0) return;
-
-    let prompt = '';
-
-    switch (operationType) {
-        case 'summarize':
-            prompt = `Summarize the content of these ${selectedFilePaths.length} file(s):\n\n`;
-            break;
-        case 'analyze':
-            prompt = `Analyze the content of these ${selectedFilePaths.length} file(s) for key insights:\n\n`;
-            break;
-        case 'refactor':
-            prompt = `Refactor and improve the code in these ${selectedFilePaths.length} file(s):\n\n`;
-            break;
-        case 'document':
-            prompt = `Generate documentation for these ${selectedFilePaths.length} file(s):\n\n`;
-            break;
-        case 'custom':
-            prompt = customPrompt + `\n\nApply this to these ${selectedFilePaths.length} file(s):\n\n`;
-            break;
-        default:
-            prompt = `Process these ${selectedFilePaths.length} file(s):\n\n`;
-            break;
-    }    
-    const messagesText = selectedMsgs.map((msg, idx) => 
-        `Message ${idx + 1} (${msg.role}):\n${msg.content}`
-    ).join('\n\n');
-
-    const fullPrompt = prompt + messagesText;
-
-    try {
-        console.log('Creating new conversation for message operation:', operationType);
-        const newConversation = await createNewConversation();
-        
-        if (!newConversation) throw new Error('Failed to create new conversation');
-
-       
-       
-        setInput(fullPrompt);
-        
-    } catch (err) {
-        console.error('Error processing messages:', err);
-        setError(err.message);
-        setInput(fullPrompt);
-    } finally {
-        setSelectedMessages(new Set());
-        setMessageContextMenuPos(null);
-        setMessageSelectionMode(false);
-    }
-};
-
-const handleApplyPromptToCurrentConversation = async (operationType, customPrompt = '') => {
-    const selectedIds = Array.from(selectedMessages);
-    if (selectedIds.length === 0) return;
-    
-   
-    const activePaneData = contentDataRef.current[activeContentPaneId];
-    if (!activePaneData || !activePaneData.chatMessages) {
-        console.error("No active chat pane data found for message operation.");
-        return;
-    }
-    const allMessagesInPane = activePaneData.chatMessages.allMessages;
-    const selectedMsgs = allMessagesInPane.filter(msg => selectedIds.includes(msg.id || msg.timestamp));
-   
-    
-    if (selectedMsgs.length === 0) return;
-
-    let prompt = '';
-    switch (operationType) {
-        case 'summarize':
-            prompt = `Summarize these ${selectedMsgs.length} messages:\n\n`;
-            break;
-        case 'analyze':
-            prompt = `Analyze these ${selectedMsgs.length} messages for key insights:\n\n`;
-            break;
-        case 'extract':
-            prompt = `Extract the key information from these ${selectedMsgs.length} messages:\n\n`;
-            break;
-        case 'custom':
-            prompt = customPrompt + `\n\nApply this to these ${selectedMsgs.length} messages:\n\n`;
-            break;
-    }
-
-    const messagesText = selectedMsgs.map((msg, idx) => 
-        `Message ${idx + 1} (${msg.role}):\n${msg.content}`
-    ).join('\n\n');
-
-    const fullPrompt = prompt + messagesText;
-
-   
-    setInput(fullPrompt);
-    
-   
-    setSelectedMessages(new Set());
-    setMessageContextMenuPos(null);
-    setMessageSelectionMode(false);
-};
-
-
-   
-    
 
     const directoryConversationsRef = useRef(directoryConversations);
     useEffect(() => {
@@ -1825,7 +1720,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
         const isJinxMode = executionMode !== 'chat' && selectedJinx;
         const currentJinxInputs = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
 
-        const hasContent = input.trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
+        const hasContent = (input || '').trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
 
         if (isStreaming || !hasContent || (!activeContentPaneId && !isJinxMode)) {
             if (!isJinxMode && !activeContentPaneId) {
@@ -2049,6 +1944,275 @@ ${contextPrompt}`;
         } catch (error) {
             console.error(`[REACT] handleInterruptStream: API call to interrupt stream ${streamIdToInterrupt} failed:`, error);
             streamingMessage.content += " [Interruption API call failed]";
+            setRootLayoutNode(prev => ({ ...prev }));
+        }
+    };
+
+    const handleMessageContextMenu = (e: React.MouseEvent, message: any) => {
+        e.preventDefault();
+        const selection = window.getSelection();
+        const selectedText = selection?.toString() || '';
+
+        setMessageContextMenuPos({
+            x: e.clientX,
+            y: e.clientY,
+            selectedText,
+            messageId: message.id || message.timestamp
+        });
+    };
+
+    const handleApplyPromptToMessages = async (operationType: string, customPrompt = '') => {
+        const selectedIds = Array.from(selectedMessages);
+        if (selectedIds.length === 0) return;
+
+        const activePaneData = contentDataRef.current[activeContentPaneId];
+        if (!activePaneData || !activePaneData.chatMessages) {
+            console.error("No active chat pane data found for message operation.");
+            return;
+        }
+        const allMessagesInPane = activePaneData.chatMessages.allMessages;
+        const selectedMsgs = allMessagesInPane.filter((msg: any) => selectedIds.includes(msg.id || msg.timestamp));
+
+        if (selectedMsgs.length === 0) return;
+
+        let prompt = '';
+        switch (operationType) {
+            case 'summarize':
+                prompt = `Summarize these ${selectedMsgs.length} messages:\n\n`;
+                break;
+            case 'analyze':
+                prompt = `Analyze these ${selectedMsgs.length} messages for key insights:\n\n`;
+                break;
+            case 'extract':
+                prompt = `Extract the key information from these ${selectedMsgs.length} messages:\n\n`;
+                break;
+            case 'custom':
+                prompt = customPrompt + `\n\nApply this to these ${selectedMsgs.length} messages:\n\n`;
+                break;
+            default:
+                prompt = `Process these ${selectedMsgs.length} messages:\n\n`;
+                break;
+        }
+
+        const messagesText = selectedMsgs.map((msg: any, idx: number) =>
+            `Message ${idx + 1} (${msg.role}):\n${msg.content}`
+        ).join('\n\n');
+
+        const fullPrompt = prompt + messagesText;
+
+        try {
+            console.log('Creating new conversation for message operation:', operationType);
+            await createNewConversation();
+            setInput(fullPrompt);
+        } catch (err: any) {
+            console.error('Error processing messages:', err);
+            setError(err.message);
+            setInput(fullPrompt);
+        } finally {
+            setSelectedMessages(new Set());
+            setMessageContextMenuPos(null);
+            setMessageSelectionMode(false);
+        }
+    };
+
+    const handleResendMessage = (messageToResend: any) => {
+        if (isStreaming) {
+            console.warn('Cannot resend while streaming');
+            return;
+        }
+
+        setResendModal({
+            isOpen: true,
+            message: messageToResend,
+            selectedModel: currentModel,
+            selectedNPC: currentNPC
+        });
+    };
+
+    const handleDeleteSelectedMessages = async () => {
+        const selectedIds = Array.from(selectedMessages);
+        if (selectedIds.length === 0) return;
+
+        const activePaneData = contentDataRef.current[activeContentPaneId];
+        if (!activePaneData || !activePaneData.chatMessages) {
+            console.error("No active chat pane for deletion.");
+            return;
+        }
+
+        const conversationId = activePaneData.contentId;
+        if (!conversationId) return;
+
+        try {
+            const messageIdsToDelete = activePaneData.chatMessages.allMessages
+                .filter((m: any) => selectedIds.includes(m.id || m.timestamp))
+                .map((m: any) => m.message_id || m.id)
+                .filter(Boolean);
+
+            if (messageIdsToDelete.length > 0) {
+                await window.api.deleteMessages({
+                    conversationId,
+                    messageIds: messageIdsToDelete
+                });
+            }
+
+            activePaneData.chatMessages.allMessages = activePaneData.chatMessages.allMessages.filter(
+                (m: any) => !selectedIds.includes(m.id || m.timestamp)
+            );
+            activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(-(activePaneData.chatMessages.displayedMessageCount || 20));
+            activePaneData.chatStats = getConversationStats(activePaneData.chatMessages.allMessages);
+
+            setRootLayoutNode(prev => ({ ...prev }));
+            setSelectedMessages(new Set());
+            setMessageContextMenuPos(null);
+            setMessageSelectionMode(false);
+        } catch (err: any) {
+            console.error('Error deleting messages:', err);
+            setError(err.message);
+        }
+    };
+
+    const handleResendWithSettings = async (messageToResend: any, selectedModel: string, selectedNPC: string) => {
+        const activePaneData = contentDataRef.current[activeContentPaneId];
+        if (!activePaneData || activePaneData.contentType !== 'chat' || !activePaneData.contentId) {
+            setError("Cannot resend: The active pane is not a valid chat window.");
+            return;
+        }
+        if (isStreaming) {
+            console.warn('Cannot resend while another operation is in progress.');
+            return;
+        }
+
+        const conversationId = activePaneData.contentId;
+        let newStreamId: string | null = null;
+
+        try {
+            // Find the user message and the assistant response that followed
+            const messageIdToResend = messageToResend.id || messageToResend.timestamp;
+            const allMessages = activePaneData.chatMessages.allMessages;
+            const userMsgIndex = allMessages.findIndex((m: any) =>
+                (m.id || m.timestamp) === messageIdToResend
+            );
+
+            console.log('[RESEND] Found user message at index:', userMsgIndex);
+
+            if (userMsgIndex !== -1) {
+                // Collect messages to delete (the user message and any assistant responses after it)
+                const messagesToDelete = [];
+
+                // Add the original user message to delete list
+                const userMsg = allMessages[userMsgIndex];
+                if (userMsg.message_id || userMsg.id) {
+                    messagesToDelete.push(userMsg.message_id || userMsg.id);
+                }
+
+                // Add the assistant response that followed (if exists)
+                if (userMsgIndex + 1 < allMessages.length &&
+                    allMessages[userMsgIndex + 1].role === 'assistant') {
+                    const assistantMsg = allMessages[userMsgIndex + 1];
+                    if (assistantMsg.message_id || assistantMsg.id) {
+                        messagesToDelete.push(assistantMsg.message_id || assistantMsg.id);
+                    }
+                }
+
+                console.log('[RESEND] Messages to delete:', messagesToDelete);
+
+                // Delete from database
+                for (const msgId of messagesToDelete) {
+                    try {
+                        const result = await window.api.deleteMessage({
+                            conversationId,
+                            messageId: msgId
+                        });
+                        console.log('[RESEND] Deleted message:', msgId, 'Result:', result);
+                    } catch (err) {
+                        console.error('[RESEND] Error deleting message:', msgId, err);
+                    }
+                }
+
+                // Remove from local state - keep everything BEFORE the user message
+                activePaneData.chatMessages.allMessages = allMessages.slice(0, userMsgIndex);
+                activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
+                    -(activePaneData.chatMessages.displayedMessageCount || 20)
+                );
+
+                console.log('[RESEND] Messages after deletion:', activePaneData.chatMessages.allMessages.length);
+            }
+
+            // Now send the new message
+            newStreamId = generateId();
+            streamToPaneRef.current[newStreamId] = activeContentPaneId;
+            setIsStreaming(true);
+
+            const selectedNpc = availableNPCs.find((npc: any) => npc.value === selectedNPC);
+
+            // Create NEW user message (don't reuse the old one)
+            const newUserMessage = {
+                id: generateId(), // NEW ID
+                role: 'user',
+                content: messageToResend.content,
+                timestamp: new Date().toISOString(),
+                attachments: messageToResend.attachments || [],
+            };
+
+            const assistantPlaceholderMessage = {
+                id: newStreamId,
+                role: 'assistant',
+                content: '',
+                isStreaming: true,
+                timestamp: new Date().toISOString(),
+                streamId: newStreamId,
+                model: selectedModel,
+                npc: selectedNPC,
+            };
+
+            // Add new messages
+            activePaneData.chatMessages.allMessages.push(newUserMessage, assistantPlaceholderMessage);
+            activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
+                -(activePaneData.chatMessages.displayedMessageCount || 20)
+            );
+
+            console.log('[RESEND] Added new messages, total now:', activePaneData.chatMessages.allMessages.length);
+
+            setRootLayoutNode(prev => ({ ...prev }));
+
+            const selectedModelObj = availableModels.find((m: any) => m.value === selectedModel);
+            const providerToUse = selectedModelObj ? selectedModelObj.provider : currentProvider;
+
+            await window.api.executeCommandStream({
+                commandstr: messageToResend.content,
+                currentPath,
+                conversationId: conversationId,
+                model: selectedModel,
+                provider: providerToUse,
+                npc: selectedNpc ? selectedNpc.name : selectedNPC,
+                npcSource: selectedNpc ? selectedNpc.source : 'global',
+                attachments: messageToResend.attachments?.map((att: any) => ({
+                    name: att.name, path: att.path, size: att.size, type: att.type
+                })) || [],
+                streamId: newStreamId,
+                isResend: true
+            });
+
+            setResendModal({ isOpen: false, message: null, selectedModel: '', selectedNPC: '' });
+        } catch (err: any) {
+            console.error('[RESEND] Error resending message:', err);
+            setError(err.message);
+
+            if (activePaneData.chatMessages && newStreamId) {
+                const msgIndex = activePaneData.chatMessages.allMessages.findIndex((m: any) => m.id === newStreamId);
+                if (msgIndex !== -1) {
+                    const message = activePaneData.chatMessages.allMessages[msgIndex];
+                    message.content = `[Error resending message: ${err.message}]`;
+                    message.type = 'error';
+                    message.isStreaming = false;
+                }
+            }
+
+            if (newStreamId) delete streamToPaneRef.current[newStreamId];
+            if (Object.keys(streamToPaneRef.current).length === 0) {
+                setIsStreaming(false);
+            }
+
             setRootLayoutNode(prev => ({ ...prev }));
         }
     };
@@ -2715,6 +2879,48 @@ ${contextPrompt}`;
     availableModels={availableModels} // Pass available models for dropdown
 />
 
+        {messageContextMenuPos && (
+            <>
+                {/* Backdrop to catch outside clicks */}
+                <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setMessageContextMenuPos(null)}
+                />
+                <div
+                    className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
+                    style={{ top: messageContextMenuPos.y, left: messageContextMenuPos.x }}
+                    onMouseLeave={() => setMessageContextMenuPos(null)}
+                >
+                    {/* Show copy option if there's selected text */}
+                    {messageContextMenuPos.selectedText && (
+                        <>
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText(messageContextMenuPos.selectedText);
+                                    setMessageContextMenuPos(null);
+                                }}
+                                className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-xs"
+                            >
+                                <Edit size={14} />
+                                <span>Copy Selected Text</span>
+                            </button>
+                            <div className="border-t theme-border my-1"></div>
+                        </>
+                    )}
+
+                    {/* Delete option */}
+                    <div className="border-t theme-border my-1"></div>
+                    <button
+                        onClick={handleDeleteSelectedMessages}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400 text-xs"
+                    >
+                        <Trash size={14} />
+                        <span>Delete Messages ({selectedMessages.size})</span>
+                    </button>
+                </div>
+            </>
+        )}
+
         {resendModal.isOpen && (
             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                 <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-md w-full">
@@ -3086,6 +3292,7 @@ const layoutComponentApi = useMemo(() => ({
     renderBrowserViewer,
     renderPptxViewer,
     renderLatexViewer,
+    renderPicViewer,
     setPaneContextMenu,
     // ADD THESE NEW PROPS:
     autoScrollEnabled, setAutoScrollEnabled,
@@ -3100,6 +3307,7 @@ const layoutComponentApi = useMemo(() => ({
     renderCsvViewer, renderDocxViewer, renderBrowserViewer,
     renderPptxViewer,
     renderLatexViewer,
+    renderPicViewer,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
     // ADD THESE NEW DEPENDENCIES:
@@ -3181,6 +3389,7 @@ const handleFileClick = useCallback(async (filePath: string) => {
     else if (extension === 'pptx') contentType = 'pptx';
     else if (extension === 'tex') contentType = 'latex';
     else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
+    else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
 
     console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
 
@@ -3318,20 +3527,88 @@ const renderBrowserContextMenu = () => {
 };
 
 // Handle starting conversation from a viewer (PhotoViewer, etc.)
-const handleStartConversationFromViewer = async (content?: string) => {
-    await createNewConversation();
-    if (content) {
-        setInput(content);
+const handleStartConversationFromViewer = async (images?: Array<{ path: string }>) => {
+    console.log('[handleStartConversationFromViewer] Called with images:', images);
+    if (!images || images.length === 0) {
+        console.log('[handleStartConversationFromViewer] No images provided, returning');
+        return;
     }
+
+    // Helper to get mime type from extension
+    const getMimeType = (filePath: string): string => {
+        const ext = filePath.split('.').pop()?.toLowerCase() || '';
+        const mimeTypes: { [key: string]: string } = {
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+            'bmp': 'image/bmp',
+            'svg': 'image/svg+xml',
+        };
+        return mimeTypes[ext] || 'image/jpeg';
+    };
+
+    const attachmentsToAdd = images.map(img => ({
+        id: generateId(),
+        name: img.path.split('/').pop() || 'image',
+        type: getMimeType(img.path),
+        path: img.path,
+        size: 0,
+        preview: `file://${img.path}`
+    }));
+
+    console.log('[handleStartConversationFromViewer] Adding attachments:', attachmentsToAdd);
+    setUploadedFiles(prev => {
+        const newFiles = [...prev, ...attachmentsToAdd];
+        console.log('[handleStartConversationFromViewer] New uploadedFiles:', newFiles);
+        return newFiles;
+    });
 };
 
 // Sidebar rendering function
+// Render attachment thumbnails in the input area
+const renderAttachmentThumbnails = () => {
+    if (uploadedFiles.length === 0) return null;
+
+    return (
+        <div className="flex flex-wrap gap-2 p-2 border-b theme-border">
+            {uploadedFiles.map((file: any) => (
+                <div key={file.id} className="relative group">
+                    {file.preview ? (
+                        <img
+                            src={file.preview}
+                            alt={file.name}
+                            className="w-16 h-16 object-cover rounded border theme-border"
+                        />
+                    ) : (
+                        <div className="w-16 h-16 rounded border theme-border bg-gray-700 flex items-center justify-center text-xs text-gray-400 text-center p-1">
+                            {file.name.split('.').pop()?.toUpperCase()}
+                        </div>
+                    )}
+                    <button
+                        onClick={() => setUploadedFiles(prev => prev.filter((f: any) => f.id !== file.id))}
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remove attachment"
+                    >
+                        ×
+                    </button>
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] px-1 truncate rounded-b">
+                        {file.name.length > 10 ? file.name.slice(0, 8) + '...' : file.name}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
 // Input area rendering function
 const renderInputArea = () => {
     const isJinxMode = executionMode !== 'chat' && selectedJinx;
     const jinxInputsForSelected = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
     const hasJinxContent = isJinxMode && Object.values(jinxInputsForSelected).some(val => val !== null && String(val).trim());
-    const hasInputContent = input.trim() || uploadedFiles.length > 0 || hasJinxContent;
+    const inputStr = typeof input === 'string' ? input : '';
+    const hasInputContent = inputStr.trim() || uploadedFiles.length > 0 || hasJinxContent;
     const canSend = !isStreaming && hasInputContent && (activeConversationId || isJinxMode);
 
     if (isInputMinimized) {
@@ -3402,7 +3679,7 @@ const renderInputArea = () => {
                                 Stop
                             </button>
                         ) : (
-                            <button type="button" onClick={(e) => { handleInputSubmit(e); setIsInputExpanded(false); }} disabled={(!input.trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <button type="button" onClick={(e) => { handleInputSubmit(e); setIsInputExpanded(false); }} disabled={(!(input || '').trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
                                 <Send size={16}/>
                                 Send (Ctrl+Enter)
                             </button>
@@ -3443,7 +3720,7 @@ const renderInputArea = () => {
                 )}
 
                 <div className="flex-1 overflow-y-auto">
-                    {/* {renderAttachmentThumbnails()} */}
+                    {renderAttachmentThumbnails()}
 
                     <div className="flex items-end p-2 gap-2 relative z-0">
                         <div className="flex-grow relative">
@@ -3848,7 +4125,13 @@ const renderMainContent = () => {
                         contentType = 'terminal';
                     } else if (draggedItem.type === 'file') {
                         const extension = draggedItem.id.split('.').pop()?.toLowerCase();
-                        contentType = extension === 'pdf' ? 'pdf' : 'editor';
+                        if (extension === 'pdf') contentType = 'pdf';
+                        else if (['csv', 'xlsx', 'xls'].includes(extension)) contentType = 'csv';
+                        else if (extension === 'pptx') contentType = 'pptx';
+                        else if (extension === 'tex') contentType = 'latex';
+                        else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
+                        else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
+                        else contentType = 'editor';
                     } else {
                         contentType = 'editor';
                     }
