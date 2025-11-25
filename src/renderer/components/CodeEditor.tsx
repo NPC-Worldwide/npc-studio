@@ -2,12 +2,18 @@ import React, { useMemo, useCallback, useRef, useEffect, useState, memo } from '
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
-import { EditorView } from '@codemirror/view';
-import { search, searchKeymap } from '@codemirror/search';
+import { json } from '@codemirror/lang-json';
+import { html } from '@codemirror/lang-html';
+import { css } from '@codemirror/lang-css';
+import { markdown } from '@codemirror/lang-markdown';
+import { EditorView, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
+import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { keymap } from '@codemirror/view';
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { lintKeymap } from '@codemirror/lint';
 import { BrainCircuit, Edit, FileText, MessageSquare } from 'lucide-react';
 
 const appHighlightStyle = HighlightStyle.define([
@@ -23,34 +29,176 @@ const appHighlightStyle = HighlightStyle.define([
     { tag: t.invalid, color: '#ff5555' },
 ]);
 
+// Custom theme for the editor
+const editorTheme = EditorView.theme({
+    '&': {
+        height: '100%',
+        fontSize: '14px',
+    },
+    '.cm-content': {
+        fontFamily: '"Fira Code", "JetBrains Mono", "Cascadia Code", Menlo, Monaco, monospace',
+        caretColor: '#89b4fa',
+    },
+    '.cm-cursor': {
+        borderLeftColor: '#89b4fa',
+        borderLeftWidth: '2px',
+    },
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, .cm-content ::selection': {
+        backgroundColor: 'rgba(137, 180, 250, 0.3)',
+    },
+    '.cm-activeLine': {
+        backgroundColor: 'rgba(137, 180, 250, 0.08)',
+    },
+    '.cm-activeLineGutter': {
+        backgroundColor: 'rgba(137, 180, 250, 0.1)',
+    },
+    '.cm-gutters': {
+        backgroundColor: '#1e1e2e',
+        color: '#6c7086',
+        border: 'none',
+        borderRight: '1px solid #313244',
+    },
+    '.cm-lineNumbers .cm-gutterElement': {
+        padding: '0 8px 0 16px',
+        minWidth: '40px',
+    },
+    '.cm-foldGutter .cm-gutterElement': {
+        padding: '0 4px',
+        cursor: 'pointer',
+    },
+    '.cm-foldGutter .cm-gutterElement:hover': {
+        color: '#89b4fa',
+    },
+    '&.cm-focused .cm-matchingBracket': {
+        backgroundColor: 'rgba(137, 180, 250, 0.3)',
+        outline: '1px solid #89b4fa',
+    },
+    '.cm-searchMatch': {
+        backgroundColor: 'rgba(249, 226, 175, 0.3)',
+        outline: '1px solid #f9e2af',
+    },
+    '.cm-searchMatch.cm-searchMatch-selected': {
+        backgroundColor: 'rgba(166, 227, 161, 0.4)',
+    },
+    '.cm-selectionMatch': {
+        backgroundColor: 'rgba(137, 180, 250, 0.2)',
+    },
+    '.cm-panels': {
+        backgroundColor: '#1e1e2e',
+        color: '#cdd6f4',
+    },
+    '.cm-panels.cm-panels-top': {
+        borderBottom: '1px solid #313244',
+    },
+    '.cm-panel.cm-search': {
+        padding: '8px 12px',
+        backgroundColor: '#181825',
+    },
+    '.cm-panel.cm-search input, .cm-panel.cm-search button': {
+        margin: '0 4px',
+        padding: '4px 8px',
+        borderRadius: '4px',
+        backgroundColor: '#313244',
+        border: '1px solid #45475a',
+        color: '#cdd6f4',
+    },
+    '.cm-panel.cm-search button:hover': {
+        backgroundColor: '#45475a',
+    },
+    '.cm-panel.cm-search label': {
+        margin: '0 8px',
+        color: '#a6adc8',
+    },
+    '.cm-tooltip': {
+        backgroundColor: '#1e1e2e',
+        border: '1px solid #313244',
+        borderRadius: '6px',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete': {
+        '& > ul': {
+            fontFamily: '"Fira Code", monospace',
+            maxHeight: '200px',
+        },
+        '& > ul > li': {
+            padding: '4px 8px',
+        },
+        '& > ul > li[aria-selected]': {
+            backgroundColor: '#313244',
+            color: '#cdd6f4',
+        },
+    },
+    '.cm-completionIcon': {
+        width: '1em',
+        marginRight: '0.5em',
+    },
+}, { dark: true });
+
 const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMenu, onSelect }) => {
     const editorRef = useRef(null);
 
     const languageExtension = useMemo(() => {
         const ext = filePath?.split('.').pop()?.toLowerCase();
         switch (ext) {
-            case 'js': case 'jsx': return javascript({ jsx: true });
-            case 'py': return python();
+            case 'js': case 'mjs': return javascript();
+            case 'jsx': return javascript({ jsx: true });
+            case 'ts': return javascript({ typescript: true });
+            case 'tsx': return javascript({ jsx: true, typescript: true });
+            case 'py': case 'pyw': return python();
+            case 'json': case 'jsonc': return json();
+            case 'html': case 'htm': return html();
+            case 'css': case 'scss': case 'less': return css();
+            case 'md': case 'markdown': return markdown();
             default: return [];
         }
     }, [filePath]);
 
     const customKeymap = useMemo(() => keymap.of([
         { key: 'Mod-s', run: () => { if (onSave) onSave(); return true; } },
+        indentWithTab,
     ]), [onSave]);
 
     const extensions = useMemo(() => [
-        languageExtension,
+        // Core editor features
+        lineNumbers(),
+        highlightActiveLineGutter(),
+        highlightSpecialChars(),
         history(),
+        foldGutter(),
+        drawSelection(),
+        dropCursor(),
+        indentOnInput(),
+        bracketMatching(),
+        closeBrackets(),
+        autocompletion(),
+        rectangularSelection(),
+        crosshairCursor(),
+        highlightActiveLine(),
+        highlightSelectionMatches(),
+
+        // Language support
+        languageExtension,
+
+        // Search with styled panel
         search({ top: true }),
+
+        // Keymaps
         keymap.of([
+            ...closeBracketsKeymap,
             ...defaultKeymap,
             ...historyKeymap,
             ...searchKeymap,
+            ...foldKeymap,
+            ...completionKeymap,
+            ...lintKeymap,
         ]),
         customKeymap,
-        EditorView.lineWrapping,
+
+        // Styling
+        editorTheme,
         syntaxHighlighting(appHighlightStyle),
+
+        // Optional line wrapping (comment out for horizontal scroll)
+        EditorView.lineWrapping,
     ], [languageExtension, customKeymap]);
 
     const handleUpdate = useCallback((viewUpdate) => {

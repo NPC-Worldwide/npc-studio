@@ -79,9 +79,11 @@ import AutosizeTextarea from './AutosizeTextarea';
 import { ChatMessage } from './ChatMessage';
 import { PredictiveTextOverlay } from './PredictiveTextOverlay';
 import { usePredictiveText } from './PredictiveText';
+import { CommandPalette } from './CommandPalette';
 
 const ChatInterface = () => {
-    const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true); // <--- NEW STATE: Default to collapsed
+    const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
+    const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
     const [pdfHighlightsTrigger, setPdfHighlightsTrigger] = useState(0);
     const [conversationBranches, setConversationBranches] = useState(new Map());
     const [currentBranchId, setCurrentBranchId] = useState('main');
@@ -648,20 +650,54 @@ const ChatInterface = () => {
 
 
 
+    // Ref to hold handleFileClick callback for use in keyboard handler
+    const handleFileClickRef = useRef<((filePath: string) => void) | null>(null);
+
     useEffect(() => {
-        const handleKeyDown = (e) => {
+        const handleKeyDown = async (e: KeyboardEvent) => {
+            // Ctrl+Shift+P - Command Palette (file search)
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
+                e.preventDefault();
+                setCommandPaletteOpen(true);
+                return;
+            }
+
+            // Ctrl+Shift+F - Global search
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
                 e.preventDefault();
                 setIsGlobalSearch(true);
-                setIsSearching(true); 
+                setIsSearching(true);
                 setLocalSearch({ isActive: false, term: '', paneId: null, results: [], currentIndex: -1 });
                 searchInputRef.current?.focus();
-                return; 
+                return;
             }
-    
+
+            // Ctrl+O - Open file dialog
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O') && !e.shiftKey) {
+                e.preventDefault();
+                try {
+                    const fileData = await (window as any).api.showOpenDialog({
+                        properties: ['openFile'],
+                        filters: [
+                            { name: 'All Files', extensions: ['*'] },
+                            { name: 'Code', extensions: ['js', 'jsx', 'ts', 'tsx', 'py', 'json', 'html', 'css', 'md'] },
+                            { name: 'Documents', extensions: ['pdf', 'docx', 'txt'] },
+                            { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'] },
+                        ],
+                    });
+                    if (fileData && fileData.length > 0 && handleFileClickRef.current) {
+                        handleFileClickRef.current(fileData[0].path);
+                    }
+                } catch (error) {
+                    console.error('Error opening file dialog:', error);
+                }
+                return;
+            }
+
+            // Ctrl+F - Local search in chat
             if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
                 const activePane = contentDataRef.current[activeContentPaneId];
-                if (activePane?.contentType === 'chat') {
+                if ((activePane as any)?.contentType === 'chat') {
                     e.preventDefault();
                     e.stopPropagation();
                     setIsGlobalSearch(false);
@@ -669,13 +705,14 @@ const ChatInterface = () => {
                     setLocalSearch(prev => ({ ...prev, isActive: true, paneId: activeContentPaneId }));
                 }
             }
-    
+
+            // Ctrl+B - Open browser URL dialog
             if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
                 e.preventDefault();
                 setBrowserUrlDialogOpen(true);
             }
         };
-    
+
         window.addEventListener('keydown', handleKeyDown);
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
@@ -3555,6 +3592,9 @@ const handleFileClick = useCallback(async (filePath: string) => {
     setActiveContentPaneId(newPaneId);
 }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
+// Update ref for keyboard handler access
+handleFileClickRef.current = handleFileClick;
+
 // Open NPC Team Menu
 const handleOpenNpcTeamMenu = () => {
     setNpcTeamMenuOpen(true);
@@ -4406,7 +4446,13 @@ const renderMainContent = () => {
             setPredictionSuggestion={setPredictionSuggestion}
             setPredictionTargetElement={setPredictionTargetElement}
         />
-        
+        <CommandPalette
+            isOpen={commandPaletteOpen}
+            onClose={() => setCommandPaletteOpen(false)}
+            onFileSelect={handleFileClick}
+            currentPath={currentPath}
+            folderStructure={folderStructure}
+        />
 
 </div>
             {renderModals()}

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, memo, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X , Plus} from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X, Plus, Settings, Trash2, Lock } from 'lucide-react';
 
 const WebBrowserViewer = memo(({
     nodeId,
@@ -24,10 +24,14 @@ const WebBrowserViewer = memo(({
     const [canGoBack, setCanGoBack] = useState(false);
     const [canGoForward, setCanGoForward] = useState(false);
     const [error, setError] = useState(null);
+    const [showSessionMenu, setShowSessionMenu] = useState(false);
+    const [isSecure, setIsSecure] = useState(false);
 
     const paneData = contentDataRef.current[nodeId];
     const initialUrl = paneData?.browserUrl || 'about:blank';
-    const viewId = paneData?.contentId || nodeId; // Use contentId as viewId for persistence
+    // Use 'default' as the shared session to persist cookies across all browser panes
+    // This ensures users stay logged into sites when opening new browser tabs
+    const viewId = 'default-browser-session';
 
     useEffect(() => {
         const webview = webviewRef.current;
@@ -63,13 +67,14 @@ const WebBrowserViewer = memo(({
             setCurrentUrl(url);
             setUrlInput(url);
             setError(null);
+            setIsSecure(url.startsWith('https://'));
 
             if (url && url !== 'about:blank') {
-                window.api?.browserAddToHistory?.({
+                (window as any).api?.browserAddToHistory?.({
                     url,
                     title: webview.getTitle() || url,
                     folderPath: currentPath
-                }).catch(err => console.error('[Browser] History save error:', err));
+                }).catch((err: any) => console.error('[Browser] History save error:', err));
             }
             // Update paneData url to reflect navigation
             if (paneData) {
@@ -96,8 +101,8 @@ const WebBrowserViewer = memo(({
             setBrowserContextMenuPos({
                 x: e.x,
                 y: e.y,
-                selectedText: webview.getWebContents().getSelectionText(), // Assuming this works directly
-                viewId: viewId
+                selectedText: '', // Selection text must come from IPC
+                viewId: nodeId // Use nodeId for pane identification
             });
         };
         // NOTE: webview.addEventListener for contextmenu is problematic.
@@ -140,6 +145,54 @@ const WebBrowserViewer = memo(({
         if (webviewRef.current) webviewRef.current.src = homeUrl;
     }, [initialUrl]);
 
+    const handleClearSessionData = useCallback(async () => {
+        if (!webviewRef.current) return;
+        try {
+            // Clear session data via the webview's session
+            const webContents = webviewRef.current.getWebContents?.();
+            if (webContents) {
+                await webContents.session.clearStorageData({
+                    storages: ['cookies', 'localstorage', 'sessionstorage', 'cachestorage'],
+                });
+                // Reload the page after clearing
+                webviewRef.current.reload();
+            }
+            setShowSessionMenu(false);
+        } catch (err) {
+            console.error('[Browser] Failed to clear session data:', err);
+        }
+    }, []);
+
+    const handleClearCookies = useCallback(async () => {
+        if (!webviewRef.current) return;
+        try {
+            const webContents = webviewRef.current.getWebContents?.();
+            if (webContents) {
+                await webContents.session.clearStorageData({
+                    storages: ['cookies'],
+                });
+                webviewRef.current.reload();
+            }
+            setShowSessionMenu(false);
+        } catch (err) {
+            console.error('[Browser] Failed to clear cookies:', err);
+        }
+    }, []);
+
+    const handleClearCache = useCallback(async () => {
+        if (!webviewRef.current) return;
+        try {
+            const webContents = webviewRef.current.getWebContents?.();
+            if (webContents) {
+                await webContents.session.clearCache();
+                webviewRef.current.reload();
+            }
+            setShowSessionMenu(false);
+        } catch (err) {
+            console.error('[Browser] Failed to clear cache:', err);
+        }
+    }, []);
+
     // Re-introducing drag-and-drop and context menu for the pane itself
     const handleDragStart = useCallback((e) => {
         e.dataTransfer.effectAllowed = 'move';
@@ -181,7 +234,11 @@ const WebBrowserViewer = memo(({
                 <button onClick={handleHome} className="p-1.5 theme-hover rounded flex-shrink-0" title="Home"><Home size={16} /></button>
 
                 <div className="flex-1 flex items-center gap-1.5 min-w-0 theme-bg-secondary rounded px-2 py-1">
-                    <Globe size={14} className="text-gray-400 flex-shrink-0" />
+                    {isSecure ? (
+                        <Lock size={14} className="text-green-400 flex-shrink-0" title="Secure connection" />
+                    ) : (
+                        <Globe size={14} className="text-gray-400 flex-shrink-0" />
+                    )}
                     <input
                         type="text"
                         value={urlInput}
@@ -193,6 +250,50 @@ const WebBrowserViewer = memo(({
                 </div>
                 <button onClick={() => handleNewBrowserTab(currentUrl)} className="p-1.5 theme-hover rounded flex-shrink-0" title="Open in new tab"><Plus size={16} /></button>
 
+                {/* Session Menu */}
+                <div className="relative">
+                    <button
+                        onClick={() => setShowSessionMenu(!showSessionMenu)}
+                        className="p-1.5 theme-hover rounded flex-shrink-0"
+                        title="Browser settings"
+                    >
+                        <Settings size={16} />
+                    </button>
+
+                    {showSessionMenu && (
+                        <>
+                            <div className="fixed inset-0 z-40" onClick={() => setShowSessionMenu(false)} />
+                            <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[200px]">
+                                <div className="p-2 border-b theme-border">
+                                    <span className="text-xs theme-text-muted">Session Management</span>
+                                </div>
+                                <div className="py-1">
+                                    <button
+                                        onClick={handleClearCookies}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-sm theme-text-primary theme-hover text-left"
+                                    >
+                                        <Trash2 size={14} />
+                                        Clear Cookies
+                                    </button>
+                                    <button
+                                        onClick={handleClearCache}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-sm theme-text-primary theme-hover text-left"
+                                    >
+                                        <Trash2 size={14} />
+                                        Clear Cache
+                                    </button>
+                                    <button
+                                        onClick={handleClearSessionData}
+                                        className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-400 theme-hover text-left"
+                                    >
+                                        <Trash2 size={14} />
+                                        Clear All Data
+                                    </button>
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
             </div>
 
             {/* Webview Container */}
