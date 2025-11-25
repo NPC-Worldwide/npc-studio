@@ -68,48 +68,33 @@ const MacroInput = ({ isOpen, onClose, onSubmit, currentPath }) => {
         setIsSubmitting(true);
 
         try {
-           
             localStorage.setItem(LAST_USED_MODEL_KEY, JSON.stringify({
                 value: selectedModel.value,
                 provider: selectedModel.provider
             }));
 
-           
             const conversation = await window.api.createConversation({
                 title: macro.trim().slice(0, 50),
                 type: 'conversation',
                 directory_path: currentPath
             });
 
-           
+            // Pass all data to Enpistu which will handle streaming
             onSubmit({
                 macro: macro.trim(),
                 conversationId: conversation.id,
-                result: null
+                model: selectedModel.value,
+                provider: selectedModel.provider,
+                currentPath: currentPath
             });
 
             onClose();
-
-           
-            const result = await window.api.executeCommand({
-                commandstr: macro.trim(),
-                currentPath: currentPath,
-                conversationId: conversation.id,
-                model: selectedModel.value,
-                provider: selectedModel.provider
-            });
-
-            onSubmit({
-                macro: macro.trim(),
-                conversationId: conversation.id,
-                result
-            });
+            setMacro('');
 
         } catch (err) {
-            console.error('Error executing command:', err);
+            console.error('Error creating conversation:', err);
         } finally {
             setIsSubmitting(false);
-            setMacro('');
         }
     };
 

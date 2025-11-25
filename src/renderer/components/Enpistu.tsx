@@ -3236,7 +3236,98 @@ ${contextPrompt}`;
         {renderMessageContextMenu()}
 
 
-            {isMacroInputOpen && (<MacroInput isOpen={isMacroInputOpen} currentPath={currentPath} onClose={() => { setIsMacroInputOpen(false); window.api?.hideMacro?.(); }} onSubmit={({ macro, conversationId, result }) => { setActiveConversationId(conversationId); setCurrentConversation({ id: conversationId, title: macro.trim().slice(0, 50) }); if (!result) { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: 'Processing...', timestamp: new Date().toISOString(), type: 'message' }]); } else { setMessages([{ role: 'user', content: macro, timestamp: new Date().toISOString(), type: 'command' }, { role: 'assistant', content: result?.output || 'No response', timestamp: new Date().toISOString(), type: 'message' }]); } refreshConversations(); }}/> )}
+            {isMacroInputOpen && (
+                <MacroInput
+                    isOpen={isMacroInputOpen}
+                    currentPath={currentPath}
+                    onClose={() => {
+                        setIsMacroInputOpen(false);
+                        window.api?.hideMacro?.();
+                    }}
+                    onSubmit={async ({ macro, conversationId, model, provider }) => {
+                        // Open or create a chat pane for this conversation and get the pane ID
+                        const paneId = await handleConversationSelect(conversationId);
+                        console.log('[MacroInput onSubmit] Got paneId:', paneId);
+
+                        if (!paneId || !contentDataRef.current[paneId]) {
+                            console.error('[MacroInput onSubmit] No paneData found for paneId:', paneId);
+                            return;
+                        }
+
+                        const paneData = contentDataRef.current[paneId];
+                        const newStreamId = generateId();
+
+                        // Register stream to pane mapping
+                        streamToPaneRef.current[newStreamId] = paneId;
+                        setIsStreaming(true);
+
+                        // Add user message
+                        const userMsg = {
+                            id: generateId(),
+                            role: 'user',
+                            content: macro,
+                            timestamp: new Date().toISOString(),
+                            type: 'message'
+                        };
+
+                        // Add placeholder assistant message
+                        const assistantMsg = {
+                            id: newStreamId,
+                            role: 'assistant',
+                            content: '',
+                            timestamp: new Date().toISOString(),
+                            type: 'message',
+                            isStreaming: true
+                        };
+
+                        if (paneData.chatMessages) {
+                            paneData.chatMessages.allMessages = [
+                                ...(paneData.chatMessages.allMessages || []),
+                                userMsg,
+                                assistantMsg
+                            ];
+                            paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(
+                                -(paneData.chatMessages.displayedMessageCount || 20)
+                            );
+                        }
+
+                        setRootLayoutNode(prev => ({ ...prev }));
+
+                        try {
+                            // Execute streaming command
+                            await window.api.executeCommandStream({
+                                commandstr: macro,
+                                currentPath,
+                                conversationId,
+                                model,
+                                provider,
+                                npc: currentNPC,
+                                npcSource: 'global',
+                                attachments: [],
+                                streamId: newStreamId
+                            });
+                        } catch (err: any) {
+                            console.error('[MacroInput onSubmit] Error:', err);
+                            // Update message with error
+                            if (paneData.chatMessages) {
+                                const msgIndex = paneData.chatMessages.allMessages.findIndex((m: any) => m.id === newStreamId);
+                                if (msgIndex !== -1) {
+                                    paneData.chatMessages.allMessages[msgIndex].content = `Error: ${err.message}`;
+                                    paneData.chatMessages.allMessages[msgIndex].isStreaming = false;
+                                    paneData.chatMessages.allMessages[msgIndex].type = 'error';
+                                }
+                            }
+                            delete streamToPaneRef.current[newStreamId];
+                            if (Object.keys(streamToPaneRef.current).length === 0) {
+                                setIsStreaming(false);
+                            }
+                            setRootLayoutNode(prev => ({ ...prev }));
+                        }
+
+                        refreshConversations();
+                    }}
+                />
+            )}
             {cronDaemonPanelOpen &&(
             <CronDaemonPanel // <--- NEW PANEL
             isOpen={cronDaemonPanelOpen}
@@ -4287,8 +4378,8 @@ const renderMainContent = () => {
         handleConversationSelect={handleConversationSelect}
         handleFileClick={handleFileClick}
         handleInputSubmit={handleInputSubmit}
-        toggleTheme={toggleTheme}
-        goUpDirectory={goUpDirectory}
+        toggleTheme={() => toggleTheme(setIsDarkMode)}
+        goUpDirectory={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
         switchToPath={switchToPath}
         handleCreateNewFolder={handleCreateNewFolder}
         createNewTextFile={createNewTextFile}

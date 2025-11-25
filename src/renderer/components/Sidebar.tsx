@@ -205,13 +205,20 @@ const handleFileContextMenu = (e, filePath) => {
 };
 
 const handleOpenFolderAsWorkspace = useCallback(async (folderPath) => {
+    console.log(`[handleOpenFolderAsWorkspace] Received folderPath: "${folderPath}", currentPath: "${currentPath}"`);
     if (folderPath === currentPath) {
         console.log("Already in this workspace, no need to switch!");
         setSidebarItemContextMenuPos(null);
         return;
     }
-    console.log(`Opening folder as workspace: ${folderPath}`);
-    await switchToPath(folderPath);
+    // If folderPath doesn't start with /, it's a relative path - make it absolute
+    let fullPath = folderPath;
+    if (!folderPath.startsWith('/') && currentPath) {
+        fullPath = `${currentPath}/${folderPath}`;
+        console.log(`[handleOpenFolderAsWorkspace] Converted relative path to absolute: "${fullPath}"`);
+    }
+    console.log(`Opening folder as workspace: ${fullPath}`);
+    await switchToPath(fullPath);
     setSidebarItemContextMenuPos(null);
 }, [currentPath, switchToPath]);
 
@@ -1296,7 +1303,7 @@ useEffect(() => {
                                               <Terminal size={12} />
                                               <span>New Terminal</span>
                                           </button>
-                                          <button 
+                                          <button
                                               onClick={() => {
                                                   if (window.api && window.api.openNewWindow) {
                                                       window.api.openNewWindow(currentPath);
@@ -1304,11 +1311,12 @@ useEffect(() => {
                                                       window.open(window.location.href, '_blank');
                                                   }
                                               }}
-                                              className="p-2 theme-button theme-hover rounded-full transition-all" 
+                                              className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
                                               aria-label="Open New NPC Studio Window"
                                               title="Open New NPC Studio Window"
                                           >
-                                              <Plus size={14} /> 
+                                              <Plus size={12} />
+                                              <span>New Window</span>
                                           </button>
                                       </div>
                                   </div>
@@ -2122,6 +2130,21 @@ return (
                         <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
                             <Terminal size={12} />
                             <span>New Terminal</span>
+                        </button>
+                        <button
+                            onClick={() => {
+                                if (window.api && window.api.openNewWindow) {
+                                    window.api.openNewWindow(currentPath);
+                                } else {
+                                    window.open(window.location.href, '_blank');
+                                }
+                            }}
+                            className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
+                            aria-label="Open New NPC Studio Window"
+                            title="Open New NPC Studio Window"
+                        >
+                            <Plus size={12} />
+                            <span>New Window</span>
                         </button>
                     </div>
                 </div>

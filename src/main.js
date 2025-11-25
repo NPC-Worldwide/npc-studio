@@ -1442,9 +1442,9 @@ ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath })
 
 ipcMain.handle('get-browser-history', async (event, folderPath) => {
   try {
-    // LAVANZARO'S ADJUSTMENT: Include global history entries as well
+    // Only return history entries for this specific folder
     const history = await dbQuery(
-      'SELECT id, title, url, folder_path, visit_count, last_visited FROM browser_history WHERE (folder_path = ? OR folder_path IS NULL) ORDER BY last_visited DESC LIMIT 50',
+      'SELECT id, title, url, folder_path, visit_count, last_visited FROM browser_history WHERE folder_path = ? ORDER BY last_visited DESC LIMIT 50',
       [folderPath]
     );
     log(`[BROWSER HISTORY] Retrieved ${history.length} history entries for ${folderPath}`);
@@ -1461,7 +1461,7 @@ ipcMain.handle('get-browser-history', async (event, folderPath) => {
 ipcMain.handle('browser:getHistory', async (event, { folderPath, limit = 50 }) => {
   try {
     const history = await dbQuery(
-      'SELECT * FROM browser_history WHERE (folder_path = ? OR folder_path IS NULL) ORDER BY last_visited DESC LIMIT ?', // <--- LAVANZARO'S ADJUSTMENT: Include global history
+      'SELECT * FROM browser_history WHERE folder_path = ? ORDER BY last_visited DESC LIMIT ?',
       [folderPath, limit]
     );
     log(`[BROWSER HISTORY] Retrieved ${history.length} history entries for ${folderPath}`);
