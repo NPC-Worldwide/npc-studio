@@ -1,6 +1,6 @@
+import React, { useRef, useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 
-
-// ChatInterface.jsx - Replace your existing PredictiveTextOverlay component definition with this:
 export const PredictiveTextOverlay = ({
     predictionSuggestion,
     predictionTargetElement,
@@ -8,16 +8,85 @@ export const PredictiveTextOverlay = ({
     setPredictionSuggestion,
     setPredictionTargetElement
 }) => {
-    if (!predictionSuggestion || !predictionTargetElement || !isPredictiveTextEnabled) {
-        return null;
-    }
-
-    const targetRect = predictionTargetElement.getBoundingClientRect();
     const overlayRef = useRef(null);
+    const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
+    const shouldShow = predictionSuggestion && predictionTargetElement && isPredictiveTextEnabled && cursorPosition;
+
+    console.log('[PRED-OVERLAY] Render:', {
+        suggestion: predictionSuggestion?.substring?.(0, 50),
+        hasTarget: !!predictionTargetElement,
+        enabled: isPredictiveTextEnabled,
+        cursorPosition,
+        shouldShow: !!shouldShow
+    });
+
+    // Get cursor position from the target element
+    useEffect(() => {
+        if (!predictionTargetElement) {
+            setCursorPosition(null);
+            return;
+        }
+
+        const updateCursorPosition = () => {
+            let pos: { x: number; y: number } | null = null;
+
+            if (predictionTargetElement instanceof HTMLTextAreaElement || predictionTargetElement instanceof HTMLInputElement) {
+                // For textarea/input, use the element's position + approximate cursor location
+                const rect = predictionTargetElement.getBoundingClientRect();
+                // Position at bottom-left of the input for now
+                pos = {
+                    x: rect.left + 10,
+                    y: Math.min(rect.bottom, window.innerHeight - 250) // Keep on screen
+                };
+            } else if (predictionTargetElement.isContentEditable) {
+                // For contenteditable, try to get selection position
+                const selection = window.getSelection();
+                if (selection && selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    const rects = range.getClientRects();
+                    if (rects.length > 0) {
+                        const lastRect = rects[rects.length - 1];
+                        pos = {
+                            x: lastRect.right,
+                            y: Math.min(lastRect.bottom + 5, window.innerHeight - 250)
+                        };
+                    }
+                }
+                // Fallback to element position
+                if (!pos) {
+                    const rect = predictionTargetElement.getBoundingClientRect();
+                    pos = {
+                        x: rect.left + 10,
+                        y: Math.min(rect.top + 30, window.innerHeight - 250)
+                    };
+                }
+            }
+
+            // Ensure position is on screen
+            if (pos) {
+                pos.x = Math.max(10, Math.min(pos.x, window.innerWidth - 320));
+                pos.y = Math.max(10, Math.min(pos.y, window.innerHeight - 100));
+            }
+
+            console.log('[PRED-OVERLAY] Calculated cursor position:', pos);
+            setCursorPosition(pos);
+        };
+
+        updateCursorPosition();
+
+        // Update on scroll/resize
+        window.addEventListener('scroll', updateCursorPosition, true);
+        window.addEventListener('resize', updateCursorPosition);
+
+        return () => {
+            window.removeEventListener('scroll', updateCursorPosition, true);
+            window.removeEventListener('resize', updateCursorPosition);
+        };
+    }, [predictionTargetElement]);
 
     const handleAcceptSuggestion = useCallback(() => {
         if (predictionTargetElement && predictionSuggestion) {
-            const suggestionToInsert = predictionSuggestion.trim(); // Trim whitespace
+            const suggestionToInsert = predictionSuggestion.trim();
 
             if (predictionTargetElement instanceof HTMLTextAreaElement || predictionTargetElement instanceof HTMLInputElement) {
                 const start = predictionTargetElement.selectionStart;
@@ -26,7 +95,6 @@ export const PredictiveTextOverlay = ({
 
                 predictionTargetElement.value = value.substring(0, start) + suggestionToInsert + value.substring(end);
                 predictionTargetElement.selectionStart = predictionTargetElement.selectionEnd = start + suggestionToInsert.length;
-                // Manually trigger an input event for React to pick up the change
                 const event = new Event('input', { bubbles: true });
                 predictionTargetElement.dispatchEvent(event);
 
@@ -34,9 +102,9 @@ export const PredictiveTextOverlay = ({
                 const selection = window.getSelection();
                 if (selection.rangeCount > 0) {
                     const range = selection.getRangeAt(0);
-                    range.deleteContents(); // Remove any selected text
+                    range.deleteContents();
                     range.insertNode(document.createTextNode(suggestionToInsert));
-                    range.setStart(range.endContainer, range.endOffset); // Move cursor to end of inserted text
+                    range.setStart(range.endContainer, range.endOffset);
                     range.collapse(true);
                 }
             }
@@ -46,9 +114,11 @@ export const PredictiveTextOverlay = ({
     }, [predictionSuggestion, predictionTargetElement, setPredictionSuggestion, setPredictionTargetElement]);
 
     useEffect(() => {
+        if (!shouldShow) return;
+
         const handleOverlayKeyDown = (e) => {
             if (e.key === 'Tab' && predictionSuggestion) {
-                e.preventDefault(); // Prevent default tab behavior
+                e.preventDefault();
                 handleAcceptSuggestion();
             } else if (e.key === 'Escape') {
                 e.preventDefault();
@@ -58,37 +128,49 @@ export const PredictiveTextOverlay = ({
         };
         document.addEventListener('keydown', handleOverlayKeyDown);
         return () => document.removeEventListener('keydown', handleOverlayKeyDown);
-    }, [handleAcceptSuggestion, predictionSuggestion, setPredictionSuggestion, setPredictionTargetElement]);
+    }, [shouldShow, handleAcceptSuggestion, predictionSuggestion, setPredictionSuggestion, setPredictionTargetElement]);
 
+    const style = useMemo(() => {
+        if (!cursorPosition) return {};
+        return {
+            position: 'fixed' as const,
+            left: cursorPosition.x,
+            top: cursorPosition.y,
+            zIndex: 99999,
+            maxWidth: 400,
+            minWidth: 200,
+            backgroundColor: '#1e1e2e',
+            border: '2px solid #89b4fa',
+            borderRadius: '8px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+            padding: '12px',
+            color: '#cdd6f4',
+            fontSize: '0.875rem',
+            whiteSpace: 'pre-wrap' as const,
+            cursor: 'pointer',
+            maxHeight: '200px',
+            overflow: 'auto',
+        };
+    }, [cursorPosition]);
 
-    // Calculate position
-    // We want it to appear just below the cursor, or at the end of the input field
-    const style = {
-        position: 'fixed',
-        left: targetRect.left,
-        top: targetRect.bottom + 5, // 5px below the input field
-        zIndex: 1000,
-        maxWidth: targetRect.width, // Limit width to input field width
-        backgroundColor: 'var(--theme-bg-secondary)',
-        border: '1px solid var(--theme-border)',
-        borderRadius: '4px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-        padding: '8px',
-        color: 'var(--theme-text-muted)',
-        fontSize: '0.875rem', // text-sm
-        whiteSpace: 'pre-wrap', // Preserve whitespace and wrap
-        cursor: 'text',
-    };
+    if (!shouldShow) {
+        return null;
+    }
 
-    return (
+    const overlay = (
         <div ref={overlayRef} style={style} onClick={handleAcceptSuggestion}>
-            {predictionSuggestion}
+            <div style={{ fontFamily: 'monospace', marginBottom: '8px' }}>
+                {predictionSuggestion}
+            </div>
             {predictionSuggestion === 'Generating...' && (
-                 <span className="ml-1 inline-block w-1.5 h-1.5 theme-text-muted rounded-full animate-bounce" style={{ animationDelay: '0.15s' }}></span>
+                 <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: '#89b4fa' }}></span>
             )}
-            <div className="text-xs text-blue-400 mt-1">
-                Press <span className="font-bold">Tab</span> to accept, <span className="font-bold">Esc</span> to dismiss.
+            <div style={{ fontSize: '0.75rem', color: '#89b4fa', borderTop: '1px solid #45475a', paddingTop: '8px', marginTop: '4px' }}>
+                Press <span style={{ fontWeight: 'bold' }}>Tab</span> to accept, <span style={{ fontWeight: 'bold' }}>Esc</span> to dismiss
             </div>
         </div>
     );
+
+    // Render via portal to ensure it's at the top level of the DOM
+    return createPortal(overlay, document.body);
 };

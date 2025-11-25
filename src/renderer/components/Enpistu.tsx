@@ -78,6 +78,7 @@ import ConversationList from './ConversationList';
 import AutosizeTextarea from './AutosizeTextarea';
 import { ChatMessage } from './ChatMessage';
 import { PredictiveTextOverlay } from './PredictiveTextOverlay';
+import { usePredictiveText } from './PredictiveText';
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true); // <--- NEW STATE: Default to collapsed
@@ -86,12 +87,10 @@ const ChatInterface = () => {
     const [currentBranchId, setCurrentBranchId] = useState('main');
     const [showBranchingUI, setShowBranchingUI] = useState(false);
     const [isPredictiveTextEnabled, setIsPredictiveTextEnabled] = useState(false);
-    const [predictiveTextModel, setPredictiveTextModel] = useState(null);
-    const [predictiveTextProvider, setPredictiveTextProvider] = useState(null);
+    const [predictiveTextModel, setPredictiveTextModel] = useState<string | null>(null);
+    const [predictiveTextProvider, setPredictiveTextProvider] = useState<string | null>(null);
     const [predictionSuggestion, setPredictionSuggestion] = useState('');
-    const [predictionTargetElement, setPredictionTargetElement] = useState(null);
-    const predictionStreamIdRef = useRef(null); // To manage the streaming prediction
-    const predictionTimeoutRef = useRef(null); // To debounce prediction requests
+    const [predictionTargetElement, setPredictionTargetElement] = useState<HTMLElement | null>(null);
 
 
     const [isEditingPath, setIsEditingPath] = useState(false);
@@ -353,6 +352,18 @@ const ChatInterface = () => {
 
     // Website history loader hook
     const loadWebsiteHistory = useLoadWebsiteHistory(currentPath, setWebsiteHistory, setCommonSites);
+
+    // Predictive text hook
+    usePredictiveText({
+        isPredictiveTextEnabled,
+        predictiveTextModel,
+        predictiveTextProvider,
+        currentPath,
+        predictionSuggestion,
+        setPredictionSuggestion,
+        predictionTargetElement,
+        setPredictionTargetElement,
+    });
 
     useEffect(() => {
         rootLayoutNodeRef.current = rootLayoutNode;
