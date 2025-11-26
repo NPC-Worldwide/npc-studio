@@ -5,10 +5,20 @@ import {
     MessageSquare, Check, List, LayoutGrid, Save, Undo,
     Redo, Search, Sparkles, Info, Tag, Crop, RotateCw, Type, ChevronLeft, ChevronRight,
     Download, PlusCircle, Copy, ExternalLink, ChevronsRight, GitBranch,
-    Layers, Eye, EyeOff, GripVertical, FileJson, FolderOpen, 
-    Lasso, Star, 
-    RectangleHorizontal, Brush, Eraser, 
+    Layers, Eye, EyeOff, GripVertical, FileJson, FolderOpen,
+    Lasso, Star,
+    RectangleHorizontal, Brush, Eraser,
   } from 'lucide-react';
+
+// Import primitives from npcts
+import {
+    ImageGrid,
+    Lightbox,
+    StarRating,
+    RangeSlider,
+    SortableList,
+    ImageEditor
+} from 'npcts';
   
  
   const IMAGES_PER_PAGE = 24;
@@ -1503,80 +1513,16 @@ const handleImageClick = (e, imgPath, index) => {
 const renderLightbox = () => {
     if (lightboxIndex === null) return null;
 
-    const currentImage = sortedAndFilteredImages[lightboxIndex];
-    if (!currentImage) return null;
-
-    const hasPrev = lightboxIndex > 0;
-    const hasNext = lightboxIndex < sortedAndFilteredImages.length - 1;
-
-    const goToPrev = (e) => {
-        e.stopPropagation();
-        if (hasPrev) setLightboxIndex(lightboxIndex - 1);
-    };
-    const goToNext = (e) => {
-        e.stopPropagation();
-        if (hasNext) setLightboxIndex(lightboxIndex + 1);
-    };
-    const closeLightbox = () => setLightboxIndex(null);
-
+    // Use npcts Lightbox component
     return (
-        <div 
-            className="fixed inset-0 bg-black/90 z-[60] flex items-center 
-                justify-center p-8"
-            onClick={closeLightbox}
-        >
-            <button 
-                onClick={closeLightbox} 
-                className="absolute top-4 right-4 text-white 
-                    hover:text-gray-300 z-[70]" 
-                title="Close (Esc)"
-            >
-                <X size={32} />
-            </button>
-            
-            {hasPrev && (
-                <button 
-                    onClick={goToPrev} 
-                    className="absolute left-4 top-1/2 -translate-y-1/2 
-                        text-white p-4 bg-black/30 rounded-full 
-                        hover:bg-black/60 z-[70]" 
-                    title="Previous (Left Arrow)"
-                >
-                    <ChevronLeft size={32} />
-                </button>
-            )}
-
-            <div 
-                className="relative max-w-full max-h-full flex items-center 
-                    justify-center" 
-                onClick={e => e.stopPropagation()}
-                onContextMenu={(e) => handleImageContextMenu(e, currentImage)}
-            >
-                <img 
-                    src={currentImage} 
-                    alt="Expanded view" 
-                    className="max-w-full max-h-full object-contain 
-                        rounded-lg shadow-2xl"
-                    style={{ maxWidth: '90vw', maxHeight: '90vh' }}
-                />
-            </div>
-            
-            {hasNext && (
-                <button 
-                    onClick={goToNext} 
-                    className="absolute right-4 top-1/2 -translate-y-1/2 
-                        text-white p-4 bg-black/30 rounded-full 
-                        hover:bg-black/60 z-[70]" 
-                    title="Next (Right Arrow)"
-                >
-                    <ChevronRight size={32} />
-                </button>
-            )}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 
-                text-white bg-black/50 px-3 py-1 rounded-full text-sm z-[70]">
-                {lightboxIndex + 1} / {sortedAndFilteredImages.length}
-            </div>
-        </div>
+        <Lightbox
+            images={sortedAndFilteredImages}
+            index={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+            onNavigate={setLightboxIndex}
+            onContextMenu={(src, e) => handleImageContextMenu(e, src)}
+            className="z-[60]"
+        />
     );
 };
 
@@ -1651,67 +1597,55 @@ const renderGallery = () => (
         
         <div className="flex-1 p-4 overflow-y-auto">
             {viewMode === 'grid' ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
-                    {loading ? (
-                        <div className="col-span-full flex justify-center p-8">
-                            <Loader className="animate-spin" />
-                        </div>
-                    ) : sortedAndFilteredImages.length > 0 ? (
-                        sortedAndFilteredImages
-                            .slice(0, displayedImagesCount)
-                            .map((img, index) => {
-                                const isSelected = selectedImageGroup.has(img);
-                                const isRenaming = renamingImage.path === img;
-                                return isRenaming ? (
-                                    <div key={img} className="relative aspect-square">
-                                        <input 
-                                            type="text" 
-                                            value={renamingImage.newName}
-                                            onChange={(e) => setRenamingImage(
-                                                p => ({ ...p, newName: e.target.value })
-                                            )}
-                                            onKeyDown={(e) => 
-                                                e.key === 'Enter' && handleRenameSubmit()
-                                            }
-                                            onBlur={handleRenameSubmit} 
-                                            className="w-full h-full p-2 theme-input text-xs" 
-                                            autoFocus 
-                                        />
-                                    </div>
-                                ) : (
-                                    <button 
-                                        key={img}
-                                        onClick={(e) => handleImageClick(e, img, index)}
-                                        onContextMenu={(e) => handleContextMenu(e, img)} 
-                                        className="group relative block rounded-lg 
-                                            overflow-hidden focus:outline-none aspect-square"
-                                    >
-                                        <img 
-                                            src={img} 
-                                            alt="" 
-                                            className="w-full h-full object-cover bg-gray-800" 
-                                        />
-                                        <div className={`absolute inset-0 transition-all 
-                                            duration-200 
-                                            ${isSelected 
-                                                ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' 
-                                                : 'group-hover:bg-black/40'}`}
-                                        />
-                                        {isSelected && (
-                                            <div className="absolute top-2 right-2 bg-blue-500 
-                                                rounded-full p-1">
-                                                <Check size={12} className="text-white" />
-                                            </div>
+                <ImageGrid
+                    images={sortedAndFilteredImages.slice(0, displayedImagesCount)}
+                    selected={selectedImageGroup}
+                    onSelect={(img, e) => {
+                        const index = sortedAndFilteredImages.indexOf(img);
+                        handleImageClick(e, img, index);
+                    }}
+                    onContextMenu={(img, e) => handleContextMenu(e, img)}
+                    columns={{ sm: 2, md: 4, lg: 8 }}
+                    gap={16}
+                    showFilename={false}
+                    loading={loading}
+                    emptyMessage="No images found."
+                    renderItem={(img, isSelected) => {
+                        const isRenaming = renamingImage.path === img;
+                        if (isRenaming) {
+                            return (
+                                <div className="relative aspect-square">
+                                    <input
+                                        type="text"
+                                        value={renamingImage.newName}
+                                        onChange={(e) => setRenamingImage(
+                                            p => ({ ...p, newName: e.target.value })
                                         )}
-                                    </button>
-                                );
-                            })
-                    ) : (
-                        <div className="col-span-full text-center p-8 theme-text-muted">
-                            No images found.
-                        </div>
-                    )}
-                </div>
+                                        onKeyDown={(e) =>
+                                            e.key === 'Enter' && handleRenameSubmit()
+                                        }
+                                        onBlur={handleRenameSubmit}
+                                        className="w-full h-full p-2 theme-input text-xs"
+                                        autoFocus
+                                    />
+                                </div>
+                            );
+                        }
+                        return (
+                            <div className={`relative aspect-square rounded-lg overflow-hidden cursor-pointer group
+                                ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`}>
+                                <img src={img} alt="" className="w-full h-full object-cover bg-gray-800" />
+                                <div className={`absolute inset-0 transition-all duration-200
+                                    ${!isSelected ? 'group-hover:bg-black/40' : ''}`} />
+                                {isSelected && (
+                                    <div className="absolute top-2 right-2 bg-blue-500 rounded-full p-1">
+                                        <Check size={12} className="text-white" />
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    }}
+                />
             ) : (
     <div className="space-y-1">
         <div className="grid grid-cols-12 gap-2 px-2 py-1 text-xs 
@@ -1906,7 +1840,7 @@ const handleUseForGeneration = () => {
         {!metadata ? <p className="theme-text-muted">No metadata loaded.</p> : (
           <>
             <Section title="General">
-              <StarRating rating={rating} setRating={setRating} />
+              <StarRating rating={rating} onChange={setRating} className="mb-4" />
               <Field label="Title" value={metadata?.iptc?.title || ''} onChange={v => updateMetaField('iptc.title', v)} />
               <Field label="Description" value={metadata?.iptc?.description || ''} onChange={v => updateMetaField('iptc.description', v)} multiline />
               <TagsEditor tags={customTags} setTags={setCustomTags} />
@@ -2513,66 +2447,88 @@ const createMaskFromSelection = async (sel) => {
     return canvas.toDataURL('image/png');
 };
 const renderDarkRoom = () => {
+    // Use the npcts ImageEditor component with custom generative fill integration
+    const handleGenerativeFill = async (sel: any, prompt: string) => {
+        if (!prompt) {
+            setError('Need a prompt');
+            return;
+        }
+        await executeGenerativeFill(sel, prompt);
+    };
+
+    return (
+        <ImageEditor
+            imageSrc={selectedImage}
+            onGenerativeFill={handleGenerativeFill}
+            showHeader={false}
+            title="DarkRoom"
+            className="flex-1"
+        />
+    );
+};
+
+// Keep the legacy renderDarkRoom implementation for reference (can be removed later)
+const renderDarkRoomLegacy = () => {
     return (
         <div className="flex-1 flex overflow-hidden">
             <div className="w-16 border-r theme-border flex flex-col items-center p-2 gap-2 bg-gray-900">
                 <h4 className="text-xs font-semibold theme-text-secondary uppercase">Tools</h4>
-                
-                <button 
-                    onClick={() => { setEditorTool('select'); setSelectionMode(null); }} 
-                    className={`p-2 rounded ${editorTool === 'select' ? 'theme-button-primary' : 'theme-hover'}`} 
+
+                <button
+                    onClick={() => { setEditorTool('select'); setSelectionMode(null); }}
+                    className={`p-2 rounded ${editorTool === 'select' ? 'theme-button-primary' : 'theme-hover'}`}
                     title="Select"
                 >
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
                     </svg>
                 </button>
-                
-                <button 
-                    onClick={() => { setEditorTool('rect-select'); setSelectionMode('rect'); }} 
-                    className={`p-2 rounded ${editorTool === 'rect-select' ? 'theme-button-primary' : 'theme-hover'}`} 
+
+                <button
+                    onClick={() => { setEditorTool('rect-select'); setSelectionMode('rect'); }}
+                    className={`p-2 rounded ${editorTool === 'rect-select' ? 'theme-button-primary' : 'theme-hover'}`}
                     title="Rectangle Select"
                 >
                     <RectangleHorizontal size={20}/>
                 </button>
-                
-                <button 
-                    onClick={() => { setEditorTool('lasso'); setSelectionMode('lasso'); }} 
-                    className={`p-2 rounded ${editorTool === 'lasso' ? 'theme-button-primary' : 'theme-hover'}`} 
+
+                <button
+                    onClick={() => { setEditorTool('lasso'); setSelectionMode('lasso'); }}
+                    className={`p-2 rounded ${editorTool === 'lasso' ? 'theme-button-primary' : 'theme-hover'}`}
                     title="Lasso Select"
                 >
                     <Lasso size={20}/>
                 </button>
-                
-                <button 
-                    onClick={() => { setEditorTool('text'); setSelectionMode(null); }} 
-                    className={`p-2 rounded ${editorTool === 'text' ? 'theme-button-primary' : 'theme-hover'}`} 
+
+                <button
+                    onClick={() => { setEditorTool('text'); setSelectionMode(null); }}
+                    className={`p-2 rounded ${editorTool === 'text' ? 'theme-button-primary' : 'theme-hover'}`}
                     title="Text Tool"
                 >
                     <Type size={20}/>
                 </button>
 
-                <button 
-                    onClick={() => { setEditorTool('brush'); }} 
-                    className={`p-2 rounded ${editorTool === 'brush' ? 'theme-button-primary' : 'theme-hover'}`} 
+                <button
+                    onClick={() => { setEditorTool('brush'); }}
+                    className={`p-2 rounded ${editorTool === 'brush' ? 'theme-button-primary' : 'theme-hover'}`}
                     title="Brush"
                 >
                     <Brush size={20}/>
                 </button>
-                
-                <button 
-                    onClick={() => { setEditorTool('eraser'); }} 
-                    className={`p-2 rounded ${editorTool === 'eraser' ? 'theme-button-primary' : 'theme-hover'}`} 
+
+                <button
+                    onClick={() => { setEditorTool('eraser'); }}
+                    className={`p-2 rounded ${editorTool === 'eraser' ? 'theme-button-primary' : 'theme-hover'}`}
                     title="Eraser"
                 >
                     <Eraser size={20}/>
                 </button>
-                
+
                 <div className="border-t theme-border w-full my-2"/>
-                
-                <button 
-                    onClick={() => { setEditorTool('crop'); setIsCropping(true); }} 
-                    className={`p-2 rounded ${editorTool === 'crop' ? 'theme-button-primary' : 'theme-hover'}`} 
+
+                <button
+                    onClick={() => { setEditorTool('crop'); setIsCropping(true); }}
+                    className={`p-2 rounded ${editorTool === 'crop' ? 'theme-button-primary' : 'theme-hover'}`}
                     title="Crop Tool"
                 >
                     <Crop size={20}/>
@@ -2863,8 +2819,8 @@ const renderDarkRoom = () => {
 if (!isOpen) return null;
 
 return (
-  <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-    <div className="theme-bg-secondary rounded-lg shadow-xl w-full h-full flex flex-col">
+  <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="theme-bg-secondary rounded-lg shadow-xl w-full h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
       {renderHeader()} {/* Add this line */}
       <div className="flex-1 flex overflow-hidden">
         {renderSidebar()}
@@ -3086,17 +3042,6 @@ const TagsEditor = ({ tags, setTags }) => {
   };
   
 
-  const StarRating = ({ rating, setRating }) => (
-    <div className="mb-4">
-        <label className="text-xs uppercase font-semibold theme-text-secondary">Rating</label>
-        <div className="flex items-center gap-1 mt-1">
-            {[1, 2, 3, 4, 5].map(star => (
-                <button key={star} onClick={() => setRating(star === rating ? 0 : star)}>
-                    <Star size={22} className={star <= rating ? 'text-yellow-400 fill-current' : 'text-gray-600'}/>
-                </button>
-            ))}
-        </div>
-    </div>
-);
+  // StarRating is now imported from npcts
 
 export default PhotoViewer;

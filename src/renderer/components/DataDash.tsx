@@ -1,22 +1,24 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat
 } from 'lucide-react';
-import { Line, Bar } from 'react-chartjs-2';
 import ForceGraph2D from 'react-force-graph-2d';
-import {
-    Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
-    BarElement, Title, Tooltip, Legend, Filler, TimeScale, TimeSeriesScale
-  } from 'chart.js';
-  
-import 'chartjs-adapter-date-fns'; 
-
 import * as d3 from 'd3';
+import 'chartjs-adapter-date-fns'; // Required for time scale support in charts
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler, TimeScale, TimeSeriesScale);
+// Import from npcts
+import {
+    createWindowApiDatabaseClient,
+    QueryWidget,
+    WidgetGrid,
+    DataTable,
+    QueryChart,
+    WidgetBuilder
+} from 'npcts';
+import type { DatabaseClient, QueryWidgetConfig, QueryChartConfig, WidgetConfig } from 'npcts';
 
 const generateId = () => `widget_${Math.random().toString(36).substr(2, 9)}`;
 const iconMap = {
@@ -47,7 +49,8 @@ const WidgetContextMenu = ({ x, y, onSelect, onClose }) => {
     );
 };
 
-
+// DEPRECATED: AddCustomWidgetModal and EditWidgetModal below have been replaced by npcts WidgetBuilder
+// These can be removed in a future cleanup pass
 
 const AddCustomWidgetModal = ({ isOpen, onClose, context, onAddWidget, dbTables, fetchSchema }) => {
     const [title, setTitle] = useState('');
@@ -738,72 +741,21 @@ const DashboardWidget = ({ config, onContextMenu }) => {
             case 'chart':
             case 'line_chart':
             case 'bar_chart':
-                if (!Array.isArray(data) || data.length === 0 || !config.chartConfig) return <div className="theme-text-secondary text-sm">Not enough data or chart is misconfigured.</div>;
-                
-                const chartType = config.chartConfig.type || (config.type.includes('line') ? 'line' : 'bar');
-               
-               
-               
-                const yAxisExpressions = config.chartConfig.y ? config.chartConfig.y.split(',').map(s => s.trim()) : [];
-                
-               
-                const dataKeys = data.length > 0 ? Object.keys(data[0]) : [];
-                const xAxisKey = config.chartConfig.x ? (dataKeys.find(key => key.toLowerCase() === config.chartConfig.x.toLowerCase().split(' as ')[1]) || dataKeys.find(key => key.toLowerCase() === config.chartConfig.x.toLowerCase())) : dataKeys[0];
-
-                const chartDatasets = yAxisExpressions.map((yExpr, index) => {
-                    const yAxisKey = dataKeys.find(key => key.toLowerCase() === yExpr.toLowerCase().split(' as ')[1]) || dataKeys.find(key => key.toLowerCase() === yExpr.toLowerCase()); 
-                    const values = data.map(d => parseFloat(d[yAxisKey]));
-                    const colors = ['#8b5cf6', '#3b82f6', '#facc15', '#ef4444', '#22c55e'];
-
-                    return {
-                        label: yAxisKey || yExpr,
-                        data: values,
-                        backgroundColor: chartType === 'bar' ? colors[index % colors.length] : `${colors[index % colors.length]}33`,
-                        borderColor: colors[index % colors.length],
-                        fill: chartType === 'line',
-                        tension: 0.3
-                    };
-                });
-                
-                const labels = data.map(d => {
-                   
-                    const xValue = d[xAxisKey];
-                    if (typeof xValue === 'string' && (xValue.includes('-') || xValue.includes(':'))) {
-                        return new Date(xValue);
-                    }
-                    return xValue;
-                });
-
-                const chartData = { 
-                    labels, 
-                    datasets: chartDatasets 
+                if (!Array.isArray(data) || data.length === 0 || !config.chartConfig) {
+                    return <div className="theme-text-secondary text-sm">Not enough data or chart is misconfigured.</div>;
+                }
+                // Use the npcts QueryChart component
+                const chartConfig: QueryChartConfig = {
+                    x: config.chartConfig.x || '',
+                    y: config.chartConfig.y || '',
+                    type: config.chartConfig.type || (config.type.includes('line') ? 'line' : 'bar'),
+                    groupBy: config.chartConfig.groupBy
                 };
-
-                const chartOptions = {
-                    responsive: true, maintainAspectRatio: false, 
-                    plugins: { 
-                        legend: { display: chartDatasets.length > 1, position: 'top', labels: { color: '#9ca3af' } },
-                        tooltip: { mode: 'index', intersect: false }
-                    },
-                    scales: {
-                        x: (labels.length > 0 && labels[0] instanceof Date && !isNaN(labels[0])) ? {
-                            type: 'time', 
-                            time: { unit: 'day', tooltipFormat: 'MMM dd, yyyy' },
-                            ticks: { color: '#9ca3af' }, 
-                            grid: { color: '#374151'} 
-                        } : { 
-                            type: 'category', 
-                            ticks: { color: '#9ca3af' }, 
-                            grid: { color: '#374151'} 
-                        },
-                        y: { 
-                            ticks: { color: '#9ca3af' }, 
-                            grid: { color: '#374151'} 
-                        }
-                    }
-                };
-                const ChartComponent = chartType === 'line' ? Line : Bar;
-                return <div className="h-full w-full"><ChartComponent options={chartOptions} data={chartData} /></div>;
+                return (
+                    <div className="h-full w-full">
+                        <QueryChart data={data} config={chartConfig} height={180} />
+                    </div>
+                );
             default: return null;
         }
     };
@@ -812,6 +764,11 @@ const DashboardWidget = ({ config, onContextMenu }) => {
 };
 
 const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, currentProvider, currentNPC }) => {
+    // Create a database client from window.api - this can be configured for different backends
+    const dbClient = useMemo<DatabaseClient>(() =>
+        createWindowApiDatabaseClient(window.api as any),
+    []);
+
     const [chartExplorer, setChartExplorer] = useState({
         xCol: '',
         yCol: '',
@@ -1756,33 +1713,37 @@ const handleAcceptGeneratedSql = () => {
     return (
         <div> 
 
-            <AddCustomWidgetModal 
-                isOpen={isAddCustomWidgetModalOpen} 
-                onClose={() => setIsAddCustomWidgetModalOpen(false)} 
-                context={customWidgetContext} 
-                onAddWidget={handleAddWidget}
-                dbTables={dbTables}
+            {/* Unified Widget Builder for both Add and Edit */}
+            <WidgetBuilder
+                isOpen={isAddCustomWidgetModalOpen || isEditWidgetModalOpen}
+                onClose={() => {
+                    setIsAddCustomWidgetModalOpen(false);
+                    setIsEditWidgetModalOpen(false);
+                    setWidgetToEdit(null);
+                }}
+                onSave={(widget) => {
+                    if (isEditWidgetModalOpen && widgetToEdit) {
+                        handleEditWidgetSave(widget);
+                    } else {
+                        handleAddWidget(widget);
+                    }
+                }}
+                widget={widgetToEdit || undefined}
+                tables={dbTables}
                 fetchSchema={fetchSchemaForTable}
+                executeQuery={async (query) => {
+                    const result = await (window as any).api?.executeSQL?.({ query });
+                    return { result: result?.result, error: result?.error };
+                }}
+                context={customWidgetContext}
+                generateId={generateId}
             />
-
-
-            {isEditWidgetModalOpen && widgetToEdit && (
-                <EditWidgetModal 
-                    isOpen={isEditWidgetModalOpen} 
-                    onClose={() => setIsEditWidgetModalOpen(false)} 
-                    widget={widgetToEdit} 
-                    onSave={handleEditWidgetSave}
-                    dbTables={dbTables}
-                    tableSchemaCache={tableSchemaCache}
-                    fetchSchema={fetchSchemaForTable}
-                />
-            )}
             <ModelBuilderModal isOpen={isMlPanelOpen} onClose={() => setIsMlPanelOpen(false)} />    
 
             {contextMenu.visible && <WidgetContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu({visible: false})} onSelect={handleContextMenuSelect} />}
 
-            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-                <div className="theme-bg-secondary rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col">
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+                <div className="theme-bg-secondary rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
                     <header className="w-full border-b theme-border p-4 flex justify-between items-center flex-shrink-0">
                         <h3 className="text-lg font-semibold flex items-center gap-2">
                             <BarChart3 className="text-blue-400" />
@@ -2109,51 +2070,15 @@ const handleAcceptGeneratedSql = () => {
 
                                             {chartExplorer.showChart && chartExplorer.xCol && chartExplorer.yCol && (
                                                 <div className="border theme-border rounded-lg p-3 mb-4 h-80">
-                                                    <div className="h-full w-full">
-                                                        {(() => {
-                                                            const chartData = {
-                                                                labels: queryResult.map(d => d[chartExplorer.xCol]),
-                                                                datasets: [{
-                                                                    label: chartExplorer.yCol,
-                                                                    data: queryResult.map(d => parseFloat(d[chartExplorer.yCol]) || 0),
-                                                                    backgroundColor: chartExplorer.chartType === 'bar' ? '#8b5cf6' : '#8b5cf633',
-                                                                    borderColor: '#8b5cf6',
-                                                                    fill: chartExplorer.chartType === 'line',
-                                                                    tension: 0.3,
-                                                                    pointRadius: chartExplorer.chartType === 'scatter' ? 4 : 2
-                                                                }]
-                                                            };
-
-                                                            const chartOptions = {
-                                                                responsive: true, 
-                                                                maintainAspectRatio: false,
-                                                                plugins: { 
-                                                                    legend: { display: true, position: 'top', labels: { color: '#9ca3af' } },
-                                                                    tooltip: { mode: 'index', intersect: false }
-                                                                },
-                                                                scales: {
-                                                                    x: { 
-                                                                        type: chartExplorer.chartType === 'scatter' ? 'linear' : 'category',
-                                                                        ticks: { color: '#9ca3af' }, 
-                                                                        grid: { color: '#374151'} 
-                                                                    },
-                                                                    y: { 
-                                                                        ticks: { color: '#9ca3af' }, 
-                                                                        grid: { color: '#374151'} 
-                                                                    }
-                                                                }
-                                                            };
-
-                                                            if (chartExplorer.chartType === 'scatter') {
-                                                                chartOptions.scales.x.type = 'linear';
-                                                                chartData.datasets[0].showLine = false;
-                                                                chartData.datasets[0].pointRadius = 4;
-                                                            }
-
-                                                            const ChartComponent = chartExplorer.chartType === 'line' || chartExplorer.chartType === 'scatter' ? Line : Bar;
-                                                            return <ChartComponent options={chartOptions} data={chartData} />;
-                                                        })()}
-                                                    </div>
+                                                    <QueryChart
+                                                        data={queryResult}
+                                                        config={{
+                                                            x: chartExplorer.xCol,
+                                                            y: chartExplorer.yCol,
+                                                            type: chartExplorer.chartType === 'scatter' ? 'line' : chartExplorer.chartType as 'line' | 'bar'
+                                                        }}
+                                                        height={300}
+                                                    />
                                                 </div>
                                             )}
 

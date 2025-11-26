@@ -47,6 +47,17 @@ const [newJobJinx, setNewJobJinx] = useState('');
     }
   }, [isOpen, currentPath]);
 
+  // Handle Escape key to close
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [isOpen, onClose]);
+
   const handleAddCronJob = async () => {
     if (!newJobCommand.trim()) return alert('Please enter command for the cron job');
     setLoading(true);
