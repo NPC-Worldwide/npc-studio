@@ -80,8 +80,10 @@ import { ChatMessage } from './ChatMessage';
 import { PredictiveTextOverlay } from './PredictiveTextOverlay';
 import { usePredictiveText } from './PredictiveText';
 import { CommandPalette } from './CommandPalette';
-import MessageLabeling, { MessageLabelStorage, MessageLabel } from './MessageLabeling';
+import MessageLabeling, { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage, ContextFile, ContextFileStorage } from './MessageLabeling';
 import LabeledDataManager from './LabeledDataManager';
+import ConversationLabeling from './ConversationLabeling';
+import ContextFilesPanel from './ContextFilesPanel';
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
@@ -194,6 +196,21 @@ const ChatInterface = () => {
         });
         return labelsMap;
     });
+
+    // Conversation labeling state
+    const [conversationLabelingModal, setConversationLabelingModal] = useState<{ isOpen: boolean; conversation: any | null }>({ isOpen: false, conversation: null });
+    const [conversationLabels, setConversationLabels] = useState<{ [key: string]: ConversationLabel }>(() => {
+        const allLabels = ConversationLabelStorage.getAll();
+        const labelsMap: { [key: string]: ConversationLabel } = {};
+        allLabels.forEach(label => {
+            labelsMap[label.conversationId] = label;
+        });
+        return labelsMap;
+    });
+
+    // Context files state
+    const [contextFiles, setContextFiles] = useState<ContextFile[]>(() => ContextFileStorage.getAll());
+    const [contextFilesCollapsed, setContextFilesCollapsed] = useState(true);
 
 
 
@@ -665,8 +682,11 @@ const ChatInterface = () => {
 
 
 
-    // Ref to hold handleFileClick callback for use in keyboard handler
+    // Refs to hold callbacks for use in keyboard handler
     const handleFileClickRef = useRef<((filePath: string) => void) | null>(null);
+    const createNewTerminalRef = useRef<(() => void) | null>(null);
+    const createNewConversationRef = useRef<(() => void) | null>(null);
+    const handleCreateNewFolderRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         const handleKeyDown = async (e: KeyboardEvent) => {
@@ -722,9 +742,49 @@ const ChatInterface = () => {
             }
 
             // Ctrl+B - Open browser URL dialog
-            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'b' && !e.shiftKey) {
                 e.preventDefault();
                 setBrowserUrlDialogOpen(true);
+                return;
+            }
+
+            // Ctrl+Shift+T - New Terminal
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 't' || e.key === 'T')) {
+                e.preventDefault();
+                createNewTerminalRef.current?.();
+                return;
+            }
+
+            // Ctrl+Shift+C - New Conversation/Chat
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+                e.preventDefault();
+                createNewConversationRef.current?.();
+                return;
+            }
+
+            // Ctrl+Shift+B - New Browser
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'b' || e.key === 'B')) {
+                e.preventDefault();
+                setBrowserUrlDialogOpen(true);
+                return;
+            }
+
+            // Ctrl+Shift+N - New Workspace/Window
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'n' || e.key === 'N')) {
+                e.preventDefault();
+                if ((window as any).api?.openNewWindow) {
+                    (window as any).api.openNewWindow(currentPath);
+                } else {
+                    window.open(window.location.href, '_blank');
+                }
+                return;
+            }
+
+            // Ctrl+N - New Folder
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N') && !e.shiftKey) {
+                e.preventDefault();
+                handleCreateNewFolderRef.current?.();
+                return;
             }
         };
 
@@ -816,6 +876,7 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
         if (skipMessageLoad) {
             paneData.chatMessages.messages = [];
             paneData.chatMessages.allMessages = [];
+            paneData.chatStats = getConversationStats([]);
         } else {
             try {
                 const msgs = await window.api.getConversationMessages(newContentId);
@@ -824,9 +885,11 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
                     : [];
                 paneData.chatMessages.allMessages = formatted;
                 paneData.chatMessages.messages = formatted.slice(-paneData.chatMessages.displayedMessageCount);
+                paneData.chatStats = getConversationStats(formatted);
             } catch (err) {
                 paneData.chatMessages.messages = [];
                 paneData.chatMessages.allMessages = [];
+                paneData.chatStats = getConversationStats([]);
             }
         }
     } else if (newContentType === 'terminal' || newContentType === 'pdf') {
@@ -958,6 +1021,51 @@ const closeContentPane = useCallback((paneId, nodePath) => {
         return newRoot;
     });
 }, [activeContentPaneId, setActiveContentPaneId]);
+
+// Message labeling handlers (defined before renderChatView to avoid reference errors)
+const handleLabelMessage = useCallback((message: any) => {
+    setLabelingModal({
+        isOpen: true,
+        message: message
+    });
+}, []);
+
+const handleSaveLabel = useCallback((label: MessageLabel) => {
+    MessageLabelStorage.save(label);
+    setMessageLabels(prev => ({
+        ...prev,
+        [label.messageId]: label
+    }));
+    setLabelingModal({ isOpen: false, message: null });
+}, []);
+
+const handleCloseLabelingModal = useCallback(() => {
+    setLabelingModal({ isOpen: false, message: null });
+}, []);
+
+// Conversation labeling handlers
+const handleLabelConversation = useCallback((conversationId: string, messages: any[]) => {
+    setConversationLabelingModal({
+        isOpen: true,
+        conversation: {
+            id: conversationId,
+            messages: messages
+        }
+    });
+}, []);
+
+const handleSaveConversationLabel = useCallback((label: ConversationLabel) => {
+    ConversationLabelStorage.save(label);
+    setConversationLabels(prev => ({
+        ...prev,
+        [label.conversationId]: label
+    }));
+    setConversationLabelingModal({ isOpen: false, conversation: null });
+}, []);
+
+const handleCloseConversationLabelingModal = useCallback(() => {
+    setConversationLabelingModal({ isOpen: false, conversation: null });
+}, []);
 
 // Render functions for different content pane types
 const renderChatView = useCallback(({ nodeId }) => {
@@ -1463,6 +1571,15 @@ const renderMessageContextMenu = () => (
         }
   });
 
+    // Set data transfer for context files panel
+    if (item.type === 'file' && item.id) {
+        e.dataTransfer.setData('text/plain', item.id);
+        e.dataTransfer.setData('application/json', JSON.stringify({
+            type: 'sidebar-file',
+            path: item.id
+        }));
+    }
+
     if (item.type === 'pane') {
         const paneNodePath = findNodePath(rootLayoutNode, item.id);
         if (paneNodePath) {
@@ -1721,6 +1838,65 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
     const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();
         setIsHovering(false);
+
+        // Check for sidebar file drag (add to context files)
+        const jsonData = e.dataTransfer.getData('application/json');
+        const textData = e.dataTransfer.getData('text/plain');
+
+        if (jsonData) {
+            try {
+                const data = JSON.parse(jsonData);
+                if (data.type === 'sidebar-file' && data.path) {
+                    // Add to context files
+                    const response = await window.api?.readFileContent?.(data.path);
+                    const content = response?.content || '';
+                    const name = data.path.split('/').pop() || data.path;
+
+                    const newFile = {
+                        id: crypto.randomUUID(),
+                        path: data.path,
+                        name: name,
+                        content: content,
+                        size: content.length,
+                        addedAt: new Date().toISOString(),
+                        source: 'sidebar' as const
+                    };
+
+                    setContextFiles(prev => {
+                        if (prev.find(f => f.path === data.path)) return prev;
+                        return [...prev, newFile];
+                    });
+                    return;
+                }
+            } catch (err) {
+                console.error('Failed to parse drag data:', err);
+            }
+        }
+
+        // Check for file path from sidebar (plain text starting with /)
+        if (textData && textData.startsWith('/') && !e.dataTransfer.files.length) {
+            const response = await window.api?.readFileContent?.(textData);
+            const content = response?.content || '';
+            const name = textData.split('/').pop() || textData;
+
+            const newFile = {
+                id: crypto.randomUUID(),
+                path: textData,
+                name: name,
+                content: content,
+                size: content.length,
+                addedAt: new Date().toISOString(),
+                source: 'sidebar' as const
+            };
+
+            setContextFiles(prev => {
+                if (prev.find(f => f.path === textData)) return prev;
+                return [...prev, newFile];
+            });
+            return;
+        }
+
+        // Handle external file drops (original behavior - add as attachments)
         const files = Array.from(e.dataTransfer.files);
 
         const existingFileNames = new Set(uploadedFiles.map(f => f.name));
@@ -1839,7 +2015,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
             finalPromptForUserMessage = jinxCommandParts.join(' ');
 
         } else {
-            const contexts = gatherWorkspaceContext(contentDataRef);
+            const contexts = gatherWorkspaceContext(contentDataRef, contextFiles);
             const newHash = hashContext(contexts);
             const contextChanged = newHash !== contextHash;
 
@@ -2094,27 +2270,6 @@ ${contextPrompt}`;
             selectedNPC: currentNPC
         });
     };
-
-    // Message labeling handlers
-    const handleLabelMessage = useCallback((message: any) => {
-        setLabelingModal({
-            isOpen: true,
-            message: message
-        });
-    }, []);
-
-    const handleSaveLabel = useCallback((label: MessageLabel) => {
-        MessageLabelStorage.save(label);
-        setMessageLabels(prev => ({
-            ...prev,
-            [label.messageId]: label
-        }));
-        setLabelingModal({ isOpen: false, message: null });
-    }, []);
-
-    const handleCloseLabelingModal = useCallback(() => {
-        setLabelingModal({ isOpen: false, message: null });
-    }, []);
 
     const handleDeleteSelectedMessages = async () => {
         const selectedIds = Array.from(selectedMessages);
@@ -2389,7 +2544,14 @@ ${contextPrompt}`;
             return { conversation: null, paneId: null };
         }
     }, [currentPath, activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
-    
+
+    // Keep refs updated for keyboard handler
+    useEffect(() => {
+        createNewTerminalRef.current = createNewTerminal;
+        createNewConversationRef.current = createNewConversation;
+        handleCreateNewFolderRef.current = handleCreateNewFolder;
+    }, [createNewTerminal, createNewConversation, handleCreateNewFolder]);
+
     const createNewTextFile = async () => {
             try {
                 const filename = `untitled-${Date.now()}.txt`;
@@ -2401,6 +2563,19 @@ ${contextPrompt}`;
                 setError(err.message);
             }
         };
+
+    const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx') => {
+        try {
+            const filename = `untitled-${Date.now()}.${docType}`;
+            const filepath = normalizePath(`${currentPath}/${filename}`);
+            // Create empty document - the viewer components will handle creating proper structure
+            await window.api.writeFileContent(filepath, '');
+            await loadDirectoryStructure(currentPath);
+            await handleFileClick(filepath);
+        } catch (err) {
+            setError(err.message);
+        }
+    };
 
     // Refresh conversations list
     const refreshConversations = useCallback(async () => {
@@ -3453,12 +3628,24 @@ ${contextPrompt}`;
                 />
             )}
 
+            {/* Conversation Labeling Modal */}
+            {conversationLabelingModal.isOpen && conversationLabelingModal.conversation && (
+                <ConversationLabeling
+                    conversation={conversationLabelingModal.conversation}
+                    existingLabel={conversationLabels[conversationLabelingModal.conversation.id]}
+                    onSave={handleSaveConversationLabel}
+                    onClose={handleCloseConversationLabelingModal}
+                />
+            )}
+
             {/* Labeled Data Manager */}
             <LabeledDataManager
                 isOpen={labeledDataManagerOpen}
                 onClose={() => setLabeledDataManagerOpen(false)}
                 messageLabels={messageLabels}
                 setMessageLabels={setMessageLabels}
+                conversationLabels={conversationLabels}
+                setConversationLabels={setConversationLabels}
             />
         </>
 
@@ -3807,7 +3994,8 @@ const renderInputArea = () => {
     const jinxInputsForSelected = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
     const hasJinxContent = isJinxMode && Object.values(jinxInputsForSelected).some(val => val !== null && String(val).trim());
     const inputStr = typeof input === 'string' ? input : '';
-    const hasInputContent = inputStr.trim() || uploadedFiles.length > 0 || hasJinxContent;
+    const hasContextFiles = contextFiles.length > 0;
+    const hasInputContent = inputStr.trim() || uploadedFiles.length > 0 || hasJinxContent || hasContextFiles;
     const canSend = !isStreaming && hasInputContent && (activeConversationId || isJinxMode);
 
     if (isInputMinimized) {
@@ -3919,6 +4107,15 @@ const renderInputArea = () => {
                 )}
 
                 <div className="flex-1 overflow-y-auto">
+                    {/* Context Files Panel */}
+                    <ContextFilesPanel
+                        isCollapsed={contextFilesCollapsed}
+                        onToggleCollapse={() => setContextFilesCollapsed(!contextFilesCollapsed)}
+                        contextFiles={contextFiles}
+                        setContextFiles={setContextFiles}
+                        currentPath={currentPath}
+                    />
+
                     {renderAttachmentThumbnails()}
 
                     <div className="flex items-end p-2 gap-2 relative z-0">
@@ -4493,6 +4690,7 @@ const renderMainContent = () => {
         handleCreateNewFolder={handleCreateNewFolder}
         createNewTextFile={createNewTextFile}
         createNewTerminal={createNewTerminal}
+        createNewDocument={createNewDocument}
         handleOpenNpcTeamMenu={handleOpenNpcTeamMenu}
         renderSearchResults={renderSearchResults}
     />

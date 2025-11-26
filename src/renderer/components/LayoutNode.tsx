@@ -1,13 +1,235 @@
-import React, { useCallback, memo } from 'react';
+import React, { useCallback, memo, useState } from 'react';
 import {
     BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
-    Image as ImageIcon
+    Image as ImageIcon, Tag
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import { getFileIcon } from './utils';
+
+// Token cost calculator based on model pricing ($ per 1K tokens)
+// Source: Helicone LLM API Pricing - Updated Nov 2025
+// Prices converted from per 1M to per 1K tokens (divide by 1000)
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+    // OpenAI models
+    'gpt-5': { input: 0.00125, output: 0.01 },
+    'gpt-5-mini': { input: 0.00025, output: 0.002 },
+    'gpt-5-nano': { input: 0.00005, output: 0.0004 },
+    'gpt-5.1': { input: 0.00125, output: 0.01 },
+    'gpt-4.1': { input: 0.002, output: 0.008 },
+    'gpt-4.1-mini': { input: 0.0004, output: 0.0016 },
+    'gpt-4.1-nano': { input: 0.0001, output: 0.0004 },
+    'gpt-4o': { input: 0.0025, output: 0.01 },
+    'gpt-4o-2024-08-06': { input: 0.0025, output: 0.01 },
+    'gpt-4o-2024-11-20': { input: 0.0025, output: 0.01 },
+    'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
+    'gpt-4-turbo': { input: 0.01, output: 0.03 },
+    'gpt-4': { input: 0.03, output: 0.06 },
+    'gpt-4-32k': { input: 0.06, output: 0.12 },
+    'gpt-3.5-turbo': { input: 0.0005, output: 0.0015 },
+    'gpt-3.5-turbo-0125': { input: 0.0005, output: 0.0015 },
+    'chatgpt-4o-latest': { input: 0.005, output: 0.015 },
+    'o1': { input: 0.015, output: 0.06 },
+    'o1-preview': { input: 0.015, output: 0.06 },
+    'o1-mini': { input: 0.0011, output: 0.0044 },
+    'o1-pro': { input: 0.15, output: 0.6 },
+    'o3': { input: 0.002, output: 0.008 },
+    'o3-mini': { input: 0.0011, output: 0.0044 },
+    'o3-pro': { input: 0.02, output: 0.08 },
+    'o4-mini': { input: 0.0011, output: 0.0044 },
+    'codex-mini': { input: 0.0015, output: 0.006 },
+    // Anthropic models
+    'claude-opus-4': { input: 0.015, output: 0.075 },
+    'claude-opus-4-1': { input: 0.015, output: 0.075 },
+    'claude-opus-4-5': { input: 0.005, output: 0.025 },
+    'claude-sonnet-4': { input: 0.003, output: 0.015 },
+    'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
+    'claude-3.7-sonnet': { input: 0.003, output: 0.015 },
+    'claude-3-7-sonnet': { input: 0.003, output: 0.015 },
+    'claude-3.5-sonnet': { input: 0.003, output: 0.015 },
+    'claude-3-5-sonnet': { input: 0.003, output: 0.015 },
+    'claude-3-opus': { input: 0.015, output: 0.075 },
+    'claude-3-sonnet': { input: 0.003, output: 0.015 },
+    'claude-3-haiku': { input: 0.00025, output: 0.00125 },
+    'claude-3.5-haiku': { input: 0.0008, output: 0.004 },
+    'claude-3-5-haiku': { input: 0.0008, output: 0.004 },
+    'claude-haiku-4-5': { input: 0.001, output: 0.005 },
+    'claude-2': { input: 0.008, output: 0.024 },
+    'claude-instant': { input: 0.00163, output: 0.00551 },
+    // Google models
+    'gemini-3-pro': { input: 0.002, output: 0.012 },
+    'gemini-2.5-pro': { input: 0.00125, output: 0.01 },
+    'gemini-2.5-flash': { input: 0.0003, output: 0.0025 },
+    'gemini-2.5-flash-lite': { input: 0.0001, output: 0.0004 },
+    'gemini-2.0-flash': { input: 0.0001, output: 0.0004 },
+    'gemini-2.0-flash-lite': { input: 0.000075, output: 0.0003 },
+    'gemini-1.5-pro': { input: 0.0035, output: 0.0105 },
+    'gemini-1.5-flash': { input: 0.00035, output: 0.00105 },
+    'gemini-flash-1.5-8b': { input: 0.0000375, output: 0.00015 },
+    'gemini-pro': { input: 0.000125, output: 0.000375 },
+    'gemma-3-27b': { input: 0.00009, output: 0.00016 },
+    'gemma-3-12b': { input: 0.00003, output: 0.0001 },
+    'gemma-3-4b': { input: 0.000017, output: 0.0000682 },
+    'gemma-2-27b': { input: 0.00065, output: 0.00065 },
+    'gemma-2-9b': { input: 0.00001, output: 0.00003 },
+    // Meta Llama models
+    'llama-4-maverick': { input: 0.00015, output: 0.0006 },
+    'llama-4-scout': { input: 0.00008, output: 0.0003 },
+    'llama-3.3-70b': { input: 0.00013, output: 0.00038 },
+    'llama-3.1-405b': { input: 0.0008, output: 0.0008 },
+    'llama-3.1-70b': { input: 0.0004, output: 0.0004 },
+    'llama-3.1-8b': { input: 0.00002, output: 0.00003 },
+    'llama-3-70b': { input: 0.0003, output: 0.0004 },
+    'llama-3-8b': { input: 0.00003, output: 0.00006 },
+    'llama-3.2-90b': { input: 0.00035, output: 0.0004 },
+    'llama-3.2-11b': { input: 0.000049, output: 0.000049 },
+    'llama-3.2-3b': { input: 0.00002, output: 0.00002 },
+    'llama-3.2-1b': { input: 0.000005, output: 0.00001 },
+    // Mistral models
+    'mistral-large': { input: 0.002, output: 0.006 },
+    'mistral-medium-3': { input: 0.0004, output: 0.002 },
+    'mistral-small': { input: 0.0002, output: 0.0006 },
+    'mistral-small-3.1': { input: 0.00005, output: 0.0001 },
+    'mistral-small-3.2': { input: 0.0001, output: 0.0003 },
+    'mistral-nemo': { input: 0.00002, output: 0.00004 },
+    'mistral-saba': { input: 0.0002, output: 0.0006 },
+    'ministral-8b': { input: 0.0001, output: 0.0001 },
+    'ministral-3b': { input: 0.00004, output: 0.00004 },
+    'mixtral-8x22b': { input: 0.002, output: 0.006 },
+    'mixtral-8x7b': { input: 0.00054, output: 0.00054 },
+    'mistral-7b': { input: 0.000028, output: 0.000054 },
+    'codestral': { input: 0.0003, output: 0.0009 },
+    'devstral-small': { input: 0.00005, output: 0.00022 },
+    'devstral-medium': { input: 0.0004, output: 0.002 },
+    'magistral-medium': { input: 0.002, output: 0.005 },
+    'magistral-small': { input: 0.0005, output: 0.0015 },
+    'pixtral-12b': { input: 0.0001, output: 0.0001 },
+    'pixtral-large': { input: 0.002, output: 0.006 },
+    // DeepSeek
+    'deepseek-r1': { input: 0.0004, output: 0.002 },
+    'deepseek-r1-0528': { input: 0.0004, output: 0.00175 },
+    'deepseek-r1-distill-llama-70b': { input: 0.00003, output: 0.00013 },
+    'deepseek-r1-distill-qwen-32b': { input: 0.00027, output: 0.00027 },
+    'deepseek-r1-distill-qwen-14b': { input: 0.00015, output: 0.00015 },
+    'deepseek-v3': { input: 0.0009, output: 0.0009 },
+    'deepseek-v3-0324': { input: 0.00024, output: 0.00084 },
+    'deepseek-chat': { input: 0.0003, output: 0.00085 },
+    'deepseek-prover-v2': { input: 0.0005, output: 0.00218 },
+    // X/Grok
+    'grok-4': { input: 0.003, output: 0.015 },
+    'grok-4-fast': { input: 0.0002, output: 0.0005 },
+    'grok-3': { input: 0.003, output: 0.015 },
+    'grok-3-mini': { input: 0.0003, output: 0.0005 },
+    'grok-3-fast': { input: 0.005, output: 0.025 },
+    'grok-2': { input: 0.002, output: 0.01 },
+    'grok-beta': { input: 0.005, output: 0.015 },
+    'grok-code-fast-1': { input: 0.0002, output: 0.0015 },
+    // Qwen
+    'qwen-max': { input: 0.0016, output: 0.0064 },
+    'qwen-plus': { input: 0.0004, output: 0.0012 },
+    'qwen-turbo': { input: 0.00005, output: 0.0002 },
+    'qwen3-235b': { input: 0.00018, output: 0.00054 },
+    'qwen3-coder': { input: 0.00022, output: 0.00095 },
+    'qwen3-32b': { input: 0.00005, output: 0.0002 },
+    'qwen3-30b': { input: 0.00006, output: 0.00022 },
+    'qwen3-14b': { input: 0.00005, output: 0.00022 },
+    'qwen3-8b': { input: 0.000035, output: 0.000138 },
+    'qwen3-4b': { input: 0, output: 0 },
+    'qwen2.5-coder-32b': { input: 0.00004, output: 0.00016 },
+    'qwen2.5-72b': { input: 0.00007, output: 0.00026 },
+    'qwen2.5-vl-72b': { input: 0.00008, output: 0.00033 },
+    'qwq-32b': { input: 0.00015, output: 0.0004 },
+    // Cohere
+    'command-a': { input: 0.0025, output: 0.01 },
+    'command-r-plus': { input: 0.0025, output: 0.01 },
+    'command-r': { input: 0.00015, output: 0.0006 },
+    'command-r7b': { input: 0.0000375, output: 0.00015 },
+    // Perplexity
+    'sonar': { input: 0.001, output: 0.001 },
+    'sonar-pro': { input: 0.003, output: 0.015 },
+    'sonar-reasoning': { input: 0.001, output: 0.005 },
+    'sonar-reasoning-pro': { input: 0.002, output: 0.008 },
+    'sonar-deep-research': { input: 0.002, output: 0.008 },
+    // Amazon
+    'nova-pro': { input: 0.0008, output: 0.0032 },
+    'nova-lite': { input: 0.00006, output: 0.00024 },
+    'nova-micro': { input: 0.000035, output: 0.00014 },
+    // MiniMax
+    'minimax-01': { input: 0.0002, output: 0.0011 },
+    'minimax-m1': { input: 0.0004, output: 0.0022 },
+    // Moonshot/Kimi
+    'kimi-k2': { input: 0.00014, output: 0.00249 },
+    'kimi-dev-72b': { input: 0.00029, output: 0.00115 },
+    // AI21
+    'jamba-mini': { input: 0.0002, output: 0.0004 },
+    'jamba-large': { input: 0.002, output: 0.008 },
+    // Groq (fast inference - prices vary)
+    'groq-llama-3.3-70b': { input: 0.00059, output: 0.00079 },
+    'groq-llama-3.1-8b': { input: 0.00005, output: 0.00008 },
+    'groq-mixtral-8x7b': { input: 0.00024, output: 0.00024 },
+    'groq-gemma2-9b': { input: 0.0002, output: 0.0002 },
+    // Inflection
+    'inflection-3-productivity': { input: 0.0025, output: 0.01 },
+    'inflection-3-pi': { input: 0.0025, output: 0.01 },
+    // Microsoft Phi
+    'phi-4': { input: 0.00006, output: 0.00014 },
+    'phi-4-multimodal': { input: 0.00005, output: 0.0001 },
+    'phi-4-reasoning-plus': { input: 0.00007, output: 0.00035 },
+    'phi-3.5-mini': { input: 0.0001, output: 0.0001 },
+    'phi-3-mini': { input: 0.0001, output: 0.0001 },
+    'phi-3-medium': { input: 0.001, output: 0.001 },
+    // Nvidia
+    'nemotron-70b': { input: 0.0006, output: 0.0006 },
+    'nemotron-ultra-253b': { input: 0.0006, output: 0.0018 },
+    'nemotron-nano-9b': { input: 0.00004, output: 0.00016 },
+    // Morph
+    'morph-v3-large': { input: 0.0009, output: 0.0019 },
+    'morph-v3-fast': { input: 0.0008, output: 0.0012 },
+    // Mercury/Inception
+    'mercury': { input: 0.00025, output: 0.001 },
+    'mercury-coder': { input: 0.00025, output: 0.001 },
+    // Local/self-hosted models (free)
+    'ollama': { input: 0, output: 0 },
+    'local': { input: 0, output: 0 },
+    'localhost': { input: 0, output: 0 },
+    'llama': { input: 0, output: 0 },
+    'llama3': { input: 0, output: 0 },
+    'llama3.1': { input: 0, output: 0 },
+    'llama3.2': { input: 0, output: 0 },
+    'mistral': { input: 0, output: 0 },
+    'codellama': { input: 0, output: 0 },
+    'deepseek-coder': { input: 0, output: 0 },
+    'qwen2': { input: 0, output: 0 },
+    'phi': { input: 0, output: 0 },
+    'gemma': { input: 0, output: 0 },
+    'nomic': { input: 0, output: 0 },
+};
+
+const calculateTokenCost = (tokenCount: number, models: Set<string>): number => {
+    if (!tokenCount || tokenCount === 0) return 0;
+
+    // Find the most expensive model used to give upper bound estimate
+    let maxCostPer1K = 0;
+    models?.forEach(model => {
+        const modelLower = model?.toLowerCase() || '';
+        for (const [key, pricing] of Object.entries(MODEL_PRICING)) {
+            if (modelLower.includes(key)) {
+                const avgCost = (pricing.input + pricing.output) / 2;
+                if (avgCost > maxCostPer1K) maxCostPer1K = avgCost;
+                break;
+            }
+        }
+    });
+
+    // If no known model, assume a mid-range cost
+    if (maxCostPer1K === 0 && models?.size > 0) {
+        maxCostPer1K = 0.002; // Default estimate
+    }
+
+    return (tokenCount / 1000) * maxCostPer1K;
+};
 
 // Exported utility function for syncing layout with content data
 export const syncLayoutWithContentData = (layoutNode: any, contentData: Record<string, any>): any => {
@@ -283,11 +505,48 @@ export const LayoutNode = memo(({ node, path, component }) => {
             headerTitle = contentId.split('/').pop();
         }
 
+        // Stats dropdown state
+        const [statsExpanded, setStatsExpanded] = useState(false);
+
         // Conditionally construct children for PaneHeader (chat-specific buttons)
         let paneHeaderChildren = null;
         if (contentType === 'chat') {
+            const chatStats = paneData?.chatStats || { messageCount: 0, tokenCount: 0, models: new Set(), agents: new Set(), providers: new Set() };
+            const tokenCost = calculateTokenCost(chatStats.tokenCount, chatStats.models);
             paneHeaderChildren = (
                 <>
+                    {/* Stats dropdown */}
+                    <div className="relative mr-2">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setStatsExpanded(!statsExpanded); }}
+                            className="flex items-center gap-1 px-2 py-1 text-[10px] text-gray-400 hover:text-gray-200 rounded theme-hover"
+                            title="Toggle stats"
+                        >
+                            <BarChart3 size={12} />
+                            <span>{chatStats.messageCount}m</span>
+                            <span>~{(chatStats.tokenCount / 1000).toFixed(1)}k</span>
+                            {tokenCost > 0 && <span className="text-green-500">${tokenCost.toFixed(2)}</span>}
+                            {statsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                        </button>
+                        {statsExpanded && (
+                            <div className="absolute top-full left-0 mt-1 p-2 rounded theme-bg-secondary theme-border border shadow-lg z-50 min-w-[180px]">
+                                <div className="text-[10px] space-y-1">
+                                    <div className="flex justify-between"><span className="text-gray-500">Messages:</span><span>{chatStats.messageCount}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">Tokens:</span><span>~{chatStats.tokenCount?.toLocaleString()}</span></div>
+                                    {tokenCost > 0 && <div className="flex justify-between"><span className="text-gray-500">Est. Cost:</span><span className="text-green-400">${tokenCost.toFixed(4)}</span></div>}
+                                    {chatStats.agents?.size > 0 && (
+                                        <div className="flex justify-between"><span className="text-gray-500">Agents:</span><span className="text-purple-400" title={Array.from(chatStats.agents).join(', ')}>{chatStats.agents.size}</span></div>
+                                    )}
+                                    {chatStats.models?.size > 0 && (
+                                        <div className="flex justify-between"><span className="text-gray-500">Models:</span><span className="text-blue-400" title={Array.from(chatStats.models).join(', ')}>{chatStats.models.size}</span></div>
+                                    )}
+                                    {chatStats.providers?.size > 0 && (
+                                        <div className="flex justify-between"><span className="text-gray-500">Providers:</span><span className="text-cyan-400">{chatStats.providers.size}</span></div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                     <button
                         onClick={(e) => { e.stopPropagation(); setAutoScrollEnabled(!autoScrollEnabled); }}
                         className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${

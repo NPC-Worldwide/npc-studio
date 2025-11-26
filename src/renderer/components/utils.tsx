@@ -214,16 +214,18 @@ export const hashContext = (contexts: any[]) => {
     return btoa(contentString);
 };
 
-export const gatherWorkspaceContext = (contentDataRef: React.MutableRefObject<any>) => {
+export const gatherWorkspaceContext = (contentDataRef: React.MutableRefObject<any>, contextFiles?: any[]) => {
     const contexts: any[] = [];
 
+    // Add open pane contexts
     Object.entries(contentDataRef.current).forEach(([paneId, paneData]: [string, any]) => {
         if (paneData.contentType === 'editor' && paneData.fileContent) {
             contexts.push({
                 type: 'file',
                 path: paneData.contentId,
                 content: paneData.fileContent,
-                paneId: paneId
+                paneId: paneId,
+                source: 'open-pane'
             });
         } else if (paneData.contentType === 'browser' && paneData.browserUrl) {
             contexts.push({
@@ -234,6 +236,22 @@ export const gatherWorkspaceContext = (contentDataRef: React.MutableRefObject<an
             });
         }
     });
+
+    // Add explicit context files (if not already included from open panes)
+    if (contextFiles && contextFiles.length > 0) {
+        contextFiles.forEach((file: any) => {
+            // Don't add duplicates from open panes
+            const alreadyIncluded = contexts.some(ctx => ctx.path === file.path);
+            if (!alreadyIncluded && file.content) {
+                contexts.push({
+                    type: 'file',
+                    path: file.path,
+                    content: file.content,
+                    source: file.source || 'context-panel'
+                });
+            }
+        });
+    }
 
     return contexts;
 };

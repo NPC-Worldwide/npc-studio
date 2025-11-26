@@ -1,19 +1,23 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { X, Download, Upload, Trash2, Search, Filter, Tag, Star, FileJson, FileText, ChevronDown, ChevronRight, Check } from 'lucide-react';
-import { MessageLabelStorage, MessageLabel } from './MessageLabeling';
+import { X, Download, Upload, Trash2, Search, Filter, Tag, Star, FileJson, FileText, ChevronDown, ChevronRight, Check, MessageSquare } from 'lucide-react';
+import { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage } from './MessageLabeling';
 
 interface LabeledDataManagerProps {
     isOpen: boolean;
     onClose: () => void;
     messageLabels: { [key: string]: MessageLabel };
     setMessageLabels: React.Dispatch<React.SetStateAction<{ [key: string]: MessageLabel }>>;
+    conversationLabels?: { [key: string]: ConversationLabel };
+    setConversationLabels?: React.Dispatch<React.SetStateAction<{ [key: string]: ConversationLabel }>>;
 }
 
 const LabeledDataManager: React.FC<LabeledDataManagerProps> = ({
     isOpen,
     onClose,
     messageLabels,
-    setMessageLabels
+    setMessageLabels,
+    conversationLabels = {},
+    setConversationLabels
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
@@ -21,6 +25,7 @@ const LabeledDataManager: React.FC<LabeledDataManagerProps> = ({
     const [filterRole, setFilterRole] = useState<'all' | 'user' | 'assistant'>('all');
     const [expandedConversations, setExpandedConversations] = useState<Set<string>>(new Set());
     const [exportFormat, setExportFormat] = useState<'json' | 'jsonl' | 'finetune'>('json');
+    const [viewMode, setViewMode] = useState<'messages' | 'conversations'>('messages');
 
     const labels = useMemo(() => Object.values(messageLabels), [messageLabels]);
 
@@ -230,6 +235,9 @@ const LabeledDataManager: React.FC<LabeledDataManagerProps> = ({
         setExpandedConversations(newExpanded);
     };
 
+    // Conversation labels data
+    const convLabels = useMemo(() => Object.values(conversationLabels), [conversationLabels]);
+
     // Stats
     const stats = useMemo(() => {
         const totalLabels = labels.length;
@@ -238,9 +246,11 @@ const LabeledDataManager: React.FC<LabeledDataManagerProps> = ({
         const withScores = labels.filter(l => l.qualityScore || l.relevanceScore || l.accuracyScore || l.helpfulnessScore).length;
         const withSpans = labels.filter(l => l.textSpans?.length > 0).length;
         const conversations = Object.keys(labelsByConversation).length;
+        const labeledConversations = convLabels.length;
+        const trainingConversations = convLabels.filter(c => c.includeInTraining).length;
 
-        return { totalLabels, userMessages, assistantMessages, withScores, withSpans, conversations };
-    }, [labels, labelsByConversation]);
+        return { totalLabels, userMessages, assistantMessages, withScores, withSpans, conversations, labeledConversations, trainingConversations };
+    }, [labels, labelsByConversation, convLabels]);
 
     if (!isOpen) return null;
 
@@ -253,12 +263,36 @@ const LabeledDataManager: React.FC<LabeledDataManagerProps> = ({
                         <Tag size={20} className="text-blue-400" />
                         <h2 className="text-lg font-semibold">Labeled Data Manager</h2>
                         <span className="px-2 py-0.5 bg-blue-600/30 text-blue-300 rounded text-xs">
-                            {stats.totalLabels} labels
+                            {stats.totalLabels} messages
+                        </span>
+                        <span className="px-2 py-0.5 bg-green-600/30 text-green-300 rounded text-xs">
+                            {stats.labeledConversations} conversations
                         </span>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-gray-800 rounded">
                         <X size={20} />
                     </button>
+                </div>
+
+                {/* View mode toggle */}
+                <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-2">
+                    <button
+                        className={`px-3 py-1 rounded text-xs ${viewMode === 'messages' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+                        onClick={() => setViewMode('messages')}
+                    >
+                        <Tag size={12} className="inline mr-1" /> Messages ({stats.totalLabels})
+                    </button>
+                    <button
+                        className={`px-3 py-1 rounded text-xs ${viewMode === 'conversations' ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+                        onClick={() => setViewMode('conversations')}
+                    >
+                        <MessageSquare size={12} className="inline mr-1" /> Conversations ({stats.labeledConversations})
+                    </button>
+                    {stats.trainingConversations > 0 && (
+                        <span className="text-xs text-gray-400 ml-2">
+                            {stats.trainingConversations} for training
+                        </span>
+                    )}
                 </div>
 
                 {/* Stats bar */}

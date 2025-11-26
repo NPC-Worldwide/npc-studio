@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
-    X, Wrench, FileText, FileJson, BarChart3, Clock, Code2, HardDrive, ChevronDown, Tag
+    X, Wrench, FileText, FileJson, BarChart3, Clock, Code2, HardDrive, ChevronDown, ChevronUp, Tag,
+    Sun, Moon, FileStack
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
+import npcLogo from '../../assets/icon.png';
 
 const Sidebar = (props: any) => {
     // Destructure all props from Enpistu
@@ -40,7 +42,7 @@ const Sidebar = (props: any) => {
         handleGlobalDragStart, handleGlobalDragEnd, normalizePath, getFileIcon,
         serializeWorkspace, saveWorkspaceToStorage, handleConversationSelect, handleFileClick,
         handleInputSubmit, toggleTheme, goUpDirectory, switchToPath,
-        handleCreateNewFolder, createNewTextFile, createNewTerminal,
+        handleCreateNewFolder, createNewTextFile, createNewTerminal, createNewDocument,
         handleOpenNpcTeamMenu, renderSearchResults,
         createAndAddPaneNodeToLayout, findNodePath, findNodeByPath
     } = props;
@@ -50,6 +52,8 @@ const Sidebar = (props: any) => {
 
     // Local state for disk usage panel
     const [diskUsageCollapsed, setDiskUsageCollapsed] = useState(true);
+    // Local state for header actions expanded/collapsed
+    const [headerActionsExpanded, setHeaderActionsExpanded] = useState(false);
 
 // ===== ALL THE SIDEBAR FUNCTIONS BELOW =====
 
@@ -1267,61 +1271,94 @@ useEffect(() => {
                               />
                           )}
                           
-                          {/* Rest of sidebar content remains the same */}
-                          <div className={`p-4 border-b theme-border flex items-center justify-between flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`} 
-                                style={{ WebkitAppRegion: 'drag' }}>
-                              <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
-                              <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
-                                  <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
-              
-                                  <div className="relative group">
-                                      <div className="flex">
-                                          <button onClick={createNewConversation} className="p-2 theme-button-primary rounded-full flex items-center gap-1 transition-all" aria-label="New Conversation">
-                                              <Plus size={14} />
-                                              <ChevronRight size={10} className="transform rotate-90 opacity-60" />
+                          {/* Header */}
+                          <div className={`px-4 pt-4 pb-2 border-b theme-border flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}
+                                style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+                              {/* Row 1: NPC Studio title */}
+                              <div className="text-center mb-2">
+                                  <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
+                              </div>
+                              {/* Row 2: Theme + Chat buttons, with expandable grid below */}
+                              <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+                                  <div className={`grid grid-cols-2 ${headerActionsExpanded ? 'grid-rows-4' : ''} divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden`}>
+                                      <button onClick={toggleTheme} className="action-grid-button-wide" aria-label="Toggle Theme" title="Toggle Theme">
+                                          {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}<span className="text-[10px] ml-1.5">Theme</span>
+                                      </button>
+                                      <div className="relative group">
+                                          <button onClick={createNewConversation} className="action-grid-button-wide w-full h-full" aria-label="New Chat" title="New Chat (Ctrl+Shift+C)">
+                                              <Plus size={16} /><span className="text-[10px] ml-1.5">Chat</span>
                                           </button>
+                                          <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150 min-w-[140px]">
+                                              <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                                  <Folder size={14} /><span>New Folder</span>
+                                              </button>
+                                              <button onClick={() => setBrowserUrlDialogOpen(true)} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                                  <Globe size={14} /><span>New Browser</span>
+                                              </button>
+                                              <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                                  <Terminal size={14} /><span>New Terminal</span>
+                                              </button>
+                                              <button onClick={createNewTextFile} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                                  <Code2 size={14} /><span>New Code File</span>
+                                              </button>
+                                              <div className="border-t theme-border my-1"></div>
+                                              <button onClick={() => createNewDocument?.('docx')} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                                  <FileText size={14} /><span>Word (.docx)</span>
+                                              </button>
+                                              <button onClick={() => createNewDocument?.('xlsx')} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                                  <FileJson size={14} /><span>Excel (.xlsx)</span>
+                                              </button>
+                                              <button onClick={() => createNewDocument?.('pptx')} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                                  <BarChart3 size={14} /><span>PowerPoint (.pptx)</span>
+                                              </button>
+                                              <div className="border-t theme-border my-1"></div>
+                                              <button onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                                  <img src={npcLogo} alt="NPC" style={{ width: 14, height: 14 }} className="rounded-full" /><span>New Workspace</span>
+                                              </button>
+                                          </div>
                                       </div>
-                                      
-                                      <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
-                                          <button onClick={createNewConversation} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                              <MessageSquare size={12} />
-                                              <span>New Conversation</span>
-                                          </button>
-                                          <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                              <Folder size={12} />
-                                              <span>New Folder</span>
-                                          </button>
-                                          <button onClick={() => setBrowserUrlDialogOpen(true)} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                              <Globe size={12} />
-                                              <span>New Browser</span>
-                                          </button>
-                                          <button onClick={createNewTextFile} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                              <FileText size={12} />
-                                              <span>New Text File</span>
-                                          </button>
-                                          <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                                              <Terminal size={12} />
-                                              <span>New Terminal</span>
-                                          </button>
-                                          <button
-                                              onClick={() => {
-                                                  if (window.api && window.api.openNewWindow) {
-                                                      window.api.openNewWindow(currentPath);
-                                                  } else {
-                                                      window.open(window.location.href, '_blank');
-                                                  }
-                                              }}
-                                              className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
-                                              aria-label="Open New NPC Studio Window"
-                                              title="Open New NPC Studio Window"
-                                          >
-                                              <Plus size={12} />
-                                              <span>New Window</span>
-                                          </button>
-                                      </div>
+                                      {/* Expanded rows (extensions of top two) */}
+                                      {headerActionsExpanded && (
+                                          <>
+                                              <button onClick={handleCreateNewFolder} className="action-grid-button-wide" aria-label="New Folder" title="New Folder (Ctrl+N)">
+                                                  <Folder size={16} /><span className="text-[10px] ml-1.5">Folder</span>
+                                              </button>
+                                              <button onClick={() => setBrowserUrlDialogOpen(true)} className="action-grid-button-wide" aria-label="New Browser" title="New Browser (Ctrl+Shift+B)">
+                                                  <Globe size={16} /><span className="text-[10px] ml-1.5">Browser</span>
+                                              </button>
+                                              <button onClick={createNewTerminal} className="action-grid-button-wide" aria-label="New Terminal" title="New Terminal (Ctrl+Shift+T)">
+                                                  <Terminal size={16} /><span className="text-[10px] ml-1.5">Terminal</span>
+                                              </button>
+                                              <button onClick={createNewTextFile} className="action-grid-button-wide" aria-label="New Code File" title="New Code File (Ctrl+Shift+F)">
+                                                  <Code2 size={16} /><span className="text-[10px] ml-1.5">Code</span>
+                                              </button>
+                                              <div className="relative group">
+                                                  <button className="action-grid-button-wide w-full h-full" aria-label="New Document" title="New Document">
+                                                      <FileStack size={16} /><span className="text-[10px] ml-1.5">Doc</span>
+                                                  </button>
+                                                  <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150 min-w-[120px]">
+                                                      <button onClick={() => createNewDocument?.('docx')} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                                          <FileText size={12} /><span>Word (.docx)</span>
+                                                      </button>
+                                                      <button onClick={() => createNewDocument?.('xlsx')} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                                          <FileJson size={12} /><span>Excel (.xlsx)</span>
+                                                      </button>
+                                                      <button onClick={() => createNewDocument?.('pptx')} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                                          <BarChart3 size={12} /><span>PowerPoint (.pptx)</span>
+                                                      </button>
+                                                  </div>
+                                              </div>
+                                              <button onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="action-grid-button-wide" aria-label="New Workspace" title="New Workspace (Ctrl+Shift+N)">
+                                                  <img src={npcLogo} alt="NPC" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
+                                                  <span className="text-[10px] ml-1.5">NPC</span>
+                                              </button>
+                                          </>
+                                      )}
                                   </div>
-                                  
-                                  <button className="theme-toggle-btn p-1" onClick={toggleTheme}>{isDarkMode ? '🌙' : '☀️'}</button>
+                                  {/* Expand/collapse toggle */}
+                                  <button onClick={() => setHeaderActionsExpanded(!headerActionsExpanded)} className="w-full mt-1 py-1 text-[10px] text-gray-500 hover:text-gray-300 flex items-center justify-center gap-1">
+                                      {headerActionsExpanded ? <><ChevronUp size={10} /> Less</> : <><ChevronDown size={10} /> More actions</>}
+                                  </button>
                               </div>
                           </div>
               
@@ -1431,9 +1468,10 @@ useEffect(() => {
                                       <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer"><Image size={16} /></button>
                                       <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
                                       <button onClick={() => setLabeledDataManagerOpen(true)} className="action-grid-button" aria-label="Labeled Data Manager" title="Labeled Data Manager"><Tag size={16} /></button>
-                                      <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
+                                      <button onClick={() => setSettingsOpen(true)} className="action-grid-button" aria-label="Settings"><Settings size={16} /></button>
                                       <button onClick={() => setCtxEditorOpen(true)} className="action-grid-button" aria-label="Open Context Editor"><FileJson size={16} /></button>
                                       <button onClick={handleOpenNpcTeamMenu} className="action-grid-button" aria-label="Open NPC Team Menu"><Users size={16} /></button>
+                                      <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
                                   </div>
                               )}
               
@@ -2097,60 +2135,94 @@ return (
             />
         )}
 
-        <div className={`p-4 border-b theme-border flex items-center justify-between flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}
-              style={{ WebkitAppRegion: 'drag' }}>
-            <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
-            <div className="flex gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
-                <button onClick={() => setSettingsOpen(true)} className="p-2 theme-button theme-hover rounded-full transition-all" aria-label="Settings"><Settings size={14} /></button>
-
-                <div className="relative group">
-                    <div className="flex">
-                        <button onClick={createNewConversation} className="p-2 theme-button-primary rounded-full flex items-center gap-1 transition-all" aria-label="New Conversation">
-                            <Plus size={14} />
-                            <ChevronRight size={10} className="transform rotate-90 opacity-60" />
+        {/* Header */}
+        <div className={`px-4 pt-4 pb-2 border-b theme-border flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}
+              style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+            {/* Row 1: NPC Studio title */}
+            <div className="text-center mb-2">
+                <span className="text-sm font-semibold theme-text-primary">NPC Studio</span>
+            </div>
+            {/* Row 2: Theme + Chat buttons, with expandable grid below */}
+            <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+                <div className={`grid grid-cols-2 ${headerActionsExpanded ? 'grid-rows-4' : ''} divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden`}>
+                    <button onClick={toggleTheme} className="action-grid-button-wide" aria-label="Toggle Theme" title="Toggle Theme">
+                        {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}<span className="text-[10px] ml-1.5">Theme</span>
+                    </button>
+                    <div className="relative group">
+                        <button onClick={createNewConversation} className="action-grid-button-wide w-full h-full" aria-label="New Chat" title="New Chat (Ctrl+Shift+C)">
+                            <Plus size={16} /><span className="text-[10px] ml-1.5">Chat</span>
                         </button>
+                        <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150 min-w-[140px]">
+                            <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                <Folder size={14} /><span>New Folder</span>
+                            </button>
+                            <button onClick={() => setBrowserUrlDialogOpen(true)} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                <Globe size={14} /><span>New Browser</span>
+                            </button>
+                            <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                <Terminal size={14} /><span>New Terminal</span>
+                            </button>
+                            <button onClick={createNewTextFile} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                <Code2 size={14} /><span>New Code File</span>
+                            </button>
+                            <div className="border-t theme-border my-1"></div>
+                            <button onClick={() => createNewDocument?.('docx')} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                <FileText size={14} /><span>Word (.docx)</span>
+                            </button>
+                            <button onClick={() => createNewDocument?.('xlsx')} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                <FileJson size={14} /><span>Excel (.xlsx)</span>
+                            </button>
+                            <button onClick={() => createNewDocument?.('pptx')} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                <BarChart3 size={14} /><span>PowerPoint (.pptx)</span>
+                            </button>
+                            <div className="border-t theme-border my-1"></div>
+                            <button onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                                <img src={npcLogo} alt="NPC" style={{ width: 14, height: 14 }} className="rounded-full" /><span>New Workspace</span>
+                            </button>
+                        </div>
                     </div>
-
-                    <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150">
-                        <button onClick={createNewConversation} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                            <MessageSquare size={12} />
-                            <span>New Conversation</span>
-                        </button>
-                        <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                            <Folder size={12} />
-                            <span>New Folder</span>
-                        </button>
-                        <button onClick={() => setBrowserUrlDialogOpen(true)} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                            <Globe size={12} />
-                            <span>New Browser</span>
-                        </button>
-                        <button onClick={createNewTextFile} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                            <FileText size={12} />
-                            <span>New Text File</span>
-                        </button>
-                        <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
-                            <Terminal size={12} />
-                            <span>New Terminal</span>
-                        </button>
-                        <button
-                            onClick={() => {
-                                if (window.api && window.api.openNewWindow) {
-                                    window.api.openNewWindow(currentPath);
-                                } else {
-                                    window.open(window.location.href, '_blank');
-                                }
-                            }}
-                            className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs"
-                            aria-label="Open New NPC Studio Window"
-                            title="Open New NPC Studio Window"
-                        >
-                            <Plus size={12} />
-                            <span>New Window</span>
-                        </button>
-                    </div>
+                    {/* Expanded rows (extensions of top two) */}
+                    {headerActionsExpanded && (
+                        <>
+                            <button onClick={handleCreateNewFolder} className="action-grid-button-wide" aria-label="New Folder" title="New Folder (Ctrl+N)">
+                                <Folder size={16} /><span className="text-[10px] ml-1.5">Folder</span>
+                            </button>
+                            <button onClick={() => setBrowserUrlDialogOpen(true)} className="action-grid-button-wide" aria-label="New Browser" title="New Browser (Ctrl+Shift+B)">
+                                <Globe size={16} /><span className="text-[10px] ml-1.5">Browser</span>
+                            </button>
+                            <button onClick={createNewTerminal} className="action-grid-button-wide" aria-label="New Terminal" title="New Terminal (Ctrl+Shift+T)">
+                                <Terminal size={16} /><span className="text-[10px] ml-1.5">Terminal</span>
+                            </button>
+                            <button onClick={createNewTextFile} className="action-grid-button-wide" aria-label="New Code File" title="New Code File (Ctrl+Shift+F)">
+                                <Code2 size={16} /><span className="text-[10px] ml-1.5">Code</span>
+                            </button>
+                            <div className="relative group">
+                                <button className="action-grid-button-wide w-full h-full" aria-label="New Document" title="New Document">
+                                    <FileStack size={16} /><span className="text-[10px] ml-1.5">Doc</span>
+                                </button>
+                                <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150 min-w-[120px]">
+                                    <button onClick={() => createNewDocument?.('docx')} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                        <FileText size={12} /><span>Word (.docx)</span>
+                                    </button>
+                                    <button onClick={() => createNewDocument?.('xlsx')} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                        <FileJson size={12} /><span>Excel (.xlsx)</span>
+                                    </button>
+                                    <button onClick={() => createNewDocument?.('pptx')} className="flex items-center gap-2 px-3 py-1 w-full text-left theme-hover text-xs">
+                                        <BarChart3 size={12} /><span>PowerPoint (.pptx)</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <button onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="action-grid-button-wide" aria-label="New Workspace" title="New Workspace (Ctrl+Shift+N)">
+                                <img src={npcLogo} alt="NPC" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
+                                <span className="text-[10px] ml-1.5">NPC</span>
+                            </button>
+                        </>
+                    )}
                 </div>
-
-                <button className="theme-toggle-btn p-1" onClick={toggleTheme}>{isDarkMode ? '🌙' : '☀️'}</button>
+                {/* Expand/collapse toggle */}
+                <button onClick={() => setHeaderActionsExpanded(!headerActionsExpanded)} className="w-full mt-1 py-1 text-[10px] text-gray-500 hover:text-gray-300 flex items-center justify-center gap-1">
+                    {headerActionsExpanded ? <><ChevronUp size={10} /> Less</> : <><ChevronDown size={10} /> More actions</>}
+                </button>
             </div>
         </div>
 
@@ -2256,9 +2328,10 @@ return (
                     <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer"><Image size={16} /></button>
                     <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
                     <button onClick={() => setLabeledDataManagerOpen(true)} className="action-grid-button" aria-label="Labeled Data Manager" title="Labeled Data Manager"><Tag size={16} /></button>
-                    <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
+                    <button onClick={() => setSettingsOpen(true)} className="action-grid-button" aria-label="Settings"><Settings size={16} /></button>
                     <button onClick={() => setCtxEditorOpen(true)} className="action-grid-button" aria-label="Open Context Editor"><FileJson size={16} /></button>
                     <button onClick={handleOpenNpcTeamMenu} className="action-grid-button" aria-label="Open NPC Team Menu"><Users size={16} /></button>
+                    <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
                 </div>
             )}
 

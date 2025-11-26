@@ -809,9 +809,39 @@ body.dark-mode .cm-activeLineGutter {
 
 .action-grid-button:active {
     transform: translateY(0);
-    box-shadow: 
+    box-shadow:
         inset 0 2px 5px rgba(0, 0, 0, 0.5),
         0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.action-grid-button-wide {
+    width: 100%;
+    height: 100%;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    transition-property: background-color, color, transform, box-shadow;
+    transition-duration: 0.15s;
+    transition-timing-function: ease-out;
+    background-color: var(--theme-bg-secondary);
+    color: var(--theme-text-muted);
+    border: none;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    text-decoration: none;
+}
+
+.action-grid-button-wide:hover {
+    background-color: var(--theme-button-hover);
+    color: var(--theme-text);
+}
+
+.action-grid-button-wide:active {
+    background-color: var(--theme-bg-tertiary);
 }
 
 .sidebar-collapsed-true button.group {

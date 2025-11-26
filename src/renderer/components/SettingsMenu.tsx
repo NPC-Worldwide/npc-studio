@@ -1,9 +1,24 @@
 // SettingsMenu.jsx - NEW FILE
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2 } from 'lucide-react';
+import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Keyboard } from 'lucide-react';
 import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
 
 const HOME_DIR = '/home/caug/.npcsh';
+
+const defaultKeyboardShortcuts = {
+    newConversation: 'Ctrl+Shift+C',
+    newFolder: 'Ctrl+N',
+    newBrowser: 'Ctrl+Shift+B',
+    newTerminal: 'Ctrl+Shift+T',
+    newCodeFile: 'Ctrl+Shift+F',
+    newWorkspace: 'Ctrl+Shift+N',
+    toggleSidebar: 'Ctrl+B',
+    commandPalette: 'Ctrl+Shift+P',
+    fileSearch: 'Ctrl+P',
+    globalSearch: 'Ctrl+Shift+S',
+    save: 'Ctrl+S',
+    closePane: 'Ctrl+W',
+};
 
 const defaultSettings = {
     model: 'llama3.2',
@@ -15,6 +30,7 @@ const defaultSettings = {
     is_predictive_text_enabled: false,
     predictive_text_model: 'llama3.2',
     predictive_text_provider: 'ollama',
+    keyboard_shortcuts: defaultKeyboardShortcuts,
 };
 
 const ModelManager = () => {
@@ -256,6 +272,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
 
     const tabs = [
         { id: 'global', name: 'Global Settings' },
+        { id: 'shortcuts', name: 'Keyboard Shortcuts' },
         { id: 'env', name: 'Folder Settings' },
         { id: 'models', name: 'Model Management' },
         { id: 'providers', name: 'Custom Providers' }
@@ -366,6 +383,62 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                         </>
                     )}
                     
+                    {activeTab === 'shortcuts' && (
+                        <Card title="Keyboard Shortcuts">
+                            <p className="text-sm text-gray-400 mb-4">
+                                Customize keyboard shortcuts for quick actions. Use Ctrl/Cmd, Shift, Alt modifiers.
+                            </p>
+                            <div className="space-y-3">
+                                {Object.entries(globalSettings.keyboard_shortcuts || defaultKeyboardShortcuts).map(([key, value]) => {
+                                    const labels = {
+                                        newConversation: 'New Conversation',
+                                        newFolder: 'New Folder',
+                                        newBrowser: 'New Browser',
+                                        newTerminal: 'New Terminal',
+                                        newCodeFile: 'New Code File',
+                                        newWorkspace: 'New Workspace',
+                                        toggleSidebar: 'Toggle Sidebar',
+                                        commandPalette: 'Command Palette',
+                                        fileSearch: 'File Search',
+                                        globalSearch: 'Global Search',
+                                        save: 'Save',
+                                        closePane: 'Close Pane',
+                                    };
+                                    return (
+                                        <div key={key} className="flex items-center justify-between gap-4">
+                                            <label className="text-sm text-gray-300 min-w-[150px]">{labels[key] || key}</label>
+                                            <Input
+                                                value={value}
+                                                onChange={(e) => {
+                                                    setGlobalSettings({
+                                                        ...globalSettings,
+                                                        keyboard_shortcuts: {
+                                                            ...(globalSettings.keyboard_shortcuts || defaultKeyboardShortcuts),
+                                                            [key]: e.target.value
+                                                        }
+                                                    });
+                                                }}
+                                                placeholder="e.g., Ctrl+Shift+N"
+                                                className="w-40"
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="mt-4 pt-4 border-t border-gray-700">
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => setGlobalSettings({
+                                        ...globalSettings,
+                                        keyboard_shortcuts: defaultKeyboardShortcuts
+                                    })}
+                                >
+                                    Reset to Defaults
+                                </Button>
+                            </div>
+                        </Card>
+                    )}
+
                     {activeTab === 'env' && (
                         <>
                             <div className="flex items-center gap-2">
