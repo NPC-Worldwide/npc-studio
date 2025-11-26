@@ -80,6 +80,8 @@ import { ChatMessage } from './ChatMessage';
 import { PredictiveTextOverlay } from './PredictiveTextOverlay';
 import { usePredictiveText } from './PredictiveText';
 import { CommandPalette } from './CommandPalette';
+import MessageLabeling, { MessageLabelStorage, MessageLabel } from './MessageLabeling';
+import LabeledDataManager from './LabeledDataManager';
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
@@ -179,6 +181,19 @@ const ChatInterface = () => {
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
     const [isResizingInput, setIsResizingInput] = useState(false);
     const WINDOW_WORKSPACES_KEY = 'npcStudioWindowWorkspaces';
+
+    // Message labeling state
+    const [labelingModal, setLabelingModal] = useState<{ isOpen: boolean; message: any | null }>({ isOpen: false, message: null });
+    const [labeledDataManagerOpen, setLabeledDataManagerOpen] = useState(false);
+    const [messageLabels, setMessageLabels] = useState<{ [key: string]: MessageLabel }>(() => {
+        // Load existing labels from storage on mount
+        const allLabels = MessageLabelStorage.getAll();
+        const labelsMap: { [key: string]: MessageLabel } = {};
+        allLabels.forEach(label => {
+            labelsMap[label.messageId] = label;
+        });
+        return labelsMap;
+    });
 
 
 
@@ -977,12 +992,15 @@ const renderChatView = useCallback(({ nodeId }) => {
                         onResendMessage={() => handleResendMessage(msg)}
                         onCreateBranch={() => {}}
                         messageIndex={idx}
+                        onLabelMessage={handleLabelMessage}
+                        messageLabel={messageLabels[msg.id || msg.timestamp]}
+                        conversationId={paneData.contentId}
                     />
                 ))}
             </div>
         </div>
     );
-}, [selectedMessages, messageSelectionMode, searchTerm]);
+}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels]);
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -2076,6 +2094,27 @@ ${contextPrompt}`;
             selectedNPC: currentNPC
         });
     };
+
+    // Message labeling handlers
+    const handleLabelMessage = useCallback((message: any) => {
+        setLabelingModal({
+            isOpen: true,
+            message: message
+        });
+    }, []);
+
+    const handleSaveLabel = useCallback((label: MessageLabel) => {
+        MessageLabelStorage.save(label);
+        setMessageLabels(prev => ({
+            ...prev,
+            [label.messageId]: label
+        }));
+        setLabelingModal({ isOpen: false, message: null });
+    }, []);
+
+    const handleCloseLabelingModal = useCallback(() => {
+        setLabelingModal({ isOpen: false, message: null });
+    }, []);
 
     const handleDeleteSelectedMessages = async () => {
         const selectedIds = Array.from(selectedMessages);
@@ -3398,11 +3437,29 @@ ${contextPrompt}`;
     onStartConversation={handleStartConversationFromViewer}
 />
 
-            <CtxEditor 
-                isOpen={ctxEditorOpen} 
-                onClose={() => setCtxEditorOpen(false)} 
+            <CtxEditor
+                isOpen={ctxEditorOpen}
+                onClose={() => setCtxEditorOpen(false)}
                 currentPath={currentPath}
-            />               
+            />
+
+            {/* Message Labeling Modal */}
+            {labelingModal.isOpen && labelingModal.message && (
+                <MessageLabeling
+                    message={labelingModal.message}
+                    existingLabel={messageLabels[labelingModal.message.id]}
+                    onSave={handleSaveLabel}
+                    onClose={handleCloseLabelingModal}
+                />
+            )}
+
+            {/* Labeled Data Manager */}
+            <LabeledDataManager
+                isOpen={labeledDataManagerOpen}
+                onClose={() => setLabeledDataManagerOpen(false)}
+                messageLabels={messageLabels}
+                setMessageLabels={setMessageLabels}
+            />
         </>
 
     );
@@ -4406,6 +4463,7 @@ const renderMainContent = () => {
         setJinxMenuOpen={setJinxMenuOpen}
         setCtxEditorOpen={setCtxEditorOpen}
         setSidebarCollapsed={setSidebarCollapsed}
+        setLabeledDataManagerOpen={setLabeledDataManagerOpen}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}

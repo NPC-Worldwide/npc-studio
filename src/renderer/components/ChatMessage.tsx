@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
-import { Paperclip } from 'lucide-react';
+import { Paperclip, Tag, Star } from 'lucide-react';
 
 const highlightSearchTerm = (content: string, searchTerm: string): string => {
     if (!searchTerm || !content) return content;
@@ -8,17 +8,20 @@ const highlightSearchTerm = (content: string, searchTerm: string): string => {
     return content.replace(regex, '**$1**');
 };
 
-export const ChatMessage = memo(({ 
-    message, 
-    isSelected, 
-    messageSelectionMode, 
-    toggleMessageSelection, 
-    handleMessageContextMenu, 
-    searchTerm, 
+export const ChatMessage = memo(({
+    message,
+    isSelected,
+    messageSelectionMode,
+    toggleMessageSelection,
+    handleMessageContextMenu,
+    searchTerm,
     isCurrentSearchResult,
     onResendMessage,
     onCreateBranch,
-    messageIndex
+    messageIndex,
+    onLabelMessage,
+    messageLabel,
+    conversationId
 }) => {
     const showStreamingIndicators = !!message.isStreaming;
     const messageId = message.id || message.timestamp;
@@ -81,6 +84,35 @@ export const ChatMessage = memo(({
                             <polyline points="23 4 23 10 17 10"></polyline>
                             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                         </svg>
+                    </button>
+                </div>
+            )}
+
+            {/* Label button - shown for all messages */}
+            {!messageSelectionMode && onLabelMessage && (
+                <div className={`absolute ${message.role === 'user' ? 'top-2 right-8' : 'top-2 right-2'} opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center gap-1`}>
+                    {messageLabel && (
+                        <span className="flex items-center gap-0.5 text-[10px] text-yellow-400" title={`Labeled: ${messageLabel.categories?.join(', ') || 'No categories'}`}>
+                            {messageLabel.qualityScore && (
+                                <span className="flex items-center">
+                                    <Star size={10} fill="currentColor" />
+                                    {messageLabel.qualityScore}
+                                </span>
+                            )}
+                            {messageLabel.categories?.length > 0 && (
+                                <span className="px-1 bg-blue-600/30 rounded">{messageLabel.categories.length}</span>
+                            )}
+                        </span>
+                    )}
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onLabelMessage({ ...message, conversationId });
+                        }}
+                        className={`p-1 theme-hover rounded-full transition-all ${messageLabel ? 'text-yellow-400' : ''}`}
+                        title={messageLabel ? "Edit labels" : "Add labels"}
+                    >
+                        <Tag size={14} />
                     </button>
                 </div>
             )}
