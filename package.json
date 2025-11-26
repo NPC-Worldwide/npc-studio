@@ -1,6 +1,6 @@
 {
   "name": "npc-studio",
-  "version": "0.0.20",
+  "version": "0.0.21",
   "description": "The AI IDE.",
   "author": "Chris Agostino <info@npcworldwi.de>",
   "main": "src/main.js",
@@ -95,8 +95,15 @@
     "forceCodeSigning": false
   },
   "dependencies": {
+    "@anthropic-ai/claude-code": "^2.0.50",
+    "@codemirror/autocomplete": "^6.20.0",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-html": "^6.4.11",
     "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lint": "^6.9.2",
     "@headlessui/react": "^2.2.0",
     "@lezer/highlight": "^1.2.1",
     "@lucide/lab": "^0.1.2",
@@ -122,6 +129,7 @@
     "mammoth": "^1.11.0",
     "node-cron": "^4.2.1",
     "node-fetch": "^2.7.0",
+    "npcts": "^0.1.0",
     "npm": "^11.3.0",
     "os": "^0.1.2",
     "path": "^0.12.7",
@@ -149,6 +157,9 @@
   "devDependencies": {
     "@electron/rebuild": "^3.7.2",
     "@tailwindcss/typography": "^0.5.16",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.6",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "electron": "^25.9.8",
@@ -160,6 +171,7 @@
     "postcss": "^8.5.1",
     "supabase": "^2.6.8",
     "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.3",
     "vite": "^6.2.1",
     "vite-plugin-static-copy": "^3.1.1"
   },
