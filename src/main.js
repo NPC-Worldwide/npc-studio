@@ -63,8 +63,22 @@ const ensureTablesExist = async () => {
           title TEXT,
           url TEXT NOT NULL,
           folder_path TEXT,
+          pane_id TEXT,
+          navigation_type TEXT DEFAULT 'click',
           visit_count INTEGER DEFAULT 1,
           last_visited DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+  `;
+
+  const createBrowserNavigationsTable = `
+      CREATE TABLE IF NOT EXISTS browser_navigations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          pane_id TEXT NOT NULL,
+          from_url TEXT,
+          to_url TEXT NOT NULL,
+          navigation_type TEXT DEFAULT 'click',
+          folder_path TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       );
   `;
 
@@ -74,13 +88,32 @@ const ensureTablesExist = async () => {
       CREATE INDEX IF NOT EXISTS idx_bookmarks_global ON bookmarks(is_global);
       CREATE INDEX IF NOT EXISTS idx_history_folder ON browser_history(folder_path);
       CREATE INDEX IF NOT EXISTS idx_history_url ON browser_history(url);
+      CREATE INDEX IF NOT EXISTS idx_history_pane ON browser_history(pane_id);
+      CREATE INDEX IF NOT EXISTS idx_navigations_pane ON browser_navigations(pane_id);
+      CREATE INDEX IF NOT EXISTS idx_navigations_folder ON browser_navigations(folder_path);
   `;
 
   try {
       await dbQuery(createHighlightsTable);
       await dbQuery(createBookmarksTable);
       await dbQuery(createBrowserHistoryTable);
+      await dbQuery(createBrowserNavigationsTable);
       await dbQuery(createIndexes);
+
+      // Migration: Add new columns to existing browser_history table if they don't exist
+      try {
+          await dbQuery('ALTER TABLE browser_history ADD COLUMN pane_id TEXT');
+          console.log('[DB] Added pane_id column to browser_history');
+      } catch (e) {
+          // Column already exists, ignore
+      }
+      try {
+          await dbQuery("ALTER TABLE browser_history ADD COLUMN navigation_type TEXT DEFAULT 'click'");
+          console.log('[DB] Added navigation_type column to browser_history');
+      } catch (e) {
+          // Column already exists, ignore
+      }
+
       console.log('[DB] All tables are ready.');
   } catch (error) {
       console.error('[DB] FATAL: Could not create tables.', error);
@@ -1407,33 +1440,41 @@ ipcMain.handle('hide-browser', (event, { viewId }) => {
 });
   
  
-ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath }) => {
+ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath, paneId, navigationType = 'click', fromUrl }) => {
   try {
-    if (!url || url === 'about:blank') { // Don't add blank pages to history
+    if (!url || url === 'about:blank') {
       log('[BROWSER HISTORY] Skipping add to history for blank or invalid URL:', url);
       return { success: true, message: 'Skipped blank URL' };
     }
-   
+
     const existing = await dbQuery(
-      'SELECT id, visit_count FROM browser_history WHERE url = ? AND folder_path = ?', 
+      'SELECT id, visit_count FROM browser_history WHERE url = ? AND folder_path = ?',
       [url, folderPath]
     );
-    
+
     if (existing.length > 0) {
-     
       await dbQuery(
-        'UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ? WHERE id = ?',
-        [title, existing[0].id]
+        'UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ?, pane_id = ?, navigation_type = ? WHERE id = ?',
+        [title, paneId, navigationType, existing[0].id]
       );
       log(`[BROWSER HISTORY] Updated history for ${url} in ${folderPath}`);
     } else {
-     
       await dbQuery(
-        'INSERT INTO browser_history (url, title, folder_path) VALUES (?, ?, ?)',
-        [url, title, folderPath]
+        'INSERT INTO browser_history (url, title, folder_path, pane_id, navigation_type) VALUES (?, ?, ?, ?, ?)',
+        [url, title, folderPath, paneId, navigationType]
       );
       log(`[BROWSER HISTORY] Added new history entry for ${url} in ${folderPath}`);
     }
+
+    // Record the navigation edge if we have a fromUrl (previous page in this pane)
+    if (fromUrl && fromUrl !== 'about:blank' && fromUrl !== url) {
+      await dbQuery(
+        'INSERT INTO browser_navigations (pane_id, from_url, to_url, navigation_type, folder_path) VALUES (?, ?, ?, ?, ?)',
+        [paneId, fromUrl, url, navigationType, folderPath]
+      );
+      log(`[BROWSER HISTORY] Recorded navigation: ${fromUrl} -> ${url} (${navigationType})`);
+    }
+
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
@@ -1515,14 +1556,154 @@ ipcMain.handle('browser:deleteBookmark', async (event, { bookmarkId }) => {
 ipcMain.handle('browser:clearHistory', async (event, { folderPath }) => {
   try {
     await dbQuery('DELETE FROM browser_history WHERE folder_path = ?', [folderPath]);
+    await dbQuery('DELETE FROM browser_navigations WHERE folder_path = ?', [folderPath]);
     log(`[BROWSER HISTORY] Cleared history for ${folderPath}`);
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
-  
-  
+
+// Get browser history as a graph for visualization
+ipcMain.handle('browser:getHistoryGraph', async (event, { folderPath, minVisits = 1, dateFrom, dateTo }) => {
+  try {
+    // Build date filter clause
+    let dateFilter = '';
+    const params = [folderPath];
+    if (dateFrom) {
+      dateFilter += ' AND last_visited >= ?';
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      dateFilter += ' AND last_visited <= ?';
+      params.push(dateTo);
+    }
+
+    // Get all history entries as nodes (grouped by domain for cleaner visualization)
+    const historyEntries = await dbQuery(
+      `SELECT url, title, visit_count, last_visited, pane_id, navigation_type
+       FROM browser_history
+       WHERE folder_path = ? AND visit_count >= ?${dateFilter}
+       ORDER BY visit_count DESC`,
+      [...params.slice(0, 1), minVisits, ...params.slice(1)]
+    );
+
+    // Get all navigations as edges
+    let navDateFilter = '';
+    const navParams = [folderPath];
+    if (dateFrom) {
+      navDateFilter += ' AND timestamp >= ?';
+      navParams.push(dateFrom);
+    }
+    if (dateTo) {
+      navDateFilter += ' AND timestamp <= ?';
+      navParams.push(dateTo);
+    }
+
+    const navigations = await dbQuery(
+      `SELECT from_url, to_url, navigation_type, COUNT(*) as weight
+       FROM browser_navigations
+       WHERE folder_path = ?${navDateFilter}
+       GROUP BY from_url, to_url, navigation_type
+       ORDER BY weight DESC`,
+      navParams
+    );
+
+    // Helper to extract domain from URL
+    const getDomain = (url) => {
+      try {
+        return new URL(url).hostname;
+      } catch {
+        return url;
+      }
+    };
+
+    // Build node map (by domain)
+    const domainMap = new Map();
+    for (const entry of historyEntries) {
+      const domain = getDomain(entry.url);
+      if (!domainMap.has(domain)) {
+        domainMap.set(domain, {
+          id: domain,
+          label: domain,
+          visitCount: 0,
+          urls: [],
+          lastVisited: entry.last_visited
+        });
+      }
+      const node = domainMap.get(domain);
+      node.visitCount += entry.visit_count;
+      node.urls.push({ url: entry.url, title: entry.title, visits: entry.visit_count });
+      if (entry.last_visited > node.lastVisited) {
+        node.lastVisited = entry.last_visited;
+      }
+    }
+
+    // Build edge map (domain to domain)
+    const edgeMap = new Map();
+    for (const nav of navigations) {
+      const fromDomain = getDomain(nav.from_url);
+      const toDomain = getDomain(nav.to_url);
+      if (fromDomain === toDomain) continue; // Skip self-loops
+
+      const edgeKey = `${fromDomain}->${toDomain}`;
+      if (!edgeMap.has(edgeKey)) {
+        edgeMap.set(edgeKey, {
+          source: fromDomain,
+          target: toDomain,
+          weight: 0,
+          clickWeight: 0,
+          manualWeight: 0
+        });
+      }
+      const edge = edgeMap.get(edgeKey);
+      edge.weight += nav.weight;
+      if (nav.navigation_type === 'click') {
+        edge.clickWeight += nav.weight;
+      } else {
+        edge.manualWeight += nav.weight;
+      }
+    }
+
+    // Convert maps to arrays, filtering to only include nodes that are in navigations
+    const allDomains = new Set([...domainMap.keys()]);
+    const navigatedDomains = new Set();
+    for (const edge of edgeMap.values()) {
+      navigatedDomains.add(edge.source);
+      navigatedDomains.add(edge.target);
+    }
+
+    // Include all domains that have visits, plus any in navigations
+    const nodes = Array.from(domainMap.values()).filter(n =>
+      n.visitCount >= minVisits || navigatedDomains.has(n.id)
+    );
+    const links = Array.from(edgeMap.values());
+
+    // Calculate stats
+    const totalVisits = nodes.reduce((sum, n) => sum + n.visitCount, 0);
+    const totalNavigations = links.reduce((sum, l) => sum + l.weight, 0);
+    const topDomains = [...nodes].sort((a, b) => b.visitCount - a.visitCount).slice(0, 10);
+
+    log(`[BROWSER HISTORY GRAPH] Built graph with ${nodes.length} nodes, ${links.length} edges`);
+
+    return {
+      success: true,
+      nodes,
+      links,
+      stats: {
+        totalNodes: nodes.length,
+        totalEdges: links.length,
+        totalVisits,
+        totalNavigations,
+        topDomains: topDomains.map(d => ({ domain: d.id, visits: d.visitCount }))
+      }
+    };
+  } catch (error) {
+    log(`[BROWSER HISTORY GRAPH] Error:`, error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('browser-navigate', (event, { viewId, url }) => {
   if (browserViews.has(viewId)) {
     const finalURL = url.startsWith('http') ? url : `https://${url}`;
@@ -1789,6 +1970,44 @@ ipcMain.handle('kg:rollback', async (event, { generation }) => {
     body: JSON.stringify({ generation }),
   });
 });
+
+// KG Node/Edge editing handlers
+ipcMain.handle('kg:addNode', async (event, { nodeId, nodeType = 'concept', properties = {} }) => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/node', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: nodeId, type: nodeType, properties }),
+  });
+});
+
+ipcMain.handle('kg:updateNode', async (event, { nodeId, properties }) => {
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/node/${encodeURIComponent(nodeId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ properties }),
+  });
+});
+
+ipcMain.handle('kg:deleteNode', async (event, { nodeId }) => {
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/node/${encodeURIComponent(nodeId)}`, {
+    method: 'DELETE',
+  });
+});
+
+ipcMain.handle('kg:addEdge', async (event, { sourceId, targetId, edgeType = 'related_to', weight = 1 }) => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/edge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: sourceId, target: targetId, type: edgeType, weight }),
+  });
+});
+
+ipcMain.handle('kg:deleteEdge', async (event, { sourceId, targetId }) => {
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/edge/${encodeURIComponent(sourceId)}/${encodeURIComponent(targetId)}`, {
+    method: 'DELETE',
+  });
+});
+
 ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
   log(`[Main Process] Received request to interrupt stream: ${streamIdToInterrupt}`);
   
@@ -2179,7 +2398,93 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
     }
 });
 
+// ============== Mapx (Mind Map) IPC Handlers ==============
+ipcMain.handle('save-map', async (event, data) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/maps/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error saving map:', err);
+        return { error: err.message };
+    }
+});
 
+ipcMain.handle('load-map', async (event, filePath) => {
+    try {
+        const response = await fetch(`http://127.0.0.1:5337/api/maps/load?path=${encodeURIComponent(filePath)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error loading map:', err);
+        return { error: err.message };
+    }
+});
+
+// ============== Local Model Provider IPC Handlers ==============
+ipcMain.handle('scan-local-models', async (event, provider) => {
+    try {
+        const response = await fetch(`http://127.0.0.1:5337/api/models/local/scan?provider=${encodeURIComponent(provider)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error scanning local models:', err);
+        return { models: [], error: err.message };
+    }
+});
+
+ipcMain.handle('get-local-model-status', async (event, provider) => {
+    try {
+        const response = await fetch(`http://127.0.0.1:5337/api/models/local/status?provider=${encodeURIComponent(provider)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error getting local model status:', err);
+        return { running: false, error: err.message };
+    }
+});
+
+// ============== Activity Tracking IPC Handlers ==============
+ipcMain.handle('track-activity', async (event, activity) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/activity/track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(activity)
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error tracking activity:', err);
+        return { error: err.message };
+    }
+});
+
+ipcMain.handle('get-activity-predictions', async (event) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/activity/predictions');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error getting activity predictions:', err);
+        return { predictions: [], error: err.message };
+    }
+});
+
+ipcMain.handle('train-activity-model', async (event) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/activity/train', { method: 'POST' });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error training activity model:', err);
+        return { error: err.message };
+    }
+});
 
 ipcMain.handle('executeCommandStream', async (event, data) => {
  

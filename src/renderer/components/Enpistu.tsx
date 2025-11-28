@@ -31,6 +31,8 @@ import BrowserUrlDialog from './BrowserUrlDialog';
 import PptxViewer from './PptxViewer';
 import LatexViewer from './LatexViewer';
 import PicViewer from './PicViewer';
+import MindMapViewer from './MindMapViewer';
+import ActivityTrackerDashboard, { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
     saveWorkspaceToStorage,
@@ -98,6 +100,9 @@ const ChatInterface = () => {
     const [predictionSuggestion, setPredictionSuggestion] = useState('');
     const [predictionTargetElement, setPredictionTargetElement] = useState<HTMLElement | null>(null);
 
+    // Activity tracking for RNN predictions
+    const { trackActivity } = useActivityTracker();
+    const [activityDashboardOpen, setActivityDashboardOpen] = useState(false);
 
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [editedPath, setEditedPath] = useState('');
@@ -854,6 +859,14 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
     }
     const paneData = contentDataRef.current[paneId];
 
+    // Track activity for RNN predictions
+    trackActivity('pane_open', {
+        paneType: newContentType,
+        filePath: newContentType === 'editor' ? newContentId : undefined,
+        url: newContentType === 'browser' ? newContentId : undefined,
+        fileType: newContentType === 'editor' ? newContentId?.split('.').pop() : undefined,
+    });
+
     paneData.contentType = newContentType;
     paneData.contentId = newContentId;
 
@@ -898,7 +911,7 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
     }
 
     setRootLayoutNode(oldRoot => syncLayoutWithContentData(oldRoot, contentDataRef.current));
-}, []);
+}, [trackActivity]);
 
 // Perform split on a pane - creates a new pane and splits the layout
 const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
@@ -943,6 +956,15 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
 }, [updateContentPane]);
 
 const closeContentPane = useCallback((paneId, nodePath) => {
+    // Track pane close activity
+    const paneData = contentDataRef.current[paneId];
+    if (paneData) {
+        trackActivity('pane_close', {
+            paneType: paneData.contentType,
+            filePath: paneData.contentId,
+        });
+    }
+
     setRootLayoutNode(oldRoot => {
         if (!oldRoot) return oldRoot;
 
@@ -1242,6 +1264,20 @@ const renderPicViewer = useCallback(({ nodeId }) => {
         />
     );
 }, []);
+
+const renderMindMapViewer = useCallback(({ nodeId }) => {
+    return (
+        <MindMapViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [rootLayoutNode, closeContentPane]);
 
 // Use the PDF highlights loader from PdfViewer module
 useEffect(() => {
@@ -2564,12 +2600,21 @@ ${contextPrompt}`;
             }
         };
 
-    const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx') => {
+    const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx' | 'mindmap') => {
         try {
             const filename = `untitled-${Date.now()}.${docType}`;
             const filepath = normalizePath(`${currentPath}/${filename}`);
             // Create empty document - the viewer components will handle creating proper structure
-            await window.api.writeFileContent(filepath, '');
+            // For mindmap, create initial JSON structure
+            if (docType === 'mindmap') {
+                const initialMindMap = {
+                    nodes: [{ id: 'root', label: 'Central Idea', x: 400, y: 300, color: '#3b82f6' }],
+                    links: []
+                };
+                await window.api.writeFileContent(filepath, JSON.stringify(initialMindMap, null, 2));
+            } else {
+                await window.api.writeFileContent(filepath, '');
+            }
             await loadDirectoryStructure(currentPath);
             await handleFileClick(filepath);
         } catch (err) {
@@ -3105,14 +3150,14 @@ ${contextPrompt}`;
         <>
             <NPCTeamMenu isOpen={npcTeamMenuOpen} onClose={handleCloseNpcTeamMenu} currentPath={currentPath} startNewConversation={startNewConversationWithNpc}/>
             <JinxMenu isOpen={jinxMenuOpen} onClose={() => setJinxMenuOpen(false)} currentPath={currentPath}/>
-        <DataDash 
-            isOpen={dashboardMenuOpen} 
+        <DataDash
+            isOpen={dashboardMenuOpen}
             onClose={() => {
                 setDashboardMenuOpen(false);
                 setAnalysisContext(null);
             }}
             initialAnalysisContext={analysisContext}
-           
+            currentPath={currentPath}
             currentModel={currentModel}
             currentProvider={currentProvider}
             currentNPC={currentNPC}
@@ -3647,6 +3692,12 @@ ${contextPrompt}`;
                 conversationLabels={conversationLabels}
                 setConversationLabels={setConversationLabels}
             />
+
+            {/* Activity Tracker Dashboard */}
+            <ActivityTrackerDashboard
+                isOpen={activityDashboardOpen}
+                onClose={() => setActivityDashboardOpen(false)}
+            />
         </>
 
     );
@@ -3676,6 +3727,7 @@ const layoutComponentApi = useMemo(() => ({
     renderPptxViewer,
     renderLatexViewer,
     renderPicViewer,
+    renderMindMapViewer,
     setPaneContextMenu,
     // ADD THESE NEW PROPS:
     autoScrollEnabled, setAutoScrollEnabled,
@@ -3691,6 +3743,7 @@ const layoutComponentApi = useMemo(() => ({
     renderPptxViewer,
     renderLatexViewer,
     renderPicViewer,
+    renderMindMapViewer,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
     // ADD THESE NEW DEPENDENCIES:
@@ -3772,6 +3825,7 @@ const handleFileClick = useCallback(async (filePath: string) => {
     else if (extension === 'pptx') contentType = 'pptx';
     else if (extension === 'tex') contentType = 'latex';
     else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
+    else if (extension === 'mindmap') contentType = 'mindmap';
     else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
 
     console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
@@ -4526,6 +4580,7 @@ const renderMainContent = () => {
                         else if (extension === 'pptx') contentType = 'pptx';
                         else if (extension === 'tex') contentType = 'latex';
                         else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
+                        else if (extension === 'mindmap') contentType = 'mindmap';
                         else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
                         else contentType = 'editor';
                     } else {
@@ -4661,6 +4716,7 @@ const renderMainContent = () => {
         setCtxEditorOpen={setCtxEditorOpen}
         setSidebarCollapsed={setSidebarCollapsed}
         setLabeledDataManagerOpen={setLabeledDataManagerOpen}
+        setActivityDashboardOpen={setActivityDashboardOpen}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}

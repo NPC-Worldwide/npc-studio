@@ -3,7 +3,8 @@ import {
     BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit,
-    GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat
+    GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, Globe, RefreshCw, ExternalLink,
+    CheckCircle, XCircle, Link, Unlink
 } from 'lucide-react';
 import ForceGraph2D from 'react-force-graph-2d';
 import * as d3 from 'd3';
@@ -763,7 +764,7 @@ const DashboardWidget = ({ config, onContextMenu }) => {
     return (<div className="theme-bg-tertiary p-4 rounded-lg flex flex-col h-full relative" onContextMenu={(e) => onContextMenu(e, config.id)}><div className="flex justify-between items-start flex-shrink-0"><div className="flex items-center gap-3 mb-2 flex-1"><Icon className={config.iconColor || 'text-gray-400'} size={18} /><h4 className="font-semibold theme-text-secondary truncate">{config.title}</h4></div>{(config.toggleOptions || []).length > 0 && (<div className="flex items-center gap-1">{(config.toggleOptions).map(opt => <button key={opt.label} onClick={() => setActiveToggle(opt)} className={`px-2 py-0.5 text-xs rounded ${activeToggle?.label === opt.label ? 'theme-button-primary' : 'theme-button theme-hover'}`}>{opt.label}</button>)}</div>)}</div><div className="flex-1 mt-1 overflow-hidden">{renderContent()}</div></div>);
 };
 
-const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, currentProvider, currentNPC }) => {
+const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentPath, currentModel, currentProvider, currentNPC }) => {
     // Create a database client from window.api - this can be configured for different backends
     const dbClient = useMemo<DatabaseClient>(() =>
         createWindowApiDatabaseClient(window.api as any),
@@ -862,6 +863,28 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
     const [cooccurrenceData, setCooccurrenceData] = useState(null);
     const [centralityData, setCentralityData] = useState(null);
 
+    // Browser History Graph state
+    const [historyGraphData, setHistoryGraphData] = useState<{ nodes: any[], links: any[] }>({ nodes: [], links: [] });
+    const [historyGraphStats, setHistoryGraphStats] = useState<any>(null);
+    const [historyGraphLoading, setHistoryGraphLoading] = useState(false);
+    const [historyGraphError, setHistoryGraphError] = useState<string | null>(null);
+    const [historyMinVisits, setHistoryMinVisits] = useState(1);
+    const [historyEdgeFilter, setHistoryEdgeFilter] = useState<'all' | 'click' | 'manual'>('all');
+    const [selectedHistoryNode, setSelectedHistoryNode] = useState<any>(null);
+    const historyGraphRef = useRef<any>();
+
+    // KG Editing state
+    const [selectedKgNode, setSelectedKgNode] = useState<any>(null);
+    const [kgEditMode, setKgEditMode] = useState<'view' | 'edit'>('view');
+    const [newNodeName, setNewNodeName] = useState('');
+    const [newEdgeSource, setNewEdgeSource] = useState('');
+    const [newEdgeTarget, setNewEdgeTarget] = useState('');
+
+    // Database selector state
+    const [availableDatabases, setAvailableDatabases] = useState<{ name: string; path: string; type: 'global' | 'project' }[]>([]);
+    const [selectedDatabase, setSelectedDatabase] = useState<string>('npcsh_history.db');
+
+
 
     useEffect(() => { const handleKeyDown = (event) => { if (event.key === 'Escape') onClose(); }; if (isOpen) document.addEventListener('keydown', handleKeyDown); return () => document.removeEventListener('keydown', handleKeyDown); }, [isOpen, onClose]);
     useEffect(() => {
@@ -921,6 +944,37 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
             loadMemories();
         }
     }, [isMemoryPanelOpen]);
+
+    // Fetch browser history graph data
+    const fetchHistoryGraph = useCallback(async () => {
+        if (!currentPath) return;
+        setHistoryGraphLoading(true);
+        setHistoryGraphError(null);
+        try {
+            const result = await (window as any).api?.browserGetHistoryGraph?.({
+                folderPath: currentPath,
+                minVisits: historyMinVisits
+            });
+            if (result?.success) {
+                setHistoryGraphData({ nodes: result.nodes || [], links: result.links || [] });
+                setHistoryGraphStats(result.stats);
+            } else {
+                setHistoryGraphError(result?.error || 'Failed to load history graph');
+            }
+        } catch (err: any) {
+            console.error('Error fetching history graph:', err);
+            setHistoryGraphError(err.message || 'Failed to load history graph');
+        } finally {
+            setHistoryGraphLoading(false);
+        }
+    }, [currentPath, historyMinVisits]);
+
+    // Load history graph when DataDash opens
+    useEffect(() => {
+        if (isOpen && currentPath) {
+            fetchHistoryGraph();
+        }
+    }, [isOpen, currentPath, fetchHistoryGraph]);
     
     // Filter memories based on search and status
     const filteredMemories = memories.filter(memory => {
@@ -1684,6 +1738,60 @@ const handleAcceptGeneratedSql = () => {
 
     const getLinkWidth = React.useCallback((link) => (link.weight ? Math.min(5, link.weight / 2) : 1), []);
 
+    // History Graph processing and styling
+    const processedHistoryGraphData = React.useMemo(() => {
+        let filteredLinks = historyGraphData.links;
+
+        // Filter links by navigation type
+        if (historyEdgeFilter !== 'all') {
+            filteredLinks = historyGraphData.links.filter(link => {
+                if (historyEdgeFilter === 'click') return link.clickWeight > 0;
+                if (historyEdgeFilter === 'manual') return link.manualWeight > 0;
+                return true;
+            });
+        }
+
+        // Filter nodes to only include those that are connected
+        const connectedNodeIds = new Set<string>();
+        filteredLinks.forEach(link => {
+            connectedNodeIds.add(typeof link.source === 'string' ? link.source : link.source?.id);
+            connectedNodeIds.add(typeof link.target === 'string' ? link.target : link.target?.id);
+        });
+
+        // Include all nodes if no links exist, otherwise only connected ones
+        const filteredNodes = filteredLinks.length > 0
+            ? historyGraphData.nodes.filter(n => connectedNodeIds.has(n.id))
+            : historyGraphData.nodes;
+
+        return { nodes: filteredNodes, links: filteredLinks };
+    }, [historyGraphData, historyEdgeFilter]);
+
+    const getHistoryNodeColor = React.useCallback((node: any) => {
+        // Color based on visit count intensity
+        const maxVisits = Math.max(1, ...historyGraphData.nodes.map(n => n.visitCount || 1));
+        const intensity = (node.visitCount || 1) / maxVisits;
+        // Gradient from blue (low) to purple (mid) to red (high)
+        if (intensity < 0.33) return '#3b82f6'; // blue
+        if (intensity < 0.66) return '#8b5cf6'; // purple
+        return '#ef4444'; // red
+    }, [historyGraphData.nodes]);
+
+    const getHistoryNodeSize = React.useCallback((node: any) => {
+        const maxVisits = Math.max(1, ...historyGraphData.nodes.map(n => n.visitCount || 1));
+        const normalized = (node.visitCount || 1) / maxVisits;
+        return 4 + normalized * 16; // Size range: 4 to 20
+    }, [historyGraphData.nodes]);
+
+    const getHistoryLinkColor = React.useCallback((link: any) => {
+        // Green for click links, orange for manual, gray for mixed
+        if (link.clickWeight > 0 && link.manualWeight === 0) return 'rgba(34, 197, 94, 0.6)'; // green
+        if (link.manualWeight > 0 && link.clickWeight === 0) return 'rgba(249, 115, 22, 0.6)'; // orange
+        return 'rgba(156, 163, 175, 0.4)'; // gray for mixed
+    }, []);
+
+    const getHistoryLinkWidth = React.useCallback((link: any) => {
+        return Math.min(8, 1 + (link.weight || 1) / 2);
+    }, []);
 
     const handleKgProcessTrigger = async (type) => { setKgLoading(true); setKgError(null); try { await window.api.kg_triggerProcess({ type }); setCurrentKgGeneration(null); } catch (err) { setKgError(err.message); } finally { setKgLoading(false); } };
     const handleKgRollback = async () => {
@@ -1691,11 +1799,8 @@ const handleAcceptGeneratedSql = () => {
             const targetGen = currentKgGeneration - 1;
             setKgLoading(true);
             try {
-               
                 await window.api.kg_rollback({ generation: targetGen });
-               
-               
-                setCurrentKgGeneration(targetGen); 
+                setCurrentKgGeneration(targetGen);
             } catch (err) {
                 setKgError(err.message);
                 setKgLoading(false);
@@ -1703,7 +1808,120 @@ const handleAcceptGeneratedSql = () => {
         }
     };
 
-    
+    // KG Editing functions
+    const handleAddKgNode = async () => {
+        if (!newNodeName.trim()) return;
+        setKgLoading(true);
+        try {
+            await (window as any).api?.kg_addNode?.({ nodeId: newNodeName.trim(), nodeType: 'concept' });
+            setNewNodeName('');
+            fetchKgData(currentKgGeneration);
+        } catch (err: any) {
+            setKgError(err.message);
+        } finally {
+            setKgLoading(false);
+        }
+    };
+
+    const handleDeleteKgNode = async (nodeId: string) => {
+        if (!confirm(`Delete node "${nodeId}" and all its connections?`)) return;
+        setKgLoading(true);
+        try {
+            await (window as any).api?.kg_deleteNode?.({ nodeId });
+            setSelectedKgNode(null);
+            fetchKgData(currentKgGeneration);
+        } catch (err: any) {
+            setKgError(err.message);
+        } finally {
+            setKgLoading(false);
+        }
+    };
+
+    const handleAddKgEdge = async () => {
+        if (!newEdgeSource.trim() || !newEdgeTarget.trim()) return;
+        setKgLoading(true);
+        try {
+            await (window as any).api?.kg_addEdge?.({ sourceId: newEdgeSource.trim(), targetId: newEdgeTarget.trim() });
+            setNewEdgeSource('');
+            setNewEdgeTarget('');
+            fetchKgData(currentKgGeneration);
+        } catch (err: any) {
+            setKgError(err.message);
+        } finally {
+            setKgLoading(false);
+        }
+    };
+
+    const handleDeleteKgEdge = async (sourceId: string, targetId: string) => {
+        if (!confirm(`Delete connection from "${sourceId}" to "${targetId}"?`)) return;
+        setKgLoading(true);
+        try {
+            await (window as any).api?.kg_deleteEdge?.({ sourceId, targetId });
+            fetchKgData(currentKgGeneration);
+        } catch (err: any) {
+            setKgError(err.message);
+        } finally {
+            setKgLoading(false);
+        }
+    };
+
+    // Memory approval/rejection functions
+    const handleApproveMemory = async (memoryId: number) => {
+        try {
+            await (window as any).api?.executeSQL?.({
+                query: `UPDATE memory_lifecycle SET status = 'human-approved' WHERE id = ?`,
+                params: [memoryId]
+            });
+            loadMemories();
+        } catch (err) {
+            console.error('Error approving memory:', err);
+        }
+    };
+
+    const handleRejectMemory = async (memoryId: number) => {
+        try {
+            await (window as any).api?.executeSQL?.({
+                query: `UPDATE memory_lifecycle SET status = 'human-rejected' WHERE id = ?`,
+                params: [memoryId]
+            });
+            loadMemories();
+        } catch (err) {
+            console.error('Error rejecting memory:', err);
+        }
+    };
+
+    // Load available databases
+    const loadAvailableDatabases = useCallback(async () => {
+        const databases: { name: string; path: string; type: 'global' | 'project' }[] = [
+            { name: 'npcsh_history.db', path: '~/npcsh_history.db', type: 'global' }
+        ];
+
+        // Try to get project-specific databases from currentPath
+        if (currentPath) {
+            try {
+                const projectDb = `${currentPath}/.npcsh/project.db`;
+                databases.push({ name: `Project DB (${currentPath.split('/').pop()})`, path: projectDb, type: 'project' });
+            } catch (e) {
+                // Ignore if project db doesn't exist
+            }
+        }
+
+        // Add global .npcsh databases
+        try {
+            databases.push({ name: 'Global NPC Config', path: '~/.npcsh/npc_config.db', type: 'global' });
+        } catch (e) {
+            // Ignore
+        }
+
+        setAvailableDatabases(databases);
+    }, [currentPath]);
+
+    useEffect(() => {
+        if (isOpen) {
+            loadAvailableDatabases();
+        }
+    }, [isOpen, loadAvailableDatabases]);
+
     if (!isOpen) return null;
     
        
@@ -1742,19 +1960,19 @@ const handleAcceptGeneratedSql = () => {
 
             {contextMenu.visible && <WidgetContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu({visible: false})} onSelect={handleContextMenuSelect} />}
 
-            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-                <div className="theme-bg-secondary rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                    <header className="w-full border-b theme-border p-4 flex justify-between items-center flex-shrink-0">
-                        <h3 className="text-lg font-semibold flex items-center gap-2">
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+                <div className="bg-gray-900 rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col border border-gray-700" onClick={(e) => e.stopPropagation()}>
+                    <header className="w-full border-b border-gray-700 p-4 flex justify-between items-center flex-shrink-0 bg-gray-800">
+                        <h3 className="text-lg font-semibold flex items-center gap-2 text-white">
                             <BarChart3 className="text-blue-400" />
-                            Usage Dashboard
+                            DataDash
                         </h3>
                         <div className="flex items-center gap-2">
-                            <button onClick={() => saveWidgets(defaultWidgets)} className="p-1 rounded-full theme-hover" title="Reset to default layout">
-                                <Repeat size={20} />
+                            <button onClick={() => saveWidgets(defaultWidgets)} className="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" title="Reset to default layout">
+                                <Repeat size={18} />
                             </button>
-                            <button onClick={onClose} className="p-1 rounded-full theme-hover">
-                                <X size={20} />
+                            <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors">
+                                <X size={18} />
                             </button>
                         </div>
                     </header>
@@ -1782,30 +2000,56 @@ const handleAcceptGeneratedSql = () => {
                              </div>
                         </section>
                         
-                        {/* Original SQL Query Panel - Preserved as is */}
-                        <section id="sql-query-panel" className="border theme-border rounded-lg">
-                            <button onClick={() => setIsQueryPanelOpen(!isQueryPanelOpen)} className="w-full p-4 flex justify-between items-center theme-hover"><h4 className="text-lg font-semibold flex items-center gap-3"><Database className="text-purple-400"/>Direct Database Query</h4>{isQueryPanelOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}</button>
+                        {/* SQL Query Panel */}
+                        <section id="sql-query-panel" className="border border-gray-700 rounded-lg bg-gray-900/50">
+                            <button onClick={() => setIsQueryPanelOpen(!isQueryPanelOpen)} className="w-full p-4 flex justify-between items-center hover:bg-gray-800/50 transition-colors"><h4 className="text-lg font-semibold flex items-center gap-3 text-white"><Database className="text-purple-400"/>Database Query Runner</h4>{isQueryPanelOpen ? <ChevronDown size={20} className="text-gray-400" /> : <ChevronRight size={20} className="text-gray-400" />}</button>
                             {isQueryPanelOpen && (
-                                <div className="p-4 border-t theme-border">
+                                <div className="p-4 border-t border-gray-700">
+                                    {/* Connection String Input */}
+                                    <div className="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+                                        <label className="text-xs text-gray-400 mb-1.5 block">Database Connection</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={selectedDatabase}
+                                                onChange={(e) => setSelectedDatabase(e.target.value)}
+                                                placeholder="sqlite:~/npcsh_history.db or postgres://user:pass@host:5432/db"
+                                                className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white border border-gray-600 rounded focus:border-purple-500 focus:outline-none font-mono"
+                                            />
+                                            <button
+                                                onClick={() => {
+                                                    setDbTables([]);
+                                                    setTableSchema(null);
+                                                    setSelectedTable(null);
+                                                    // Re-fetch tables with new connection
+                                                }}
+                                                className="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded text-sm transition-colors"
+                                            >
+                                                Connect
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1.5">SQLite, PostgreSQL, Snowflake, etc. Default: ~/npcsh_history.db</p>
+                                    </div>
+
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-                                        <div className="border theme-border rounded-lg p-3 flex flex-col">
-                                            <h5 className="font-semibold mb-2 flex items-center gap-2">
-                                                <Table size={16}/> 
+                                        <div className="border border-gray-700 rounded-lg p-3 flex flex-col bg-gray-800/50">
+                                            <h5 className="font-semibold mb-2 flex items-center gap-2 text-white">
+                                                <Table size={16} className="text-gray-400"/>
                                                 Database Schema
                                                 </h5>
                                                 <div className="grid grid-cols-2 gap-3 flex-1">
                                                     <div className="space-y-1 max-h-48 overflow-y-auto pr-2">
                         {dbTables.length > 0 ? dbTables.map(name => (
-                            <button key={name} onClick={() => handleViewSchema(name)} 
-                            className={`w-full text-left px-2 py-1 rounded text-sm ${selectedTable === name ? 'theme-button-primary' : 'theme-hover'}`
+                            <button key={name} onClick={() => handleViewSchema(name)}
+                            className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${selectedTable === name ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`
                         }>{name}</button>)
-                        ) 
-                            : <p className="text-sm theme-text-secondary">No tables found.</p>}
+                        )
+                            : <p className="text-sm text-gray-500">No tables found.</p>}
                             </div>
-                            <div className="max-h-48 overflow-y-auto">
+                            <div className="max-h-48 overflow-y-auto bg-gray-900 rounded p-2">
                                 {loadingSchema ? <div className="flex items-center justify-center h-full">
-                                    <Loader className="animate-spin" /></div> : tableSchema ? <ul className="text-sm font-mono space-y-1">{tableSchema.map(col => <li key={col.name}>- {col.name}: 
-                                        <span className="text-yellow-400">{col.type}</span></li>)}</ul> : <p className="text-sm theme-text-secondary">
+                                    <Loader className="animate-spin text-purple-400" /></div> : tableSchema ? <ul className="text-sm font-mono space-y-1">{tableSchema.map(col => <li key={col.name} className="text-gray-300">- <span className="text-white">{col.name}</span>:
+                                        <span className="text-yellow-400">{col.type}</span></li>)}</ul> : <p className="text-sm text-gray-500">
                                             Select a table.
                                             </p> }</div></div></div>
                                         <div className="border theme-border rounded-lg p-3 flex flex-col">
@@ -2295,23 +2539,49 @@ const handleAcceptGeneratedSql = () => {
                                     </td>
                                     <td className="p-2">
                                         <div className="flex gap-1">
+                                            {/* Approve button */}
+                                            <button
+                                                onClick={() => handleApproveMemory(memory.id)}
+                                                className={`p-1.5 rounded transition-colors ${
+                                                    memory.status === 'human-approved'
+                                                        ? 'bg-green-600 text-white'
+                                                        : 'hover:bg-green-900 text-green-400 hover:text-green-300'
+                                                }`}
+                                                title="Approve"
+                                                disabled={memory.status === 'human-approved'}
+                                            >
+                                                <CheckCircle size={14} />
+                                            </button>
+                                            {/* Reject button */}
+                                            <button
+                                                onClick={() => handleRejectMemory(memory.id)}
+                                                className={`p-1.5 rounded transition-colors ${
+                                                    memory.status === 'human-rejected'
+                                                        ? 'bg-red-600 text-white'
+                                                        : 'hover:bg-red-900 text-red-400 hover:text-red-300'
+                                                }`}
+                                                title="Reject"
+                                                disabled={memory.status === 'human-rejected'}
+                                            >
+                                                <XCircle size={14} />
+                                            </button>
+                                            {/* Edit button */}
                                             <button
                                                 onClick={() => {
                                                     const edited = prompt('Edit memory:', memory.final_memory || memory.initial_memory);
                                                     if (edited && edited !== (memory.final_memory || memory.initial_memory)) {
-                                                        // Update memory in database
                                                         window.api.executeSQL({
                                                             query: `UPDATE memory_lifecycle SET final_memory = ?, status = 'human-edited' WHERE id = ?`,
                                                             params: [edited, memory.id]
                                                         }).then(() => loadMemories());
-
-                                                        }
+                                                    }
                                                 }}
-                                                className="p-1 theme-hover rounded"
+                                                className="p-1.5 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300 transition-colors"
                                                 title="Edit"
                                             >
                                                 <Edit size={14} />
                                             </button>
+                                            {/* Delete button */}
                                             <button
                                                 onClick={() => {
                                                     if (confirm('Delete this memory?')) {
@@ -2321,7 +2591,7 @@ const handleAcceptGeneratedSql = () => {
                                                         }).then(() => loadMemories());
                                                     }
                                                 }}
-                                                className="p-1 theme-hover rounded text-red-400"
+                                                className="p-1.5 hover:bg-gray-700 rounded text-red-400 hover:text-red-300 transition-colors"
                                                 title="Delete"
                                             >
                                                 <Trash2 size={14} />
@@ -2343,73 +2613,372 @@ const handleAcceptGeneratedSql = () => {
     )}
 </section>
 
-                        {/* Original Knowledge Graph Section - Preserved as is */}
-<section id="knowledge-graph" className="border theme-border rounded-lg p-4">
+{/* Browser History Web Section */}
+<section id="history-web" className="border theme-border rounded-lg p-4">
     <div className="flex justify-between items-center mb-3">
         <h4 className="text-lg font-semibold flex items-center gap-3">
-            <GitBranch className="text-green-400"/>Knowledge Graph Inspector
+            <Globe className="text-blue-400"/>Browser History Web
         </h4>
         <div className="flex items-center gap-2">
-            <button onClick={() => handleKgProcessTrigger('sleep')} disabled={kgLoading} className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2"><Zap size={14}/> Sleep</button>
-            <button onClick={() => handleKgProcessTrigger('dream')} disabled={kgLoading} className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2"><Brain size={14}/> Dream</button>
+            <button
+                onClick={fetchHistoryGraph}
+                disabled={historyGraphLoading}
+                className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2"
+            >
+                <RefreshCw size={14} className={historyGraphLoading ? 'animate-spin' : ''} /> Refresh
+            </button>
         </div>
     </div>
 
-    {/* --- NEW: Enhanced Controls --- */}
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+    {/* Controls */}
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
         <div>
-            <label className="text-xs theme-text-secondary mb-1 block">View Mode</label>
-            <select value={kgViewMode} onChange={(e) => setKgViewMode(e.target.value)} className="w-full px-2 py-1 text-xs theme-input rounded">
+            <label className="text-xs theme-text-secondary mb-1 block">Min Visits</label>
+            <input
+                type="number"
+                min="1"
+                max="100"
+                value={historyMinVisits}
+                onChange={(e) => setHistoryMinVisits(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full px-2 py-1 text-xs theme-input rounded"
+            />
+        </div>
+        <div>
+            <label className="text-xs theme-text-secondary mb-1 block">Edge Filter</label>
+            <select
+                value={historyEdgeFilter}
+                onChange={(e) => setHistoryEdgeFilter(e.target.value as 'all' | 'click' | 'manual')}
+                className="w-full px-2 py-1 text-xs theme-input rounded"
+            >
+                <option value="all">All Navigations</option>
+                <option value="click">Link Clicks Only</option>
+                <option value="manual">Manual Entry Only</option>
+            </select>
+        </div>
+        <div className="col-span-2">
+            <label className="text-xs theme-text-secondary mb-1 block">Legend</label>
+            <div className="flex gap-4 text-xs">
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500"></span> Link Click</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500"></span> Manual Entry</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500"></span> Low Visits</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500"></span> High Visits</span>
+            </div>
+        </div>
+    </div>
+
+    {historyGraphError && <div className="text-red-400 text-center p-4">{historyGraphError}</div>}
+
+    {historyGraphLoading ? (
+        <div className="h-96 flex items-center justify-center theme-bg-tertiary rounded-lg">
+            <Loader className="animate-spin text-blue-400" size={32} />
+        </div>
+    ) : (
+        <div className="grid grid-cols-4 gap-4">
+            {/* Stats Panel */}
+            <div className="col-span-1 flex flex-col gap-4">
+                <div className="theme-bg-tertiary p-3 rounded-lg">
+                    <h5 className="font-semibold text-sm mb-2">Graph Stats</h5>
+                    <p className="text-xs theme-text-secondary">Domains: <span className="font-bold theme-text-primary">{processedHistoryGraphData.nodes.length}</span></p>
+                    <p className="text-xs theme-text-secondary">Connections: <span className="font-bold theme-text-primary">{processedHistoryGraphData.links.length}</span></p>
+                    {historyGraphStats && (
+                        <>
+                            <p className="text-xs theme-text-secondary">Total Visits: <span className="font-bold theme-text-primary">{historyGraphStats.totalVisits}</span></p>
+                            <p className="text-xs theme-text-secondary">Total Navigations: <span className="font-bold theme-text-primary">{historyGraphStats.totalNavigations}</span></p>
+                        </>
+                    )}
+                </div>
+
+                {/* Top Domains */}
+                {historyGraphStats?.topDomains && (
+                    <div className="theme-bg-tertiary p-3 rounded-lg">
+                        <h5 className="font-semibold text-sm mb-2">Top Domains</h5>
+                        <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {historyGraphStats.topDomains.map((d: { domain: string; visits: number }) => (
+                                <div key={d.domain} className="text-xs flex justify-between items-center">
+                                    <div className="truncate flex-1 font-mono" title={d.domain}>{d.domain}</div>
+                                    <span className="text-blue-400 font-semibold ml-2">{d.visits}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Selected Node Details */}
+                {selectedHistoryNode && (
+                    <div className="theme-bg-tertiary p-3 rounded-lg">
+                        <h5 className="font-semibold text-sm mb-2">Selected: {selectedHistoryNode.label}</h5>
+                        <p className="text-xs theme-text-secondary">Visits: <span className="font-bold">{selectedHistoryNode.visitCount}</span></p>
+                        <p className="text-xs theme-text-secondary mb-2">Last Visited: <span className="font-bold">{new Date(selectedHistoryNode.lastVisited).toLocaleString()}</span></p>
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                            <p className="text-xs theme-text-secondary font-semibold">Pages:</p>
+                            {selectedHistoryNode.urls?.slice(0, 5).map((u: { url: string; title: string; visits: number }, i: number) => (
+                                <div key={i} className="text-xs truncate" title={u.url}>
+                                    <span className="text-blue-400">[{u.visits}]</span> {u.title || u.url}
+                                </div>
+                            ))}
+                            {selectedHistoryNode.urls?.length > 5 && (
+                                <p className="text-xs theme-text-muted">...and {selectedHistoryNode.urls.length - 5} more</p>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Graph Visualization */}
+            <div className="col-span-3 h-96 theme-bg-tertiary rounded-lg relative overflow-hidden">
+                {processedHistoryGraphData.nodes.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center theme-text-muted">
+                        <Globe size={48} className="mb-4 opacity-50" />
+                        <p>No browsing history yet</p>
+                        <p className="text-xs mt-2">Browse some websites to see your history web</p>
+                    </div>
+                ) : (
+                    <ForceGraph2D
+                        ref={historyGraphRef}
+                        graphData={processedHistoryGraphData}
+                        nodeLabel={(node: any) => `${node.label} (${node.visitCount} visits)`}
+                        nodeVal={getHistoryNodeSize}
+                        nodeColor={getHistoryNodeColor}
+                        linkWidth={getHistoryLinkWidth}
+                        linkColor={getHistoryLinkColor}
+                        linkDirectionalArrowLength={4}
+                        linkDirectionalArrowRelPos={0.9}
+                        linkCurvature={0.1}
+                        onNodeClick={(node: any) => setSelectedHistoryNode(node)}
+                        width={800}
+                        height={384}
+                        backgroundColor="transparent"
+                    />
+                )}
+            </div>
+        </div>
+    )}
+</section>
+
+                        {/* Knowledge Graph Editor Section */}
+<section id="knowledge-graph" className="border border-gray-700 rounded-lg p-4 bg-gray-900/50">
+    <div className="flex justify-between items-center mb-3">
+        <h4 className="text-lg font-semibold flex items-center gap-3 text-white">
+            <GitBranch className="text-green-400"/>Knowledge Graph Editor
+        </h4>
+        <div className="flex items-center gap-2">
+            <button
+                onClick={() => setKgEditMode(kgEditMode === 'view' ? 'edit' : 'view')}
+                className={`px-3 py-1 text-xs rounded flex items-center gap-2 transition-colors ${
+                    kgEditMode === 'edit' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+            >
+                <Edit size={14}/> {kgEditMode === 'edit' ? 'Editing' : 'View Only'}
+            </button>
+            <button onClick={() => handleKgProcessTrigger('sleep')} disabled={kgLoading} className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded flex items-center gap-2 disabled:opacity-50"><Zap size={14}/> Sleep</button>
+            <button onClick={() => handleKgProcessTrigger('dream')} disabled={kgLoading} className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded flex items-center gap-2 disabled:opacity-50"><Brain size={14}/> Dream</button>
+        </div>
+    </div>
+
+    {/* Controls Row */}
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <div>
+            <label className="text-xs text-gray-400 mb-1 block">View Mode</label>
+            <select value={kgViewMode} onChange={(e) => setKgViewMode(e.target.value)} className="w-full px-2 py-1.5 text-sm bg-gray-800 text-white border border-gray-600 rounded focus:border-blue-500 focus:outline-none">
               <option value="full">Full Network</option>
               <option value="cooccurrence">Concept Co-occurrence</option>
             </select>
         </div>
         <div>
-            <label className="text-xs theme-text-secondary mb-1 block">Node Filter</label>
-            <select value={kgNodeFilter} onChange={(e) => setKgNodeFilter(e.target.value)} className="w-full px-2 py-1 text-xs theme-input rounded">
+            <label className="text-xs text-gray-400 mb-1 block">Node Filter</label>
+            <select value={kgNodeFilter} onChange={(e) => setKgNodeFilter(e.target.value)} className="w-full px-2 py-1.5 text-sm bg-gray-800 text-white border border-gray-600 rounded focus:border-blue-500 focus:outline-none">
               <option value="all">Show All Nodes</option>
               <option value="high-degree">Show High-Degree Nodes</option>
             </select>
         </div>
+        {kgEditMode === 'edit' && (
+            <>
+                <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Add Node</label>
+                    <div className="flex gap-1">
+                        <input
+                            type="text"
+                            value={newNodeName}
+                            onChange={(e) => setNewNodeName(e.target.value)}
+                            placeholder="Node name..."
+                            className="flex-1 px-2 py-1.5 text-sm bg-gray-800 text-white border border-gray-600 rounded focus:border-green-500 focus:outline-none"
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddKgNode()}
+                        />
+                        <button
+                            onClick={handleAddKgNode}
+                            disabled={!newNodeName.trim() || kgLoading}
+                            className="px-2 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Plus size={16} />
+                        </button>
+                    </div>
+                </div>
+                <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Add Edge (source → target)</label>
+                    <div className="flex gap-1">
+                        <input
+                            type="text"
+                            value={newEdgeSource}
+                            onChange={(e) => setNewEdgeSource(e.target.value)}
+                            placeholder="From..."
+                            className="w-1/3 px-2 py-1.5 text-sm bg-gray-800 text-white border border-gray-600 rounded focus:border-blue-500 focus:outline-none"
+                        />
+                        <input
+                            type="text"
+                            value={newEdgeTarget}
+                            onChange={(e) => setNewEdgeTarget(e.target.value)}
+                            placeholder="To..."
+                            className="w-1/3 px-2 py-1.5 text-sm bg-gray-800 text-white border border-gray-600 rounded focus:border-blue-500 focus:outline-none"
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddKgEdge()}
+                        />
+                        <button
+                            onClick={handleAddKgEdge}
+                            disabled={!newEdgeSource.trim() || !newEdgeTarget.trim() || kgLoading}
+                            className="px-2 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Link size={16} />
+                        </button>
+                    </div>
+                </div>
+            </>
+        )}
     </div>
     
     {kgError && <div className="text-red-400 text-center p-4">{kgError}</div>}
 
-    {kgLoading ? (<div className="h-96 flex items-center justify-center theme-bg-tertiary rounded-lg"><Loader className="animate-spin text-green-400" size={32} /></div>) : (
+    {kgLoading ? (<div className="h-96 flex items-center justify-center bg-gray-800 rounded-lg"><Loader className="animate-spin text-green-400" size={32} /></div>) : (
     <div className="grid grid-cols-4 gap-4">
         <div className="col-span-1 flex flex-col gap-4">
-            <div className="theme-bg-tertiary p-3 rounded-lg">
-                <h5 className="font-semibold text-sm mb-2">Controls</h5>
-                <label className="text-xs theme-text-secondary">Active Generation</label>
+            <div className="bg-gray-800 p-3 rounded-lg border border-gray-700">
+                <h5 className="font-semibold text-sm mb-2 text-white">Controls</h5>
+                <label className="text-xs text-gray-400">Active Generation</label>
                 <div className="flex items-center gap-2">
-                    <input type="range" min="0" max={kgGenerations.length > 0 ? Math.max(...kgGenerations) : 0} value={currentKgGeneration || 0} onChange={(e) => setCurrentKgGeneration(parseInt(e.target.value))} className="w-full" disabled={kgGenerations.length === 0}/>
-                    <span className="font-mono text-sm p-1 theme-bg-primary rounded">{currentKgGeneration}</span>
+                    <input type="range" min="0" max={kgGenerations.length > 0 ? Math.max(...kgGenerations) : 0} value={currentKgGeneration || 0} onChange={(e) => setCurrentKgGeneration(parseInt(e.target.value))} className="w-full accent-green-500" disabled={kgGenerations.length === 0}/>
+                    <span className="font-mono text-sm p-1 bg-gray-700 text-white rounded">{currentKgGeneration}</span>
                 </div>
-                <button onClick={handleKgRollback} disabled={currentKgGeneration === 0 || kgLoading} className="w-full mt-3 text-xs py-1 theme-button-danger rounded flex items-center justify-center gap-2 disabled:opacity-50"><Repeat size={14} /> Rollback One Gen</button>
+                <button onClick={handleKgRollback} disabled={currentKgGeneration === 0 || kgLoading} className="w-full mt-3 text-xs py-1.5 bg-red-900 hover:bg-red-800 text-red-300 rounded flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"><Repeat size={14} /> Rollback One Gen</button>
             </div>
-            
-            {/* --- NEW: Enhanced Stats Panel --- */}
-            <div className="theme-bg-tertiary p-3 rounded-lg">
-                <h5 className="font-semibold text-sm mb-2">Current View Stats</h5>
-                <p className="text-xs theme-text-secondary">Nodes: <span className="font-bold theme-text-primary">{processedGraphData.nodes.length}</span></p>
-                <p className="text-xs theme-text-secondary">Links: <span className="font-bold theme-text-primary">{processedGraphData.links.length}</span></p>
+
+            {/* Selected Node Panel (works in both view and edit modes) */}
+            {selectedKgNode && (() => {
+                // Get edges for selected node
+                const outgoingEdges = processedGraphData.links.filter((l: any) =>
+                    (typeof l.source === 'string' ? l.source : l.source?.id) === selectedKgNode.id
+                );
+                const incomingEdges = processedGraphData.links.filter((l: any) =>
+                    (typeof l.target === 'string' ? l.target : l.target?.id) === selectedKgNode.id
+                );
+                return (
+                    <div className={`bg-gray-800 p-3 rounded-lg border max-h-96 overflow-y-auto ${kgEditMode === 'edit' ? 'border-blue-600' : 'border-green-600'}`}>
+                        <h5 className="font-semibold text-sm mb-2 text-white flex items-center justify-between">
+                            Selected Node {kgEditMode === 'view' && <span className="text-xs text-green-400 font-normal">(View Mode)</span>}
+                            <button onClick={() => setSelectedKgNode(null)} className="text-gray-400 hover:text-white">
+                                <X size={14} />
+                            </button>
+                        </h5>
+                        <p className="text-sm font-mono text-blue-400 truncate mb-2" title={selectedKgNode.id}>{selectedKgNode.id}</p>
+                        <p className="text-xs text-gray-400 mb-2">Type: {selectedKgNode.type || 'concept'}</p>
+                        {kgEditMode === 'edit' && (
+                            <button
+                                onClick={() => handleDeleteKgNode(selectedKgNode.id)}
+                                className="w-full text-xs py-1.5 bg-red-600 hover:bg-red-500 text-white rounded flex items-center justify-center gap-2 transition-colors mb-3"
+                            >
+                                <Trash2 size={14} /> Delete Node
+                            </button>
+                        )}
+
+                        {/* Connections Section */}
+                        <div className={kgEditMode === 'edit' ? 'border-t border-gray-700 pt-2' : ''}>
+                            <h6 className="text-xs text-gray-400 font-semibold mb-2">
+                                Connections ({outgoingEdges.length + incomingEdges.length})
+                            </h6>
+
+                            {/* Outgoing Edges */}
+                            {outgoingEdges.length > 0 && (
+                                <div className="mb-2">
+                                    <span className="text-[10px] text-gray-500 flex items-center gap-1 mb-1">
+                                        → Outgoing ({outgoingEdges.length})
+                                    </span>
+                                    <div className="space-y-1">
+                                        {outgoingEdges.map((edge: any, i: number) => {
+                                            const targetId = typeof edge.target === 'string' ? edge.target : edge.target?.id;
+                                            return (
+                                                <div key={i} className="flex items-center gap-1 text-xs bg-gray-900 rounded px-2 py-1">
+                                                    <span className="text-gray-300 truncate flex-1 font-mono" title={targetId}>{targetId}</span>
+                                                    {kgEditMode === 'edit' && (
+                                                        <button
+                                                            onClick={() => handleDeleteKgEdge(selectedKgNode.id, targetId)}
+                                                            className="p-0.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded flex-shrink-0"
+                                                            title="Remove connection"
+                                                        >
+                                                            <X size={12} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Incoming Edges */}
+                            {incomingEdges.length > 0 && (
+                                <div className="mb-2">
+                                    <span className="text-[10px] text-gray-500 flex items-center gap-1 mb-1">
+                                        ← Incoming ({incomingEdges.length})
+                                    </span>
+                                    <div className="space-y-1">
+                                        {incomingEdges.map((edge: any, i: number) => {
+                                            const sourceId = typeof edge.source === 'string' ? edge.source : edge.source?.id;
+                                            return (
+                                                <div key={i} className="flex items-center gap-1 text-xs bg-gray-900 rounded px-2 py-1">
+                                                    <span className="text-gray-300 truncate flex-1 font-mono" title={sourceId}>{sourceId}</span>
+                                                    {kgEditMode === 'edit' && (
+                                                        <button
+                                                            onClick={() => handleDeleteKgEdge(sourceId, selectedKgNode.id)}
+                                                            className="p-0.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded flex-shrink-0"
+                                                            title="Remove connection"
+                                                        >
+                                                            <X size={12} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {outgoingEdges.length === 0 && incomingEdges.length === 0 && (
+                                <p className="text-xs text-gray-500 italic">No connections</p>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* Stats Panel */}
+            <div className="bg-gray-800 p-3 rounded-lg border border-gray-700">
+                <h5 className="font-semibold text-sm mb-2 text-white">Current View Stats</h5>
+                <p className="text-xs text-gray-400">Nodes: <span className="font-bold text-white">{processedGraphData.nodes.length}</span></p>
+                <p className="text-xs text-gray-400">Links: <span className="font-bold text-white">{processedGraphData.links.length}</span></p>
                 {networkStats && kgViewMode === 'full' && (
                     <>
-                    <p className="text-xs theme-text-secondary">Density: <span className="font-bold theme-text-primary">{networkStats.density?.toFixed(4)}</span></p>
-                    <p className="text-xs theme-text-secondary">Avg Degree: <span className="font-bold theme-text-primary">{networkStats.avg_degree?.toFixed(2)}</span></p>
+                    <p className="text-xs text-gray-400">Density: <span className="font-bold text-white">{networkStats.density?.toFixed(4)}</span></p>
+                    <p className="text-xs text-gray-400">Avg Degree: <span className="font-bold text-white">{networkStats.avg_degree?.toFixed(2)}</span></p>
                     </>
                 )}
             </div>
 
-            {/* --- NEW: Centrality Panel --- */}
+            {/* Centrality Panel */}
             {centralityData?.degree && (
-                <div className="theme-bg-tertiary p-3 rounded-lg">
-                    <h5 className="font-semibold text-sm mb-2">Top Central Concepts</h5>
+                <div className="bg-gray-800 p-3 rounded-lg border border-gray-700">
+                    <h5 className="font-semibold text-sm mb-2 text-white">Top Central Concepts</h5>
                     <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {Object.entries(centralityData.degree).sort(([,a], [,b]) => b - a).slice(0, 10).map(([node, score]) => (
-                            <div key={node} className="text-xs" title={node}>
-                                <div className="truncate font-mono">{node}</div>
-                                <div className="text-green-400 font-semibold">{score.toFixed(3)}</div>
+                        {Object.entries(centralityData.degree).sort(([,a], [,b]) => (b as number) - (a as number)).slice(0, 10).map(([node, score]) => (
+                            <div key={node} className="text-xs cursor-pointer hover:bg-gray-700 p-1 rounded" title={node} onClick={() => setSelectedKgNode({ id: node })}>
+                                <div className="truncate font-mono text-gray-300">{node}</div>
+                                <div className="text-green-400 font-semibold">{(score as number).toFixed(3)}</div>
                             </div>
                         ))}
                     </div>
@@ -2417,19 +2986,20 @@ const handleAcceptGeneratedSql = () => {
             )}
         </div>
 
-        <div className="col-span-3 h-96 theme-bg-tertiary rounded-lg relative overflow-hidden">
-            <ForceGraph2D 
-                ref={graphRef} 
-                graphData={processedGraphData} 
-                nodeLabel="id" 
-                nodeVal={getNodeSize} 
-                nodeColor={getNodeColor} 
+        <div className="col-span-3 h-96 bg-gray-800 rounded-lg relative overflow-hidden border border-gray-700">
+            <ForceGraph2D
+                ref={graphRef}
+                graphData={processedGraphData}
+                nodeLabel="id"
+                nodeVal={getNodeSize}
+                nodeColor={(node: any) => selectedKgNode?.id === node.id ? '#f59e0b' : getNodeColor(node)}
                 linkWidth={getLinkWidth}
-                linkDirectionalParticles={kgViewMode === 'full' ? 1 : 0} 
-                linkDirectionalParticleWidth={2} 
-                linkColor={() => 'rgba(255,255,255,0.2)'} 
-                width={800} 
-                height={384} 
+                linkDirectionalParticles={kgViewMode === 'full' ? 1 : 0}
+                linkDirectionalParticleWidth={2}
+                linkColor={() => 'rgba(255,255,255,0.3)'}
+                onNodeClick={(node: any) => setSelectedKgNode(node)}
+                width={800}
+                height={384}
                 backgroundColor="transparent"
             />
         </div>

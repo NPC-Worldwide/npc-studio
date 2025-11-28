@@ -70,6 +70,7 @@ readDocxContent: (filePath) =>
     browserGetBookmarks: (args) => ipcRenderer.invoke('browser:getBookmarks', args),
     browserDeleteBookmark: (args) => ipcRenderer.invoke('browser:deleteBookmark', args),
     browserClearHistory: (args) => ipcRenderer.invoke('browser:clearHistory', args),
+    browserGetHistoryGraph: (args) => ipcRenderer.invoke('browser:getHistoryGraph', args),
     browserSetVisibility: (args) => ipcRenderer.invoke('browser:set-visibility', args),
 
    
@@ -147,6 +148,11 @@ readDocxContent: (filePath) =>
     kg_getNetworkStats: (args) => ipcRenderer.invoke('kg:getNetworkStats', args),
     kg_getCooccurrenceNetwork: (args) => ipcRenderer.invoke('kg:getCooccurrenceNetwork', args),
     kg_getCentralityData: (args) => ipcRenderer.invoke('kg:getCentralityData', args),
+    kg_addNode: (args) => ipcRenderer.invoke('kg:addNode', args),
+    kg_updateNode: (args) => ipcRenderer.invoke('kg:updateNode', args),
+    kg_deleteNode: (args) => ipcRenderer.invoke('kg:deleteNode', args),
+    kg_addEdge: (args) => ipcRenderer.invoke('kg:addEdge', args),
+    kg_deleteEdge: (args) => ipcRenderer.invoke('kg:deleteEdge', args),
 
     resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
 
@@ -241,7 +247,41 @@ onTerminalClosed: (callback) => {
             return { jinxs: [], error: error.message };
         }
     },
-    saveJinx: (data) => ipcRenderer.invoke('save-jinx', data),    
+    saveJinx: (data) => ipcRenderer.invoke('save-jinx', data),
+
+    // Mapx (Mind Map) APIs - YAML-based storage like NPCs/Jinxs
+    getMapsGlobal: async () => {
+        try {
+            const response = await fetch('http://127.0.0.1:5337/api/maps/global');
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('Error loading global maps:', error);
+            return { maps: [], error: error.message };
+        }
+    },
+    getMapsProject: async (currentPath) => {
+        try {
+            const response = await fetch(`http://127.0.0.1:5337/api/maps/project?currentPath=${encodeURIComponent(currentPath)}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('Error loading project maps:', error);
+            return { maps: [], error: error.message };
+        }
+    },
+    saveMap: (data) => ipcRenderer.invoke('save-map', data),
+    loadMap: (filePath) => ipcRenderer.invoke('load-map', filePath),
+
+    // Local Model Provider APIs (LM Studio, Ollama, llama.cpp)
+    scanLocalModels: (provider) => ipcRenderer.invoke('scan-local-models', provider),
+    getLocalModelStatus: (provider) => ipcRenderer.invoke('get-local-model-status', provider),
+
+    // Activity Tracking for RNN predictor
+    trackActivity: (activity) => ipcRenderer.invoke('track-activity', activity),
+    getActivityPredictions: () => ipcRenderer.invoke('get-activity-predictions'),
+    trainActivityModel: () => ipcRenderer.invoke('train-activity-model'),
+
     generativeFill: async (params) => {
     return ipcRenderer.invoke('generative-fill', params);
 },

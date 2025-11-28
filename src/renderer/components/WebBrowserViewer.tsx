@@ -27,6 +27,10 @@ const WebBrowserViewer = memo(({
     const [showSessionMenu, setShowSessionMenu] = useState(false);
     const [isSecure, setIsSecure] = useState(false);
 
+    // Track navigation type for history graph
+    const isManualNavigationRef = useRef(false);
+    const previousUrlRef = useRef<string | null>(null);
+
     const paneData = contentDataRef.current[nodeId];
     const initialUrl = paneData?.browserUrl || 'about:blank';
     // Use 'default' as the shared session to persist cookies across all browser panes
@@ -64,6 +68,9 @@ const WebBrowserViewer = memo(({
 
         const handleDidNavigate = (e) => {
             const url = e.url;
+            const fromUrl = previousUrlRef.current;
+            const navigationType = isManualNavigationRef.current ? 'manual' : 'click';
+
             setCurrentUrl(url);
             setUrlInput(url);
             setError(null);
@@ -73,9 +80,17 @@ const WebBrowserViewer = memo(({
                 (window as any).api?.browserAddToHistory?.({
                     url,
                     title: webview.getTitle() || url,
-                    folderPath: currentPath
+                    folderPath: currentPath,
+                    paneId: nodeId,
+                    navigationType,
+                    fromUrl
                 }).catch((err: any) => console.error('[Browser] History save error:', err));
             }
+
+            // Update tracking refs
+            previousUrlRef.current = url;
+            isManualNavigationRef.current = false; // Reset after navigation
+
             // Update paneData url to reflect navigation
             if (paneData) {
                 paneData.browserUrl = url;
@@ -134,6 +149,8 @@ const WebBrowserViewer = memo(({
         const targetUrl = urlInput;
         if (!targetUrl.trim()) return;
         const finalUrl = targetUrl.startsWith('http') ? targetUrl : `https://${targetUrl}`;
+        // Mark this as manual navigation (user typed URL)
+        isManualNavigationRef.current = true;
         if (webviewRef.current) webviewRef.current.src = finalUrl;
     }, [urlInput]);
 

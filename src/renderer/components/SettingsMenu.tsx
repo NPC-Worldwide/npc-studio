@@ -33,29 +33,99 @@ const defaultSettings = {
     keyboard_shortcuts: defaultKeyboardShortcuts,
 };
 
+// Local provider configuration
+const LOCAL_PROVIDERS = {
+    ollama: {
+        name: 'Ollama',
+        description: 'Local LLM server with model management',
+        defaultPort: 11434,
+        docsUrl: 'https://ollama.ai',
+        color: 'text-blue-400',
+        bgColor: 'bg-blue-600'
+    },
+    lmstudio: {
+        name: 'LM Studio',
+        description: 'Desktop app for running local LLMs',
+        defaultPort: 1234,
+        docsUrl: 'https://lmstudio.ai',
+        color: 'text-purple-400',
+        bgColor: 'bg-purple-600'
+    },
+    llamacpp: {
+        name: 'llama.cpp',
+        description: 'High-performance C++ inference server',
+        defaultPort: 8080,
+        docsUrl: 'https://github.com/ggerganov/llama.cpp',
+        color: 'text-green-400',
+        bgColor: 'bg-green-600'
+    }
+};
+
 const ModelManager = () => {
-    const [ollamaStatus, setOllamaStatus] = useState('checking');
-    const [localModels, setLocalModels] = useState([]);
+    const [activeProvider, setActiveProvider] = useState('ollama');
+    const [providerStatuses, setProviderStatuses] = useState({
+        ollama: 'checking',
+        lmstudio: 'checking',
+        llamacpp: 'checking'
+    });
+    const [providerModels, setProviderModels] = useState({
+        ollama: [],
+        lmstudio: [],
+        llamacpp: []
+    });
     const [pullModelName, setPullModelName] = useState('llama3.1');
     const [pullProgress, setPullProgress] = useState(null);
     const [isPulling, setIsPulling] = useState(false);
     const [isDeleting, setIsDeleting] = useState(null);
+    const [isScanning, setIsScanning] = useState(false);
 
-    const fetchLocalModels = async () => {
-        const models = await window.api.getLocalOllamaModels();
-        if (models && !models.error) {
-            setLocalModels(models);
+    // Fetch models for a specific provider
+    const fetchModelsForProvider = async (provider) => {
+        if (provider === 'ollama') {
+            const models = await window.api.getLocalOllamaModels();
+            if (models && !models.error) {
+                setProviderModels(prev => ({ ...prev, ollama: models }));
+            }
+        } else {
+            // Use the new scan API for LM Studio and llama.cpp
+            const result = await window.api.scanLocalModels?.(provider);
+            if (result && !result.error) {
+                setProviderModels(prev => ({ ...prev, [provider]: result.models || [] }));
+            }
         }
     };
 
-    const checkStatus = async () => {
-        const status = await window.api.checkOllamaStatus();
-        setOllamaStatus(status.status);
-        if (status.status === 'running') fetchLocalModels();
+    // Check status for all providers
+    const checkAllStatuses = async () => {
+        // Check Ollama
+        const ollamaStatus = await window.api.checkOllamaStatus();
+        setProviderStatuses(prev => ({ ...prev, ollama: ollamaStatus.status }));
+        if (ollamaStatus.status === 'running') fetchModelsForProvider('ollama');
+
+        // Check LM Studio and llama.cpp via new API
+        for (const provider of ['lmstudio', 'llamacpp']) {
+            try {
+                const status = await window.api.getLocalModelStatus?.(provider);
+                setProviderStatuses(prev => ({
+                    ...prev,
+                    [provider]: status?.running ? 'running' : 'not_running'
+                }));
+                if (status?.running) fetchModelsForProvider(provider);
+            } catch {
+                setProviderStatuses(prev => ({ ...prev, [provider]: 'not_found' }));
+            }
+        }
+    };
+
+    // Scan for models on selected provider
+    const handleScanModels = async () => {
+        setIsScanning(true);
+        await fetchModelsForProvider(activeProvider);
+        setIsScanning(false);
     };
 
     useEffect(() => {
-        checkStatus();
+        checkAllStatuses();
         const cleanupProgress = window.api.onOllamaPullProgress((progress) => setPullProgress(progress));
         const cleanupComplete = window.api.onOllamaPullComplete(() => {
             setIsPulling(false);
@@ -63,7 +133,7 @@ const ModelManager = () => {
             setTimeout(() => {
                 setPullProgress(null);
                 setPullModelName('');
-                fetchLocalModels();
+                fetchModelsForProvider('ollama');
             }, 2000);
         });
         const cleanupError = window.api.onOllamaPullError((error) => {
@@ -88,87 +158,189 @@ const ModelManager = () => {
         if (isDeleting) return;
         setIsDeleting(modelName);
         await window.api.deleteOllamaModel({ model: modelName });
-        fetchLocalModels();
+        fetchModelsForProvider('ollama');
         setIsDeleting(null);
     };
 
-    if (ollamaStatus === 'checking') {
-        return <p className="text-center text-gray-400 p-4">Checking for Ollama...</p>;
-    }
-
-    if (ollamaStatus === 'not_found') {
-        return (
-            <Card>
-                <div className="text-center p-4">
-                    <h4 className="font-semibold text-lg text-white">Ollama Not Found</h4>
-                    <p className="text-gray-400 my-2">Ollama is required to run local models.</p>
-                    <Button variant="primary" onClick={async () => {
-                        setOllamaStatus('installing');
-                        await window.api.installOllama();
-                        checkStatus();
-                    }}>
-                        <DownloadCloud size={18}/> Install Ollama
-                    </Button>
-                </div>
-            </Card>
-        );
-    }
+    const currentStatus = providerStatuses[activeProvider];
+    const currentModels = providerModels[activeProvider] || [];
+    const providerInfo = LOCAL_PROVIDERS[activeProvider];
 
     return (
-        <div className="space-y-6">
-            <div>
-                <label className="block text-sm text-gray-400 mb-2">Pull Model from Ollama Hub</label>
-                <div className="flex gap-2">
-                    <Input
-                        value={pullModelName}
-                        onChange={(e) => setPullModelName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handlePullModel()}
-                        placeholder="e.g., llama3.1"
-                        disabled={isPulling}
-                        className="flex-1"
-                    />
-                    <Button variant="primary" onClick={handlePullModel} disabled={isPulling || !pullModelName.trim()}>
-                        {isPulling ? 'Pulling...' : 'Pull'}
-                    </Button>
-                </div>
+        <div className="space-y-4">
+            {/* Provider Tabs */}
+            <div className="flex gap-2 border-b border-gray-700 pb-2">
+                {Object.entries(LOCAL_PROVIDERS).map(([key, info]) => (
+                    <button
+                        key={key}
+                        onClick={() => setActiveProvider(key)}
+                        className={`px-3 py-2 rounded-t text-sm font-medium transition-colors ${
+                            activeProvider === key
+                                ? `${info.bgColor} text-white`
+                                : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                        }`}
+                    >
+                        <span className="flex items-center gap-2">
+                            {info.name}
+                            <span className={`w-2 h-2 rounded-full ${
+                                providerStatuses[key] === 'running' ? 'bg-green-400' :
+                                providerStatuses[key] === 'checking' ? 'bg-yellow-400 animate-pulse' :
+                                'bg-red-400'
+                            }`} />
+                        </span>
+                    </button>
+                ))}
             </div>
 
+            {/* Provider Info */}
+            <Card>
+                <div className="p-3">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h4 className={`font-semibold text-lg ${providerInfo.color}`}>{providerInfo.name}</h4>
+                            <p className="text-xs text-gray-400">{providerInfo.description}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className={`px-2 py-1 rounded text-xs ${
+                                currentStatus === 'running' ? 'bg-green-900 text-green-300' :
+                                currentStatus === 'checking' ? 'bg-yellow-900 text-yellow-300' :
+                                'bg-red-900 text-red-300'
+                            }`}>
+                                {currentStatus === 'running' ? 'Running' :
+                                 currentStatus === 'checking' ? 'Checking...' :
+                                 currentStatus === 'not_running' ? 'Not Running' : 'Not Found'}
+                            </span>
+                            <a
+                                href={providerInfo.docsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-cyan-400 hover:text-cyan-300"
+                            >
+                                Docs
+                            </a>
+                        </div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">Default Port: {providerInfo.defaultPort}</p>
+                </div>
+            </Card>
+
+            {/* Ollama-specific: Pull model */}
+            {activeProvider === 'ollama' && currentStatus === 'running' && (
+                <div>
+                    <label className="block text-sm text-gray-400 mb-2">Pull Model from Ollama Hub</label>
+                    <div className="flex gap-2">
+                        <Input
+                            value={pullModelName}
+                            onChange={(e) => setPullModelName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handlePullModel()}
+                            placeholder="e.g., llama3.1, mistral, codellama"
+                            disabled={isPulling}
+                            className="flex-1"
+                        />
+                        <Button variant="primary" onClick={handlePullModel} disabled={isPulling || !pullModelName.trim()}>
+                            {isPulling ? 'Pulling...' : 'Pull'}
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {/* Pull Progress */}
             {isPulling && pullProgress && (
                 <Card>
-                    <p className="text-sm font-semibold text-white">{pullProgress.status}</p>
-                    {pullProgress.details && <p className="text-xs text-gray-400 mt-1 font-mono">{pullProgress.details}</p>}
-                    {pullProgress.percent && (
-                        <div className="w-full bg-gray-600 rounded-full h-2.5 mt-2">
-                            <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: `${pullProgress.percent}%` }}></div>
-                        </div>
-                    )}
+                    <div className="p-3">
+                        <p className="text-sm font-semibold text-white">{pullProgress.status}</p>
+                        {pullProgress.details && <p className="text-xs text-gray-400 mt-1 font-mono">{pullProgress.details}</p>}
+                        {pullProgress.percent && (
+                            <div className="w-full bg-gray-600 rounded-full h-2.5 mt-2">
+                                <div className="bg-blue-500 h-2.5 rounded-full transition-all" style={{ width: `${pullProgress.percent}%` }} />
+                            </div>
+                        )}
+                    </div>
                 </Card>
             )}
 
-            <div>
-                <h4 className="text-sm text-gray-400 mb-2">Locally Installed Models</h4>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {localModels.length > 0 ? localModels.map(model => (
-                        <Card key={model.name}>
-                            <div className="flex justify-between items-center p-3">
-                                <div>
-                                    <p className="font-semibold text-white">{model.name}</p>
-                                    <p className="text-xs text-gray-500">Size: {(model.size / 1e9).toFixed(2)} GB</p>
+            {/* Not Found / Not Running States */}
+            {currentStatus === 'not_found' && activeProvider === 'ollama' && (
+                <Card>
+                    <div className="text-center p-4">
+                        <h4 className="font-semibold text-lg text-white">Ollama Not Found</h4>
+                        <p className="text-gray-400 my-2">Ollama is required to run local models.</p>
+                        <Button variant="primary" onClick={async () => {
+                            setProviderStatuses(prev => ({ ...prev, ollama: 'installing' }));
+                            await window.api.installOllama();
+                            checkAllStatuses();
+                        }}>
+                            <DownloadCloud size={18}/> Install Ollama
+                        </Button>
+                    </div>
+                </Card>
+            )}
+
+            {(currentStatus === 'not_found' || currentStatus === 'not_running') && activeProvider !== 'ollama' && (
+                <Card>
+                    <div className="text-center p-4">
+                        <h4 className="font-semibold text-lg text-white">{providerInfo.name} Not Detected</h4>
+                        <p className="text-gray-400 my-2">
+                            {activeProvider === 'lmstudio'
+                                ? 'Start LM Studio and enable the local server (usually on port 1234).'
+                                : 'Start llama.cpp server (usually on port 8080).'}
+                        </p>
+                        <div className="flex gap-2 justify-center mt-3">
+                            <Button variant="secondary" onClick={checkAllStatuses}>
+                                Refresh Status
+                            </Button>
+                            <a
+                                href={providerInfo.docsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-sm"
+                            >
+                                Get {providerInfo.name}
+                            </a>
+                        </div>
+                    </div>
+                </Card>
+            )}
+
+            {/* Model List */}
+            {currentStatus === 'running' && (
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm text-gray-400">Available Models ({currentModels.length})</h4>
+                        <Button variant="secondary" onClick={handleScanModels} disabled={isScanning}>
+                            {isScanning ? 'Scanning...' : 'Scan Models'}
+                        </Button>
+                    </div>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {currentModels.length > 0 ? currentModels.map((model, idx) => (
+                            <Card key={model.name || model.id || idx}>
+                                <div className="flex justify-between items-center p-3">
+                                    <div>
+                                        <p className="font-semibold text-white">{model.name || model.id}</p>
+                                        <p className="text-xs text-gray-500">
+                                            {model.size ? `Size: ${(model.size / 1e9).toFixed(2)} GB` : ''}
+                                            {model.modified_at && ` | Modified: ${new Date(model.modified_at).toLocaleDateString()}`}
+                                        </p>
+                                    </div>
+                                    {activeProvider === 'ollama' && (
+                                        <button
+                                            onClick={() => handleDeleteModel(model.name)}
+                                            disabled={isDeleting === model.name}
+                                            className="p-2 text-red-500 hover:text-red-400 disabled:text-gray-500"
+                                        >
+                                            {isDeleting === model.name ? '...' : <Trash2 size={16}/>}
+                                        </button>
+                                    )}
                                 </div>
-                                <button
-                                    onClick={() => handleDeleteModel(model.name)}
-                                    disabled={isDeleting === model.name}
-                                    className="p-2 text-red-500 hover:text-red-400 disabled:text-gray-500"
-                                >
-                                    {isDeleting === model.name ? '...' : <Trash2 size={16}/>}
-                                </button>
-                            </div>
-                        </Card>
-                    )) : (
-                        <p className="text-gray-500 text-center py-4">No local models found.</p>
-                    )}
+                            </Card>
+                        )) : (
+                            <p className="text-gray-500 text-center py-4">
+                                No models found. {activeProvider === 'ollama' ? 'Pull a model above.' : 'Load models in the app.'}
+                            </p>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };

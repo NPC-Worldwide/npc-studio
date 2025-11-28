@@ -425,7 +425,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             updateContentPane, performSplit,
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
-            renderPptxViewer, renderLatexViewer, renderPicViewer,
+            renderPptxViewer, renderLatexViewer, renderPicViewer, renderMindMapViewer,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -458,8 +458,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 if (ext === 'pdf') contentType = 'pdf';
                 else if (['csv', 'xlsx', 'xls'].includes(ext)) contentType = 'csv';
                 else if (['docx', 'doc'].includes(ext)) contentType = 'docx';
-                else if (ext === 'pptx') contentType = 'pptx'; // Added
-                else if (ext === 'tex') contentType = 'latex'; // Added
+                else if (ext === 'pptx') contentType = 'pptx';
+                else if (ext === 'tex') contentType = 'latex';
+                else if (ext === 'mindmap') contentType = 'mindmap';
                 else contentType = 'editor';
             } else if (draggedItem.type === 'browser') {
                 contentType = 'browser';
@@ -611,6 +612,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderLatexViewer({ nodeId: node.id });
                 case 'image':
                     return renderPicViewer({ nodeId: node.id });
+                case 'mindmap':
+                    return renderMindMapViewer({ nodeId: node.id });
                 default:
                     // This is the content for an empty pane
                     return (
