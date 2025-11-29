@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
-    X, Wrench, FileText, FileJson, BarChart3, Clock, Code2, HardDrive, ChevronDown, ChevronUp, Tag,
-    Sun, Moon, FileStack, Share2, Brain
+    X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
+    Sun, Moon, FileStack, Share2
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import npcLogo from '../../assets/icon.png';
@@ -33,8 +33,8 @@ const Sidebar = (props: any) => {
         setInput, setContextMenuPos, setSidebarItemContextMenuPos, setSearchTerm,
         setIsSearching, setDeepSearchResults, setMessageSearchResults,
         setIsEditingPath, setEditedPath, setSettingsOpen, setBrowserUrlDialogOpen,
-        setCronDaemonPanelOpen, setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
-        setCtxEditorOpen, setSidebarCollapsed, setLabeledDataManagerOpen, setActivityDashboardOpen,
+        setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
+        setCtxEditorOpen, setSidebarCollapsed,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -2053,16 +2053,13 @@ return (
 
         <div className="p-4 border-t theme-border flex-shrink-0">
             {!sidebarCollapsed && (
-                <div className="grid grid-cols-3 grid-rows-3 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
-                    <button onClick={() => setCronDaemonPanelOpen(true)} className="action-grid-button" aria-label="Open Cron/Daemon Panel"><Clock size={16} /></button>
-                    <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer"><Image size={16} /></button>
-                    <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
-                    <button onClick={() => setLabeledDataManagerOpen(true)} className="action-grid-button" aria-label="Labeled Data Manager" title="Labeled Data Manager"><Tag size={16} /></button>
+                <div className="grid grid-cols-3 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
                     <button onClick={() => setSettingsOpen(true)} className="action-grid-button" aria-label="Settings"><Settings size={16} /></button>
+                    <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
+                    <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer"><Image size={16} /></button>
                     <button onClick={() => setCtxEditorOpen(true)} className="action-grid-button" aria-label="Open Context Editor"><FileJson size={16} /></button>
                     <button onClick={handleOpenNpcTeamMenu} className="action-grid-button" aria-label="Open NPC Team Menu"><Users size={16} /></button>
                     <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Open Jinx Menu"><Wrench size={16} /></button>
-                    <button onClick={() => setActivityDashboardOpen(true)} className="action-grid-button" aria-label="Activity Intelligence" title="Activity Intelligence"><Brain size={16} /></button>
                 </div>
             )}
 

@@ -11,7 +11,6 @@ import {
 import { Icon } from 'lucide-react';
 import { avocado } from '@lucide/lab';
 import Sidebar from './Sidebar';
-import CronDaemonPanel from './CronDaemonPanel'; // <--- NEW IMPORT
 import CsvViewer from './CsvViewer';
 import DocxViewer from './DocxViewer';
 import MacroInput from './MacroInput';
@@ -32,7 +31,7 @@ import PptxViewer from './PptxViewer';
 import LatexViewer from './LatexViewer';
 import PicViewer from './PicViewer';
 import MindMapViewer from './MindMapViewer';
-import ActivityTrackerDashboard, { useActivityTracker } from './ActivityTracker';
+import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
     saveWorkspaceToStorage,
@@ -83,7 +82,6 @@ import { PredictiveTextOverlay } from './PredictiveTextOverlay';
 import { usePredictiveText } from './PredictiveText';
 import { CommandPalette } from './CommandPalette';
 import MessageLabeling, { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage, ContextFile, ContextFileStorage } from './MessageLabeling';
-import LabeledDataManager from './LabeledDataManager';
 import ConversationLabeling from './ConversationLabeling';
 import ContextFilesPanel from './ContextFilesPanel';
 
@@ -102,7 +100,6 @@ const ChatInterface = () => {
 
     // Activity tracking for RNN predictions
     const { trackActivity } = useActivityTracker();
-    const [activityDashboardOpen, setActivityDashboardOpen] = useState(false);
 
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [editedPath, setEditedPath] = useState('');
@@ -113,7 +110,6 @@ const ChatInterface = () => {
     const [selectedConvos, setSelectedConvos] = useState(new Set());
     const [lastClickedIndex, setLastClickedIndex] = useState(null);
     const [contextMenuPos, setContextMenuPos] = useState(null);
-    const [cronDaemonPanelOpen, setCronDaemonPanelOpen] = useState(false); // <--- NEW STATE
 
     const [selectedFiles, setSelectedFiles] = useState(new Set());
     const [lastClickedFileIndex, setLastClickedFileIndex] = useState(null);
@@ -191,7 +187,6 @@ const ChatInterface = () => {
 
     // Message labeling state
     const [labelingModal, setLabelingModal] = useState<{ isOpen: boolean; message: any | null }>({ isOpen: false, message: null });
-    const [labeledDataManagerOpen, setLabeledDataManagerOpen] = useState(false);
     const [messageLabels, setMessageLabels] = useState<{ [key: string]: MessageLabel }>(() => {
         // Load existing labels from storage on mount
         const allLabels = MessageLabelStorage.getAll();
@@ -2753,6 +2748,61 @@ ${contextPrompt}`;
         });
     }, []);
 
+    // Screenshot capture handler - creates new conversation with screenshot attachment
+    useEffect(() => {
+        const cleanup = window.api.onScreenshotCaptured(async (screenshotPath: string) => {
+            console.log('[Screenshot] Captured:', screenshotPath);
+
+            // Create a new conversation
+            const newConvoId = generateId();
+            const newConversation = {
+                id: newConvoId,
+                title: `Screenshot ${new Date().toLocaleString()}`,
+                messages: [],
+                timestamp: new Date().toISOString(),
+                npc: currentNPC,
+                model: currentModel,
+                provider: currentProvider
+            };
+
+            // Add to conversations list
+            setDirectoryConversations(prev => [newConversation, ...prev]);
+
+            // Create the attachment from the screenshot path
+            const fileName = screenshotPath.split('/').pop() || 'screenshot.png';
+            const attachment = {
+                id: generateId(),
+                name: fileName,
+                type: 'image/png',
+                path: screenshotPath,
+                size: 0,
+                preview: `file://${screenshotPath}`
+            };
+
+            // Set the uploaded files with the screenshot
+            setUploadedFiles([attachment]);
+
+            // Open the conversation in a new pane
+            const newPaneData = {
+                type: 'chat' as const,
+                title: newConversation.title,
+                conversationId: newConvoId,
+                conversation: newConversation,
+                npc: currentNPC,
+                model: currentModel,
+                provider: currentProvider,
+            };
+
+            createAndAddPaneNodeToLayout(newPaneData);
+            setActiveConversationId(newConvoId);
+
+            // Focus the window
+            window.focus();
+        });
+
+        return cleanup;
+    }, [currentNPC, currentModel, currentProvider, generateId, createAndAddPaneNodeToLayout]);
+
         
     useEffect(() => {
         const registerWindow = () => {
@@ -3161,6 +3211,10 @@ ${contextPrompt}`;
             currentModel={currentModel}
             currentProvider={currentProvider}
             currentNPC={currentNPC}
+            messageLabels={messageLabels}
+            setMessageLabels={setMessageLabels}
+            conversationLabels={conversationLabels}
+            setConversationLabels={setConversationLabels}
         />
                 <BrowserUrlDialog
             isOpen={browserUrlDialogOpen}
@@ -3635,20 +3689,6 @@ ${contextPrompt}`;
                     }}
                 />
             )}
-            {cronDaemonPanelOpen &&(
-            <CronDaemonPanel // <--- NEW PANEL
-            isOpen={cronDaemonPanelOpen}
-            onClose={() => setCronDaemonPanelOpen(false)}
-            currentPath={currentPath}
-            npcList={availableNPCs.map(npc => ({ name: npc.name, display_name: npc.display_name }))} // Pass available NPCs
-            jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.name, description: jinx.description }))} // Pass available Jinxs
-            onAddCronJob={window.api.addCronJob}
-            onAddDaemon={window.api.addDaemon}
-            onRemoveCronJob={window.api.removeCronJob}
-            onRemoveDaemon={window.api.removeDaemon}
-        />
-)
-            }
 
             <PhotoViewer 
     isOpen={photoViewerOpen}
@@ -3661,6 +3701,8 @@ ${contextPrompt}`;
                 isOpen={ctxEditorOpen}
                 onClose={() => setCtxEditorOpen(false)}
                 currentPath={currentPath}
+                npcList={availableNPCs.map(npc => ({ name: npc.name, display_name: npc.display_name }))}
+                jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.name, description: jinx.description }))}
             />
 
             {/* Message Labeling Modal */}
@@ -3683,21 +3725,7 @@ ${contextPrompt}`;
                 />
             )}
 
-            {/* Labeled Data Manager */}
-            <LabeledDataManager
-                isOpen={labeledDataManagerOpen}
-                onClose={() => setLabeledDataManagerOpen(false)}
-                messageLabels={messageLabels}
-                setMessageLabels={setMessageLabels}
-                conversationLabels={conversationLabels}
-                setConversationLabels={setConversationLabels}
-            />
 
-            {/* Activity Tracker Dashboard */}
-            <ActivityTrackerDashboard
-                isOpen={activityDashboardOpen}
-                onClose={() => setActivityDashboardOpen(false)}
-            />
         </>
 
     );
@@ -4709,14 +4737,11 @@ const renderMainContent = () => {
         setEditedPath={setEditedPath}
         setSettingsOpen={setSettingsOpen}
         setBrowserUrlDialogOpen={setBrowserUrlDialogOpen}
-        setCronDaemonPanelOpen={setCronDaemonPanelOpen}
         setPhotoViewerOpen={setPhotoViewerOpen}
         setDashboardMenuOpen={setDashboardMenuOpen}
         setJinxMenuOpen={setJinxMenuOpen}
         setCtxEditorOpen={setCtxEditorOpen}
         setSidebarCollapsed={setSidebarCollapsed}
-        setLabeledDataManagerOpen={setLabeledDataManagerOpen}
-        setActivityDashboardOpen={setActivityDashboardOpen}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}

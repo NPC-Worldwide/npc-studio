@@ -1,16 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { FileJson, X, Save, Plus, Trash2 } from 'lucide-react';
+import { FileJson, X, Save, Plus, Trash2, Clock } from 'lucide-react';
 import AutosizeTextarea from './AutosizeTextarea';
 import McpServerMenu from './McpServerMenu';
 
-const CtxEditor = ({ isOpen, onClose, currentPath }) => {
-   
+const CtxEditor = ({ isOpen, onClose, currentPath, npcList = [], jinxList = [] }) => {
+
     const [activeTab, setActiveTab] = useState('project');
     const [globalCtx, setGlobalCtx] = useState({});
     const [projectCtx, setProjectCtx] = useState({});
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [mcpMenuOpen, setMcpMenuOpen] = useState(false);
+
+    // Cron/Daemon state
+    const [cronJobs, setCronJobs] = useState([]);
+    const [daemons, setDaemons] = useState([]);
+    const [newJobCommand, setNewJobCommand] = useState('');
+    const [newJobSchedule, setNewJobSchedule] = useState('* * * * *');
+    const [newJobNPC, setNewJobNPC] = useState('');
+    const [newJobJinx, setNewJobJinx] = useState('');
+    const [newDaemonName, setNewDaemonName] = useState('');
+    const [newDaemonCommand, setNewDaemonCommand] = useState('');
+    const [newDaemonNPC, setNewDaemonNPC] = useState('');
+    const [newDaemonJinx, setNewDaemonJinx] = useState('');
+    const [cronLoading, setCronLoading] = useState(false);
+    const [cronError, setCronError] = useState(null);
 
     useEffect(() => {
         if (isOpen) {
@@ -99,6 +113,190 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
         });
     };
 
+    // Cron/Daemon functions
+    const fetchCronAndDaemons = async () => {
+        setCronLoading(true);
+        setCronError(null);
+        try {
+            const response = await window.api.getCronDaemons(currentPath);
+            if (response.error) throw new Error(response.error);
+            setCronJobs(response.cronJobs || []);
+            setDaemons(response.daemons || []);
+        } catch (err) {
+            setCronError(err.message || 'Failed to fetch cron jobs and daemons');
+        } finally {
+            setCronLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (isOpen && activeTab === 'cron' && currentPath) {
+            fetchCronAndDaemons();
+        }
+    }, [isOpen, activeTab, currentPath]);
+
+    const handleAddCronJob = async () => {
+        if (!newJobCommand.trim()) return alert('Please enter command for the cron job');
+        setCronLoading(true);
+        setCronError(null);
+        try {
+            const res = await window.api.addCronJob({
+                path: currentPath,
+                schedule: newJobSchedule,
+                command: newJobCommand,
+                npc: newJobNPC,
+                jinx: newJobJinx,
+            });
+            if (res.error) throw new Error(res.error);
+            await fetchCronAndDaemons();
+            setNewJobCommand('');
+            setNewJobSchedule('* * * * *');
+            setNewJobNPC('');
+            setNewJobJinx('');
+        } catch (err) {
+            setCronError(err.message);
+        } finally {
+            setCronLoading(false);
+        }
+    };
+
+    const handleRemoveCronJob = async (jobId) => {
+        setCronLoading(true);
+        setCronError(null);
+        try {
+            const res = await window.api.removeCronJob(jobId);
+            if (res.error) throw new Error(res.error);
+            await fetchCronAndDaemons();
+        } catch (err) {
+            setCronError(err.message);
+        } finally {
+            setCronLoading(false);
+        }
+    };
+
+    const handleAddDaemon = async () => {
+        if (!newDaemonName.trim()) return alert('Please enter daemon name');
+        if (!newDaemonCommand.trim()) return alert('Please enter daemon command');
+        setCronLoading(true);
+        setCronError(null);
+        try {
+            const res = await window.api.addDaemon({
+                path: currentPath,
+                name: newDaemonName,
+                command: newDaemonCommand,
+                npc: newDaemonNPC,
+                jinx: newDaemonJinx,
+            });
+            if (res.error) throw new Error(res.error);
+            await fetchCronAndDaemons();
+            setNewDaemonName('');
+            setNewDaemonCommand('');
+            setNewDaemonNPC('');
+            setNewDaemonJinx('');
+        } catch (err) {
+            setCronError(err.message);
+        } finally {
+            setCronLoading(false);
+        }
+    };
+
+    const handleRemoveDaemon = async (daemonId) => {
+        setCronLoading(true);
+        setCronError(null);
+        try {
+            const res = await window.api.removeDaemon(daemonId);
+            if (res.error) throw new Error(res.error);
+            await fetchCronAndDaemons();
+        } catch (err) {
+            setCronError(err.message);
+        } finally {
+            setCronLoading(false);
+        }
+    };
+
+    const renderCronTab = () => {
+        if (!currentPath) {
+            return <div className="p-4 theme-text-muted">No project folder selected.</div>;
+        }
+
+        return (
+            <div className="space-y-6 py-2">
+                {cronError && <div className="text-red-500 mb-2">{cronError}</div>}
+                {cronLoading && <div className="theme-text-muted mb-2">Loading...</div>}
+
+                {/* Cron Jobs List */}
+                <section>
+                    <h3 className="font-semibold text-blue-400 mb-2">Cron Jobs</h3>
+                    {cronJobs.length === 0 && <p className="theme-text-muted mb-4">No cron jobs defined for this folder.</p>}
+                    {cronJobs.map((job, idx) => (
+                        <div key={job.id || idx} className="flex justify-between items-center theme-bg-tertiary p-3 rounded mb-2">
+                            <div>
+                                <div><code className="font-mono text-sm">{job.schedule}</code> - {job.command}</div>
+                                <div className="text-xs theme-text-muted">NPC: {job.npc || '—'} | Jinx: {job.jinx || '—'}</div>
+                            </div>
+                            <button onClick={() => { if (window.confirm(`Remove cron job: "${job.command}" ?`)) handleRemoveCronJob(job.id); }} title="Delete cron job" className="p-1 text-red-500 hover:text-red-400">
+                                <Trash2 size={18} />
+                            </button>
+                        </div>
+                    ))}
+                </section>
+
+                {/* Add new cron job */}
+                <section className="border-t theme-border pt-4">
+                    <h3 className="font-semibold text-green-400 mb-2 flex items-center gap-2"><Plus size={18} /> Add New Cron Job</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <input type="text" placeholder="Schedule (* * * * *)" value={newJobSchedule} onChange={e => setNewJobSchedule(e.target.value)} className="col-span-full theme-input text-sm" />
+                        <input type="text" placeholder="Command (e.g., /sample 'hello world')" value={newJobCommand} onChange={e => setNewJobCommand(e.target.value)} className="col-span-full theme-input text-sm" />
+                        <select value={newJobNPC} onChange={e => setNewJobNPC(e.target.value)} className="theme-input text-sm">
+                            <option value=''>Select NPC (Optional)</option>
+                            {npcList.map(npc => <option key={npc.name} value={npc.name}>{npc.display_name || npc.name}</option>)}
+                        </select>
+                        <select value={newJobJinx} onChange={e => setNewJobJinx(e.target.value)} className="theme-input text-sm">
+                            <option value=''>Select Jinx (Optional)</option>
+                            {jinxList.map(jinx => <option key={jinx.jinx_name} value={jinx.jinx_name}>{jinx.description ? `${jinx.jinx_name} - ${jinx.description.substring(0, 30)}...` : jinx.jinx_name}</option>)}
+                        </select>
+                        <button onClick={handleAddCronJob} disabled={cronLoading || !newJobCommand.trim()} className="col-span-full mt-2 theme-button-primary rounded px-4 py-2 font-semibold disabled:opacity-50">Add Cron Job</button>
+                    </div>
+                </section>
+
+                {/* System Daemons List */}
+                <section>
+                    <h3 className="font-semibold text-blue-400 mb-2 mt-8">System Daemons</h3>
+                    {daemons.length === 0 && <p className="theme-text-muted mb-4">No daemons defined for this folder.</p>}
+                    {daemons.map((daemon, idx) => (
+                        <div key={daemon.id || idx} className="flex justify-between items-center theme-bg-tertiary p-3 rounded mb-2">
+                            <div>
+                                <div><strong>{daemon.name}</strong>: {daemon.command}</div>
+                                <div className="text-xs theme-text-muted">NPC: {daemon.npc || '—'} | Jinx: {daemon.jinx || '—'}</div>
+                            </div>
+                            <button onClick={() => { if (window.confirm(`Remove daemon: "${daemon.name}" ?`)) handleRemoveDaemon(daemon.id); }} title="Delete daemon" className="p-1 text-red-500 hover:text-red-400">
+                                <Trash2 size={18} />
+                            </button>
+                        </div>
+                    ))}
+                </section>
+
+                {/* Add new daemon */}
+                <section className="border-t theme-border pt-4">
+                    <h3 className="font-semibold text-green-400 mb-2 flex items-center gap-2"><Plus size={18} /> Add New Daemon</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <input type="text" placeholder="Daemon Name" value={newDaemonName} onChange={e => setNewDaemonName(e.target.value)} className="col-span-full theme-input text-sm" />
+                        <input type="text" placeholder="Command (e.g., /breathe)" value={newDaemonCommand} onChange={e => setNewDaemonCommand(e.target.value)} className="col-span-full theme-input text-sm" />
+                        <select value={newDaemonNPC} onChange={e => setNewDaemonNPC(e.target.value)} className="theme-input text-sm">
+                            <option value=''>Select NPC (Optional)</option>
+                            {npcList.map(npc => <option key={npc.name} value={npc.name}>{npc.display_name || npc.name}</option>)}
+                        </select>
+                        <select value={newDaemonJinx} onChange={e => setNewDaemonJinx(e.target.value)} className="theme-input text-sm">
+                            <option value=''>Select Jinx (Optional)</option>
+                            {jinxList.map(jinx => <option key={jinx.jinx_name} value={jinx.jinx_name}>{jinx.description ? `${jinx.jinx_name} - ${jinx.description.substring(0, 30)}...` : jinx.jinx_name}</option>)}
+                        </select>
+                        <button onClick={handleAddDaemon} disabled={cronLoading || !newDaemonName.trim() || !newDaemonCommand.trim()} className="col-span-full mt-2 theme-button-primary rounded px-4 py-2 font-semibold disabled:opacity-50">Add Daemon</button>
+                    </div>
+                </section>
+            </div>
+        );
+    };
+
     const renderForm = (type) => {
         const ctx = type === 'global' ? globalCtx : projectCtx;
         if (type === 'project' && !currentPath) {
@@ -167,12 +365,13 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
                     <div className="flex">
                         <button onClick={() => setActiveTab('project')} className={`px-4 py-2 text-sm ${activeTab === 'project' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}>Project Context</button>
                         <button onClick={() => setActiveTab('global')} className={`px-4 py-2 text-sm ${activeTab === 'global' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}>Global Context</button>
+                        <button onClick={() => setActiveTab('cron')} className={`px-4 py-2 text-sm flex items-center gap-1 ${activeTab === 'cron' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}><Clock size={14} /> Cron Jobs</button>
                     </div>
                 </div>
 
                 <main className="p-6 space-y-4 max-h-[75vh] overflow-y-auto flex-grow custom-scrollbar">
                     {isLoading ? <p className="text-center theme-text-muted">Loading...</p> : error ? <p className="text-red-500">{error}</p> : (
-                        activeTab === 'project' ? renderForm('project') : renderForm('global')
+                        activeTab === 'project' ? renderForm('project') : activeTab === 'global' ? renderForm('global') : renderCronTab()
                     )}
                 </main>
 

@@ -4,8 +4,10 @@ import {
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, Globe, RefreshCw, ExternalLink,
-    CheckCircle, XCircle, Link, Unlink
+    CheckCircle, XCircle, Link, Unlink, Activity, FileText, Terminal, Eye, Lightbulb,
+    Tag, Search, Filter, Upload, FileJson, Check
 } from 'lucide-react';
+import { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage } from './MessageLabeling';
 import ForceGraph2D from 'react-force-graph-2d';
 import * as d3 from 'd3';
 import 'chartjs-adapter-date-fns'; // Required for time scale support in charts
@@ -764,7 +766,7 @@ const DashboardWidget = ({ config, onContextMenu }) => {
     return (<div className="theme-bg-tertiary p-4 rounded-lg flex flex-col h-full relative" onContextMenu={(e) => onContextMenu(e, config.id)}><div className="flex justify-between items-start flex-shrink-0"><div className="flex items-center gap-3 mb-2 flex-1"><Icon className={config.iconColor || 'text-gray-400'} size={18} /><h4 className="font-semibold theme-text-secondary truncate">{config.title}</h4></div>{(config.toggleOptions || []).length > 0 && (<div className="flex items-center gap-1">{(config.toggleOptions).map(opt => <button key={opt.label} onClick={() => setActiveToggle(opt)} className={`px-2 py-0.5 text-xs rounded ${activeToggle?.label === opt.label ? 'theme-button-primary' : 'theme-button theme-hover'}`}>{opt.label}</button>)}</div>)}</div><div className="flex-1 mt-1 overflow-hidden">{renderContent()}</div></div>);
 };
 
-const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentPath, currentModel, currentProvider, currentNPC }) => {
+const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentPath, currentModel, currentProvider, currentNPC, messageLabels = {}, setMessageLabels, conversationLabels = {}, setConversationLabels }) => {
     // Create a database client from window.api - this can be configured for different backends
     const dbClient = useMemo<DatabaseClient>(() =>
         createWindowApiDatabaseClient(window.api as any),
@@ -884,7 +886,23 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentPath, curren
     const [availableDatabases, setAvailableDatabases] = useState<{ name: string; path: string; type: 'global' | 'project' }[]>([]);
     const [selectedDatabase, setSelectedDatabase] = useState<string>('npcsh_history.db');
 
+    // Activity Intelligence state
+    const [isActivityPanelOpen, setIsActivityPanelOpen] = useState(false);
+    const [activityData, setActivityData] = useState<any[]>([]);
+    const [activityPredictions, setActivityPredictions] = useState<any[]>([]);
+    const [activityStats, setActivityStats] = useState<any>(null);
+    const [activityLoading, setActivityLoading] = useState(false);
+    const [activityTraining, setActivityTraining] = useState(false);
+    const [activityTab, setActivityTab] = useState<'predictions' | 'history' | 'patterns'>('predictions');
 
+    // Labeled Data state
+    const [isLabeledDataPanelOpen, setIsLabeledDataPanelOpen] = useState(false);
+    const [labelSearchTerm, setLabelSearchTerm] = useState('');
+    const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
+    const [labelFilterCategory, setLabelFilterCategory] = useState<string>('');
+    const [labelFilterRole, setLabelFilterRole] = useState<'all' | 'user' | 'assistant'>('all');
+    const [labelExportFormat, setLabelExportFormat] = useState<'json' | 'jsonl' | 'finetune'>('json');
+    const [labelViewMode, setLabelViewMode] = useState<'messages' | 'conversations'>('messages');
 
     useEffect(() => { const handleKeyDown = (event) => { if (event.key === 'Escape') onClose(); }; if (isOpen) document.addEventListener('keydown', handleKeyDown); return () => document.removeEventListener('keydown', handleKeyDown); }, [isOpen, onClose]);
     useEffect(() => {
@@ -1289,6 +1307,59 @@ const ModelBuilderModal = () => {
     }, [isQueryPanelOpen, dbTables.length]);
 
    
+    // Activity Intelligence functions
+    const loadActivityData = useCallback(async () => {
+        setActivityLoading(true);
+        try {
+            const predResponse = await (window as any).api?.getActivityPredictions?.();
+            if (predResponse && !predResponse.error) {
+                setActivityPredictions(predResponse.predictions || []);
+                setActivityStats(predResponse.stats || null);
+                setActivityData(predResponse.recentActivities || []);
+            }
+        } catch (err) {
+            console.error('Failed to load activity data:', err);
+        }
+        setActivityLoading(false);
+    }, []);
+
+    const handleTrainActivityModel = async () => {
+        setActivityTraining(true);
+        try {
+            await (window as any).api?.trainActivityModel?.();
+            await loadActivityData();
+        } catch (err) {
+            console.error('Failed to train activity model:', err);
+        }
+        setActivityTraining(false);
+    };
+
+    const getActivityIcon = (type: string) => {
+        switch (type) {
+            case 'file_open':
+            case 'file_edit':
+                return <FileText size={14} className="text-blue-400" />;
+            case 'website_visit':
+                return <Globe size={14} className="text-green-400" />;
+            case 'terminal_command':
+                return <Terminal size={14} className="text-yellow-400" />;
+            case 'pane_open':
+            case 'pane_close':
+                return <Eye size={14} className="text-purple-400" />;
+            case 'chat_message':
+                return <Activity size={14} className="text-cyan-400" />;
+            default:
+                return <Activity size={14} className="text-gray-400" />;
+        }
+    };
+
+    // Load activity data when panel opens
+    useEffect(() => {
+        if (isActivityPanelOpen) {
+            loadActivityData();
+        }
+    }, [isActivityPanelOpen, loadActivityData]);
+
     const fetchKgData = useCallback(async (generation) => {
         setKgLoading(true); setKgError(null);
        
@@ -3006,8 +3077,492 @@ const handleAcceptGeneratedSql = () => {
     </div>)}
 </section>
 
+{/* Activity Intelligence Section */}
+<section id="activity-intelligence" className="border border-gray-700 rounded-lg bg-gray-900/50">
+    <button
+        onClick={() => setIsActivityPanelOpen(!isActivityPanelOpen)}
+        className="w-full p-4 flex justify-between items-center hover:bg-gray-800/50 transition-colors"
+    >
+        <h4 className="text-lg font-semibold flex items-center gap-3 text-white">
+            <Brain className="text-purple-400"/>
+            Activity Intelligence
+        </h4>
+        <div className="flex items-center gap-2">
+            {isActivityPanelOpen && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); handleTrainActivityModel(); }}
+                    disabled={activityTraining}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-sm disabled:opacity-50"
+                >
+                    {activityTraining ? (
+                        <>
+                            <RefreshCw size={14} className="animate-spin" />
+                            Training...
+                        </>
+                    ) : (
+                        <>
+                            <Zap size={14} />
+                            Train Model
+                        </>
+                    )}
+                </button>
+            )}
+            {isActivityPanelOpen ? <ChevronDown size={20} className="text-gray-400" /> : <ChevronRight size={20} className="text-gray-400" />}
+        </div>
+    </button>
+    {isActivityPanelOpen && (
+        <div className="p-4 border-t border-gray-700">
+            {/* Activity Tabs */}
+            <div className="flex border-b border-gray-700 mb-4">
+                {(['predictions', 'history', 'patterns'] as const).map(tab => (
+                    <button
+                        key={tab}
+                        onClick={() => setActivityTab(tab)}
+                        className={`px-4 py-2 text-sm font-medium transition-colors ${
+                            activityTab === tab
+                                ? 'text-purple-400 border-b-2 border-purple-400'
+                                : 'text-gray-400 hover:text-white'
+                        }`}
+                    >
+                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </button>
+                ))}
+            </div>
+
+            {activityLoading ? (
+                <div className="flex items-center justify-center py-12">
+                    <RefreshCw className="animate-spin text-gray-400" size={32} />
+                </div>
+            ) : (
+                <>
+                    {/* Predictions Tab */}
+                    {activityTab === 'predictions' && (
+                        <div className="space-y-4">
+                            {activityPredictions.length > 0 ? (
+                                activityPredictions.map((pred, idx) => (
+                                    <div
+                                        key={idx}
+                                        className={`p-4 rounded-lg border ${
+                                            pred.type === 'suggestion' ? 'border-green-600 bg-green-900/20' :
+                                            pred.type === 'pattern' ? 'border-blue-600 bg-blue-900/20' :
+                                            'border-yellow-600 bg-yellow-900/20'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <Lightbulb size={18} className={
+                                                    pred.type === 'suggestion' ? 'text-green-400' :
+                                                    pred.type === 'pattern' ? 'text-blue-400' :
+                                                    'text-yellow-400'
+                                                } />
+                                                <h4 className="font-medium text-white">{pred.title}</h4>
+                                            </div>
+                                            <span className="text-xs text-gray-400">
+                                                {(pred.confidence * 100).toFixed(0)}% confidence
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-gray-300 mt-2">{pred.description}</p>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-12 text-gray-400">
+                                    <Brain size={48} className="mx-auto mb-4 opacity-50" />
+                                    <p>No predictions yet</p>
+                                    <p className="text-xs mt-2">Use the app more to generate activity patterns</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* History Tab */}
+                    {activityTab === 'history' && (
+                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                            {activityData.length > 0 ? (
+                                activityData.slice(0, 50).map((activity, idx) => (
+                                    <div key={idx} className="flex items-center gap-3 p-2 bg-gray-800 rounded">
+                                        {getActivityIcon(activity.type)}
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm text-white truncate">
+                                                {activity.type?.replace(/_/g, ' ')}
+                                            </p>
+                                            <p className="text-xs text-gray-400 truncate">
+                                                {activity.data?.filePath || activity.data?.url || activity.data?.command || '-'}
+                                            </p>
+                                        </div>
+                                        <span className="text-xs text-gray-500">
+                                            {activity.timestamp ? new Date(activity.timestamp).toLocaleTimeString() : '-'}
+                                        </span>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-12 text-gray-400">
+                                    <Activity size={48} className="mx-auto mb-4 opacity-50" />
+                                    <p>No activity history yet</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Patterns Tab */}
+                    {activityTab === 'patterns' && (
+                        <div className="space-y-4">
+                            {activityStats?.mostCommonPatterns?.length > 0 ? (
+                                <>
+                                    <div className="grid grid-cols-3 gap-4 mb-4">
+                                        <div className="p-4 bg-gray-800 rounded-lg text-center">
+                                            <div className="text-2xl font-bold text-purple-400">{activityStats.totalActivities || 0}</div>
+                                            <div className="text-xs text-gray-400">Total Activities</div>
+                                        </div>
+                                        <div className="p-4 bg-gray-800 rounded-lg text-center">
+                                            <div className="text-2xl font-bold text-blue-400">{activityStats.mostCommonPatterns?.length || 0}</div>
+                                            <div className="text-xs text-gray-400">Patterns Found</div>
+                                        </div>
+                                        <div className="p-4 bg-gray-800 rounded-lg text-center">
+                                            <div className="text-2xl font-bold text-green-400">{activityStats.peakHours?.[0] ?? '-'}</div>
+                                            <div className="text-xs text-gray-400">Peak Hour</div>
+                                        </div>
+                                    </div>
+                                    {activityStats.mostCommonPatterns.map((pattern, idx) => (
+                                        <div key={idx} className="p-3 bg-gray-800 rounded-lg">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                {pattern.pattern.map((step, sidx) => (
+                                                    <React.Fragment key={sidx}>
+                                                        <span className="px-2 py-1 bg-gray-700 rounded text-sm text-gray-300">
+                                                            {step.replace(/_/g, ' ')}
+                                                        </span>
+                                                        {sidx < pattern.pattern.length - 1 && (
+                                                            <ChevronsRight size={14} className="text-gray-500" />
+                                                        )}
+                                                    </React.Fragment>
+                                                ))}
+                                            </div>
+                                            <div className="flex gap-4 mt-2 text-xs text-gray-400">
+                                                <span>Occurrences: {pattern.count}</span>
+                                                <span>Avg Duration: {Math.round(pattern.avgDuration / 1000)}s</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </>
+                            ) : (
+                                <div className="text-center py-12 text-gray-400">
+                                    <BarChart3 size={48} className="mx-auto mb-4 opacity-50" />
+                                    <p>No patterns detected yet</p>
+                                    <p className="text-xs mt-2">Keep using the app to build pattern recognition</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </>
+            )}
+        </div>
+    )}
+</section>
+
+{/* Labeled Data Section */}
+<section id="labeled-data" className="border border-gray-700 rounded-lg bg-gray-900/50">
+    <button
+        onClick={() => setIsLabeledDataPanelOpen(!isLabeledDataPanelOpen)}
+        className="w-full p-4 flex justify-between items-center hover:bg-gray-800/50 transition-colors"
+    >
+        <h4 className="text-lg font-semibold flex items-center gap-3 text-white">
+            <Tag className="text-blue-400"/>
+            Labeled Data Manager
+            <span className="px-2 py-0.5 bg-blue-600/30 text-blue-300 rounded text-xs">
+                {Object.keys(messageLabels).length} messages
+            </span>
+        </h4>
+        {isLabeledDataPanelOpen ? <ChevronDown size={20} className="text-gray-400" /> : <ChevronRight size={20} className="text-gray-400" />}
+    </button>
+    {isLabeledDataPanelOpen && (
+        <div className="p-4 border-t border-gray-700">
+            <LabeledDataContent
+                messageLabels={messageLabels}
+                setMessageLabels={setMessageLabels}
+                conversationLabels={conversationLabels}
+                setConversationLabels={setConversationLabels}
+                searchTerm={labelSearchTerm}
+                setSearchTerm={setLabelSearchTerm}
+                selectedLabels={selectedLabels}
+                setSelectedLabels={setSelectedLabels}
+                filterCategory={labelFilterCategory}
+                setFilterCategory={setLabelFilterCategory}
+                filterRole={labelFilterRole}
+                setFilterRole={setLabelFilterRole}
+                exportFormat={labelExportFormat}
+                setExportFormat={setLabelExportFormat}
+                viewMode={labelViewMode}
+                setViewMode={setLabelViewMode}
+            />
+        </div>
+    )}
+</section>
+
                     </main>
                 </div>
+            </div>
+        </div>
+    );
+};
+
+// Labeled Data Content Component (inline version of LabeledDataManager)
+const LabeledDataContent = ({
+    messageLabels,
+    setMessageLabels,
+    conversationLabels = {},
+    setConversationLabels,
+    searchTerm,
+    setSearchTerm,
+    selectedLabels,
+    setSelectedLabels,
+    filterCategory,
+    setFilterCategory,
+    filterRole,
+    setFilterRole,
+    exportFormat,
+    setExportFormat,
+    viewMode,
+    setViewMode
+}: any) => {
+    const [expandedConversations, setExpandedConversations] = useState<Set<string>>(new Set());
+
+    const labels = useMemo(() => Object.values(messageLabels) as MessageLabel[], [messageLabels]);
+
+    const allCategories = useMemo(() => {
+        const cats = new Set<string>();
+        labels.forEach((label: any) => {
+            label.categories?.forEach((cat: string) => cats.add(cat));
+        });
+        return Array.from(cats).sort();
+    }, [labels]);
+
+    const labelsByConversation = useMemo(() => {
+        const grouped: { [key: string]: MessageLabel[] } = {};
+        labels.forEach((label: any) => {
+            const convId = label.conversationId || 'unknown';
+            if (!grouped[convId]) grouped[convId] = [];
+            grouped[convId].push(label);
+        });
+        Object.values(grouped).forEach(convLabels => {
+            convLabels.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        });
+        return grouped;
+    }, [labels]);
+
+    const filteredLabels = useMemo(() => {
+        return labels.filter((label: any) => {
+            if (searchTerm) {
+                const search = searchTerm.toLowerCase();
+                const matchesContent = label.content?.toLowerCase().includes(search);
+                const matchesCategories = label.categories?.some((c: string) => c.toLowerCase().includes(search));
+                const matchesTags = label.tags?.some((t: string) => t.toLowerCase().includes(search));
+                if (!matchesContent && !matchesCategories && !matchesTags) return false;
+            }
+            if (filterCategory && !label.categories?.includes(filterCategory)) return false;
+            if (filterRole !== 'all' && label.role !== filterRole) return false;
+            return true;
+        });
+    }, [labels, searchTerm, filterCategory, filterRole]);
+
+    const toggleSelectLabel = (id: string) => {
+        const newSelected = new Set(selectedLabels);
+        if (newSelected.has(id)) newSelected.delete(id);
+        else newSelected.add(id);
+        setSelectedLabels(newSelected);
+    };
+
+    const selectAll = () => setSelectedLabels(new Set(filteredLabels.map((l: any) => l.id)));
+    const clearSelection = () => setSelectedLabels(new Set());
+
+    const deleteSelected = () => {
+        if (selectedLabels.size === 0) return;
+        if (!confirm(`Delete ${selectedLabels.size} labeled message(s)?`)) return;
+        selectedLabels.forEach((id: string) => MessageLabelStorage.delete(id));
+        setMessageLabels((prev: any) => {
+            const updated = { ...prev };
+            selectedLabels.forEach((id: string) => {
+                const label = labels.find((l: any) => l.id === id);
+                if (label) delete updated[label.messageId];
+            });
+            return updated;
+        });
+        setSelectedLabels(new Set());
+    };
+
+    const handleExport = () => {
+        const labelsToExport = selectedLabels.size > 0 ? labels.filter((l: any) => selectedLabels.has(l.id)) : filteredLabels;
+        let data: string, filename: string;
+
+        switch (exportFormat) {
+            case 'json':
+                data = JSON.stringify(labelsToExport, null, 2);
+                filename = `labeled_messages_${new Date().toISOString().slice(0, 10)}.json`;
+                break;
+            case 'jsonl':
+                data = labelsToExport.map((l: any) => JSON.stringify(l)).join('\n');
+                filename = `labeled_messages_${new Date().toISOString().slice(0, 10)}.jsonl`;
+                break;
+            case 'finetune':
+                const conversationGroups: { [key: string]: any[] } = {};
+                labelsToExport.forEach((label: any) => {
+                    if (!conversationGroups[label.conversationId]) conversationGroups[label.conversationId] = [];
+                    conversationGroups[label.conversationId].push(label);
+                });
+                const trainingData = Object.values(conversationGroups)
+                    .filter(convLabels => convLabels.length >= 2)
+                    .map(convLabels => ({
+                        messages: convLabels.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                            .map(label => ({ role: label.role, content: label.content }))
+                    }));
+                data = trainingData.map(d => JSON.stringify(d)).join('\n');
+                filename = `finetune_data_${new Date().toISOString().slice(0, 10)}.jsonl`;
+                break;
+            default: return;
+        }
+
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const handleImport = async () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,.jsonl';
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                let imported: MessageLabel[] = file.name.endsWith('.jsonl')
+                    ? text.trim().split('\n').map(line => JSON.parse(line))
+                    : (arr => Array.isArray(arr) ? arr : [arr])(JSON.parse(text));
+                imported.forEach(label => MessageLabelStorage.save(label));
+                setMessageLabels((prev: any) => {
+                    const updated = { ...prev };
+                    imported.forEach(label => { updated[label.messageId] = label; });
+                    return updated;
+                });
+                alert(`Imported ${imported.length} labeled message(s)`);
+            } catch { alert('Failed to import file: Invalid format'); }
+        };
+        input.click();
+    };
+
+    const convLabels = useMemo(() => Object.values(conversationLabels), [conversationLabels]);
+    const stats = useMemo(() => ({
+        totalLabels: labels.length,
+        userMessages: labels.filter((l: any) => l.role === 'user').length,
+        assistantMessages: labels.filter((l: any) => l.role === 'assistant').length,
+        conversations: Object.keys(labelsByConversation).length,
+        labeledConversations: convLabels.length,
+    }), [labels, labelsByConversation, convLabels]);
+
+    return (
+        <div className="space-y-4">
+            {/* Stats */}
+            <div className="grid grid-cols-4 gap-3">
+                <div className="p-3 bg-gray-800 rounded-lg text-center">
+                    <div className="text-xl font-bold text-blue-400">{stats.totalLabels}</div>
+                    <div className="text-xs text-gray-400">Total Labels</div>
+                </div>
+                <div className="p-3 bg-gray-800 rounded-lg text-center">
+                    <div className="text-xl font-bold text-green-400">{stats.userMessages}</div>
+                    <div className="text-xs text-gray-400">User Messages</div>
+                </div>
+                <div className="p-3 bg-gray-800 rounded-lg text-center">
+                    <div className="text-xl font-bold text-purple-400">{stats.assistantMessages}</div>
+                    <div className="text-xs text-gray-400">Assistant Messages</div>
+                </div>
+                <div className="p-3 bg-gray-800 rounded-lg text-center">
+                    <div className="text-xl font-bold text-yellow-400">{stats.conversations}</div>
+                    <div className="text-xs text-gray-400">Conversations</div>
+                </div>
+            </div>
+
+            {/* Toolbar */}
+            <div className="flex flex-wrap gap-2 items-center">
+                <div className="relative flex-1 min-w-[200px]">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                        type="text"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Search labels..."
+                        className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm"
+                    />
+                </div>
+                <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm">
+                    <option value="">All Categories</option>
+                    {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                </select>
+                <select value={filterRole} onChange={(e) => setFilterRole(e.target.value as any)} className="px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm">
+                    <option value="all">All Roles</option>
+                    <option value="user">User</option>
+                    <option value="assistant">Assistant</option>
+                </select>
+                <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value as any)} className="px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm">
+                    <option value="json">JSON</option>
+                    <option value="jsonl">JSONL</option>
+                    <option value="finetune">Fine-tune Format</option>
+                </select>
+                <button onClick={handleExport} className="flex items-center gap-1 px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm"><Download size={14} /> Export</button>
+                <button onClick={handleImport} className="flex items-center gap-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"><Upload size={14} /> Import</button>
+            </div>
+
+            {/* Selection controls */}
+            {filteredLabels.length > 0 && (
+                <div className="flex items-center gap-2 text-sm">
+                    <button onClick={selectAll} className="text-blue-400 hover:underline">Select All</button>
+                    <span className="text-gray-500">|</span>
+                    <button onClick={clearSelection} className="text-gray-400 hover:underline">Clear</button>
+                    {selectedLabels.size > 0 && (
+                        <>
+                            <span className="text-gray-500">|</span>
+                            <span className="text-gray-400">{selectedLabels.size} selected</span>
+                            <button onClick={deleteSelected} className="text-red-400 hover:underline flex items-center gap-1"><Trash2 size={12} /> Delete</button>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* Labels list */}
+            <div className="max-h-96 overflow-y-auto space-y-2">
+                {filteredLabels.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400">
+                        <Tag size={32} className="mx-auto mb-2 opacity-50" />
+                        <p>No labeled messages yet</p>
+                        <p className="text-xs">Label messages in chat to see them here</p>
+                    </div>
+                ) : (
+                    filteredLabels.map((label: any) => (
+                        <div key={label.id} className={`p-3 rounded-lg border ${selectedLabels.has(label.id) ? 'border-blue-500 bg-blue-900/20' : 'border-gray-700 bg-gray-800'}`}>
+                            <div className="flex items-start gap-3">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedLabels.has(label.id)}
+                                    onChange={() => toggleSelectLabel(label.id)}
+                                    className="mt-1"
+                                />
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className={`px-2 py-0.5 rounded text-xs ${label.role === 'user' ? 'bg-blue-600/30 text-blue-300' : 'bg-green-600/30 text-green-300'}`}>
+                                            {label.role}
+                                        </span>
+                                        {label.categories?.map((cat: string) => (
+                                            <span key={cat} className="px-2 py-0.5 bg-gray-700 text-gray-300 rounded text-xs">{cat}</span>
+                                        ))}
+                                    </div>
+                                    <p className="text-sm text-gray-300 line-clamp-2">{label.content}</p>
+                                    <p className="text-xs text-gray-500 mt-1">{new Date(label.timestamp).toLocaleString()}</p>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                )}
             </div>
         </div>
     );

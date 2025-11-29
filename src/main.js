@@ -372,8 +372,7 @@ function registerGlobalShortcut(win) {
     });
     console.log('Macro shortcut registered:', macroSuccess);
     
-    const screenshotSuccess = globalShortcut.register('Alt+Shift+4', async () => {
-     
+    const screenshotSuccess = globalShortcut.register('Ctrl+Alt+4', async () => {
       const now = Date.now();
       if (isCapturingScreenshot || (now - lastScreenshotTime) < SCREENSHOT_COOLDOWN) {
         console.log('Screenshot capture blocked - too soon or already capturing');
@@ -383,71 +382,209 @@ function registerGlobalShortcut(win) {
       isCapturingScreenshot = true;
       lastScreenshotTime = now;
 
-      console.log('Screenshot shortcut triggered');
+      console.log('Screenshot shortcut triggered (Ctrl+Alt+4)');
       const { screen } = require('electron');
       const displays = screen.getAllDisplays();
       const primaryDisplay = displays[0];
-      const selectionWindow = new BrowserWindow({
-        x: 0,
-        y: 0,
-        width: primaryDisplay.bounds.width,
-        height: primaryDisplay.bounds.height,
-        frame: false,
-        transparent: true,
-        alwaysOnTop: true,
-        webPreferences: {
-          nodeIntegration: true,
-          contextIsolation: false
+      const scaleFactor = primaryDisplay.scaleFactor;
+
+      // First capture the full screen
+      try {
+        const sources = await desktopCapturer.getSources({
+          types: ['screen'],
+          thumbnailSize: {
+            width: primaryDisplay.bounds.width * scaleFactor,
+            height: primaryDisplay.bounds.height * scaleFactor
+          }
+        });
+
+        if (!sources || sources.length === 0) {
+          console.error('No screen sources found');
+          isCapturingScreenshot = false;
+          return;
         }
-      });
 
-      const selectionPath = path.join(__dirname, 'renderer', 'components', 'selection.html');
+        const fullScreenImage = sources[0].thumbnail;
+        const fullScreenDataUrl = fullScreenImage.toDataURL();
 
-     
-      const handleScreenshot = async (event, bounds) => {
-        try {
-          const sources = await desktopCapturer.getSources({
-            types: ['screen'],
-            thumbnailSize: {
-              width: bounds.width * primaryDisplay.scaleFactor,
-              height: bounds.height * primaryDisplay.scaleFactor
+        // Create transparent selection overlay window
+        const selectionWindow = new BrowserWindow({
+          x: primaryDisplay.bounds.x,
+          y: primaryDisplay.bounds.y,
+          width: primaryDisplay.bounds.width,
+          height: primaryDisplay.bounds.height,
+          frame: false,
+          transparent: true,
+          alwaysOnTop: true,
+          skipTaskbar: true,
+          resizable: false,
+          movable: false,
+          hasShadow: false,
+          webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false
+          }
+        });
+        selectionWindow.setIgnoreMouseEvents(false);
+        selectionWindow.setVisibleOnAllWorkspaces(true);
+
+        const handleScreenshot = async (event, bounds) => {
+          try {
+            // Crop the already-captured full screen image
+            const cropBounds = {
+              x: Math.round(bounds.x * scaleFactor),
+              y: Math.round(bounds.y * scaleFactor),
+              width: Math.round(bounds.width * scaleFactor),
+              height: Math.round(bounds.height * scaleFactor)
+            };
+
+            const croppedImage = fullScreenImage.crop(cropBounds);
+            const screenshotsDir = path.join(DEFAULT_CONFIG.baseDir, 'screenshots');
+
+            // Ensure screenshots directory exists
+            if (!fs.existsSync(screenshotsDir)) {
+              fs.mkdirSync(screenshotsDir, { recursive: true });
             }
-          });
 
-          console.log(bounds);
-          const image = sources[0].thumbnail.crop(bounds);
-          console.log(image);
-          const screenshotPath = path.join(DEFAULT_CONFIG.baseDir, 'screenshots', `screenshot-${Date.now()}.png`);
+            const screenshotPath = path.join(screenshotsDir, `screenshot-${Date.now()}.png`);
+            fs.writeFileSync(screenshotPath, croppedImage.toPNG());
 
-         
-          fs.writeFileSync(screenshotPath, image.toPNG());
+            console.log('Screenshot saved to:', screenshotPath);
+            win.webContents.send('screenshot-captured', screenshotPath);
 
-         
-          win.webContents.send('screenshot-captured', screenshotPath);
+          } catch (error) {
+            console.error('Screenshot crop/save failed:', error);
+          } finally {
+            ipcMain.removeListener('selection-complete', handleScreenshot);
+            selectionWindow.close();
+            isCapturingScreenshot = false;
+          }
+        };
 
-        } catch (error) {
-          console.error('Screenshot failed:', error);
-        } finally {
-         
+        ipcMain.once('selection-complete', handleScreenshot);
+
+        ipcMain.once('selection-cancel', () => {
           ipcMain.removeListener('selection-complete', handleScreenshot);
           selectionWindow.close();
           isCapturingScreenshot = false;
-        }
-      };
+        });
 
-      ipcMain.once('selection-complete', handleScreenshot);
+        // Load selection HTML - minimal transparent overlay, no background image flash
+        const selectionHtml = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body {
+                overflow: hidden;
+                cursor: crosshair;
+                user-select: none;
+                background: transparent;
+              }
+              #overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(0, 0, 0, 0.15);
+              }
+              #selection {
+                position: fixed;
+                border: 2px dashed #00aaff;
+                background: rgba(0, 170, 255, 0.1);
+                display: none;
+                pointer-events: none;
+              }
+              #dimensions {
+                position: fixed;
+                background: rgba(0, 0, 0, 0.7);
+                color: white;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-family: system-ui, sans-serif;
+                font-size: 12px;
+                display: none;
+                pointer-events: none;
+              }
+            </style>
+          </head>
+          <body>
+            <div id="overlay"></div>
+            <div id="selection"></div>
+            <div id="dimensions"></div>
+            <script>
+              const { ipcRenderer } = require('electron');
 
-      ipcMain.once('selection-cancel', () => {
-        ipcMain.removeListener('selection-complete', handleScreenshot);
-        selectionWindow.close();
-        isCapturingScreenshot = false;
-      });
+              let startX, startY, isSelecting = false;
+              const selection = document.getElementById('selection');
+              const dimensions = document.getElementById('dimensions');
 
-      try {
-        await selectionWindow.loadFile(selectionPath);
-      } catch (err) {
-        console.error('Failed to load selection window:', err);
-        selectionWindow.close();
+              document.addEventListener('mousedown', (e) => {
+                startX = e.clientX;
+                startY = e.clientY;
+                isSelecting = true;
+                selection.style.display = 'block';
+                dimensions.style.display = 'block';
+                selection.style.left = startX + 'px';
+                selection.style.top = startY + 'px';
+                selection.style.width = '0px';
+                selection.style.height = '0px';
+              });
+
+              document.addEventListener('mousemove', (e) => {
+                if (!isSelecting) return;
+
+                const currentX = e.clientX;
+                const currentY = e.clientY;
+
+                const left = Math.min(startX, currentX);
+                const top = Math.min(startY, currentY);
+                const width = Math.abs(currentX - startX);
+                const height = Math.abs(currentY - startY);
+
+                selection.style.left = left + 'px';
+                selection.style.top = top + 'px';
+                selection.style.width = width + 'px';
+                selection.style.height = height + 'px';
+
+                dimensions.style.left = (left + width + 5) + 'px';
+                dimensions.style.top = (top + height + 5) + 'px';
+                dimensions.textContent = width + ' x ' + height;
+              });
+
+              document.addEventListener('mouseup', (e) => {
+                if (!isSelecting) return;
+                isSelecting = false;
+
+                const rect = selection.getBoundingClientRect();
+                if (rect.width > 5 && rect.height > 5) {
+                  ipcRenderer.send('selection-complete', {
+                    x: rect.left,
+                    y: rect.top,
+                    width: rect.width,
+                    height: rect.height
+                  });
+                } else {
+                  ipcRenderer.send('selection-cancel');
+                }
+              });
+
+              document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                  ipcRenderer.send('selection-cancel');
+                }
+              });
+            </script>
+          </body>
+          </html>
+        `;
+
+        selectionWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(selectionHtml));
+
+      } catch (error) {
+        console.error('Screenshot capture failed:', error);
         isCapturingScreenshot = false;
       }
     });
