@@ -138,6 +138,14 @@ readDocxContent: (filePath) =>
     getTableSchema: (args) => ipcRenderer.invoke('db:getTableSchema', args),
     exportToCSV: (data) => ipcRenderer.invoke('db:exportCSV', data),
 
+    // Custom database connection APIs (supports SQLite, PostgreSQL, MySQL, MSSQL, Snowflake)
+    testDbConnection: (args) => ipcRenderer.invoke('db:testConnection', args),
+    listTablesForPath: (args) => ipcRenderer.invoke('db:listTablesForPath', args),
+    getTableSchemaForPath: (args) => ipcRenderer.invoke('db:getTableSchemaForPath', args),
+    executeSQLForPath: (args) => ipcRenderer.invoke('db:executeSQLForPath', args),
+    browseForDatabase: () => ipcRenderer.invoke('db:browseForDatabase'),
+    getSupportedDbTypes: () => ipcRenderer.invoke('db:getSupportedTypes'),
+
     getLastUsedInDirectory: (path) => ipcRenderer.invoke('get-last-used-in-directory', path),
     getLastUsedInConversation: (conversationId) => ipcRenderer.invoke('get-last-used-in-conversation', conversationId),
 
@@ -272,6 +280,15 @@ onTerminalClosed: (callback) => {
     },
     saveMap: (data) => ipcRenderer.invoke('save-map', data),
     loadMap: (filePath) => ipcRenderer.invoke('load-map', filePath),
+
+    // SQL Models APIs (dbt-style npcsql with jinja syntax)
+    getSqlModelsGlobal: () => ipcRenderer.invoke('getSqlModelsGlobal'),
+    getSqlModelsProject: (currentPath) => ipcRenderer.invoke('getSqlModelsProject', currentPath),
+    saveSqlModelGlobal: (modelData) => ipcRenderer.invoke('saveSqlModelGlobal', modelData),
+    saveSqlModelProject: (args) => ipcRenderer.invoke('saveSqlModelProject', args),
+    deleteSqlModelGlobal: (modelId) => ipcRenderer.invoke('deleteSqlModelGlobal', modelId),
+    deleteSqlModelProject: (args) => ipcRenderer.invoke('deleteSqlModelProject', args),
+    runSqlModel: (args) => ipcRenderer.invoke('runSqlModel', args),
 
     // Local Model Provider APIs (LM Studio, Ollama, llama.cpp)
     scanLocalModels: (provider) => ipcRenderer.invoke('scan-local-models', provider),

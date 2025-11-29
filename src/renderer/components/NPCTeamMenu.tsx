@@ -29,11 +29,12 @@ import ForceGraph2D from 'react-force-graph-2d';
         }
     };
 
-const NPCTeamMenu = ({ 
-    isOpen, 
-    onClose, 
-    currentPath, 
-    startNewConversation 
+const NPCTeamMenu = ({
+    isOpen,
+    onClose,
+    currentPath,
+    startNewConversation,
+    embedded = false
 }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -375,40 +376,24 @@ const NPCTeamMenu = ({
         return matchesStatus && matchesSearch;
     });
 
-    if (!isOpen) return null;
+    if (!isOpen && !embedded) return null;
 
-    return (
-        <div className="fixed inset-0 bg-black/60 flex items-center 
-            justify-center z-50 p-4 overflow-hidden">
-            <div className="theme-bg-secondary rounded-lg shadow-xl 
-                w-full max-w-7xl h-[85vh] flex flex-col overflow-hidden">
-                <header className="w-full border-b theme-border p-4 
-                    flex justify-between items-center flex-shrink-0">
-                    <h3 className="text-lg font-semibold flex 
-                        items-center gap-2">
-                        <Bot className="text-blue-400" /> NPC Team Editor
-                    </h3>
-                    <div className="flex items-center gap-4">
-                        <button 
-                            onClick={() => {
-                                setIsGlobal(!isGlobal);
-                                setSelectedNpc(null);
-                                setEditedNpc(null);
-                            }} 
-                            className="theme-button px-4 py-2 rounded text-sm"
-                        >
-                            {isGlobal ? 'Switch to Project' : 'Switch to Global'}
-                        </button>
-                        <button 
-                            onClick={onClose} 
-                            className="p-1 rounded-full theme-hover"
-                        >
-                            <X size={20} />
-                        </button>
-                    </div>
-                </header>
-
-                <main className="flex flex-1 min-h-0 overflow-hidden">
+    const content = (
+        <>
+            {/* Scope Toggle */}
+            <div className="flex items-center justify-between mb-4">
+                <button
+                    onClick={() => {
+                        setIsGlobal(!isGlobal);
+                        setSelectedNpc(null);
+                        setEditedNpc(null);
+                    }}
+                    className="theme-button px-4 py-2 rounded text-sm"
+                >
+                    {isGlobal ? 'Global NPCs' : 'Project NPCs'} (Click to Switch)
+                </button>
+            </div>
+            <div className="flex flex-1 min-h-0 overflow-hidden border theme-border rounded-lg">
                     <div className="w-1/5 border-r theme-border 
                         flex flex-col min-h-0">
                         <div className="flex-1 overflow-y-auto p-2">
@@ -1031,12 +1016,11 @@ const NPCTeamMenu = ({
                             </div>
                         </div>
                     ) : (
-                        <div className="flex-1 flex items-center justify-center 
+                        <div className="flex-1 flex items-center justify-center
                             theme-text-secondary">
                             Select an NPC
                         </div>
                     )}
-                </main>
             </div>
 
             {showDatasetBuilder && (
@@ -1125,6 +1109,39 @@ const NPCTeamMenu = ({
                     </div>
                 </div>
             )}
+        </>
+    );
+
+    // Embedded mode - return just the content
+    if (embedded) {
+        return <div className="flex flex-col h-full">{content}</div>;
+    }
+
+    // Modal mode - wrap in modal container
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center
+            justify-center z-50 p-4 overflow-hidden" onClick={onClose}>
+            <div className="theme-bg-secondary rounded-lg shadow-xl
+                w-full max-w-7xl h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <header className="w-full border-b theme-border p-4
+                    flex justify-between items-center flex-shrink-0">
+                    <h3 className="text-lg font-semibold flex
+                        items-center gap-2">
+                        <Bot className="text-blue-400" /> NPC Team Editor
+                    </h3>
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={onClose}
+                            className="p-1 rounded-full theme-hover"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+                </header>
+                <main className="flex-1 p-4 overflow-hidden">
+                    {content}
+                </main>
+            </div>
         </div>
     );
 };

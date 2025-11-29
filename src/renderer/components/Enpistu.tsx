@@ -20,6 +20,7 @@ import PhotoViewer from './PhotoViewer';
 import JinxMenu from './JinxMenu';
 import '../../index.css';
 import CtxEditor from './CtxEditor';
+import TeamManagement from './TeamManagement';
 import MarkdownRenderer from './MarkdownRenderer';
 import DataDash from './DataDash';
 import CodeEditor from './CodeEditor';
@@ -128,6 +129,7 @@ const ChatInterface = () => {
     const [currentConversation, setCurrentConversation] = useState(null);
     const [npcTeamMenuOpen, setNpcTeamMenuOpen] = useState(false);
     const [jinxMenuOpen, setJinxMenuOpen] = useState(false);
+    const [teamManagementOpen, setTeamManagementOpen] = useState(false);
     const [uploadedFiles, setUploadedFiles] = useState([]);
     const [imagePreview, setImagePreview] = useState(null);
     const activeConversationRef = useRef(null);
@@ -3705,6 +3707,15 @@ ${contextPrompt}`;
                 jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.name, description: jinx.description }))}
             />
 
+            <TeamManagement
+                isOpen={teamManagementOpen}
+                onClose={() => setTeamManagementOpen(false)}
+                currentPath={currentPath}
+                startNewConversation={startNewConversationWithNpc}
+                npcList={availableNPCs.map(npc => ({ name: npc.name, display_name: npc.display_name }))}
+                jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.name, description: jinx.description }))}
+            />
+
             {/* Message Labeling Modal */}
             {labelingModal.isOpen && labelingModal.message && (
                 <MessageLabeling
@@ -4741,6 +4752,7 @@ const renderMainContent = () => {
         setDashboardMenuOpen={setDashboardMenuOpen}
         setJinxMenuOpen={setJinxMenuOpen}
         setCtxEditorOpen={setCtxEditorOpen}
+        setTeamManagementOpen={setTeamManagementOpen}
         setSidebarCollapsed={setSidebarCollapsed}
         createNewConversation={createNewConversation}
         generateId={generateId}

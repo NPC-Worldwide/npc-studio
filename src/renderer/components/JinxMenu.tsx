@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import AutosizeTextarea from './AutosizeTextarea';
 
-const JinxMenu = ({ isOpen, onClose, currentPath }) => {
+const JinxMenu = ({ isOpen, onClose, currentPath, embedded = false }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [jinxs, setJinxs] = useState([]);
@@ -299,38 +299,22 @@ const labelExecution = async (messageId, label) => {
         setSelectedJinx(editedJinx);
     };
 
-    if (!isOpen) return null;
+    if (!isOpen && !embedded) return null;
 
     const tree = buildFolderTree(jinxs);
 
-    return (
-        <div className="fixed inset-0 bg-black/60 flex items-center
-            justify-center z-50 p-4" onClick={onClose}>
-            <div className="theme-bg-secondary rounded-lg shadow-xl
-                w-full max-w-6xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                <header className="w-full border-b theme-border p-4 
-                    flex justify-between items-center flex-shrink-0">
-                    <h3 className="text-lg font-semibold flex 
-                        items-center gap-2">
-                        <Wrench className="text-blue-400" /> Jinx Editor
-                    </h3>
-                    <div className="flex items-center gap-4">
-                        <button 
-                            onClick={() => setIsGlobal(!isGlobal)} 
-                            className="theme-button px-4 py-2 rounded text-sm"
-                        >
-                            {isGlobal ? 'Switch to Project' : 'Switch to Global'}
-                        </button>
-                        <button 
-                            onClick={onClose} 
-                            className="p-1 rounded-full theme-hover"
-                        >
-                            <X size={20} />
-                        </button>
-                    </div>
-                </header>
-
-                <main className="flex flex-1 min-h-0">
+    const content = (
+        <>
+            {/* Scope Toggle - shown at top for embedded mode */}
+            <div className="flex items-center justify-between mb-4">
+                <button
+                    onClick={() => setIsGlobal(!isGlobal)}
+                    className="theme-button px-4 py-2 rounded text-sm"
+                >
+                    {isGlobal ? 'Global Jinxs' : 'Project Jinxs'} (Click to Switch)
+                </button>
+            </div>
+            <div className="flex flex-1 min-h-0 border theme-border rounded-lg overflow-hidden">
                     <div className="w-1/3 border-r theme-border 
                         flex flex-col min-h-0">
                         <div className="p-2 border-b theme-border flex-shrink-0">
@@ -641,13 +625,45 @@ const labelExecution = async (messageId, label) => {
                                 </div>
                             </div>
                         ) : (
-                            <div className="flex items-center justify-center 
+                            <div className="flex items-center justify-center
                                 h-full theme-text-secondary">
                                 Select or create a Jinx
                             </div>
                         )}
 
                     </div>
+            </div>
+        </>
+    );
+
+    // Embedded mode - return just the content
+    if (embedded) {
+        return <div className="flex flex-col h-full">{content}</div>;
+    }
+
+    // Modal mode - wrap in modal container
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center
+            justify-center z-50 p-4" onClick={onClose}>
+            <div className="theme-bg-secondary rounded-lg shadow-xl
+                w-full max-w-6xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                <header className="w-full border-b theme-border p-4
+                    flex justify-between items-center flex-shrink-0">
+                    <h3 className="text-lg font-semibold flex
+                        items-center gap-2">
+                        <Wrench className="text-blue-400" /> Jinx Editor
+                    </h3>
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={onClose}
+                            className="p-1 rounded-full theme-hover"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+                </header>
+                <main className="flex-1 p-4 overflow-hidden">
+                    {content}
                 </main>
             </div>
         </div>

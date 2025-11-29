@@ -884,7 +884,19 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentPath, curren
 
     // Database selector state
     const [availableDatabases, setAvailableDatabases] = useState<{ name: string; path: string; type: 'global' | 'project' }[]>([]);
-    const [selectedDatabase, setSelectedDatabase] = useState<string>('npcsh_history.db');
+    const [selectedDatabase, setSelectedDatabase] = useState<string>('~/npcsh_history.db');
+
+    // Database connection state
+    const [dbConnectionStatus, setDbConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+    const [dbConnectionInfo, setDbConnectionInfo] = useState<{
+        resolvedPath?: string;
+        tableCount?: number;
+        fileSize?: number;
+        lastModified?: string;
+        error?: string;
+        dbType?: string;
+    } | null>(null);
+    const [supportedDbTypes, setSupportedDbTypes] = useState<any[]>([]);
 
     // Activity Intelligence state
     const [isActivityPanelOpen, setIsActivityPanelOpen] = useState(false);
@@ -1290,21 +1302,130 @@ const ModelBuilderModal = () => {
         } catch (err) { console.error(`Failed to get schema for ${tableName}:`, err); return null; }
     }, [tableSchemaCache]);
 
-   
+    // Database connection functions
+    const testDbConnection = useCallback(async (connectionString: string) => {
+        setDbConnectionStatus('connecting');
+        setDbConnectionInfo(null);
+        try {
+            const res = await (window as any).api.testDbConnection({ connectionString });
+            if (res.success) {
+                setDbConnectionStatus('connected');
+                setDbConnectionInfo({
+                    resolvedPath: res.resolvedPath,
+                    tableCount: res.tableCount,
+                    fileSize: res.fileSize,
+                    lastModified: res.lastModified,
+                    dbType: res.dbType
+                });
+                return res;
+            } else {
+                setDbConnectionStatus('error');
+                setDbConnectionInfo({ error: res.error, resolvedPath: res.resolvedPath, dbType: res.dbType });
+                return res;
+            }
+        } catch (err) {
+            setDbConnectionStatus('error');
+            setDbConnectionInfo({ error: err.message });
+            return { success: false, error: err.message };
+        }
+    }, []);
+
+    const connectToDatabase = useCallback(async (connectionString: string) => {
+        const testResult = await testDbConnection(connectionString);
+        if (testResult.success) {
+            // Clear existing data
+            setDbTables([]);
+            setTableSchema(null);
+            setSelectedTable(null);
+            setTableSchemaCache({});
+
+            // Load tables for the new database
+            try {
+                const res = await (window as any).api.listTablesForPath({ connectionString });
+                if (res.error) throw new Error(res.error);
+                setDbTables(res.tables || []);
+            } catch (err) {
+                setQueryError("Could not fetch database tables.");
+            }
+        }
+    }, [testDbConnection]);
+
+    const handleViewSchema = useCallback(async (tableName: string) => {
+        setSelectedTable(tableName);
+        setLoadingSchema(true);
+        try {
+            const res = await (window as any).api.getTableSchemaForPath({
+                connectionString: selectedDatabase,
+                tableName
+            });
+            if (res.error) throw new Error(res.error);
+            setTableSchema(res.schema);
+        } catch (err) {
+            console.error(`Failed to get schema for ${tableName}:`, err);
+            setTableSchema(null);
+        } finally {
+            setLoadingSchema(false);
+        }
+    }, [selectedDatabase]);
+
+    const browseForDatabase = useCallback(async () => {
+        try {
+            const res = await (window as any).api.browseForDatabase();
+            if (res.path) {
+                setSelectedDatabase(res.path);
+                await connectToDatabase(res.path);
+            }
+        } catch (err) {
+            console.error('Failed to browse for database:', err);
+        }
+    }, [connectToDatabase]);
+
+    const formatFileSize = (bytes: number) => {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
+
+    const getDbTypeLabel = (dbType: string) => {
+        const labels = {
+            sqlite: 'SQLite',
+            postgresql: 'PostgreSQL',
+            mysql: 'MySQL',
+            mssql: 'SQL Server',
+            snowflake: 'Snowflake'
+        };
+        return labels[dbType] || dbType;
+    };
+
+    // Load supported database types on mount
+    useEffect(() => {
+        const loadSupportedTypes = async () => {
+            try {
+                const types = await (window as any).api.getSupportedDbTypes?.();
+                if (types) setSupportedDbTypes(types);
+            } catch (e) {
+                // Ignore
+            }
+        };
+        loadSupportedTypes();
+    }, []);
+
     useEffect(() => {
         const fetchTables = async () => {
             if (isQueryPanelOpen && dbTables.length === 0) {
                 try {
-                    const res = await window.api.listTables();
+                    const res = await (window as any).api.listTablesForPath({ connectionString: selectedDatabase });
                     if (res.error) throw new Error(res.error);
                     setDbTables(res.tables || []);
+                    // Also test connection to get status
+                    await testDbConnection(selectedDatabase);
                 } catch (err) {
                     setQueryError("Could not fetch database tables.");
                 }
             }
         };
         fetchTables();
-    }, [isQueryPanelOpen, dbTables.length]);
+    }, [isQueryPanelOpen, dbTables.length, selectedDatabase, testDbConnection]);
 
    
     // Activity Intelligence functions
@@ -2077,29 +2198,120 @@ const handleAcceptGeneratedSql = () => {
                             {isQueryPanelOpen && (
                                 <div className="p-4 border-t border-gray-700">
                                     {/* Connection String Input */}
-                                    <div className="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
-                                        <label className="text-xs text-gray-400 mb-1.5 block">Database Connection</label>
+                                    <div className={`mb-4 p-3 rounded-lg border ${
+                                        dbConnectionStatus === 'connected' ? 'bg-green-900/20 border-green-700' :
+                                        dbConnectionStatus === 'error' ? 'bg-red-900/20 border-red-700' :
+                                        'bg-gray-800 border-gray-700'
+                                    }`}>
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <label className="text-xs text-gray-400">Database Connection</label>
+                                            {dbConnectionStatus === 'connected' && (
+                                                <span className="flex items-center gap-1 text-xs text-green-400">
+                                                    <CheckCircle size={12} /> Connected
+                                                </span>
+                                            )}
+                                            {dbConnectionStatus === 'error' && (
+                                                <span className="flex items-center gap-1 text-xs text-red-400">
+                                                    <XCircle size={12} /> Error
+                                                </span>
+                                            )}
+                                            {dbConnectionStatus === 'connecting' && (
+                                                <span className="flex items-center gap-1 text-xs text-yellow-400">
+                                                    <Loader size={12} className="animate-spin" /> Connecting...
+                                                </span>
+                                            )}
+                                        </div>
                                         <div className="flex gap-2">
                                             <input
                                                 type="text"
                                                 value={selectedDatabase}
                                                 onChange={(e) => setSelectedDatabase(e.target.value)}
-                                                placeholder="sqlite:~/npcsh_history.db or postgres://user:pass@host:5432/db"
+                                                placeholder="~/database.db or postgresql://user:pass@host:5432/db"
                                                 className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white border border-gray-600 rounded focus:border-purple-500 focus:outline-none font-mono"
                                             />
                                             <button
-                                                onClick={() => {
-                                                    setDbTables([]);
-                                                    setTableSchema(null);
-                                                    setSelectedTable(null);
-                                                    // Re-fetch tables with new connection
-                                                }}
-                                                className="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded text-sm transition-colors"
+                                                onClick={browseForDatabase}
+                                                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm transition-colors"
+                                                title="Browse for database file"
                                             >
+                                                <Search size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => testDbConnection(selectedDatabase)}
+                                                disabled={dbConnectionStatus === 'connecting'}
+                                                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm transition-colors disabled:opacity-50"
+                                                title="Test connection"
+                                            >
+                                                <Activity size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => connectToDatabase(selectedDatabase)}
+                                                disabled={dbConnectionStatus === 'connecting'}
+                                                className="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded text-sm transition-colors disabled:opacity-50 flex items-center gap-1"
+                                            >
+                                                {dbConnectionStatus === 'connecting' ? (
+                                                    <Loader size={14} className="animate-spin" />
+                                                ) : (
+                                                    <Link size={14} />
+                                                )}
                                                 Connect
                                             </button>
                                         </div>
-                                        <p className="text-xs text-gray-500 mt-1.5">SQLite, PostgreSQL, Snowflake, etc. Default: ~/npcsh_history.db</p>
+
+                                        {/* Connection Info */}
+                                        {dbConnectionInfo && (
+                                            <div className="mt-2 text-xs">
+                                                {dbConnectionInfo.error ? (
+                                                    <div className="text-red-400 bg-red-900/30 p-2 rounded">
+                                                        {dbConnectionInfo.error}
+                                                        {dbConnectionInfo.resolvedPath && (
+                                                            <div className="text-red-300/70 mt-1">Path: {dbConnectionInfo.resolvedPath}</div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-gray-400 bg-gray-900/50 p-2 rounded grid grid-cols-2 gap-x-4 gap-y-1">
+                                                        <span>Type:</span>
+                                                        <span className="text-purple-400 font-semibold">{getDbTypeLabel(dbConnectionInfo.dbType || 'sqlite')}</span>
+                                                        {dbConnectionInfo.resolvedPath && (
+                                                            <>
+                                                                <span>Path:</span>
+                                                                <span className="text-gray-300 font-mono truncate" title={dbConnectionInfo.resolvedPath}>
+                                                                    {dbConnectionInfo.resolvedPath}
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                        <span>Tables:</span>
+                                                        <span className="text-green-400">{dbConnectionInfo.tableCount}</span>
+                                                        {dbConnectionInfo.fileSize && (
+                                                            <>
+                                                                <span>Size:</span>
+                                                                <span className="text-gray-300">{formatFileSize(dbConnectionInfo.fileSize)}</span>
+                                                            </>
+                                                        )}
+                                                        {dbConnectionInfo.lastModified && (
+                                                            <>
+                                                                <span>Modified:</span>
+                                                                <span className="text-gray-300">
+                                                                    {new Date(dbConnectionInfo.lastModified).toLocaleString()}
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Connection string examples */}
+                                        <div className="mt-2 text-xs text-gray-500">
+                                            <p className="mb-1">Connection string formats:</p>
+                                            <div className="grid grid-cols-1 gap-0.5 font-mono text-gray-600">
+                                                <span>SQLite: ~/database.db</span>
+                                                <span>PostgreSQL: postgresql://user:pass@host:5432/db</span>
+                                                <span>MySQL: mysql://user:pass@host:3306/db</span>
+                                                <span>SQL Server: mssql://user:pass@host/db</span>
+                                                <span>Snowflake: snowflake://user:pass@account/db/schema?warehouse=WH</span>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">

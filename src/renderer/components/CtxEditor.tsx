@@ -3,7 +3,7 @@ import { FileJson, X, Save, Plus, Trash2, Clock } from 'lucide-react';
 import AutosizeTextarea from './AutosizeTextarea';
 import McpServerMenu from './McpServerMenu';
 
-const CtxEditor = ({ isOpen, onClose, currentPath, npcList = [], jinxList = [] }) => {
+const CtxEditor = ({ isOpen, onClose, currentPath, npcList = [], jinxList = [], embedded = false }) => {
 
     const [activeTab, setActiveTab] = useState('project');
     const [globalCtx, setGlobalCtx] = useState({});
@@ -345,11 +345,49 @@ const CtxEditor = ({ isOpen, onClose, currentPath, npcList = [], jinxList = [] }
         );
     };
 
-    if (!isOpen) return null;
+    if (!isOpen && !embedded) return null;
 
+    const content = (
+        <>
+            {/* Tab Navigation */}
+            <div className="border-b theme-border mb-4">
+                <div className="flex">
+                    <button onClick={() => setActiveTab('project')} className={`px-4 py-2 text-sm ${activeTab === 'project' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}>Project Context</button>
+                    <button onClick={() => setActiveTab('global')} className={`px-4 py-2 text-sm ${activeTab === 'global' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}>Global Context</button>
+                </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto">
+                {isLoading ? <p className="text-center theme-text-muted">Loading...</p> : error ? <p className="text-red-500">{error}</p> : (
+                    activeTab === 'project' ? renderForm('project') : renderForm('global')
+                )}
+            </div>
+
+            {/* Save Button */}
+            <div className="border-t theme-border pt-4 mt-4 flex justify-end">
+                <button onClick={handleSave} className="theme-button-primary flex items-center gap-2 px-4 py-2 rounded text-sm" disabled={isLoading}>
+                    <Save size={16} />
+                    {isLoading ? 'Saving...' : 'Save Changes'}
+                </button>
+            </div>
+
+            <McpServerMenu
+                isOpen={mcpMenuOpen}
+                onClose={() => setMcpMenuOpen(false)}
+                currentPath={activeTab === 'project' ? currentPath : null}
+            />
+        </>
+    );
+
+    // Embedded mode - return just the content
+    if (embedded) {
+        return <div className="flex flex-col h-full">{content}</div>;
+    }
+
+    // Modal mode - wrap in modal container
     return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            {/* Using the larger modal styles from previous request */}
             <div className="theme-bg-secondary rounded-lg shadow-xl w-full max-w-5xl flex flex-col" onClick={(e) => e.stopPropagation()}>
                 <header className="p-4 flex justify-between items-center border-b theme-border flex-shrink-0">
                     <h3 className="text-lg flex items-center gap-2 theme-text-primary">
@@ -360,35 +398,10 @@ const CtxEditor = ({ isOpen, onClose, currentPath, npcList = [], jinxList = [] }
                         <X size={20} />
                     </button>
                 </header>
-
-                <div className="border-b theme-border flex-shrink-0">
-                    <div className="flex">
-                        <button onClick={() => setActiveTab('project')} className={`px-4 py-2 text-sm ${activeTab === 'project' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}>Project Context</button>
-                        <button onClick={() => setActiveTab('global')} className={`px-4 py-2 text-sm ${activeTab === 'global' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}>Global Context</button>
-                        <button onClick={() => setActiveTab('cron')} className={`px-4 py-2 text-sm flex items-center gap-1 ${activeTab === 'cron' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}><Clock size={14} /> Cron Jobs</button>
-                    </div>
-                </div>
-
-                <main className="p-6 space-y-4 max-h-[75vh] overflow-y-auto flex-grow custom-scrollbar">
-                    {isLoading ? <p className="text-center theme-text-muted">Loading...</p> : error ? <p className="text-red-500">{error}</p> : (
-                        activeTab === 'project' ? renderForm('project') : activeTab === 'global' ? renderForm('global') : renderCronTab()
-                    )}
+                <main className="p-6 flex-grow overflow-hidden">
+                    {content}
                 </main>
-
-                <footer className="border-t theme-border p-4 flex justify-end gap-3 flex-shrink-0">
-                    <button onClick={onClose} className="theme-button px-4 py-2 rounded text-sm">Cancel</button>
-                    <button onClick={handleSave} className="theme-button-primary flex items-center gap-2 px-4 py-2 rounded text-sm" disabled={isLoading}>
-                        <Save size={16} />
-                        {isLoading ? 'Saving...' : 'Save Changes'}
-                    </button>
-                </footer>
             </div>
-
-            <McpServerMenu
-                isOpen={mcpMenuOpen}
-                onClose={() => setMcpMenuOpen(false)}
-                currentPath={activeTab === 'project' ? currentPath : null}
-            />
         </div>
     );
 };
