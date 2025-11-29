@@ -47,6 +47,16 @@ readDocxContent: (filePath) =>
     gitCommit: (repoPath, message) => ipcRenderer.invoke('gitCommit', repoPath, message),
     gitPull: (repoPath) => ipcRenderer.invoke('gitPull', repoPath),
     gitPush: (repoPath) => ipcRenderer.invoke('gitPush', repoPath),
+    gitDiff: (repoPath, filePath, staged) => ipcRenderer.invoke('gitDiff', repoPath, filePath, staged),
+    gitDiffAll: (repoPath) => ipcRenderer.invoke('gitDiffAll', repoPath),
+    gitBlame: (repoPath, filePath) => ipcRenderer.invoke('gitBlame', repoPath, filePath),
+    gitBranches: (repoPath) => ipcRenderer.invoke('gitBranches', repoPath),
+    gitCreateBranch: (repoPath, branchName) => ipcRenderer.invoke('gitCreateBranch', repoPath, branchName),
+    gitCheckout: (repoPath, branchName) => ipcRenderer.invoke('gitCheckout', repoPath, branchName),
+    gitDeleteBranch: (repoPath, branchName, force) => ipcRenderer.invoke('gitDeleteBranch', repoPath, branchName, force),
+    gitLog: (repoPath, options) => ipcRenderer.invoke('gitLog', repoPath, options),
+    gitShowCommit: (repoPath, commitHash) => ipcRenderer.invoke('gitShowCommit', repoPath, commitHash),
+    gitStash: (repoPath, action, message) => ipcRenderer.invoke('gitStash', repoPath, action, message),
 
     readFile: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
    

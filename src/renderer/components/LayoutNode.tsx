@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import { getFileIcon } from './utils';
+import ChatInput from './ChatInput';
 
 // Token cost calculator based on model pricing ($ per 1K tokens)
 // Source: Helicone LLM API Pricing - Updated Nov 2025
@@ -432,8 +433,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
             autoScrollEnabled, setAutoScrollEnabled,
             messageSelectionMode, toggleMessageSelectionMode, selectedMessages,
             conversationBranches, showBranchingUI, setShowBranchingUI,
-            // Input area for chat panes
-            renderInputArea,
+            // ChatInput props object for rendering input in chat panes
+            chatInputProps,
         } = component;
 
         const isActive = node.id === activeContentPaneId;
@@ -596,10 +597,18 @@ export const LayoutNode = memo(({ node, path, component }) => {
             switch (contentType) {
                 case 'chat':
                     return (
-                        <>
-                            {renderChatView({ nodeId: node.id })}
-                            {renderInputArea && renderInputArea({ paneId: node.id })}
-                        </>
+                        <div className="flex-1 flex flex-col overflow-hidden">
+                            <div className="flex-1 overflow-hidden">
+                                {renderChatView({ nodeId: node.id })}
+                            </div>
+                            {chatInputProps && (
+                                <ChatInput
+                                    {...chatInputProps}
+                                    paneId={node.id}
+                                    onFocus={() => setActiveContentPaneId(node.id)}
+                                />
+                            )}
+                        </div>
                     );
                 case 'editor':
                     return renderFileEditor({ nodeId: node.id });

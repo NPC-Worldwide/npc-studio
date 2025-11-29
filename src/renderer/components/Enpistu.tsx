@@ -2,10 +2,9 @@
 import {
     Folder, File as FileIcon,  Globe, ChevronRight, ChevronLeft, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
-    ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip, 
+    ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip,
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
-    Clock,FolderTree // Add Clock icon for cron jobs
-
+    Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag
 } from 'lucide-react';
 
 import { Icon } from 'lucide-react';
@@ -32,6 +31,7 @@ import PptxViewer from './PptxViewer';
 import LatexViewer from './LatexViewer';
 import PicViewer from './PicViewer';
 import MindMapViewer from './MindMapViewer';
+import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
@@ -85,6 +85,11 @@ import { CommandPalette } from './CommandPalette';
 import MessageLabeling, { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage, ContextFile, ContextFileStorage } from './MessageLabeling';
 import ConversationLabeling from './ConversationLabeling';
 import ContextFilesPanel from './ContextFilesPanel';
+import MemoryManagement from './MemoryManagement';
+import BrowserHistoryWeb from './BrowserHistoryWeb';
+import KnowledgeGraphEditor from './KnowledgeGraphEditor';
+import ActivityIntelligence from './ActivityIntelligence';
+import LabeledDataManager from './LabeledDataManager';
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
@@ -181,6 +186,32 @@ const ChatInterface = () => {
     const [websitesCollapsed, setWebsitesCollapsed] = useState(false);
     const [paneContextMenu, setPaneContextMenu] = useState(null);
     const [isInputMinimized, setIsInputMinimized] = useState(false);
+    const [showDateTime, setShowDateTime] = useState(() => {
+        const saved = localStorage.getItem('npcStudioShowDateTime');
+        return saved !== null ? JSON.parse(saved) : false;
+    });
+    const [diskUsageModalOpen, setDiskUsageModalOpen] = useState(false);
+    const [gitModalOpen, setGitModalOpen] = useState(false);
+    const [gitModalTab, setGitModalTab] = useState<'status' | 'diff' | 'branches' | 'history'>('status');
+    const [gitDiffContent, setGitDiffContent] = useState<{ staged: string; unstaged: string } | null>(null);
+    const [gitBranches, setGitBranches] = useState<{ current: string; branches: string[]; local: any } | null>(null);
+    const [gitCommitHistory, setGitCommitHistory] = useState<any[]>([]);
+    const [gitSelectedFile, setGitSelectedFile] = useState<string | null>(null);
+    const [gitNewBranchName, setGitNewBranchName] = useState('');
+    const [gitSelectedCommit, setGitSelectedCommit] = useState<any | null>(null);
+    const [gitFileDiff, setGitFileDiff] = useState<string | null>(null);
+    const [workspaceModalOpen, setWorkspaceModalOpen] = useState(false);
+    const [searchResultsModalOpen, setSearchResultsModalOpen] = useState(false);
+    const [memoryModalOpen, setMemoryModalOpen] = useState(false);
+    const [knowledgeGraphModalOpen, setKnowledgeGraphModalOpen] = useState(false);
+    const [activityModalOpen, setActivityModalOpen] = useState(false);
+    const [labeledDataModalOpen, setLabeledDataModalOpen] = useState(false);
+    const [browserHistoryModalOpen, setBrowserHistoryModalOpen] = useState(false);
+    // Memory modal state
+    const [memories, setMemories] = useState<any[]>([]);
+    const [memoryLoading, setMemoryLoading] = useState(false);
+    const [memoryFilter, setMemoryFilter] = useState('all');
+    const [memorySearchTerm, setMemorySearchTerm] = useState('');
     const [sidebarWidth, setSidebarWidth] = useState(256); // 256px = w-64
     const [inputHeight, setInputHeight] = useState(200); // Default height in pixels
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -404,6 +435,249 @@ const ChatInterface = () => {
     useEffect(() => {
         rootLayoutNodeRef.current = rootLayoutNode;
     }, [rootLayoutNode]);
+
+    // Git functions
+    const loadGitStatus = useCallback(async () => {
+        if (!currentPath) return;
+        try {
+            const status = await (window as any).api.getGitStatus(currentPath);
+            setGitStatus(status);
+        } catch (err) {
+            console.error('Failed to load git status:', err);
+            setGitStatus(null);
+        }
+    }, [currentPath]);
+
+    const gitStageFile = async (file: string) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitStageFile(currentPath, file);
+            await loadGitStatus();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to stage file');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    const gitUnstageFile = async (file: string) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitUnstageFile(currentPath, file);
+            await loadGitStatus();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to unstage file');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    const gitCommitChanges = async () => {
+        if (!gitCommitMessage.trim()) return;
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitCommit(currentPath, gitCommitMessage.trim());
+            setGitCommitMessage('');
+            await loadGitStatus();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to commit');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    const gitPullChanges = async () => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitPull(currentPath);
+            await loadGitStatus();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to pull');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    const gitPushChanges = async () => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitPush(currentPath);
+            await loadGitStatus();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to push');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    // Load git diff for all changes
+    const loadGitDiff = useCallback(async () => {
+        if (!currentPath) return;
+        try {
+            const diff = await (window as any).api.gitDiffAll(currentPath);
+            setGitDiffContent(diff);
+        } catch (err) {
+            console.error('Failed to load git diff:', err);
+            setGitDiffContent(null);
+        }
+    }, [currentPath]);
+
+    // Load git branches
+    const loadGitBranches = useCallback(async () => {
+        if (!currentPath) return;
+        try {
+            const branches = await (window as any).api.gitBranches(currentPath);
+            setGitBranches(branches);
+        } catch (err) {
+            console.error('Failed to load git branches:', err);
+            setGitBranches(null);
+        }
+    }, [currentPath]);
+
+    // Load git commit history
+    const loadGitHistory = useCallback(async () => {
+        if (!currentPath) return;
+        try {
+            const result = await (window as any).api.gitLog(currentPath, { maxCount: 50 });
+            if (result?.success && result.commits) {
+                setGitCommitHistory(result.commits);
+            } else {
+                setGitCommitHistory([]);
+            }
+        } catch (err) {
+            console.error('Failed to load git history:', err);
+            setGitCommitHistory([]);
+        }
+    }, [currentPath]);
+
+    // Create a new branch
+    const gitCreateBranch = async () => {
+        if (!gitNewBranchName.trim()) return;
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitCreateBranch(currentPath, gitNewBranchName.trim());
+            setGitNewBranchName('');
+            await loadGitBranches();
+            await loadGitStatus();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to create branch');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    // Switch to a branch
+    const gitCheckoutBranch = async (branchName: string) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitCheckout(currentPath, branchName);
+            await loadGitBranches();
+            await loadGitStatus();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to checkout branch');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    // Delete a branch
+    const gitDeleteBranch = async (branchName: string, force: boolean = false) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitDeleteBranch(currentPath, branchName, force);
+            await loadGitBranches();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to delete branch');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    // View a specific commit
+    const loadCommitDetails = async (commitHash: string) => {
+        try {
+            const result = await (window as any).api.gitShowCommit(currentPath, commitHash);
+            // Find the commit in history to get metadata
+            const commitMeta = gitCommitHistory.find((c: any) => c.hash === commitHash);
+            if (result?.success) {
+                setGitSelectedCommit({
+                    hash: commitHash,
+                    author_name: commitMeta?.author_name || 'Unknown',
+                    author_email: commitMeta?.author_email || '',
+                    date: commitMeta?.date || new Date().toISOString(),
+                    message: commitMeta?.message || '',
+                    details: result.details,
+                    diff: result.diff
+                });
+            }
+        } catch (err) {
+            console.error('Failed to load commit details:', err);
+        }
+    };
+
+    // Load file diff
+    const loadFileDiff = async (filePath: string, staged: boolean = false) => {
+        try {
+            const diff = await (window as any).api.gitDiff(currentPath, filePath, staged);
+            setGitSelectedFile(filePath);
+            setGitFileDiff(diff);
+            return diff;
+        } catch (err) {
+            console.error('Failed to load file diff:', err);
+            setGitFileDiff(null);
+            return null;
+        }
+    };
+
+    // Load memories for memory modal
+    const loadMemories = useCallback(async () => {
+        setMemoryLoading(true);
+        try {
+            const response = await (window as any).api.executeSQL({
+                query: `SELECT id, message_id, conversation_id, npc, team, directory_path,
+                       initial_memory, final_memory, status, timestamp, model, provider
+                       FROM memory_lifecycle ORDER BY timestamp DESC LIMIT 500`
+            });
+            if (response.error) throw new Error(response.error);
+            setMemories(response.result || []);
+        } catch (err) {
+            console.error('Error loading memories:', err);
+            setMemories([]);
+        } finally {
+            setMemoryLoading(false);
+        }
+    }, []);
+
+    // Load memories when modal opens
+    useEffect(() => {
+        if (memoryModalOpen && memories.length === 0) {
+            loadMemories();
+        }
+    }, [memoryModalOpen, loadMemories]);
+
+    // Filtered memories
+    const filteredMemories = useMemo(() => {
+        return memories.filter(memory => {
+            const matchesStatus = memoryFilter === 'all' || memory.status === memoryFilter;
+            const matchesSearch = !memorySearchTerm ||
+                memory.initial_memory?.toLowerCase().includes(memorySearchTerm.toLowerCase()) ||
+                memory.final_memory?.toLowerCase().includes(memorySearchTerm.toLowerCase());
+            return matchesStatus && matchesSearch;
+        });
+    }, [memories, memoryFilter, memorySearchTerm]);
+
+    // Save showDateTime preference
+    useEffect(() => {
+        localStorage.setItem('npcStudioShowDateTime', JSON.stringify(showDateTime));
+    }, [showDateTime]);
 
     useEffect(() => {
         const saveCurrentWorkspace = () => {
@@ -1153,9 +1427,10 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             handleEditorPaste={() => {}}
             handleAddToChat={() => {}}
             setPromptModal={setPromptModal}
+            currentPath={currentPath}
         />
     );
-}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode]);
+}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath]);
 
 const renderTerminalView = useCallback(({ nodeId }) => {
     return (
@@ -1292,15 +1567,25 @@ useEffect(() => {
     useEffect(() => {
         const handleGlobalDismiss = (e) => {
             if (e.key === 'Escape') {
+                // Close context menus
                 setContextMenuPos(null);
                 setFileContextMenuPos(null);
                 setMessageContextMenuPos(null);
                 setEditorContextMenuPos(null);
                 setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '' });
-
+                // Close status bar modals
+                setGitModalOpen(false);
+                setDiskUsageModalOpen(false);
+                setWorkspaceModalOpen(false);
+                setSearchResultsModalOpen(false);
+                setMemoryModalOpen(false);
+                setKnowledgeGraphModalOpen(false);
+                setActivityModalOpen(false);
+                setLabeledDataModalOpen(false);
+                setBrowserHistoryModalOpen(false);
             }
         };
-    
+
         window.addEventListener('keydown', handleGlobalDismiss);
         return () => {
             window.removeEventListener('keydown', handleGlobalDismiss);
@@ -3716,6 +4001,480 @@ ${contextPrompt}`;
                 jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.name, description: jinx.description }))}
             />
 
+            {/* Disk Usage Modal */}
+            {diskUsageModalOpen && (
+                <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setDiskUsageModalOpen(false)}>
+                    <div className="w-full h-full max-w-6xl max-h-[90vh] theme-bg-primary rounded-lg border theme-border flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-4 border-b theme-border">
+                            <div className="flex items-center gap-3">
+                                <HardDrive size={20} className="text-blue-400" />
+                                <h2 className="text-lg font-semibold theme-text-primary">Disk Usage Analyzer</h2>
+                                <span className="text-sm theme-text-muted">{currentPath}</span>
+                            </div>
+                            <button
+                                onClick={() => setDiskUsageModalOpen(false)}
+                                className="p-2 theme-hover rounded-lg"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-4">
+                            <DiskUsageAnalyzer path={currentPath} isDarkMode={isDarkMode} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Git Modal - Enhanced with tabs */}
+            {gitModalOpen && (
+                <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setGitModalOpen(false)}>
+                    <div className="w-full max-w-5xl max-h-[85vh] theme-bg-primary rounded-lg border theme-border flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-4 border-b theme-border">
+                            <div className="flex items-center gap-3">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-400">
+                                    <line x1="6" y1="3" x2="6" y2="15"></line>
+                                    <circle cx="18" cy="6" r="3"></circle>
+                                    <circle cx="6" cy="18" r="3"></circle>
+                                    <path d="M18 9a9 9 0 0 1-9 9"></path>
+                                </svg>
+                                <h2 className="text-lg font-semibold theme-text-primary">Git</h2>
+                                {gitStatus?.branch && <span className="text-sm theme-text-muted">({gitStatus.branch})</span>}
+                            </div>
+                            <button onClick={() => setGitModalOpen(false)} className="p-2 theme-hover rounded-lg">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Tab Bar */}
+                        <div className="flex border-b theme-border px-4">
+                            {(['status', 'diff', 'branches', 'history'] as const).map(tab => (
+                                <button
+                                    key={tab}
+                                    onClick={() => {
+                                        setGitModalTab(tab);
+                                        if (tab === 'diff') loadGitDiff();
+                                        if (tab === 'branches') loadGitBranches();
+                                        if (tab === 'history') loadGitHistory();
+                                    }}
+                                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                                        gitModalTab === tab
+                                            ? 'border-purple-500 text-purple-400'
+                                            : 'border-transparent theme-text-muted hover:theme-text-primary'
+                                    }`}
+                                >
+                                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Tab Content */}
+                        <div className="flex-1 overflow-auto p-4">
+                            {!gitStatus ? (
+                                <div className="text-center theme-text-muted py-8">No git repository in this directory</div>
+                            ) : gitModalTab === 'status' ? (
+                                /* Status Tab */
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-4 text-sm">
+                                        <span className="theme-text-primary font-medium">Branch: {gitStatus.branch}</span>
+                                        {gitStatus.ahead > 0 && <span className="text-green-400">↑{gitStatus.ahead} ahead</span>}
+                                        {gitStatus.behind > 0 && <span className="text-yellow-400">↓{gitStatus.behind} behind</span>}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="theme-bg-secondary rounded-lg p-3">
+                                            <h3 className="text-sm font-medium text-green-400 mb-2">Staged ({(gitStatus.staged || []).length})</h3>
+                                            <div className="space-y-1 max-h-48 overflow-y-auto">
+                                                {(gitStatus.staged || []).length === 0 ? (
+                                                    <div className="text-xs theme-text-muted">No staged files</div>
+                                                ) : (gitStatus.staged || []).map((file: any) => (
+                                                    <div key={file.path} className="flex items-center justify-between text-xs group">
+                                                        <button
+                                                            onClick={() => loadFileDiff(file.path, true)}
+                                                            className="text-green-300 truncate flex-1 text-left hover:underline"
+                                                        >
+                                                            {file.path}
+                                                        </button>
+                                                        <button onClick={() => gitUnstageFile(file.path)} className="text-red-400 hover:text-red-300 px-2 opacity-0 group-hover:opacity-100">Unstage</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="theme-bg-secondary rounded-lg p-3">
+                                            <h3 className="text-sm font-medium text-yellow-400 mb-2">Unstaged ({(gitStatus.unstaged || []).length + (gitStatus.untracked || []).length})</h3>
+                                            <div className="space-y-1 max-h-48 overflow-y-auto">
+                                                {(gitStatus.unstaged || []).length + (gitStatus.untracked || []).length === 0 ? (
+                                                    <div className="text-xs theme-text-muted">No changes</div>
+                                                ) : [...(gitStatus.unstaged || []), ...(gitStatus.untracked || [])].map((file: any) => (
+                                                    <div key={file.path} className="flex items-center justify-between text-xs group">
+                                                        <button
+                                                            onClick={() => loadFileDiff(file.path, false)}
+                                                            className={`truncate flex-1 text-left hover:underline ${file.isUntracked ? 'text-gray-400' : 'text-yellow-300'}`}
+                                                        >
+                                                            {file.path}
+                                                        </button>
+                                                        <button onClick={() => gitStageFile(file.path)} className="text-green-400 hover:text-green-300 px-2 opacity-0 group-hover:opacity-100">Stage</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* File Diff Preview */}
+                                    {gitSelectedFile && gitFileDiff && (
+                                        <div className="theme-bg-secondary rounded-lg p-3">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <h3 className="text-sm font-medium theme-text-primary">{gitSelectedFile}</h3>
+                                                <button onClick={() => { setGitSelectedFile(null); setGitFileDiff(null); }} className="text-xs theme-text-muted hover:theme-text-primary">Close</button>
+                                            </div>
+                                            <pre className="text-xs font-mono overflow-auto max-h-60 p-2 bg-black/30 rounded">
+                                                {gitFileDiff.split('\n').map((line, i) => (
+                                                    <div
+                                                        key={i}
+                                                        className={
+                                                            line.startsWith('+') && !line.startsWith('+++') ? 'text-green-400 bg-green-900/20' :
+                                                            line.startsWith('-') && !line.startsWith('---') ? 'text-red-400 bg-red-900/20' :
+                                                            line.startsWith('@@') ? 'text-cyan-400' :
+                                                            'theme-text-muted'
+                                                        }
+                                                    >
+                                                        {line}
+                                                    </div>
+                                                ))}
+                                            </pre>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2">
+                                        <input
+                                            type="text"
+                                            className="w-full theme-input text-sm rounded px-3 py-2"
+                                            placeholder="Commit message..."
+                                            value={gitCommitMessage}
+                                            onChange={e => setGitCommitMessage(e.target.value)}
+                                        />
+                                        <div className="flex gap-2">
+                                            <button
+                                                disabled={gitLoading || !gitCommitMessage.trim()}
+                                                onClick={gitCommitChanges}
+                                                className="theme-button-primary px-4 py-2 rounded text-sm flex-1 disabled:opacity-50"
+                                            >
+                                                Commit
+                                            </button>
+                                            <button disabled={gitLoading} onClick={gitPullChanges} className="theme-button px-4 py-2 rounded text-sm flex-1">
+                                                Pull
+                                            </button>
+                                            <button disabled={gitLoading} onClick={gitPushChanges} className="theme-button px-4 py-2 rounded text-sm flex-1">
+                                                Push
+                                            </button>
+                                            <button disabled={gitLoading} onClick={loadGitStatus} className="theme-button px-4 py-2 rounded text-sm">
+                                                Refresh
+                                            </button>
+                                        </div>
+                                        {gitError && <div className="text-red-500 text-xs">{gitError}</div>}
+                                    </div>
+                                </div>
+                            ) : gitModalTab === 'diff' ? (
+                                /* Diff Tab */
+                                <div className="space-y-4">
+                                    <div className="flex gap-2 mb-4">
+                                        <button onClick={loadGitDiff} className="theme-button px-3 py-1 rounded text-sm">Refresh Diff</button>
+                                    </div>
+                                    {gitDiffContent ? (
+                                        <div className="space-y-4">
+                                            {gitDiffContent.staged && (
+                                                <div className="theme-bg-secondary rounded-lg p-3">
+                                                    <h3 className="text-sm font-medium text-green-400 mb-2">Staged Changes</h3>
+                                                    <pre className="text-xs font-mono overflow-auto max-h-64 p-2 bg-black/30 rounded whitespace-pre-wrap">
+                                                        {gitDiffContent.staged.split('\n').map((line, i) => (
+                                                            <div
+                                                                key={i}
+                                                                className={
+                                                                    line.startsWith('+') && !line.startsWith('+++') ? 'text-green-400 bg-green-900/20' :
+                                                                    line.startsWith('-') && !line.startsWith('---') ? 'text-red-400 bg-red-900/20' :
+                                                                    line.startsWith('@@') ? 'text-cyan-400' :
+                                                                    line.startsWith('diff ') ? 'text-purple-400 font-bold mt-2' :
+                                                                    'theme-text-muted'
+                                                                }
+                                                            >
+                                                                {line}
+                                                            </div>
+                                                        ))}
+                                                    </pre>
+                                                </div>
+                                            )}
+                                            {gitDiffContent.unstaged && (
+                                                <div className="theme-bg-secondary rounded-lg p-3">
+                                                    <h3 className="text-sm font-medium text-yellow-400 mb-2">Unstaged Changes</h3>
+                                                    <pre className="text-xs font-mono overflow-auto max-h-64 p-2 bg-black/30 rounded whitespace-pre-wrap">
+                                                        {gitDiffContent.unstaged.split('\n').map((line, i) => (
+                                                            <div
+                                                                key={i}
+                                                                className={
+                                                                    line.startsWith('+') && !line.startsWith('+++') ? 'text-green-400 bg-green-900/20' :
+                                                                    line.startsWith('-') && !line.startsWith('---') ? 'text-red-400 bg-red-900/20' :
+                                                                    line.startsWith('@@') ? 'text-cyan-400' :
+                                                                    line.startsWith('diff ') ? 'text-purple-400 font-bold mt-2' :
+                                                                    'theme-text-muted'
+                                                                }
+                                                            >
+                                                                {line}
+                                                            </div>
+                                                        ))}
+                                                    </pre>
+                                                </div>
+                                            )}
+                                            {!gitDiffContent.staged && !gitDiffContent.unstaged && (
+                                                <div className="text-center theme-text-muted py-8">No changes to display</div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="text-center theme-text-muted py-8">Loading diff...</div>
+                                    )}
+                                </div>
+                            ) : gitModalTab === 'branches' ? (
+                                /* Branches Tab */
+                                <div className="space-y-4">
+                                    {/* Create New Branch */}
+                                    <div className="theme-bg-secondary rounded-lg p-3">
+                                        <h3 className="text-sm font-medium theme-text-primary mb-2">Create New Branch</h3>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                className="flex-1 theme-input text-sm rounded px-3 py-2"
+                                                placeholder="Branch name..."
+                                                value={gitNewBranchName}
+                                                onChange={e => setGitNewBranchName(e.target.value)}
+                                            />
+                                            <button
+                                                disabled={gitLoading || !gitNewBranchName.trim()}
+                                                onClick={gitCreateBranch}
+                                                className="theme-button-primary px-4 py-2 rounded text-sm disabled:opacity-50"
+                                            >
+                                                Create
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Branch List */}
+                                    <div className="theme-bg-secondary rounded-lg p-3">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h3 className="text-sm font-medium theme-text-primary">Branches</h3>
+                                            <button onClick={loadGitBranches} className="text-xs theme-text-muted hover:theme-text-primary">Refresh</button>
+                                        </div>
+                                        {gitBranches ? (
+                                            <div className="space-y-1 max-h-80 overflow-y-auto">
+                                                {gitBranches.branches.map((branch: string) => (
+                                                    <div
+                                                        key={branch}
+                                                        className={`flex items-center justify-between p-2 rounded text-sm ${
+                                                            branch === gitBranches.current ? 'bg-purple-900/30 border border-purple-500/30' : 'hover:bg-white/5'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            {branch === gitBranches.current && (
+                                                                <span className="text-purple-400">●</span>
+                                                            )}
+                                                            <span className={branch === gitBranches.current ? 'text-purple-400 font-medium' : 'theme-text-primary'}>
+                                                                {branch}
+                                                            </span>
+                                                        </div>
+                                                        {branch !== gitBranches.current && (
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    onClick={() => gitCheckoutBranch(branch)}
+                                                                    disabled={gitLoading}
+                                                                    className="text-xs text-blue-400 hover:text-blue-300"
+                                                                >
+                                                                    Checkout
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => gitDeleteBranch(branch)}
+                                                                    disabled={gitLoading}
+                                                                    className="text-xs text-red-400 hover:text-red-300"
+                                                                >
+                                                                    Delete
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="text-center theme-text-muted py-4">Loading branches...</div>
+                                        )}
+                                    </div>
+                                    {gitError && <div className="text-red-500 text-xs">{gitError}</div>}
+                                </div>
+                            ) : gitModalTab === 'history' ? (
+                                /* History Tab */
+                                <div className="flex gap-4 h-full">
+                                    {/* Commit List */}
+                                    <div className="w-1/2 theme-bg-secondary rounded-lg p-3 flex flex-col">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h3 className="text-sm font-medium theme-text-primary">Commit History</h3>
+                                            <button onClick={loadGitHistory} className="text-xs theme-text-muted hover:theme-text-primary">Refresh</button>
+                                        </div>
+                                        <div className="flex-1 overflow-y-auto space-y-1">
+                                            {gitCommitHistory.length > 0 ? gitCommitHistory.map((commit: any) => (
+                                                <button
+                                                    key={commit.hash}
+                                                    onClick={() => loadCommitDetails(commit.hash)}
+                                                    className={`w-full text-left p-2 rounded text-xs hover:bg-white/5 ${
+                                                        gitSelectedCommit?.hash === commit.hash ? 'bg-purple-900/30 border border-purple-500/30' : ''
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-purple-400 font-mono">{commit.hash.slice(0, 7)}</span>
+                                                        <span className="theme-text-muted">{new Date(commit.date).toLocaleDateString()}</span>
+                                                    </div>
+                                                    <div className="theme-text-primary truncate mt-1">{commit.message}</div>
+                                                    <div className="theme-text-muted text-xs mt-1">{commit.author_name}</div>
+                                                </button>
+                                            )) : (
+                                                <div className="text-center theme-text-muted py-4">Loading history...</div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Commit Details */}
+                                    <div className="w-1/2 theme-bg-secondary rounded-lg p-3 flex flex-col">
+                                        <h3 className="text-sm font-medium theme-text-primary mb-2">Commit Details</h3>
+                                        {gitSelectedCommit ? (
+                                            <div className="flex-1 overflow-y-auto">
+                                                <div className="space-y-2 text-xs mb-4">
+                                                    <div><span className="theme-text-muted">Hash:</span> <span className="font-mono text-purple-400">{gitSelectedCommit.hash}</span></div>
+                                                    <div><span className="theme-text-muted">Author:</span> <span className="theme-text-primary">{gitSelectedCommit.author_name} &lt;{gitSelectedCommit.author_email}&gt;</span></div>
+                                                    <div><span className="theme-text-muted">Date:</span> <span className="theme-text-primary">{new Date(gitSelectedCommit.date).toLocaleString()}</span></div>
+                                                    <div className="theme-text-primary whitespace-pre-wrap">{gitSelectedCommit.message}</div>
+                                                </div>
+                                                {gitSelectedCommit.diff && (
+                                                    <pre className="text-xs font-mono overflow-auto max-h-64 p-2 bg-black/30 rounded whitespace-pre-wrap">
+                                                        {gitSelectedCommit.diff.split('\n').map((line: string, i: number) => (
+                                                            <div
+                                                                key={i}
+                                                                className={
+                                                                    line.startsWith('+') && !line.startsWith('+++') ? 'text-green-400 bg-green-900/20' :
+                                                                    line.startsWith('-') && !line.startsWith('---') ? 'text-red-400 bg-red-900/20' :
+                                                                    line.startsWith('@@') ? 'text-cyan-400' :
+                                                                    line.startsWith('diff ') ? 'text-purple-400 font-bold mt-2' :
+                                                                    'theme-text-muted'
+                                                                }
+                                                            >
+                                                                {line}
+                                                            </div>
+                                                        ))}
+                                                    </pre>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="text-center theme-text-muted py-8">Select a commit to view details</div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Workspace Modal */}
+            {workspaceModalOpen && (
+                <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setWorkspaceModalOpen(false)}>
+                    <div className="w-full max-w-2xl max-h-[70vh] theme-bg-primary rounded-lg border theme-border flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-4 border-b theme-border">
+                            <div className="flex items-center gap-3">
+                                <Folder size={20} className="text-blue-400" />
+                                <h2 className="text-lg font-semibold theme-text-primary">Workspace</h2>
+                            </div>
+                            <button onClick={() => setWorkspaceModalOpen(false)} className="p-2 theme-hover rounded-lg">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-4">
+                            <div className="space-y-3">
+                                <div className="theme-bg-secondary rounded-lg p-3">
+                                    <div className="text-xs theme-text-muted mb-1">Current Path</div>
+                                    <div className="text-sm theme-text-primary font-mono">{currentPath || 'Not set'}</div>
+                                </div>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="theme-bg-secondary rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold theme-text-primary">{Object.keys(contentDataRef.current).length}</div>
+                                        <div className="text-xs theme-text-muted">Open Panes</div>
+                                    </div>
+                                    <div className="theme-bg-secondary rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold theme-text-primary">{directoryConversations.length}</div>
+                                        <div className="text-xs theme-text-muted">Conversations</div>
+                                    </div>
+                                    <div className="theme-bg-secondary rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold theme-text-primary">{Object.keys(folderStructure || {}).length}</div>
+                                        <div className="text-xs theme-text-muted">Files/Folders</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Search Results Modal */}
+            {searchResultsModalOpen && (deepSearchResults.length > 0 || messageSearchResults.length > 0) && (
+                <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setSearchResultsModalOpen(false)}>
+                    <div className="w-full max-w-4xl max-h-[80vh] theme-bg-primary rounded-lg border theme-border flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-4 border-b theme-border">
+                            <div className="flex items-center gap-3">
+                                <Search size={20} className="text-blue-400" />
+                                <h2 className="text-lg font-semibold theme-text-primary">Search Results</h2>
+                                <span className="text-sm theme-text-muted">({deepSearchResults.length + messageSearchResults.length} results)</span>
+                            </div>
+                            <button onClick={() => setSearchResultsModalOpen(false)} className="p-2 theme-hover rounded-lg">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-4">
+                            <div className="space-y-2">
+                                {deepSearchResults.map((result: any, idx: number) => (
+                                    <button
+                                        key={`deep-${idx}`}
+                                        onClick={() => {
+                                            if (result.type === 'conversation') {
+                                                handleConversationSelect(result.id);
+                                            } else if (result.type === 'file') {
+                                                handleFileClick(result.path);
+                                            }
+                                            setSearchResultsModalOpen(false);
+                                        }}
+                                        className="w-full text-left p-3 theme-bg-secondary rounded-lg theme-hover"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            {result.type === 'conversation' ? <MessageSquare size={14} className="text-blue-400" /> : <FileIcon size={14} className="text-gray-400" />}
+                                            <span className="text-sm theme-text-primary">{result.title || result.name || result.path}</span>
+                                        </div>
+                                        {result.snippet && <div className="text-xs theme-text-muted mt-1 truncate">{result.snippet}</div>}
+                                    </button>
+                                ))}
+                                {messageSearchResults.map((result: any, idx: number) => (
+                                    <button
+                                        key={`msg-${idx}`}
+                                        onClick={() => {
+                                            handleConversationSelect(result.conversationId);
+                                            setSearchResultsModalOpen(false);
+                                        }}
+                                        className="w-full text-left p-3 theme-bg-secondary rounded-lg theme-hover"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <MessageSquare size={14} className="text-green-400" />
+                                            <span className="text-sm theme-text-primary">{result.content?.slice(0, 100)}...</span>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Message Labeling Modal */}
             {labelingModal.isOpen && labelingModal.message && (
                 <MessageLabeling
@@ -3736,6 +4495,37 @@ ${contextPrompt}`;
                 />
             )}
 
+            {/* Memory Modal */}
+            {memoryModalOpen && (
+                <MemoryManagement isModal={true} onClose={() => setMemoryModalOpen(false)} />
+            )}
+
+            {/* Knowledge Graph Modal */}
+            {knowledgeGraphModalOpen && (
+                <KnowledgeGraphEditor isModal={true} onClose={() => setKnowledgeGraphModalOpen(false)} />
+            )}
+
+            {/* Activity Intelligence Modal */}
+            {activityModalOpen && (
+                <ActivityIntelligence isModal={true} onClose={() => setActivityModalOpen(false)} />
+            )}
+
+            {/* Labeled Data Modal */}
+            {labeledDataModalOpen && (
+                <LabeledDataManager
+                    isOpen={labeledDataModalOpen}
+                    onClose={() => setLabeledDataModalOpen(false)}
+                    messageLabels={messageLabels}
+                    setMessageLabels={setMessageLabels}
+                    conversationLabels={conversationLabels}
+                    setConversationLabels={setConversationLabels}
+                />
+            )}
+
+            {/* Browser History Modal */}
+            {browserHistoryModalOpen && (
+                <BrowserHistoryWeb isModal={true} onClose={() => setBrowserHistoryModalOpen(false)} />
+            )}
 
         </>
 
@@ -3744,6 +4534,38 @@ ${contextPrompt}`;
 
 
 
+
+// Build chatInputProps object for ChatInput component in chat panes
+const chatInputProps = useMemo(() => ({
+    input, setInput, inputHeight, setInputHeight,
+    isInputMinimized, setIsInputMinimized, isInputExpanded, setIsInputExpanded,
+    isResizingInput, setIsResizingInput,
+    isStreaming, handleInputSubmit, handleInterruptStream,
+    uploadedFiles, setUploadedFiles, contextFiles, setContextFiles,
+    contextFilesCollapsed, setContextFilesCollapsed, currentPath,
+    executionMode, setExecutionMode, selectedJinx, setSelectedJinx,
+    jinxInputValues, setJinxInputValues, jinxsToDisplay,
+    showJinxDropdown, setShowJinxDropdown,
+    availableModels, modelsLoading, modelsError, currentModel, setCurrentModel,
+    currentProvider, setCurrentProvider, favoriteModels, toggleFavoriteModel,
+    showAllModels, setShowAllModels, modelsToDisplay, ollamaToolModels, setError,
+    availableNPCs, npcsLoading, npcsError, currentNPC, setCurrentNPC,
+    availableMcpServers, mcpServerPath, setMcpServerPath,
+    selectedMcpTools, setSelectedMcpTools, availableMcpTools, setAvailableMcpTools,
+    mcpToolsLoading, setMcpToolsLoading, mcpToolsError, setMcpToolsError,
+    showMcpServersDropdown, setShowMcpServersDropdown,
+    activeConversationId,
+}), [
+    input, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
+    isStreaming, handleInputSubmit, handleInterruptStream,
+    uploadedFiles, contextFiles, contextFilesCollapsed, currentPath,
+    executionMode, selectedJinx, jinxInputValues, jinxsToDisplay, showJinxDropdown,
+    availableModels, modelsLoading, modelsError, currentModel, currentProvider,
+    favoriteModels, showAllModels, modelsToDisplay, ollamaToolModels,
+    availableNPCs, npcsLoading, npcsError, currentNPC,
+    availableMcpServers, mcpServerPath, selectedMcpTools, availableMcpTools,
+    mcpToolsLoading, mcpToolsError, showMcpServersDropdown, activeConversationId,
+]);
 
 const layoutComponentApi = useMemo(() => ({
     rootLayoutNode,
@@ -3768,10 +4590,12 @@ const layoutComponentApi = useMemo(() => ({
     renderPicViewer,
     renderMindMapViewer,
     setPaneContextMenu,
-    // ADD THESE NEW PROPS:
+    // Chat-specific props:
     autoScrollEnabled, setAutoScrollEnabled,
     messageSelectionMode, toggleMessageSelectionMode, selectedMessages,
     conversationBranches, showBranchingUI, setShowBranchingUI,
+    // ChatInput props for rendering input in chat panes
+    chatInputProps,
 }), [
     rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
@@ -3785,10 +4609,10 @@ const layoutComponentApi = useMemo(() => ({
     renderMindMapViewer,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
-    // ADD THESE NEW DEPENDENCIES:
     autoScrollEnabled, setAutoScrollEnabled,
     messageSelectionMode, toggleMessageSelectionMode, selectedMessages,
     conversationBranches, showBranchingUI, setShowBranchingUI,
+    chatInputProps,
 ]);
 
 // Handle conversation selection - opens conversation in a pane
@@ -4641,8 +5465,132 @@ const renderMainContent = () => {
         );
     }
 
+    // Pane items for dock
+    const paneItems = Object.entries(contentDataRef.current).map(([paneId, data]: [string, any]) => ({
+        id: paneId,
+        type: data?.contentType || 'empty',
+        title: data?.contentType === 'chat'
+            ? `Chat ${data?.contentId?.slice(-6) || ''}`
+            : data?.contentType === 'editor'
+                ? data?.contentId?.split('/').pop() || 'File'
+                : data?.contentType || 'Pane',
+        isActive: paneId === activeContentPaneId
+    }));
+
+    // Get git branch from gitStatus
+    const gitBranch = gitStatus?.branch || null;
+
     return (
         <main className={`flex-1 flex flex-col bg-gray-900 ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
+            {/* Top Bar - Path selector left, Search center, DateTime right */}
+            <div className="flex-shrink-0 h-8 px-2 flex items-center gap-3 text-[11px] theme-bg-secondary border-b theme-border">
+                {/* Full Path selector - left */}
+                <div className="flex items-center gap-1 min-w-[200px] max-w-[300px]">
+                    <button
+                        onClick={goUpDirectory}
+                        className="p-1 theme-hover rounded transition-all flex-shrink-0"
+                        title="Go Up"
+                        aria-label="Go Up Directory"
+                    >
+                        <ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/>
+                    </button>
+                    {isEditingPath ? (
+                        <input
+                            type="text"
+                            value={editedPath}
+                            onChange={(e) => setEditedPath(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    setIsEditingPath(false);
+                                    switchToPath(editedPath);
+                                } else if (e.key === 'Escape') {
+                                    setIsEditingPath(false);
+                                }
+                            }}
+                            onBlur={() => setIsEditingPath(false)}
+                            autoFocus
+                            className="text-xs theme-text-muted theme-input border rounded px-2 py-0.5 flex-1 min-w-0"
+                        />
+                    ) : (
+                        <div
+                            onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }}
+                            className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-0.5 rounded flex-1 min-w-0"
+                            title={currentPath}
+                        >
+                            {currentPath || '...'}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex-1" />
+
+                {/* Search - center */}
+                <div className="flex items-center gap-2 max-w-md w-full">
+                    <Search size={14} className="theme-text-muted flex-shrink-0" />
+                    <input
+                        ref={searchInputRef}
+                        type="text"
+                        value={searchTerm}
+                        onChange={(e) => {
+                            setSearchTerm(e.target.value);
+                            if (!e.target.value.trim()) {
+                                setIsSearching(false);
+                                setDeepSearchResults([]);
+                                setMessageSearchResults([]);
+                                setSearchResultsModalOpen(false);
+                            }
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && searchTerm.trim()) {
+                                e.preventDefault();
+                                setSearchResultsModalOpen(true);
+                            }
+                        }}
+                        placeholder={isGlobalSearch ? "Global search (Ctrl+Shift+F)..." : "Search (Ctrl+F)..."}
+                        className="flex-1 bg-transparent theme-text-primary text-xs focus:outline-none"
+                    />
+                    {(deepSearchResults.length > 0 || messageSearchResults.length > 0) && (
+                        <button
+                            onClick={() => setSearchResultsModalOpen(true)}
+                            className="px-2 py-0.5 text-[10px] bg-blue-600 text-white rounded"
+                        >
+                            {deepSearchResults.length + messageSearchResults.length} results
+                        </button>
+                    )}
+                    {searchTerm && (
+                        <button
+                            onClick={() => {
+                                setSearchTerm('');
+                                setIsSearching(false);
+                                setDeepSearchResults([]);
+                                setMessageSearchResults([]);
+                                setSearchResultsModalOpen(false);
+                            }}
+                            className="p-1 theme-hover rounded"
+                        >
+                            <X size={12} className="theme-text-muted" />
+                        </button>
+                    )}
+                </div>
+
+                <div className="flex-1" />
+
+                {/* DateTime - right */}
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setShowDateTime(!showDateTime)}
+                        className="p-1 theme-hover rounded theme-text-muted"
+                        title={showDateTime ? "Hide date/time" : "Show date/time"}
+                    >
+                        <Clock size={14} />
+                    </button>
+                    {showDateTime && (
+                        <span className="theme-text-muted tabular-nums text-[10px]">
+                            {new Date().toLocaleDateString()} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                    )}
+                </div>
+            </div>
             <div className="flex-1 flex overflow-hidden">
                 {rootLayoutNode ? (
                     <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentApi} />
@@ -4652,8 +5600,101 @@ const renderMainContent = () => {
                     </div>
                 )}
             </div>
-            <div className="flex-shrink-0">
-                {renderInputArea()}
+            {/* Workspace Status Bar with Pane Dock */}
+            <div className="flex-shrink-0 h-7 px-2 flex items-center gap-2 text-[11px] theme-text-muted theme-bg-secondary border-t theme-border">
+                {/* Git button */}
+                <button
+                    onClick={() => setGitModalOpen(true)}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded transition-all ${gitBranch ? 'bg-purple-900/30 text-purple-300 hover:bg-purple-900/50' : 'theme-hover'}`}
+                    title="Git"
+                >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="6" y1="3" x2="6" y2="15"></line>
+                        <circle cx="18" cy="6" r="3"></circle>
+                        <circle cx="6" cy="18" r="3"></circle>
+                        <path d="M18 9a9 9 0 0 1-9 9"></path>
+                    </svg>
+                    {gitBranch && <span className="truncate max-w-[80px]">{gitBranch}</span>}
+                    {gitStatus?.hasChanges && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400"></span>}
+                </button>
+
+                {/* Workspace button */}
+                <button
+                    onClick={() => setWorkspaceModalOpen(true)}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded theme-hover"
+                    title="Workspace Info"
+                >
+                    <Folder size={12} />
+                    <span className="opacity-60">{directoryConversations.length} convos</span>
+                </button>
+
+                <div className="flex-1" />
+
+                {/* Pane Dock - centered */}
+                <div className="flex items-center gap-1">
+                    {paneItems.map((pane) => (
+                        <button
+                            key={pane.id}
+                            onClick={() => setActiveContentPaneId(pane.id)}
+                            className={`px-2 py-0.5 rounded text-[10px] transition-all flex items-center gap-1 ${
+                                pane.isActive
+                                    ? 'bg-blue-600 text-white'
+                                    : 'theme-hover theme-text-muted hover:text-white'
+                            }`}
+                            title={pane.title}
+                        >
+                            {pane.type === 'chat' && <MessageSquare size={10} />}
+                            {pane.type === 'editor' && <FileIcon size={10} />}
+                            {pane.type === 'terminal' && <Terminal size={10} />}
+                            {pane.type === 'browser' && <Globe size={10} />}
+                            {pane.type === 'pdf' && <FileText size={10} />}
+                            {!['chat', 'editor', 'terminal', 'browser', 'pdf'].includes(pane.type) && <FileIcon size={10} />}
+                            <span className="truncate max-w-[60px]">{pane.title}</span>
+                        </button>
+                    ))}
+                </div>
+
+                <div className="flex-1" />
+
+                {/* Right side buttons - Data tools */}
+                <div className="flex items-center gap-1">
+                    <button
+                        onClick={() => setMemoryModalOpen(true)}
+                        className="p-1 theme-hover rounded theme-text-muted"
+                        title="Memory Editor"
+                    >
+                        <Brain size={12} />
+                    </button>
+                    <button
+                        onClick={() => setKnowledgeGraphModalOpen(true)}
+                        className="p-1 theme-hover rounded theme-text-muted"
+                        title="Knowledge Graph"
+                    >
+                        <GitBranch size={12} />
+                    </button>
+                    <button
+                        onClick={() => setActivityModalOpen(true)}
+                        className="p-1 theme-hover rounded theme-text-muted"
+                        title="Activity Intelligence"
+                    >
+                        <Activity size={12} />
+                    </button>
+                    <button
+                        onClick={() => setLabeledDataModalOpen(true)}
+                        className="p-1 theme-hover rounded theme-text-muted"
+                        title="Labeled Data Manager"
+                    >
+                        <Tag size={12} />
+                    </button>
+                    <div className="w-px h-3 bg-gray-600 mx-1" />
+                    <button
+                        onClick={() => setDiskUsageModalOpen(true)}
+                        className="p-1 theme-hover rounded theme-text-muted"
+                        title="Disk Usage Analyzer"
+                    >
+                        <HardDrive size={12} />
+                    </button>
+                </div>
             </div>
         </main>
     );
@@ -4753,7 +5794,9 @@ const renderMainContent = () => {
         setJinxMenuOpen={setJinxMenuOpen}
         setCtxEditorOpen={setCtxEditorOpen}
         setTeamManagementOpen={setTeamManagementOpen}
+        setNpcTeamMenuOpen={setNpcTeamMenuOpen}
         setSidebarCollapsed={setSidebarCollapsed}
+        setBrowserHistoryModalOpen={setBrowserHistoryModalOpen}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}

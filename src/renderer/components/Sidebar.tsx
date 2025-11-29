@@ -3,7 +3,7 @@ import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
-    Sun, Moon, FileStack, Share2
+    Sun, Moon, FileStack, Share2, Bot, Zap
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import npcLogo from '../../assets/icon.png';
@@ -34,7 +34,7 @@ const Sidebar = (props: any) => {
         setIsSearching, setDeepSearchResults, setMessageSearchResults,
         setIsEditingPath, setEditedPath, setSettingsOpen, setBrowserUrlDialogOpen,
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
-        setCtxEditorOpen, setTeamManagementOpen, setSidebarCollapsed,
+        setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed, setBrowserHistoryModalOpen,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -748,8 +748,8 @@ const refreshConversations = async () => {
 
 const renderWebsiteList = () => {
     const header = (
-        <div className="flex items-center justify-between px-4 py-2 mt-4">
-            <div className="text-xs text-gray-500 font-medium">Websites</div>
+        <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
+            <div className="text-xs text-gray-400 font-medium">Websites</div>
                     <div className="flex items-center gap-1 w-[66%]">
                 <button
                     onClick={(e) => {
@@ -864,6 +864,15 @@ const renderWebsiteList = () => {
                             ))}
                         </div>
                     )}
+
+                    {/* Browser History Web Graph */}
+                    <button
+                        onClick={() => setBrowserHistoryModalOpen(true)}
+                        className="flex items-center gap-2 px-2 py-2 w-full text-left rounded hover:bg-gray-800 transition-all text-xs border border-dashed border-gray-700 hover:border-blue-500"
+                    >
+                        <Share2 size={14} className="text-blue-400" />
+                        <span>Browse History Web Graph</span>
+                    </button>
 
                     {/* Recent History */}
                     {websiteHistory.length > 0 && (
@@ -1369,8 +1378,8 @@ const renderFolderList = (structure) => {
     }
 
     const header = (
-        <div className="flex items-center justify-between px-4 py-2 mt-4">
-            <div className="text-xs text-gray-500 font-medium">Files and Folders</div>
+        <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
+            <div className="text-xs text-gray-400 font-medium">Files & Folders</div>
             <div className="flex items-center gap-1">
                 <button
                     onClick={(e) => {
@@ -1593,8 +1602,8 @@ const renderFolderList = (structure) => {
         
        
         const header = (
-            <div className="flex items-center justify-between px-4 py-2 mt-4">
-                <div className="text-xs text-gray-500 font-medium">Conversations ({sortedConversations.length})</div>
+            <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
+                <div className="text-xs text-gray-400 font-medium">Conversations ({sortedConversations.length})</div>
                 <div className="flex items-center gap-1">
     
                     <button 
@@ -1886,40 +1895,6 @@ return (
             />
         )}
 
-        {/* Path Selector - uppermost element */}
-        <div className={`p-2 pt-4 border-b theme-border flex items-center gap-2 flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}
-              style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
-            <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} className="flex items-center gap-2 flex-1">
-                <button onClick={goUpDirectory} className="p-2 theme-hover rounded-full transition-all" title="Go Up" aria-label="Go Up Directory"><ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/></button>
-                {isEditingPath ? (
-                    <input
-                        type="text"
-                        value={editedPath}
-                        onChange={(e) => setEditedPath(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                setIsEditingPath(false);
-                                switchToPath(editedPath);
-                            } else if (e.key === 'Escape') {
-                                setIsEditingPath(false);
-                            }
-                        }}
-                        onBlur={() => setIsEditingPath(false)}
-                        autoFocus
-                        className="text-xs theme-text-muted theme-input border rounded px-2 py-1 flex-1"
-                    />
-                ) : (
-                    <div
-                        onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }}
-                        className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-1 rounded flex-1"
-                        title={currentPath}
-                    >
-                        {currentPath || '...'}
-                    </div>
-                )}
-            </div>
-        </div>
-
         {/* Header Actions */}
         <div className={`px-4 py-2 border-b theme-border flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
             <div className={`grid grid-cols-2 ${headerActionsExpanded ? 'grid-rows-4' : ''} divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden`}>
@@ -1990,35 +1965,6 @@ return (
             </button>
         </div>
 
-        <div className={`p-2 border-b theme-border flex flex-col gap-2 flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
-            <div className="flex items-center gap-2">
-            <input
-                ref={searchInputRef}
-                type="text"
-                value={searchTerm}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                    }
-                }}
-                placeholder={getPlaceholderText()}
-                className="flex-grow theme-input text-xs rounded px-2 py-1 border focus:outline-none"
-            />
-                <button
-                    onClick={() => {
-                        setSearchTerm('');
-                        setIsSearching(false);
-                        setDeepSearchResults([]);
-                        setMessageSearchResults([]);
-                    }}
-                    className="p-2 theme-hover rounded-full transition-all"
-                    aria-label="Clear Search"
-                >
-                    <X size={14} className="text-gray-400" />
-                </button>
-            </div>
-        </div>
-
         <div className={`flex-1 overflow-y-auto px-2 py-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
             {loading ? (
                 <div className="p-4 theme-text-muted">Loading...</div>
@@ -2029,8 +1975,6 @@ return (
                     {renderWebsiteList()}
                     {renderFolderList(folderStructure)}
                     {renderConversationList(directoryConversations)}
-                    {renderGitPanel()}
-                    {renderDiskUsagePanel()}
                 </>
             )}
             {contextMenuPos && renderContextMenu()}
@@ -2039,11 +1983,6 @@ return (
         </div>
 
         {sidebarCollapsed && <div className="flex-1"></div>}
-
-        <div className={sidebarCollapsed ? 'hidden' : ''}>
-            {renderActiveWindowsIndicator()}
-            {renderWorkspaceIndicator()}
-        </div>
 
         <div className={`flex justify-center ${sidebarCollapsed ? 'hidden' : ''}`}>
             <button
@@ -2057,11 +1996,13 @@ return (
 
         <div className="p-4 border-t theme-border flex-shrink-0">
             {!sidebarCollapsed && (
-                <div className="grid grid-cols-2 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
-                    <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard"><BarChart3 size={16} /></button>
-                    <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer"><Image size={16} /></button>
-                    <button onClick={() => setSettingsOpen(true)} className="action-grid-button" aria-label="Settings"><Settings size={16} /></button>
-                    <button onClick={() => setTeamManagementOpen(true)} className="action-grid-button" aria-label="Team Management"><Users size={16} /></button>
+                <div className="grid grid-cols-3 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
+                    <button onClick={() => setSettingsOpen(true)} className="action-grid-button" aria-label="Settings" title="Settings"><Settings size={16} /></button>
+                    <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard" title="Dashboard"><BarChart3 size={16} /></button>
+                    <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer" title="Photo Viewer"><Image size={16} /></button>
+                    <button onClick={() => setTeamManagementOpen(true)} className="action-grid-button" aria-label="Team Management" title="Team Management"><Users size={16} /></button>
+                    <button onClick={() => setNpcTeamMenuOpen(true)} className="action-grid-button" aria-label="NPCs" title="NPCs"><Bot size={16} /></button>
+                    <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Jinxs" title="Jinxs"><Zap size={16} /></button>
                 </div>
             )}
 
