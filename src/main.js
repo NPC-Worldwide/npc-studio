@@ -2062,6 +2062,87 @@ ipcMain.handle('mcp:listTools', async (event, { serverPath, conversationId, npc,
   }
 });
 
+// Add a desktop integration MCP server
+ipcMain.handle('mcp:addIntegration', async (event, { integrationId, serverScript, envVars, name } = {}) => {
+  try {
+    // Destination directory for MCP servers
+    const npcshDir = path.join(os.homedir(), '.npcsh');
+    const mcpServersDir = path.join(npcshDir, 'mcp_servers');
+
+    // Ensure directories exist
+    await fsPromises.mkdir(mcpServersDir, { recursive: true });
+
+    // Source path (bundled with app)
+    const sourcePath = path.join(__dirname, 'mcp_servers', serverScript);
+    const destPath = path.join(mcpServersDir, serverScript);
+
+    // Check if source exists
+    if (!fs.existsSync(sourcePath)) {
+      return { error: `MCP server script not found: ${serverScript}` };
+    }
+
+    // Copy the script
+    await fsPromises.copyFile(sourcePath, destPath);
+    console.log(`[MCP] Copied ${serverScript} to ${destPath}`);
+
+    // Build server path that will be added to context
+    const serverPath = destPath;
+
+    // Read current global context
+    let globalContext = {};
+    const globalCtxPath = path.join(npcshDir, '.ctx');
+    try {
+      const ctxContent = await fsPromises.readFile(globalCtxPath, 'utf-8');
+      globalContext = JSON.parse(ctxContent);
+    } catch (e) {
+      // File doesn't exist yet, start fresh
+      globalContext = {};
+    }
+
+    // Ensure mcp_servers array exists
+    if (!globalContext.mcp_servers) {
+      globalContext.mcp_servers = [];
+    }
+
+    // Check if this integration already exists
+    const existingIndex = globalContext.mcp_servers.findIndex(s => {
+      if (typeof s === 'string') return s === serverPath;
+      return s.value === serverPath || s.id === integrationId;
+    });
+
+    // Create the server entry with env vars
+    const serverEntry = {
+      id: integrationId,
+      name: name,
+      value: serverPath,
+      env: envVars || {}
+    };
+
+    if (existingIndex >= 0) {
+      // Update existing
+      globalContext.mcp_servers[existingIndex] = serverEntry;
+    } else {
+      // Add new
+      globalContext.mcp_servers.push(serverEntry);
+    }
+
+    // Write back the context
+    await fsPromises.writeFile(globalCtxPath, JSON.stringify(globalContext, null, 2), 'utf-8');
+    console.log(`[MCP] Added ${name} integration to global context`);
+
+    // Notify npcpy backend to reload context (if endpoint exists)
+    try {
+      await fetch('http://127.0.0.1:5337/api/context/reload', { method: 'POST' });
+    } catch (e) {
+      // Ignore if reload endpoint doesn't exist
+    }
+
+    return { success: true, serverPath, error: null };
+  } catch (err) {
+    console.error('Error adding MCP integration', err);
+    return { error: err.message };
+  }
+});
 
 ipcMain.handle('kg:getNetworkStats', async (event, { generation }) => {
   const params = generation !== null ? `?generation=${generation}` : '';
@@ -4529,6 +4610,16 @@ ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, context: contextData }),
+  });
+});
+
+ipcMain.handle('init-project-team', async (event, projectPath) => {
+  if (!projectPath) return { error: 'Path is required' };
+  const url = `http://127.0.0.1:5337/api/context/project/init`;
+  return await callBackendApi(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: projectPath }),
   });
 });
 

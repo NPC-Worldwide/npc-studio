@@ -169,8 +169,9 @@ const McpServerMenu = ({ isOpen, onClose, currentPath }) => {
                                 </div>
                             </div>
                         ) : (
-                            <div className="flex items-center justify-center h-full theme-text-secondary">
-                                Select an MCP server
+                            <div className="flex items-center justify-center h-full theme-text-secondary flex-col gap-4">
+                                <Server size={48} className="text-gray-600" />
+                                <div>Select an MCP server</div>
                             </div>
                         )}
                     </div>

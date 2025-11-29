@@ -432,6 +432,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
             autoScrollEnabled, setAutoScrollEnabled,
             messageSelectionMode, toggleMessageSelectionMode, selectedMessages,
             conversationBranches, showBranchingUI, setShowBranchingUI,
+            // Input area for chat panes
+            renderInputArea,
         } = component;
 
         const isActive = node.id === activeContentPaneId;
@@ -593,7 +595,12 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
             switch (contentType) {
                 case 'chat':
-                    return renderChatView({ nodeId: node.id });
+                    return (
+                        <>
+                            {renderChatView({ nodeId: node.id })}
+                            {renderInputArea && renderInputArea({ paneId: node.id })}
+                        </>
+                    );
                 case 'editor':
                     return renderFileEditor({ nodeId: node.id });
                 case 'terminal':

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-    X, FileJson, Users, Wrench, Clock, Database, Plus, Trash2, Play, Pause
+    X, FileJson, Users, Wrench, Clock, Database, Plus, Trash2, Play, Pause, Server, Mail, Save
 } from 'lucide-react';
 
 // Import existing components
 import CtxEditor from './CtxEditor';
 import NPCTeamMenu from './NPCTeamMenu';
 import JinxMenu from './JinxMenu';
+import McpServerMenu from './McpServerMenu';
 
 interface TeamManagementProps {
     isOpen: boolean;
@@ -17,10 +18,10 @@ interface TeamManagementProps {
     jinxList?: any[];
 }
 
-type TabId = 'context' | 'npcs' | 'jinxs' | 'cron' | 'models';
+type TabId = 'context' | 'npcs' | 'jinxs' | 'cron' | 'models' | 'databases' | 'mcp';
 
 // Full Cron/Daemon management component
-const CronDaemonContent = ({ currentPath, npcList: initialNpcList = [], jinxList: initialJinxList = [] }) => {
+const CronDaemonContent = ({ currentPath, npcList: initialNpcList = [], jinxList: initialJinxList = [], isGlobal }: { currentPath: string; npcList?: any[]; jinxList?: any[]; isGlobal: boolean }) => {
     const [cronJobs, setCronJobs] = useState<any[]>([]);
     const [daemons, setDaemons] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
@@ -29,7 +30,6 @@ const CronDaemonContent = ({ currentPath, npcList: initialNpcList = [], jinxList
     // Local NPC and Jinx lists (fetched fresh)
     const [npcs, setNpcs] = useState<any[]>(initialNpcList);
     const [jinxs, setJinxs] = useState<any[]>(initialJinxList);
-    const [isGlobal, setIsGlobal] = useState(false);
 
     // New cron job form
     const [newJobSchedule, setNewJobSchedule] = useState('*/5 * * * *');
@@ -181,19 +181,6 @@ const CronDaemonContent = ({ currentPath, npcList: initialNpcList = [], jinxList
     return (
         <div className="space-y-8">
             {error && <div className="text-red-400 bg-red-900/20 p-3 rounded-lg">{error}</div>}
-
-            {/* Scope toggle */}
-            <div className="flex items-center gap-4">
-                <button
-                    onClick={() => setIsGlobal(!isGlobal)}
-                    className="theme-button px-4 py-2 rounded text-sm"
-                >
-                    {isGlobal ? 'Global NPCs/Jinxs' : 'Project NPCs/Jinxs'} (Click to Switch)
-                </button>
-                <span className="text-xs theme-text-muted">
-                    Using {isGlobal ? 'global' : 'project-level'} NPCs and Jinxs for scheduling
-                </span>
-            </div>
 
             {/* Cron Jobs Section */}
             <section>
@@ -452,13 +439,12 @@ const CronDaemonContent = ({ currentPath, npcList: initialNpcList = [], jinxList
 };
 
 // SQL Models content - dbt-style with npcsql/jinx integration
-const SqlModelsContent = ({ currentPath, npcList = [], jinxList = [] }) => {
+const SqlModelsContent = ({ currentPath, npcList = [], jinxList = [], isGlobal }: { currentPath: string; npcList?: any[]; jinxList?: any[]; isGlobal: boolean }) => {
     const [models, setModels] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState<any | null>(null);
     const [isEditing, setIsEditing] = useState(false);
-    const [isGlobal, setIsGlobal] = useState(false);
 
     // Available NPCs and Jinxs for reference
     const [npcs, setNpcs] = useState<any[]>([]);
@@ -844,25 +830,17 @@ LIMIT 10
 
             {/* Header */}
             <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => setIsGlobal(!isGlobal)}
-                        className="theme-button px-3 py-2 rounded text-sm"
+                <div className="flex items-center gap-2">
+                    <label className="text-xs theme-text-muted">Target DB:</label>
+                    <select
+                        value={selectedDatabase}
+                        onChange={e => setSelectedDatabase(e.target.value)}
+                        className="theme-input text-sm py-1 px-2 rounded min-w-[200px]"
                     >
-                        {isGlobal ? 'Global Models' : 'Project Models'}
-                    </button>
-                    <div className="flex items-center gap-2">
-                        <label className="text-xs theme-text-muted">Target DB:</label>
-                        <select
-                            value={selectedDatabase}
-                            onChange={e => setSelectedDatabase(e.target.value)}
-                            className="theme-input text-sm py-1 px-2 rounded min-w-[200px]"
-                        >
-                            {availableDatabases.map(db => (
-                                <option key={db.path} value={db.path}>{db.name}</option>
-                            ))}
-                        </select>
-                    </div>
+                        {availableDatabases.map(db => (
+                            <option key={db.path} value={db.path}>{db.name}</option>
+                        ))}
+                    </select>
                 </div>
                 <button
                     onClick={handleCreateModel}
@@ -956,6 +934,343 @@ LIMIT 10
     );
 };
 
+// Databases Content - manage database connections
+const DatabasesContent = ({ currentPath, isGlobal }: { currentPath: string; isGlobal: boolean }) => {
+    const [databases, setDatabases] = useState<{ value: string }[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [newDbPath, setNewDbPath] = useState('');
+
+    const loadDatabases = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = isGlobal
+                ? await (window as any).api.getGlobalContext()
+                : await (window as any).api.getProjectContext(currentPath);
+            if (res?.error) throw new Error(res.error);
+            setDatabases(res?.context?.databases || []);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadDatabases();
+    }, [currentPath, isGlobal]);
+
+    const handleSave = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            if (isGlobal) {
+                const current = await (window as any).api.getGlobalContext();
+                await (window as any).api.saveGlobalContext({ ...current.context, databases });
+            } else {
+                const current = await (window as any).api.getProjectContext(currentPath);
+                await (window as any).api.saveProjectContext({ path: currentPath, contextData: { ...current.context, databases } });
+            }
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAdd = () => {
+        if (!newDbPath.trim()) return;
+        setDatabases(prev => [...prev, { value: newDbPath.trim() }]);
+        setNewDbPath('');
+    };
+
+    const handleRemove = (index: number) => {
+        setDatabases(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleChange = (index: number, value: string) => {
+        setDatabases(prev => prev.map((db, i) => i === index ? { value } : db));
+    };
+
+    if (!isGlobal && !currentPath) {
+        return <div className="text-center py-12 theme-text-muted">Select a project folder or switch to Global.</div>;
+    }
+
+    return (
+        <div className="space-y-6">
+            {error && <div className="text-red-400 bg-red-900/20 p-3 rounded-lg">{error}</div>}
+
+            <div className="space-y-3">
+                {databases.map((db, idx) => (
+                    <div key={idx} className="flex gap-2 items-center theme-bg-tertiary p-3 rounded-lg">
+                        <Database size={18} className="text-blue-400 flex-shrink-0" />
+                        <input
+                            type="text"
+                            value={db.value || ''}
+                            onChange={(e) => handleChange(idx, e.target.value)}
+                            className="flex-1 theme-input text-sm font-mono"
+                            placeholder="~/path/to/database.db"
+                        />
+                        <button onClick={() => handleRemove(idx)} className="p-2 text-red-400 hover:bg-red-900/30 rounded">
+                            <Trash2 size={16} />
+                        </button>
+                    </div>
+                ))}
+                {databases.length === 0 && (
+                    <div className="text-center py-8 theme-text-muted">No databases configured.</div>
+                )}
+            </div>
+
+            <div className="flex gap-2">
+                <input
+                    type="text"
+                    value={newDbPath}
+                    onChange={(e) => setNewDbPath(e.target.value)}
+                    placeholder="~/npcsh_history.db"
+                    className="flex-1 theme-input text-sm font-mono"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                />
+                <button onClick={handleAdd} className="theme-button px-4 py-2 rounded text-sm flex items-center gap-2">
+                    <Plus size={16} /> Add
+                </button>
+            </div>
+
+            <div className="border-t theme-border pt-4 flex justify-end">
+                <button onClick={handleSave} disabled={loading} className="theme-button-primary px-4 py-2 rounded text-sm flex items-center gap-2">
+                    <Save size={16} /> {loading ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// MCP Servers Content - manage MCP server connections with email integration
+const McpServersContent = ({ currentPath, isGlobal }: { currentPath: string; isGlobal: boolean }) => {
+    const [mcpServers, setMcpServers] = useState<{ value: string; id?: string; name?: string; env?: any }[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [newServerPath, setNewServerPath] = useState('');
+    const [showEmailSetup, setShowEmailSetup] = useState(false);
+    const [emailConfig, setEmailConfig] = useState({
+        client_type: 'thunderbird',
+        thunderbird_profile: '',
+        imap_server: '',
+        imap_port: '993',
+        smtp_server: '',
+        smtp_port: '587',
+        email_address: '',
+        email_password: '',
+    });
+
+    const loadServers = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = isGlobal
+                ? await (window as any).api.getGlobalContext()
+                : await (window as any).api.getProjectContext(currentPath);
+            if (res?.error) throw new Error(res.error);
+            setMcpServers(res?.context?.mcp_servers || []);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadServers();
+    }, [currentPath, isGlobal]);
+
+    const handleSave = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            if (isGlobal) {
+                const current = await (window as any).api.getGlobalContext();
+                await (window as any).api.saveGlobalContext({ ...current.context, mcp_servers: mcpServers });
+            } else {
+                const current = await (window as any).api.getProjectContext(currentPath);
+                await (window as any).api.saveProjectContext({ path: currentPath, contextData: { ...current.context, mcp_servers: mcpServers } });
+            }
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAdd = () => {
+        if (!newServerPath.trim()) return;
+        setMcpServers(prev => [...prev, { value: newServerPath.trim() }]);
+        setNewServerPath('');
+    };
+
+    const handleRemove = (index: number) => {
+        setMcpServers(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleChange = (index: number, value: string) => {
+        setMcpServers(prev => prev.map((s, i) => i === index ? { ...s, value } : s));
+    };
+
+    const handleAddEmailIntegration = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const envVars: any = { CLIENT_TYPE: emailConfig.client_type };
+            if (emailConfig.client_type === 'thunderbird' && emailConfig.thunderbird_profile) {
+                envVars.THUNDERBIRD_PROFILE = emailConfig.thunderbird_profile;
+            } else if (emailConfig.client_type === 'imap') {
+                envVars.IMAP_SERVER = emailConfig.imap_server;
+                envVars.IMAP_PORT = emailConfig.imap_port;
+                envVars.SMTP_SERVER = emailConfig.smtp_server;
+                envVars.SMTP_PORT = emailConfig.smtp_port;
+                envVars.EMAIL_ADDRESS = emailConfig.email_address;
+                envVars.EMAIL_PASSWORD = emailConfig.email_password;
+            }
+
+            const result = await (window as any).api.addMcpIntegration({
+                integrationId: 'email',
+                serverScript: 'email_mcp_server.py',
+                envVars,
+                name: 'Email',
+            });
+
+            if (result?.error) throw new Error(result.error);
+            setShowEmailSetup(false);
+            await loadServers();
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (!isGlobal && !currentPath) {
+        return <div className="text-center py-12 theme-text-muted">Select a project folder or switch to Global.</div>;
+    }
+
+    return (
+        <div className="space-y-6">
+            {error && <div className="text-red-400 bg-red-900/20 p-3 rounded-lg">{error}</div>}
+
+            {/* Email Integration Setup */}
+            {showEmailSetup ? (
+                <div className="theme-bg-tertiary p-4 rounded-lg space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h4 className="font-semibold flex items-center gap-2"><Mail size={18} className="text-blue-400" /> Email Integration</h4>
+                        <button onClick={() => setShowEmailSetup(false)} className="text-gray-400 hover:text-white"><X size={18} /></button>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs theme-text-muted mb-1">Email Client</label>
+                        <select value={emailConfig.client_type} onChange={(e) => setEmailConfig(prev => ({ ...prev, client_type: e.target.value }))} className="w-full theme-input text-sm">
+                            <option value="thunderbird">Thunderbird</option>
+                            <option value="apple_mail">Apple Mail</option>
+                            <option value="imap">IMAP/SMTP</option>
+                        </select>
+                    </div>
+
+                    {emailConfig.client_type === 'thunderbird' && (
+                        <div>
+                            <label className="block text-xs theme-text-muted mb-1">Profile Path (leave empty for auto-detect)</label>
+                            <input type="text" value={emailConfig.thunderbird_profile} onChange={(e) => setEmailConfig(prev => ({ ...prev, thunderbird_profile: e.target.value }))} placeholder="~/.thunderbird/*.default-release" className="w-full theme-input text-sm" />
+                        </div>
+                    )}
+
+                    {emailConfig.client_type === 'imap' && (
+                        <>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs theme-text-muted mb-1">IMAP Server</label>
+                                    <input type="text" value={emailConfig.imap_server} onChange={(e) => setEmailConfig(prev => ({ ...prev, imap_server: e.target.value }))} placeholder="imap.gmail.com" className="w-full theme-input text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs theme-text-muted mb-1">IMAP Port</label>
+                                    <input type="text" value={emailConfig.imap_port} onChange={(e) => setEmailConfig(prev => ({ ...prev, imap_port: e.target.value }))} className="w-full theme-input text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs theme-text-muted mb-1">SMTP Server</label>
+                                    <input type="text" value={emailConfig.smtp_server} onChange={(e) => setEmailConfig(prev => ({ ...prev, smtp_server: e.target.value }))} placeholder="smtp.gmail.com" className="w-full theme-input text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs theme-text-muted mb-1">SMTP Port</label>
+                                    <input type="text" value={emailConfig.smtp_port} onChange={(e) => setEmailConfig(prev => ({ ...prev, smtp_port: e.target.value }))} className="w-full theme-input text-sm" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs theme-text-muted mb-1">Email Address</label>
+                                <input type="email" value={emailConfig.email_address} onChange={(e) => setEmailConfig(prev => ({ ...prev, email_address: e.target.value }))} placeholder="you@example.com" className="w-full theme-input text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-xs theme-text-muted mb-1">App Password</label>
+                                <input type="password" value={emailConfig.email_password} onChange={(e) => setEmailConfig(prev => ({ ...prev, email_password: e.target.value }))} placeholder="App-specific password" className="w-full theme-input text-sm" />
+                                <p className="text-xs theme-text-muted mt-1">For Gmail, use an App Password from Google Account security settings.</p>
+                            </div>
+                        </>
+                    )}
+
+                    <button onClick={handleAddEmailIntegration} disabled={loading} className="w-full theme-button-primary py-2 rounded text-sm">
+                        {loading ? 'Adding...' : 'Add Email Integration'}
+                    </button>
+                </div>
+            ) : (
+                <button onClick={() => setShowEmailSetup(true)} className="w-full theme-bg-tertiary p-4 rounded-lg text-left hover:border-blue-500 border border-transparent transition flex items-center gap-3">
+                    <Mail size={24} className="text-blue-400" />
+                    <div>
+                        <div className="font-medium">Add Email Integration</div>
+                        <div className="text-xs theme-text-muted">Connect Thunderbird, Apple Mail, or IMAP/SMTP</div>
+                    </div>
+                </button>
+            )}
+
+            {/* MCP Servers List */}
+            <div className="space-y-3">
+                {mcpServers.map((server, idx) => (
+                    <div key={idx} className="flex gap-2 items-center theme-bg-tertiary p-3 rounded-lg">
+                        <Server size={18} className="text-green-400 flex-shrink-0" />
+                        <div className="flex-1">
+                            <input
+                                type="text"
+                                value={server.value || ''}
+                                onChange={(e) => handleChange(idx, e.target.value)}
+                                className="w-full theme-input text-sm font-mono bg-transparent"
+                                placeholder="~/.npcsh/mcp_server.py"
+                            />
+                            {server.name && <span className="text-xs text-blue-400">{server.name}</span>}
+                        </div>
+                        <button onClick={() => handleRemove(idx)} className="p-2 text-red-400 hover:bg-red-900/30 rounded">
+                            <Trash2 size={16} />
+                        </button>
+                    </div>
+                ))}
+            </div>
+
+            <div className="flex gap-2">
+                <input
+                    type="text"
+                    value={newServerPath}
+                    onChange={(e) => setNewServerPath(e.target.value)}
+                    placeholder="~/.npcsh/my_mcp_server.py"
+                    className="flex-1 theme-input text-sm font-mono"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                />
+                <button onClick={handleAdd} className="theme-button px-4 py-2 rounded text-sm flex items-center gap-2">
+                    <Plus size={16} /> Add
+                </button>
+            </div>
+
+            <div className="border-t theme-border pt-4 flex justify-end">
+                <button onClick={handleSave} disabled={loading} className="theme-button-primary px-4 py-2 rounded text-sm flex items-center gap-2">
+                    <Save size={16} /> {loading ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
 const TeamManagement: React.FC<TeamManagementProps> = ({
     isOpen,
     onClose,
@@ -965,6 +1280,49 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     jinxList = []
 }) => {
     const [activeTab, setActiveTab] = useState<TabId>('context');
+    const [isGlobal, setIsGlobal] = useState(false);
+    const [hasProjectTeam, setHasProjectTeam] = useState<boolean | null>(null);
+    const [initializingTeam, setInitializingTeam] = useState(false);
+
+    // Check if project has npc_team folder
+    useEffect(() => {
+        const checkProjectTeam = async () => {
+            if (!currentPath) {
+                setHasProjectTeam(false);
+                setIsGlobal(true);
+                return;
+            }
+            try {
+                const res = await (window as any).api.getProjectContext(currentPath);
+                // If we get a valid response with a path, project team exists
+                setHasProjectTeam(!!res?.path);
+                if (!res?.path) {
+                    setIsGlobal(true); // Default to global if no project team
+                }
+            } catch {
+                setHasProjectTeam(false);
+                setIsGlobal(true);
+            }
+        };
+        if (isOpen) {
+            checkProjectTeam();
+        }
+    }, [isOpen, currentPath]);
+
+    const handleInitializeProjectTeam = async () => {
+        if (!currentPath) return;
+        setInitializingTeam(true);
+        try {
+            // Initialize project team by saving empty context
+            await (window as any).api.initProjectTeam(currentPath);
+            setHasProjectTeam(true);
+            setIsGlobal(false);
+        } catch (err) {
+            console.error('Failed to initialize project team:', err);
+        } finally {
+            setInitializingTeam(false);
+        }
+    };
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -978,8 +1336,10 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
 
     const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
         { id: 'context', label: 'Context', icon: <FileJson size={16} /> },
-        { id: 'npcs', label: 'NPC Team', icon: <Users size={16} /> },
+        { id: 'npcs', label: 'NPCs', icon: <Users size={16} /> },
         { id: 'jinxs', label: 'Jinxs', icon: <Wrench size={16} /> },
+        { id: 'databases', label: 'Databases', icon: <Database size={16} /> },
+        { id: 'mcp', label: 'MCP Servers', icon: <Server size={16} /> },
         { id: 'cron', label: 'Cron/Daemons', icon: <Clock size={16} /> },
         { id: 'models', label: 'SQL Models', icon: <Database size={16} /> },
     ];
@@ -1000,12 +1360,40 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                         <Users className="text-purple-400" size={24} />
                         <h2 className="text-xl font-semibold">Team Management</h2>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="p-2 rounded-lg theme-hover transition-colors"
-                    >
-                        <X size={20} />
-                    </button>
+                    <div className="flex items-center gap-4">
+                        {/* Project/Global Toggle */}
+                        <div className="flex items-center gap-2 bg-gray-800 rounded-lg p-1">
+                            {hasProjectTeam ? (
+                                <button
+                                    onClick={() => setIsGlobal(false)}
+                                    className={`px-3 py-1.5 rounded text-sm font-medium transition ${!isGlobal ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                                >
+                                    Project
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={handleInitializeProjectTeam}
+                                    disabled={initializingTeam || !currentPath}
+                                    className="px-3 py-1.5 rounded text-sm font-medium transition text-gray-400 hover:text-white flex items-center gap-1 disabled:opacity-50"
+                                    title={currentPath ? "Initialize project team" : "No project folder selected"}
+                                >
+                                    <Plus size={14} /> Project
+                                </button>
+                            )}
+                            <button
+                                onClick={() => setIsGlobal(true)}
+                                className={`px-3 py-1.5 rounded text-sm font-medium transition ${isGlobal ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                            >
+                                Global
+                            </button>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-2 rounded-lg theme-hover transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
                 </div>
 
                 {/* Tab Navigation */}
@@ -1033,9 +1421,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                             isOpen={true}
                             onClose={() => {}}
                             currentPath={currentPath}
-                            npcList={npcList}
-                            jinxList={jinxList}
                             embedded={true}
+                            isGlobal={isGlobal}
                         />
                     )}
                     {activeTab === 'npcs' && (
@@ -1045,6 +1432,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                             currentPath={currentPath}
                             startNewConversation={startNewConversation}
                             embedded={true}
+                            isGlobal={isGlobal}
                         />
                     )}
                     {activeTab === 'jinxs' && (
@@ -1053,6 +1441,19 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                             onClose={() => {}}
                             currentPath={currentPath}
                             embedded={true}
+                            isGlobal={isGlobal}
+                        />
+                    )}
+                    {activeTab === 'databases' && (
+                        <DatabasesContent
+                            currentPath={currentPath}
+                            isGlobal={isGlobal}
+                        />
+                    )}
+                    {activeTab === 'mcp' && (
+                        <McpServersContent
+                            currentPath={currentPath}
+                            isGlobal={isGlobal}
                         />
                     )}
                     {activeTab === 'cron' && (
@@ -1060,11 +1461,13 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                             currentPath={currentPath}
                             npcList={npcList}
                             jinxList={jinxList}
+                            isGlobal={isGlobal}
                         />
                     )}
                     {activeTab === 'models' && (
                         <SqlModelsContent
                             currentPath={currentPath}
+                            isGlobal={isGlobal}
                         />
                     )}
                 </div>

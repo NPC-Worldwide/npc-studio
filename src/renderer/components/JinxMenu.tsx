@@ -5,12 +5,11 @@ import {
 } from 'lucide-react';
 import AutosizeTextarea from './AutosizeTextarea';
 
-const JinxMenu = ({ isOpen, onClose, currentPath, embedded = false }) => {
+const JinxMenu = ({ isOpen, onClose, currentPath, embedded = false, isGlobal = true }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [jinxs, setJinxs] = useState([]);
     const [selectedJinx, setSelectedJinx] = useState(null);
-    const [isGlobal, setIsGlobal] = useState(true);
     const [editedJinx, setEditedJinx] = useState(null);
     const [expandedFolders, setExpandedFolders] = useState(new Set());
     const [testInputs, setTestInputs] = useState({});
@@ -305,15 +304,6 @@ const labelExecution = async (messageId, label) => {
 
     const content = (
         <>
-            {/* Scope Toggle - shown at top for embedded mode */}
-            <div className="flex items-center justify-between mb-4">
-                <button
-                    onClick={() => setIsGlobal(!isGlobal)}
-                    className="theme-button px-4 py-2 rounded text-sm"
-                >
-                    {isGlobal ? 'Global Jinxs' : 'Project Jinxs'} (Click to Switch)
-                </button>
-            </div>
             <div className="flex flex-1 min-h-0 border theme-border rounded-lg overflow-hidden">
                     <div className="w-1/3 border-r theme-border 
                         flex flex-col min-h-0">

@@ -34,13 +34,13 @@ const NPCTeamMenu = ({
     onClose,
     currentPath,
     startNewConversation,
-    embedded = false
+    embedded = false,
+    isGlobal = true
 }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [npcs, setNpcs] = useState([]);
     const [selectedNpc, setSelectedNpc] = useState(null);
-    const [isGlobal, setIsGlobal] = useState(true);
     const [editedNpc, setEditedNpc] = useState(null);
     const [availableJinxs, setAvailableJinxs] = useState([]);
     const [activeTab, setActiveTab] = useState('config');
@@ -380,19 +380,6 @@ const NPCTeamMenu = ({
 
     const content = (
         <>
-            {/* Scope Toggle */}
-            <div className="flex items-center justify-between mb-4">
-                <button
-                    onClick={() => {
-                        setIsGlobal(!isGlobal);
-                        setSelectedNpc(null);
-                        setEditedNpc(null);
-                    }}
-                    className="theme-button px-4 py-2 rounded text-sm"
-                >
-                    {isGlobal ? 'Global NPCs' : 'Project NPCs'} (Click to Switch)
-                </button>
-            </div>
             <div className="flex flex-1 min-h-0 overflow-hidden border theme-border rounded-lg">
                     <div className="w-1/5 border-r theme-border 
                         flex flex-col min-h-0">
