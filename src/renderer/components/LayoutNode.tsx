@@ -427,6 +427,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderPicViewer, renderMindMapViewer,
+            renderDataLabelerPane, renderGraphViewerPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -630,6 +631,10 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderPicViewer({ nodeId: node.id });
                 case 'mindmap':
                     return renderMindMapViewer({ nodeId: node.id });
+                case 'data-labeler':
+                    return renderDataLabelerPane({ nodeId: node.id });
+                case 'graph-viewer':
+                    return renderGraphViewerPane({ nodeId: node.id });
                 default:
                     // This is the content for an empty pane
                     return (

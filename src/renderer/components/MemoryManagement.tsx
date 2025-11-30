@@ -25,14 +25,27 @@ const MemoryManagement: React.FC<MemoryManagementProps> = ({ isModal = false, on
     const loadMemories = async () => {
         setMemoryLoading(true);
         try {
+            console.log('[MemoryManagement] Loading memories...');
             const result = await (window as any).api?.executeSQL?.({
                 query: `SELECT id, memory_id, initial_memory, final_memory, status, npc, timestamp FROM memory_lifecycle ORDER BY timestamp DESC LIMIT 500`
             });
+            console.log('[MemoryManagement] Raw SQL result:', result);
             // Handle both array result and object with rows property
-            const memoriesArray = Array.isArray(result) ? result : (result?.rows || result?.data || []);
+            let memoriesArray: Memory[] = [];
+            if (Array.isArray(result)) {
+                memoriesArray = result;
+            } else if (result?.rows) {
+                memoriesArray = result.rows;
+            } else if (result?.data) {
+                memoriesArray = result.data;
+            } else if (result && typeof result === 'object') {
+                // Maybe it's a single object or has a different structure
+                console.log('[MemoryManagement] Result keys:', Object.keys(result));
+            }
+            console.log('[MemoryManagement] Parsed memories:', memoriesArray.length);
             setMemories(Array.isArray(memoriesArray) ? memoriesArray : []);
         } catch (err) {
-            console.error('Error loading memories:', err);
+            console.error('[MemoryManagement] Error loading memories:', err);
             setMemories([]);
         } finally {
             setMemoryLoading(false);

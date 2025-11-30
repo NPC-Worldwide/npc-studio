@@ -32,6 +32,7 @@ import LatexViewer from './LatexViewer';
 import PicViewer from './PicViewer';
 import MindMapViewer from './MindMapViewer';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
+import ProjectEnvEditor from './ProjectEnvEditor';
 import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
@@ -108,6 +109,7 @@ const ChatInterface = () => {
     const [editedPath, setEditedPath] = useState('');
     const [isHovering, setIsHovering] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [projectEnvEditorOpen, setProjectEnvEditorOpen] = useState(false);
     const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
     const [photoViewerType, setPhotoViewerType] = useState('images');
     const [selectedConvos, setSelectedConvos] = useState(new Set());
@@ -1540,6 +1542,29 @@ const renderMindMapViewer = useCallback(({ nodeId }) => {
     );
 }, [rootLayoutNode, closeContentPane]);
 
+// Render DataLabeler pane (for pane-based viewing)
+const renderDataLabelerPane = useCallback(({ nodeId }) => {
+    return (
+        <DataLabeler
+            isPane={true}
+            messageLabels={messageLabels}
+            setMessageLabels={setMessageLabels}
+            conversationLabels={conversationLabels}
+            setConversationLabels={setConversationLabels}
+        />
+    );
+}, [messageLabels, setMessageLabels, conversationLabels, setConversationLabels]);
+
+// Render GraphViewer pane (for pane-based viewing)
+const renderGraphViewerPane = useCallback(({ nodeId }) => {
+    return (
+        <GraphViewer
+            isPane={true}
+            currentPath={currentPath}
+        />
+    );
+}, [currentPath]);
+
 // Use the PDF highlights loader from PdfViewer module
 useEffect(() => {
     loadPdfHighlightsForActivePane(activeContentPaneId, contentDataRef, setPdfHighlights);
@@ -1567,8 +1592,6 @@ useEffect(() => {
                 setDiskUsageModalOpen(false);
                 setWorkspaceModalOpen(false);
                 setSearchResultsModalOpen(false);
-                setGraphViewerOpen(false);
-                setDataLabelerOpen(false);
             }
         };
 
@@ -1866,6 +1889,118 @@ const renderMessageContextMenu = () => (
         setActiveContentPaneId(newPaneId);
         setActiveConversationId(null);
         setCurrentFile(null);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+    // Create DataLabeler pane
+    const createDataLabelerPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'data-labeler', 'data-labeler');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+    // Create GraphViewer pane
+    const createGraphViewerPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'graph-viewer', 'graph-viewer');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
     }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
     const handleGlobalDragStart = useCallback((e, item) => {
@@ -3513,6 +3648,13 @@ ${contextPrompt}`;
     availableModels={availableModels} // Pass available models for dropdown
 />
 
+{/* Project Environment Editor Modal */}
+<ProjectEnvEditor
+    isOpen={projectEnvEditorOpen}
+    onClose={() => setProjectEnvEditorOpen(false)}
+    currentPath={currentPath}
+/>
+
         {messageContextMenuPos && (
             <>
                 {/* Backdrop to catch outside clicks */}
@@ -4481,27 +4623,6 @@ ${contextPrompt}`;
                 />
             )}
 
-            {/* Graph Viewer Modal (Knowledge Graph + Browser History) */}
-            {graphViewerOpen && (
-                <GraphViewer
-                    isOpen={graphViewerOpen}
-                    onClose={() => setGraphViewerOpen(false)}
-                    currentPath={currentPath}
-                />
-            )}
-
-            {/* Data Labeler Modal (Memory + Labeled Data + Activity) */}
-            {dataLabelerOpen && (
-                <DataLabeler
-                    isOpen={dataLabelerOpen}
-                    onClose={() => setDataLabelerOpen(false)}
-                    messageLabels={messageLabels}
-                    setMessageLabels={setMessageLabels}
-                    conversationLabels={conversationLabels}
-                    setConversationLabels={setConversationLabels}
-                />
-            )}
-
         </>
 
     );
@@ -4564,6 +4685,8 @@ const layoutComponentApi = useMemo(() => ({
     renderLatexViewer,
     renderPicViewer,
     renderMindMapViewer,
+    renderDataLabelerPane,
+    renderGraphViewerPane,
     setPaneContextMenu,
     // Chat-specific props:
     autoScrollEnabled, setAutoScrollEnabled,
@@ -4582,6 +4705,8 @@ const layoutComponentApi = useMemo(() => ({
     renderLatexViewer,
     renderPicViewer,
     renderMindMapViewer,
+    renderDataLabelerPane,
+    renderGraphViewerPane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
     autoScrollEnabled, setAutoScrollEnabled,
@@ -5786,6 +5911,7 @@ const renderMainContent = () => {
         setIsEditingPath={setIsEditingPath}
         setEditedPath={setEditedPath}
         setSettingsOpen={setSettingsOpen}
+        setProjectEnvEditorOpen={setProjectEnvEditorOpen}
         setBrowserUrlDialogOpen={setBrowserUrlDialogOpen}
         setPhotoViewerOpen={setPhotoViewerOpen}
         setDashboardMenuOpen={setDashboardMenuOpen}
@@ -5794,9 +5920,9 @@ const renderMainContent = () => {
         setTeamManagementOpen={setTeamManagementOpen}
         setNpcTeamMenuOpen={setNpcTeamMenuOpen}
         setSidebarCollapsed={setSidebarCollapsed}
-        setGraphViewerOpen={setGraphViewerOpen}
-        setDataLabelerOpen={setDataLabelerOpen}
         setDiskUsageModalOpen={setDiskUsageModalOpen}
+        createGraphViewerPane={createGraphViewerPane}
+        createDataLabelerPane={createDataLabelerPane}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}

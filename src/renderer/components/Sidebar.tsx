@@ -32,10 +32,11 @@ const Sidebar = (props: any) => {
         setGitError, setGitStatus, setFilesCollapsed, setConversationsCollapsed, setWebsitesCollapsed,
         setInput, setContextMenuPos, setSidebarItemContextMenuPos, setSearchTerm,
         setIsSearching, setDeepSearchResults, setMessageSearchResults,
-        setIsEditingPath, setEditedPath, setSettingsOpen, setBrowserUrlDialogOpen,
+        setIsEditingPath, setEditedPath, setSettingsOpen, setProjectEnvEditorOpen, setBrowserUrlDialogOpen,
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
         setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed,
-        setGraphViewerOpen, setDataLabelerOpen, setDiskUsageModalOpen,
+        setDiskUsageModalOpen,
+        createGraphViewerPane, createDataLabelerPane,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -1982,9 +1983,9 @@ return (
                 <div className="grid grid-cols-3 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
                     <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Data Dash" title="Data Dash"><BarChart3 size={16} /></button>
                     <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Photo Viewer" title="Photo Viewer"><Image size={16} /></button>
-                    <button onClick={() => setSettingsOpen(true)} className="action-grid-button" aria-label="Env Settings" title="Env Settings"><FolderCog size={16} /></button>
-                    <button onClick={() => setGraphViewerOpen(true)} className="action-grid-button" aria-label="Graph Viewer" title="Graph Viewer (KG + Browser)"><GitBranch size={16} /></button>
-                    <button onClick={() => setDataLabelerOpen(true)} className="action-grid-button" aria-label="Data Labeler" title="Data Labeler (Memory + Labels + Activity)"><Tag size={16} /></button>
+                    <button onClick={() => setProjectEnvEditorOpen?.(true)} className="action-grid-button" aria-label="Project Env" title="Project .env Settings"><FolderCog size={16} /></button>
+                    <button onClick={() => createGraphViewerPane?.()} className="action-grid-button" aria-label="Graph Viewer" title="Graph Viewer (KG + Browser)"><GitBranch size={16} /></button>
+                    <button onClick={() => createDataLabelerPane?.()} className="action-grid-button" aria-label="Data Labeler" title="Data Labeler (Memory + Labels + Activity)"><Tag size={16} /></button>
                     <button onClick={() => setDiskUsageModalOpen(true)} className="action-grid-button" aria-label="Disk Usage" title="Disk Usage Analyzer"><HardDrive size={16} /></button>
                 </div>
             </div>
