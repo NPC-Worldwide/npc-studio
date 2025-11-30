@@ -28,9 +28,12 @@ const MemoryManagement: React.FC<MemoryManagementProps> = ({ isModal = false, on
             const result = await (window as any).api?.executeSQL?.({
                 query: `SELECT id, memory_id, initial_memory, final_memory, status, npc, timestamp FROM memory_lifecycle ORDER BY timestamp DESC LIMIT 500`
             });
-            setMemories(result || []);
+            // Handle both array result and object with rows property
+            const memoriesArray = Array.isArray(result) ? result : (result?.rows || result?.data || []);
+            setMemories(Array.isArray(memoriesArray) ? memoriesArray : []);
         } catch (err) {
             console.error('Error loading memories:', err);
+            setMemories([]);
         } finally {
             setMemoryLoading(false);
         }

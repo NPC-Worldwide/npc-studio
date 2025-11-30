@@ -3,7 +3,7 @@ import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
-    Sun, Moon, FileStack, Share2, Bot, Zap
+    Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, FolderCog
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import npcLogo from '../../assets/icon.png';
@@ -34,7 +34,8 @@ const Sidebar = (props: any) => {
         setIsSearching, setDeepSearchResults, setMessageSearchResults,
         setIsEditingPath, setEditedPath, setSettingsOpen, setBrowserUrlDialogOpen,
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
-        setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed, setBrowserHistoryModalOpen,
+        setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed,
+        setGraphViewerOpen, setDataLabelerOpen, setDiskUsageModalOpen,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -864,15 +865,6 @@ const renderWebsiteList = () => {
                             ))}
                         </div>
                     )}
-
-                    {/* Browser History Web Graph */}
-                    <button
-                        onClick={() => setBrowserHistoryModalOpen(true)}
-                        className="flex items-center gap-2 px-2 py-2 w-full text-left rounded hover:bg-gray-800 transition-all text-xs border border-dashed border-gray-700 hover:border-blue-500"
-                    >
-                        <Share2 size={14} className="text-blue-400" />
-                        <span>Browse History Web Graph</span>
-                    </button>
 
                     {/* Recent History */}
                     {websiteHistory.length > 0 && (
@@ -1984,6 +1976,20 @@ return (
 
         {sidebarCollapsed && <div className="flex-1"></div>}
 
+        {/* Top grid (2x3) - ABOVE delete button */}
+        {!sidebarCollapsed && (
+            <div className="px-4 pb-2">
+                <div className="grid grid-cols-3 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
+                    <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Data Dash" title="Data Dash"><BarChart3 size={16} /></button>
+                    <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Photo Viewer" title="Photo Viewer"><Image size={16} /></button>
+                    <button onClick={() => setSettingsOpen(true)} className="action-grid-button" aria-label="Env Settings" title="Env Settings"><FolderCog size={16} /></button>
+                    <button onClick={() => setGraphViewerOpen(true)} className="action-grid-button" aria-label="Graph Viewer" title="Graph Viewer (KG + Browser)"><GitBranch size={16} /></button>
+                    <button onClick={() => setDataLabelerOpen(true)} className="action-grid-button" aria-label="Data Labeler" title="Data Labeler (Memory + Labels + Activity)"><Tag size={16} /></button>
+                    <button onClick={() => setDiskUsageModalOpen(true)} className="action-grid-button" aria-label="Disk Usage" title="Disk Usage Analyzer"><HardDrive size={16} /></button>
+                </div>
+            </div>
+        )}
+
         <div className={`flex justify-center ${sidebarCollapsed ? 'hidden' : ''}`}>
             <button
                 onClick={deleteSelectedConversations}
@@ -1995,11 +2001,10 @@ return (
         </div>
 
         <div className="p-4 border-t theme-border flex-shrink-0">
+            {/* Bottom row (1x4): Settings | Team Management | NPCs | Jinxs */}
             {!sidebarCollapsed && (
-                <div className="grid grid-cols-3 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
+                <div className="grid grid-cols-4 divide-x divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
                     <button onClick={() => setSettingsOpen(true)} className="action-grid-button" aria-label="Settings" title="Settings"><Settings size={16} /></button>
-                    <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Open Dashboard" title="Dashboard"><BarChart3 size={16} /></button>
-                    <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Open Photo Viewer" title="Photo Viewer"><Image size={16} /></button>
                     <button onClick={() => setTeamManagementOpen(true)} className="action-grid-button" aria-label="Team Management" title="Team Management"><Users size={16} /></button>
                     <button onClick={() => setNpcTeamMenuOpen(true)} className="action-grid-button" aria-label="NPCs" title="NPCs"><Bot size={16} /></button>
                     <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Jinxs" title="Jinxs"><Zap size={16} /></button>

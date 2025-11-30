@@ -85,11 +85,8 @@ import { CommandPalette } from './CommandPalette';
 import MessageLabeling, { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage, ContextFile, ContextFileStorage } from './MessageLabeling';
 import ConversationLabeling from './ConversationLabeling';
 import ContextFilesPanel from './ContextFilesPanel';
-import MemoryManagement from './MemoryManagement';
-import BrowserHistoryWeb from './BrowserHistoryWeb';
-import KnowledgeGraphEditor from './KnowledgeGraphEditor';
-import ActivityIntelligence from './ActivityIntelligence';
-import LabeledDataManager from './LabeledDataManager';
+import GraphViewer from './GraphViewer';
+import DataLabeler from './DataLabeler';
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
@@ -202,11 +199,8 @@ const ChatInterface = () => {
     const [gitFileDiff, setGitFileDiff] = useState<string | null>(null);
     const [workspaceModalOpen, setWorkspaceModalOpen] = useState(false);
     const [searchResultsModalOpen, setSearchResultsModalOpen] = useState(false);
-    const [memoryModalOpen, setMemoryModalOpen] = useState(false);
-    const [knowledgeGraphModalOpen, setKnowledgeGraphModalOpen] = useState(false);
-    const [activityModalOpen, setActivityModalOpen] = useState(false);
-    const [labeledDataModalOpen, setLabeledDataModalOpen] = useState(false);
-    const [browserHistoryModalOpen, setBrowserHistoryModalOpen] = useState(false);
+    const [graphViewerOpen, setGraphViewerOpen] = useState(false);
+    const [dataLabelerOpen, setDataLabelerOpen] = useState(false);
     // Memory modal state
     const [memories, setMemories] = useState<any[]>([]);
     const [memoryLoading, setMemoryLoading] = useState(false);
@@ -656,12 +650,7 @@ const ChatInterface = () => {
         }
     }, []);
 
-    // Load memories when modal opens
-    useEffect(() => {
-        if (memoryModalOpen && memories.length === 0) {
-            loadMemories();
-        }
-    }, [memoryModalOpen, loadMemories]);
+    // Note: Memory loading is now handled by MemoryManagement component itself
 
     // Filtered memories
     const filteredMemories = useMemo(() => {
@@ -1578,11 +1567,8 @@ useEffect(() => {
                 setDiskUsageModalOpen(false);
                 setWorkspaceModalOpen(false);
                 setSearchResultsModalOpen(false);
-                setMemoryModalOpen(false);
-                setKnowledgeGraphModalOpen(false);
-                setActivityModalOpen(false);
-                setLabeledDataModalOpen(false);
-                setBrowserHistoryModalOpen(false);
+                setGraphViewerOpen(false);
+                setDataLabelerOpen(false);
             }
         };
 
@@ -4495,36 +4481,25 @@ ${contextPrompt}`;
                 />
             )}
 
-            {/* Memory Modal */}
-            {memoryModalOpen && (
-                <MemoryManagement isModal={true} onClose={() => setMemoryModalOpen(false)} />
+            {/* Graph Viewer Modal (Knowledge Graph + Browser History) */}
+            {graphViewerOpen && (
+                <GraphViewer
+                    isOpen={graphViewerOpen}
+                    onClose={() => setGraphViewerOpen(false)}
+                    currentPath={currentPath}
+                />
             )}
 
-            {/* Knowledge Graph Modal */}
-            {knowledgeGraphModalOpen && (
-                <KnowledgeGraphEditor isModal={true} onClose={() => setKnowledgeGraphModalOpen(false)} />
-            )}
-
-            {/* Activity Intelligence Modal */}
-            {activityModalOpen && (
-                <ActivityIntelligence isModal={true} onClose={() => setActivityModalOpen(false)} />
-            )}
-
-            {/* Labeled Data Modal */}
-            {labeledDataModalOpen && (
-                <LabeledDataManager
-                    isOpen={labeledDataModalOpen}
-                    onClose={() => setLabeledDataModalOpen(false)}
+            {/* Data Labeler Modal (Memory + Labeled Data + Activity) */}
+            {dataLabelerOpen && (
+                <DataLabeler
+                    isOpen={dataLabelerOpen}
+                    onClose={() => setDataLabelerOpen(false)}
                     messageLabels={messageLabels}
                     setMessageLabels={setMessageLabels}
                     conversationLabels={conversationLabels}
                     setConversationLabels={setConversationLabels}
                 />
-            )}
-
-            {/* Browser History Modal */}
-            {browserHistoryModalOpen && (
-                <BrowserHistoryWeb isModal={true} onClose={() => setBrowserHistoryModalOpen(false)} />
             )}
 
         </>
@@ -4788,29 +4763,76 @@ const renderPaneContextMenu = () => {
         setPaneContextMenu(null);
     };
 
+    const handleNewChat = () => {
+        createNewConversation();
+        setPaneContextMenu(null);
+    };
+
+    const handleNewTerminal = () => {
+        createNewTerminal();
+        setPaneContextMenu(null);
+    };
+
+    const handleNewBrowser = () => {
+        setBrowserUrlDialogOpen(true);
+        setPaneContextMenu(null);
+    };
+
+    const handleNewFolder = () => {
+        handleCreateNewFolder();
+        setPaneContextMenu(null);
+    };
+
+    const handleNewTextFile = () => {
+        createNewTextFile();
+        setPaneContextMenu(null);
+    };
+
     return (
         <>
             <div className="fixed inset-0 z-40" onClick={() => setPaneContextMenu(null)} />
             <div
-                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
+                className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm min-w-[160px]"
                 style={{ top: y, left: x }}
-                onMouseLeave={() => setPaneContextMenu(null)}
             >
-                <button onClick={closePane} className="block px-4 py-2 w-full text-left theme-hover">
-                    Close Pane
+                {/* Create New Section */}
+                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Create New</div>
+                <button onClick={handleNewChat} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
+                    <MessageSquare size={14} className="text-blue-400" /> Chat
                 </button>
+                <button onClick={handleNewTerminal} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
+                    <Terminal size={14} className="text-green-400" /> Terminal
+                </button>
+                <button onClick={handleNewBrowser} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
+                    <Globe size={14} className="text-cyan-400" /> Browser
+                </button>
+                <button onClick={handleNewFolder} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
+                    <Folder size={14} className="text-yellow-400" /> Folder
+                </button>
+                <button onClick={handleNewTextFile} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
+                    <Code2 size={14} className="text-purple-400" /> Text File
+                </button>
+
                 <div className="border-t theme-border my-1" />
+
+                {/* Split Section */}
+                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Split Pane</div>
                 <button onClick={() => splitPane('left')} className="block px-4 py-2 w-full text-left theme-hover">
-                    Split Left
+                    ← Split Left
                 </button>
                 <button onClick={() => splitPane('right')} className="block px-4 py-2 w-full text-left theme-hover">
-                    Split Right
+                    → Split Right
                 </button>
                 <button onClick={() => splitPane('top')} className="block px-4 py-2 w-full text-left theme-hover">
-                    Split Top
+                    ↑ Split Top
                 </button>
                 <button onClick={() => splitPane('bottom')} className="block px-4 py-2 w-full text-left theme-hover">
-                    Split Bottom
+                    ↓ Split Bottom
+                </button>
+
+                <div className="border-t theme-border my-1" />
+                <button onClick={closePane} className="block px-4 py-2 w-full text-left theme-hover text-red-400">
+                    Close Pane
                 </button>
             </div>
         </>
@@ -5656,43 +5678,19 @@ const renderMainContent = () => {
 
                 <div className="flex-1" />
 
-                {/* Right side buttons - Data tools */}
+                {/* Right side - Predictive text toggle */}
                 <div className="flex items-center gap-1">
                     <button
-                        onClick={() => setMemoryModalOpen(true)}
-                        className="p-1 theme-hover rounded theme-text-muted"
-                        title="Memory Editor"
+                        onClick={() => setIsPredictiveTextEnabled(!isPredictiveTextEnabled)}
+                        className={`p-1 rounded flex items-center gap-1 text-[10px] ${
+                            isPredictiveTextEnabled
+                                ? 'bg-purple-600/30 text-purple-400 hover:bg-purple-600/50'
+                                : 'theme-hover theme-text-muted'
+                        }`}
+                        title={isPredictiveTextEnabled ? "Disable Predictive Text" : "Enable Predictive Text"}
                     >
-                        <Brain size={12} />
-                    </button>
-                    <button
-                        onClick={() => setKnowledgeGraphModalOpen(true)}
-                        className="p-1 theme-hover rounded theme-text-muted"
-                        title="Knowledge Graph"
-                    >
-                        <GitBranch size={12} />
-                    </button>
-                    <button
-                        onClick={() => setActivityModalOpen(true)}
-                        className="p-1 theme-hover rounded theme-text-muted"
-                        title="Activity Intelligence"
-                    >
-                        <Activity size={12} />
-                    </button>
-                    <button
-                        onClick={() => setLabeledDataModalOpen(true)}
-                        className="p-1 theme-hover rounded theme-text-muted"
-                        title="Labeled Data Manager"
-                    >
-                        <Tag size={12} />
-                    </button>
-                    <div className="w-px h-3 bg-gray-600 mx-1" />
-                    <button
-                        onClick={() => setDiskUsageModalOpen(true)}
-                        className="p-1 theme-hover rounded theme-text-muted"
-                        title="Disk Usage Analyzer"
-                    >
-                        <HardDrive size={12} />
+                        <BrainCircuit size={12} />
+                        <span className="hidden sm:inline">{isPredictiveTextEnabled ? 'AI' : 'AI'}</span>
                     </button>
                 </div>
             </div>
@@ -5796,7 +5794,9 @@ const renderMainContent = () => {
         setTeamManagementOpen={setTeamManagementOpen}
         setNpcTeamMenuOpen={setNpcTeamMenuOpen}
         setSidebarCollapsed={setSidebarCollapsed}
-        setBrowserHistoryModalOpen={setBrowserHistoryModalOpen}
+        setGraphViewerOpen={setGraphViewerOpen}
+        setDataLabelerOpen={setDataLabelerOpen}
+        setDiskUsageModalOpen={setDiskUsageModalOpen}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}
