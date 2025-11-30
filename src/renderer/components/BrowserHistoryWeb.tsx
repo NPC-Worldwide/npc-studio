@@ -19,10 +19,12 @@ const BrowserHistoryWeb: React.FC<BrowserHistoryWebProps> = ({ isModal = false, 
     const historyGraphRef = useRef<any>(null);
 
     const fetchHistoryGraph = useCallback(async () => {
+        if (!currentPath) return;
         setHistoryGraphLoading(true);
         setHistoryGraphError(null);
         try {
             const result = await (window as any).api?.browserGetHistoryGraph?.({
+                folderPath: currentPath,
                 minVisits: historyMinVisits
             });
             if (result?.success) {
@@ -36,7 +38,7 @@ const BrowserHistoryWeb: React.FC<BrowserHistoryWebProps> = ({ isModal = false, 
         } finally {
             setHistoryGraphLoading(false);
         }
-    }, [historyMinVisits]);
+    }, [currentPath, historyMinVisits]);
 
     useEffect(() => {
         fetchHistoryGraph();
