@@ -47,6 +47,16 @@ readDocxContent: (filePath) =>
     gitCommit: (repoPath, message) => ipcRenderer.invoke('gitCommit', repoPath, message),
     gitPull: (repoPath) => ipcRenderer.invoke('gitPull', repoPath),
     gitPush: (repoPath) => ipcRenderer.invoke('gitPush', repoPath),
+    gitDiff: (repoPath, filePath, staged) => ipcRenderer.invoke('gitDiff', repoPath, filePath, staged),
+    gitDiffAll: (repoPath) => ipcRenderer.invoke('gitDiffAll', repoPath),
+    gitBlame: (repoPath, filePath) => ipcRenderer.invoke('gitBlame', repoPath, filePath),
+    gitBranches: (repoPath) => ipcRenderer.invoke('gitBranches', repoPath),
+    gitCreateBranch: (repoPath, branchName) => ipcRenderer.invoke('gitCreateBranch', repoPath, branchName),
+    gitCheckout: (repoPath, branchName) => ipcRenderer.invoke('gitCheckout', repoPath, branchName),
+    gitDeleteBranch: (repoPath, branchName, force) => ipcRenderer.invoke('gitDeleteBranch', repoPath, branchName, force),
+    gitLog: (repoPath, options) => ipcRenderer.invoke('gitLog', repoPath, options),
+    gitShowCommit: (repoPath, commitHash) => ipcRenderer.invoke('gitShowCommit', repoPath, commitHash),
+    gitStash: (repoPath, action, message) => ipcRenderer.invoke('gitStash', repoPath, action, message),
 
     readFile: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
    
@@ -70,6 +80,7 @@ readDocxContent: (filePath) =>
     browserGetBookmarks: (args) => ipcRenderer.invoke('browser:getBookmarks', args),
     browserDeleteBookmark: (args) => ipcRenderer.invoke('browser:deleteBookmark', args),
     browserClearHistory: (args) => ipcRenderer.invoke('browser:clearHistory', args),
+    browserGetHistoryGraph: (args) => ipcRenderer.invoke('browser:getHistoryGraph', args),
     browserSetVisibility: (args) => ipcRenderer.invoke('browser:set-visibility', args),
 
    
@@ -127,6 +138,7 @@ readDocxContent: (filePath) =>
     saveGlobalContext: (contextData) => ipcRenderer.invoke('save-global-context', contextData),
     getProjectContext: (path) => ipcRenderer.invoke('get-project-context', path),
     saveProjectContext: (data) => ipcRenderer.invoke('save-project-context', data),
+    initProjectTeam: (path) => ipcRenderer.invoke('init-project-team', path),
     getUsageStats: () => ipcRenderer.invoke('get-usage-stats'),
     getActivityData: (options) => ipcRenderer.invoke('getActivityData', options),
     getHistogramData: () => ipcRenderer.invoke('getHistogramData'),
@@ -136,6 +148,14 @@ readDocxContent: (filePath) =>
     listTables: () => ipcRenderer.invoke('db:listTables'),
     getTableSchema: (args) => ipcRenderer.invoke('db:getTableSchema', args),
     exportToCSV: (data) => ipcRenderer.invoke('db:exportCSV', data),
+
+    // Custom database connection APIs (supports SQLite, PostgreSQL, MySQL, MSSQL, Snowflake)
+    testDbConnection: (args) => ipcRenderer.invoke('db:testConnection', args),
+    listTablesForPath: (args) => ipcRenderer.invoke('db:listTablesForPath', args),
+    getTableSchemaForPath: (args) => ipcRenderer.invoke('db:getTableSchemaForPath', args),
+    executeSQLForPath: (args) => ipcRenderer.invoke('db:executeSQLForPath', args),
+    browseForDatabase: () => ipcRenderer.invoke('db:browseForDatabase'),
+    getSupportedDbTypes: () => ipcRenderer.invoke('db:getSupportedTypes'),
 
     getLastUsedInDirectory: (path) => ipcRenderer.invoke('get-last-used-in-directory', path),
     getLastUsedInConversation: (conversationId) => ipcRenderer.invoke('get-last-used-in-conversation', conversationId),
@@ -147,6 +167,11 @@ readDocxContent: (filePath) =>
     kg_getNetworkStats: (args) => ipcRenderer.invoke('kg:getNetworkStats', args),
     kg_getCooccurrenceNetwork: (args) => ipcRenderer.invoke('kg:getCooccurrenceNetwork', args),
     kg_getCentralityData: (args) => ipcRenderer.invoke('kg:getCentralityData', args),
+    kg_addNode: (args) => ipcRenderer.invoke('kg:addNode', args),
+    kg_updateNode: (args) => ipcRenderer.invoke('kg:updateNode', args),
+    kg_deleteNode: (args) => ipcRenderer.invoke('kg:deleteNode', args),
+    kg_addEdge: (args) => ipcRenderer.invoke('kg:addEdge', args),
+    kg_deleteEdge: (args) => ipcRenderer.invoke('kg:deleteEdge', args),
 
     resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
 
@@ -209,6 +234,7 @@ onTerminalClosed: (callback) => {
     stopMcpServer: (args) => ipcRenderer.invoke('mcp:stopServer', args),
     getMcpStatus: (args) => ipcRenderer.invoke('mcp:status', args),
     listMcpTools: (args) => ipcRenderer.invoke('mcp:listTools', args),
+    addMcpIntegration: (args) => ipcRenderer.invoke('mcp:addIntegration', args),
     showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
     showBrowser: (args) => ipcRenderer.invoke('show-browser', args),
     hideBrowser: (args) => ipcRenderer.invoke('hide-browser', args),
@@ -241,7 +267,50 @@ onTerminalClosed: (callback) => {
             return { jinxs: [], error: error.message };
         }
     },
-    saveJinx: (data) => ipcRenderer.invoke('save-jinx', data),    
+    saveJinx: (data) => ipcRenderer.invoke('save-jinx', data),
+
+    // Mapx (Mind Map) APIs - YAML-based storage like NPCs/Jinxs
+    getMapsGlobal: async () => {
+        try {
+            const response = await fetch('http://127.0.0.1:5337/api/maps/global');
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('Error loading global maps:', error);
+            return { maps: [], error: error.message };
+        }
+    },
+    getMapsProject: async (currentPath) => {
+        try {
+            const response = await fetch(`http://127.0.0.1:5337/api/maps/project?currentPath=${encodeURIComponent(currentPath)}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('Error loading project maps:', error);
+            return { maps: [], error: error.message };
+        }
+    },
+    saveMap: (data) => ipcRenderer.invoke('save-map', data),
+    loadMap: (filePath) => ipcRenderer.invoke('load-map', filePath),
+
+    // SQL Models APIs (dbt-style npcsql with jinja syntax)
+    getSqlModelsGlobal: () => ipcRenderer.invoke('getSqlModelsGlobal'),
+    getSqlModelsProject: (currentPath) => ipcRenderer.invoke('getSqlModelsProject', currentPath),
+    saveSqlModelGlobal: (modelData) => ipcRenderer.invoke('saveSqlModelGlobal', modelData),
+    saveSqlModelProject: (args) => ipcRenderer.invoke('saveSqlModelProject', args),
+    deleteSqlModelGlobal: (modelId) => ipcRenderer.invoke('deleteSqlModelGlobal', modelId),
+    deleteSqlModelProject: (args) => ipcRenderer.invoke('deleteSqlModelProject', args),
+    runSqlModel: (args) => ipcRenderer.invoke('runSqlModel', args),
+
+    // Local Model Provider APIs (LM Studio, Ollama, llama.cpp)
+    scanLocalModels: (provider) => ipcRenderer.invoke('scan-local-models', provider),
+    getLocalModelStatus: (provider) => ipcRenderer.invoke('get-local-model-status', provider),
+
+    // Activity Tracking for RNN predictor
+    trackActivity: (activity) => ipcRenderer.invoke('track-activity', activity),
+    getActivityPredictions: () => ipcRenderer.invoke('get-activity-predictions'),
+    trainActivityModel: () => ipcRenderer.invoke('train-activity-model'),
+
     generativeFill: async (params) => {
     return ipcRenderer.invoke('generative-fill', params);
 },

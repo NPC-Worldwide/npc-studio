@@ -1,16 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { FileJson, X, Save, Plus, Trash2 } from 'lucide-react';
 import AutosizeTextarea from './AutosizeTextarea';
-import McpServerMenu from './McpServerMenu';
 
-const CtxEditor = ({ isOpen, onClose, currentPath }) => {
-   
-    const [activeTab, setActiveTab] = useState('project');
+const CtxEditor = ({ isOpen, onClose, currentPath, embedded = false, isGlobal = false }) => {
+
     const [globalCtx, setGlobalCtx] = useState({});
     const [projectCtx, setProjectCtx] = useState({});
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [mcpMenuOpen, setMcpMenuOpen] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -55,12 +52,11 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
         setIsLoading(true);
         setError(null);
         try {
-            if (activeTab === 'global') {
+            if (isGlobal) {
                 await window.api.saveGlobalContext(globalCtx);
             } else if (currentPath) {
                 await window.api.saveProjectContext({ path: currentPath, contextData: projectCtx });
             }
-            onClose();
         } catch (err) {
             setError(err.message);
         } finally {
@@ -72,30 +68,40 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
         const setCtx = type === 'global' ? setGlobalCtx : setProjectCtx;
         setCtx(prev => ({ ...prev, [field]: value }));
     };
-    
-    const handleDynamicValueChange = (type, listName, index, value) => {
-        const setCtx = type === 'global' ? setGlobalCtx : setProjectCtx;
-        setCtx(prev => {
-            const newList = [...(prev[listName] || [])];
-            newList[index] = { ...(newList[index] || {}), value: value };
-            return { ...prev, [listName]: newList };
-        });
-    };
-    
-    const addDynamicValueItem = (type, listName) => {
-        const setCtx = type === 'global' ? setGlobalCtx : setProjectCtx;
-        setCtx(prev => ({
-            ...prev,
-            [listName]: [...(prev[listName] || []), { value: '' }]
-        }));
+
+    // Get custom KV pairs (excluding reserved keys that have their own tabs)
+    const getCustomKvPairs = (ctx) => {
+        const reserved = ['forenpc', 'context', 'databases', 'mcp_servers'];
+        return Object.entries(ctx || {}).filter(([key]) => !reserved.includes(key));
     };
 
-    const removeDynamicValueItem = (type, listName, index) => {
+    const handleAddKvPair = (type) => {
+        const setCtx = type === 'global' ? setGlobalCtx : setProjectCtx;
+        const key = prompt('Enter key name:');
+        if (!key || key.trim() === '') return;
+        setCtx(prev => ({ ...prev, [key.trim()]: '' }));
+    };
+
+    const handleKvKeyChange = (type, oldKey, newKey) => {
+        if (!newKey || newKey.trim() === '' || oldKey === newKey) return;
         const setCtx = type === 'global' ? setGlobalCtx : setProjectCtx;
         setCtx(prev => {
-            const newList = [...(prev[listName] || [])];
-            newList.splice(index, 1);
-            return { ...prev, [listName]: newList };
+            const value = prev[oldKey];
+            const { [oldKey]: _, ...rest } = prev;
+            return { ...rest, [newKey.trim()]: value };
+        });
+    };
+
+    const handleKvValueChange = (type, key, value) => {
+        const setCtx = type === 'global' ? setGlobalCtx : setProjectCtx;
+        setCtx(prev => ({ ...prev, [key]: value }));
+    };
+
+    const handleRemoveKvPair = (type, key) => {
+        const setCtx = type === 'global' ? setGlobalCtx : setProjectCtx;
+        setCtx(prev => {
+            const { [key]: _, ...rest } = prev;
+            return rest;
         });
     };
 
@@ -104,6 +110,8 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
         if (type === 'project' && !currentPath) {
             return <div className="p-4 theme-text-muted">No project folder selected.</div>;
         }
+
+        const customKvPairs = getCustomKvPairs(ctx);
 
         return (
             <div className="space-y-6 py-2">
@@ -128,30 +136,70 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
                         />
                     </div>
                 </div>
-                
-                <DynamicValueListEditor type={type} listName="databases" title="Databases" placeholder="e.g., ~/npcsh_history.db" items={ctx.databases || []} onValueChange={handleDynamicValueChange} onAddItem={addDynamicValueItem} onRemoveItem={removeDynamicValueItem} />
+
+                {/* Generic KV Pairs */}
                 <div className="space-y-2">
-                    <DynamicValueListEditor type={type} listName="mcp_servers" title="MCP Servers" placeholder="e.g., ~/.npcsh/mcp_server.py" items={ctx.mcp_servers || []} onValueChange={handleDynamicValueChange} onAddItem={addDynamicValueItem} onRemoveItem={removeDynamicValueItem} />
-                    <div className="flex justify-end">
-                        <button
-                            onClick={() => setMcpMenuOpen(true)}
-                            className="text-xs theme-button px-3 py-1 rounded"
-                            title="Manage MCP servers and tools"
-                        >
-                            Open MCP Server Manager
-                        </button>
+                    <h4 className="text-sm theme-text-primary font-semibold mb-2">Additional Context</h4>
+                    <div className="space-y-3">
+                        {customKvPairs.map(([key, value]) => (
+                            <div key={key} className="flex gap-2 items-start bg-gray-900/50 p-2 rounded-md border theme-border">
+                                <input
+                                    type="text"
+                                    value={key}
+                                    onChange={(e) => handleKvKeyChange(type, key, e.target.value)}
+                                    className="w-32 theme-input bg-transparent text-sm font-mono"
+                                    placeholder="key"
+                                />
+                                <AutosizeTextarea
+                                    value={typeof value === 'string' ? value : JSON.stringify(value)}
+                                    onChange={(e) => handleKvValueChange(type, key, e.target.value)}
+                                    className="flex-1 theme-input bg-transparent border-none focus:ring-0 p-1 text-sm resize-none"
+                                    placeholder="value"
+                                    rows={1}
+                                />
+                                <button onClick={() => handleRemoveKvPair(type, key)} className="p-2 rounded-md hover:bg-red-900/50 text-red-400 hover:text-red-300 transition-colors flex-shrink-0">
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        ))}
                     </div>
+                    <button onClick={() => handleAddKvPair(type)} className="mt-2 text-sm theme-button theme-hover px-3 py-1 rounded flex items-center gap-1">
+                        <Plus size={14} /> Add Field
+                    </button>
                 </div>
-                <DynamicValueListEditor type={type} listName="preferences" title="Preferences" placeholder="e.g., 'Never change function names unless requested.'" items={ctx.preferences || []} onValueChange={handleDynamicValueChange} onAddItem={addDynamicValueItem} onRemoveItem={removeDynamicValueItem} />
             </div>
         );
     };
 
-    if (!isOpen) return null;
+    if (!isOpen && !embedded) return null;
 
+    const content = (
+        <>
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto">
+                {isLoading ? <p className="text-center theme-text-muted">Loading...</p> : error ? <p className="text-red-500">{error}</p> : (
+                    renderForm(isGlobal ? 'global' : 'project')
+                )}
+            </div>
+
+            {/* Save Button */}
+            <div className="border-t theme-border pt-4 mt-4 flex justify-end">
+                <button onClick={handleSave} className="theme-button-primary flex items-center gap-2 px-4 py-2 rounded text-sm" disabled={isLoading}>
+                    <Save size={16} />
+                    {isLoading ? 'Saving...' : 'Save Changes'}
+                </button>
+            </div>
+        </>
+    );
+
+    // Embedded mode - return just the content
+    if (embedded) {
+        return <div className="flex flex-col h-full">{content}</div>;
+    }
+
+    // Modal mode - wrap in modal container
     return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            {/* Using the larger modal styles from previous request */}
             <div className="theme-bg-secondary rounded-lg shadow-xl w-full max-w-5xl flex flex-col" onClick={(e) => e.stopPropagation()}>
                 <header className="p-4 flex justify-between items-center border-b theme-border flex-shrink-0">
                     <h3 className="text-lg flex items-center gap-2 theme-text-primary">
@@ -162,62 +210,12 @@ const CtxEditor = ({ isOpen, onClose, currentPath }) => {
                         <X size={20} />
                     </button>
                 </header>
-
-                <div className="border-b theme-border flex-shrink-0">
-                    <div className="flex">
-                        <button onClick={() => setActiveTab('project')} className={`px-4 py-2 text-sm ${activeTab === 'project' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}>Project Context</button>
-                        <button onClick={() => setActiveTab('global')} className={`px-4 py-2 text-sm ${activeTab === 'global' ? 'border-b-2 border-blue-500 theme-text-primary' : 'theme-text-secondary'}`}>Global Context</button>
-                    </div>
-                </div>
-
-                <main className="p-6 space-y-4 max-h-[75vh] overflow-y-auto flex-grow custom-scrollbar">
-                    {isLoading ? <p className="text-center theme-text-muted">Loading...</p> : error ? <p className="text-red-500">{error}</p> : (
-                        activeTab === 'project' ? renderForm('project') : renderForm('global')
-                    )}
+                <main className="p-6 flex-grow overflow-hidden">
+                    {content}
                 </main>
-
-                <footer className="border-t theme-border p-4 flex justify-end gap-3 flex-shrink-0">
-                    <button onClick={onClose} className="theme-button px-4 py-2 rounded text-sm">Cancel</button>
-                    <button onClick={handleSave} className="theme-button-primary flex items-center gap-2 px-4 py-2 rounded text-sm" disabled={isLoading}>
-                        <Save size={16} />
-                        {isLoading ? 'Saving...' : 'Save Changes'}
-                    </button>
-                </footer>
             </div>
-
-            <McpServerMenu
-                isOpen={mcpMenuOpen}
-                onClose={() => setMcpMenuOpen(false)}
-                currentPath={activeTab === 'project' ? currentPath : null}
-            />
         </div>
     );
 };
-
-// MODIFICATION: Updated to use AutosizeTextarea
-const DynamicValueListEditor = ({ type, listName, title, placeholder, items, onValueChange, onAddItem, onRemoveItem }) => (
-    <div className="space-y-2">
-        <h4 className="text-sm theme-text-primary font-semibold mb-2">{title}</h4>
-        <div className="space-y-3">
-            {items.map((item, index) => (
-                <div key={index} className="flex gap-2 items-start bg-gray-900/50 p-2 rounded-md border theme-border">
-                    <AutosizeTextarea
-                        value={item.value || ''}
-                        onChange={(e) => onValueChange(type, listName, index, e.target.value)}
-                        className="flex-1 theme-input bg-transparent border-none focus:ring-0 p-1 text-sm resize-none"
-                        placeholder={placeholder}
-                        rows={1}
-                    />
-                    <button onClick={() => onRemoveItem(type, listName, index)} className="p-2 rounded-md hover:bg-red-900/50 text-red-400 hover:text-red-300 transition-colors flex-shrink-0">
-                        <Trash2 size={16} />
-                    </button>
-                </div>
-            ))}
-        </div>
-        <button onClick={() => onAddItem(type, listName)} className="mt-2 text-sm theme-button theme-hover px-3 py-1 rounded flex items-center gap-1">
-            <Plus size={14} /> Add
-        </button>
-    </div>
-);
 
 export default CtxEditor;

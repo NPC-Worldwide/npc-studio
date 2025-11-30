@@ -3,7 +3,172 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Copy, Check, Maximize2, Minimize2 } from 'lucide-react';
+import { Copy, Check, Maximize2, Minimize2, Table, ChevronDown, ChevronUp, Download } from 'lucide-react';
+
+// Utility to detect if content looks like tabular data (JSON array, CSV-like)
+const detectTabularData = (content: string): { isTabular: boolean; data: any[] | null; type: 'json' | 'csv' | null } => {
+    if (!content || typeof content !== 'string') return { isTabular: false, data: null, type: null };
+
+    const trimmed = content.trim();
+
+    // Try to parse as JSON array
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object' && parsed[0] !== null) {
+                return { isTabular: true, data: parsed, type: 'json' };
+            }
+        } catch (e) {
+            // Not valid JSON
+        }
+    }
+
+    // Detect CSV-like content (lines with consistent delimiters)
+    const lines = trimmed.split('\n').filter(l => l.trim());
+    if (lines.length >= 2) {
+        // Check for common delimiters: comma, tab, pipe
+        const delimiters = [',', '\t', '|'];
+        for (const delimiter of delimiters) {
+            const counts = lines.map(line => (line.match(new RegExp(`\\${delimiter}`, 'g')) || []).length);
+            const firstCount = counts[0];
+            // If all lines have the same number of delimiters (and > 0), it's likely tabular
+            if (firstCount > 0 && counts.every(c => c === firstCount)) {
+                const headers = lines[0].split(delimiter).map(h => h.trim());
+                const rows = lines.slice(1).map(line => {
+                    const cells = line.split(delimiter).map(c => c.trim());
+                    const row: Record<string, string> = {};
+                    headers.forEach((h, i) => { row[h] = cells[i] || ''; });
+                    return row;
+                });
+                if (rows.length > 0) {
+                    return { isTabular: true, data: rows, type: 'csv' };
+                }
+            }
+        }
+    }
+
+    return { isTabular: false, data: null, type: null };
+};
+
+// Interactive data table component
+const DataTableComponent = memo(({ data, title }: { data: any[]; title?: string }) => {
+    const [expanded, setExpanded] = useState(data.length <= 10);
+    const [sortColumn, setSortColumn] = useState<string | null>(null);
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+    if (!data || data.length === 0) return null;
+
+    const columns = Object.keys(data[0]);
+
+    const sortedData = sortColumn
+        ? [...data].sort((a, b) => {
+            const aVal = a[sortColumn];
+            const bVal = b[sortColumn];
+            const comparison = String(aVal).localeCompare(String(bVal), undefined, { numeric: true });
+            return sortDirection === 'asc' ? comparison : -comparison;
+        })
+        : data;
+
+    const displayData = expanded ? sortedData : sortedData.slice(0, 5);
+
+    const handleSort = (col: string) => {
+        if (sortColumn === col) {
+            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortColumn(col);
+            setSortDirection('asc');
+        }
+    };
+
+    const handleExportCSV = () => {
+        const csv = [
+            columns.join(','),
+            ...data.map(row => columns.map(col => `"${String(row[col] || '').replace(/"/g, '""')}"`).join(','))
+        ].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'data.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    return (
+        <div className="my-3 theme-bg-tertiary rounded-md overflow-hidden theme-border border">
+            <div className="flex items-center justify-between px-3 py-2 theme-bg-secondary text-xs">
+                <div className="flex items-center gap-2 theme-text-muted">
+                    <Table size={14} className="text-blue-400" />
+                    <span>{title || 'Data Table'}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 bg-blue-600/30 rounded">{data.length} rows</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={handleExportCSV}
+                        className="p-1 rounded theme-hover theme-text-muted hover:theme-text-primary"
+                        title="Export CSV"
+                    >
+                        <Download size={14} />
+                    </button>
+                </div>
+            </div>
+            <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                <table className="w-full text-xs">
+                    <thead className="sticky top-0 theme-bg-secondary">
+                        <tr>
+                            {columns.map(col => (
+                                <th
+                                    key={col}
+                                    onClick={() => handleSort(col)}
+                                    className="px-3 py-2 text-left theme-text-muted cursor-pointer hover:theme-text-primary border-b theme-border whitespace-nowrap"
+                                >
+                                    <div className="flex items-center gap-1">
+                                        {col}
+                                        {sortColumn === col && (
+                                            sortDirection === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                                        )}
+                                    </div>
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {displayData.map((row, i) => (
+                            <tr key={i} className="hover:theme-bg-primary transition-colors">
+                                {columns.map(col => (
+                                    <td key={col} className="px-3 py-1.5 border-b theme-border theme-text-primary whitespace-nowrap max-w-[300px] truncate" title={String(row[col] || '')}>
+                                        {String(row[col] ?? '')}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            {data.length > 5 && (
+                <div className="px-3 py-2 theme-bg-secondary border-t theme-border">
+                    <button
+                        onClick={() => setExpanded(!expanded)}
+                        className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                    >
+                        {expanded ? (
+                            <>
+                                <ChevronUp size={12} /> Show less
+                            </>
+                        ) : (
+                            <>
+                                <ChevronDown size={12} /> Show all {data.length} rows
+                            </>
+                        )}
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+});
+
+// Export the detection function for use in other components
+export { detectTabularData, DataTableComponent };
 const customLightStyle = {
   'code[class*="language-"]': {
     color: '#1e293b',
@@ -361,15 +526,11 @@ const ContentWithImages = memo(({ content }) => {
 
 
 const MarkdownRenderer = ({ content }) => {
-  console.log('[MARKDOWN] Content received, length:', content?.length);
-  
-  if (content && content.includes('<img')) {
-    console.log('[MARKDOWN] Found raw HTML <img> tags in content string.');
-  } else if (content && content.includes('![')) {
-    const imageMatches = content.match(/!\[([^\]]*)\]\(([^)]+)\)/g);
-    if (imageMatches) {
-      console.log('[MARKDOWN] Found', imageMatches.length, 'Markdown image tags in content string.');
-    }
+  // Check for tabular data first
+  const { isTabular, data } = detectTabularData(content || '');
+
+  if (isTabular && data) {
+    return <DataTableComponent data={data} />;
   }
 
   return <ContentWithImages content={content} />;

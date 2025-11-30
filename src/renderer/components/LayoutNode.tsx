@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import { getFileIcon } from './utils';
+import ChatInput from './ChatInput';
 
 // Token cost calculator based on model pricing ($ per 1K tokens)
 // Source: Helicone LLM API Pricing - Updated Nov 2025
@@ -425,13 +426,16 @@ export const LayoutNode = memo(({ node, path, component }) => {
             updateContentPane, performSplit,
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
-            renderPptxViewer, renderLatexViewer, renderPicViewer,
+            renderPptxViewer, renderLatexViewer, renderPicViewer, renderMindMapViewer,
+            renderDataLabelerPane, renderGraphViewerPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
             autoScrollEnabled, setAutoScrollEnabled,
             messageSelectionMode, toggleMessageSelectionMode, selectedMessages,
             conversationBranches, showBranchingUI, setShowBranchingUI,
+            // ChatInput props object for rendering input in chat panes
+            chatInputProps,
         } = component;
 
         const isActive = node.id === activeContentPaneId;
@@ -458,8 +462,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 if (ext === 'pdf') contentType = 'pdf';
                 else if (['csv', 'xlsx', 'xls'].includes(ext)) contentType = 'csv';
                 else if (['docx', 'doc'].includes(ext)) contentType = 'docx';
-                else if (ext === 'pptx') contentType = 'pptx'; // Added
-                else if (ext === 'tex') contentType = 'latex'; // Added
+                else if (ext === 'pptx') contentType = 'pptx';
+                else if (ext === 'tex') contentType = 'latex';
+                else if (ext === 'mindmap') contentType = 'mindmap';
                 else contentType = 'editor';
             } else if (draggedItem.type === 'browser') {
                 contentType = 'browser';
@@ -592,7 +597,20 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
             switch (contentType) {
                 case 'chat':
-                    return renderChatView({ nodeId: node.id });
+                    return (
+                        <div className="flex-1 flex flex-col overflow-hidden">
+                            <div className="flex-1 overflow-hidden">
+                                {renderChatView({ nodeId: node.id })}
+                            </div>
+                            {chatInputProps && (
+                                <ChatInput
+                                    {...chatInputProps}
+                                    paneId={node.id}
+                                    onFocus={() => setActiveContentPaneId(node.id)}
+                                />
+                            )}
+                        </div>
+                    );
                 case 'editor':
                     return renderFileEditor({ nodeId: node.id });
                 case 'terminal':
@@ -611,6 +629,12 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderLatexViewer({ nodeId: node.id });
                 case 'image':
                     return renderPicViewer({ nodeId: node.id });
+                case 'mindmap':
+                    return renderMindMapViewer({ nodeId: node.id });
+                case 'data-labeler':
+                    return renderDataLabelerPane({ nodeId: node.id });
+                case 'graph-viewer':
+                    return renderGraphViewerPane({ nodeId: node.id });
                 default:
                     // This is the content for an empty pane
                     return (
@@ -628,6 +652,17 @@ export const LayoutNode = memo(({ node, path, component }) => {
             <div
                 className={`flex-1 flex flex-col relative border ${isActive ? 'border-blue-500 ring-1 ring-blue-500' : 'theme-border'}`}
                 onClick={() => setActiveContentPaneId(node.id)}
+                onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPaneContextMenu({
+                        isOpen: true,
+                        x: e.clientX,
+                        y: e.clientY,
+                        nodeId: node.id,
+                        nodePath: path
+                    });
+                }}
                 onDragLeave={() => setDropTarget(null)}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
                 onDrop={(e) => onDrop(e, 'center')}

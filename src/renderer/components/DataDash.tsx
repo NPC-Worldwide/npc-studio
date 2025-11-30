@@ -3,8 +3,11 @@ import {
     BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit,
-    GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat
+    GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, Globe, RefreshCw, ExternalLink,
+    CheckCircle, XCircle, Link, Unlink, Activity, FileText, Terminal, Eye, Lightbulb,
+    Tag, Search, Filter, Upload, FileJson, Check
 } from 'lucide-react';
+import { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage } from './MessageLabeling';
 import ForceGraph2D from 'react-force-graph-2d';
 import * as d3 from 'd3';
 import 'chartjs-adapter-date-fns'; // Required for time scale support in charts
@@ -763,7 +766,7 @@ const DashboardWidget = ({ config, onContextMenu }) => {
     return (<div className="theme-bg-tertiary p-4 rounded-lg flex flex-col h-full relative" onContextMenu={(e) => onContextMenu(e, config.id)}><div className="flex justify-between items-start flex-shrink-0"><div className="flex items-center gap-3 mb-2 flex-1"><Icon className={config.iconColor || 'text-gray-400'} size={18} /><h4 className="font-semibold theme-text-secondary truncate">{config.title}</h4></div>{(config.toggleOptions || []).length > 0 && (<div className="flex items-center gap-1">{(config.toggleOptions).map(opt => <button key={opt.label} onClick={() => setActiveToggle(opt)} className={`px-2 py-0.5 text-xs rounded ${activeToggle?.label === opt.label ? 'theme-button-primary' : 'theme-button theme-hover'}`}>{opt.label}</button>)}</div>)}</div><div className="flex-1 mt-1 overflow-hidden">{renderContent()}</div></div>);
 };
 
-const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, currentProvider, currentNPC }) => {
+const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentPath, currentModel, currentProvider, currentNPC, messageLabels = {}, setMessageLabels, conversationLabels = {}, setConversationLabels }) => {
     // Create a database client from window.api - this can be configured for different backends
     const dbClient = useMemo<DatabaseClient>(() =>
         createWindowApiDatabaseClient(window.api as any),
@@ -862,6 +865,56 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
     const [cooccurrenceData, setCooccurrenceData] = useState(null);
     const [centralityData, setCentralityData] = useState(null);
 
+    // Browser History Graph state
+    const [historyGraphData, setHistoryGraphData] = useState<{ nodes: any[], links: any[] }>({ nodes: [], links: [] });
+    const [historyGraphStats, setHistoryGraphStats] = useState<any>(null);
+    const [historyGraphLoading, setHistoryGraphLoading] = useState(false);
+    const [historyGraphError, setHistoryGraphError] = useState<string | null>(null);
+    const [historyMinVisits, setHistoryMinVisits] = useState(1);
+    const [historyEdgeFilter, setHistoryEdgeFilter] = useState<'all' | 'click' | 'manual'>('all');
+    const [selectedHistoryNode, setSelectedHistoryNode] = useState<any>(null);
+    const historyGraphRef = useRef<any>();
+
+    // KG Editing state
+    const [selectedKgNode, setSelectedKgNode] = useState<any>(null);
+    const [kgEditMode, setKgEditMode] = useState<'view' | 'edit'>('view');
+    const [newNodeName, setNewNodeName] = useState('');
+    const [newEdgeSource, setNewEdgeSource] = useState('');
+    const [newEdgeTarget, setNewEdgeTarget] = useState('');
+
+    // Database selector state
+    const [availableDatabases, setAvailableDatabases] = useState<{ name: string; path: string; type: 'global' | 'project' }[]>([]);
+    const [selectedDatabase, setSelectedDatabase] = useState<string>('~/npcsh_history.db');
+
+    // Database connection state
+    const [dbConnectionStatus, setDbConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+    const [dbConnectionInfo, setDbConnectionInfo] = useState<{
+        resolvedPath?: string;
+        tableCount?: number;
+        fileSize?: number;
+        lastModified?: string;
+        error?: string;
+        dbType?: string;
+    } | null>(null);
+    const [supportedDbTypes, setSupportedDbTypes] = useState<any[]>([]);
+
+    // Activity Intelligence state
+    const [isActivityPanelOpen, setIsActivityPanelOpen] = useState(false);
+    const [activityData, setActivityData] = useState<any[]>([]);
+    const [activityPredictions, setActivityPredictions] = useState<any[]>([]);
+    const [activityStats, setActivityStats] = useState<any>(null);
+    const [activityLoading, setActivityLoading] = useState(false);
+    const [activityTraining, setActivityTraining] = useState(false);
+    const [activityTab, setActivityTab] = useState<'predictions' | 'history' | 'patterns'>('predictions');
+
+    // Labeled Data state
+    const [isLabeledDataPanelOpen, setIsLabeledDataPanelOpen] = useState(false);
+    const [labelSearchTerm, setLabelSearchTerm] = useState('');
+    const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
+    const [labelFilterCategory, setLabelFilterCategory] = useState<string>('');
+    const [labelFilterRole, setLabelFilterRole] = useState<'all' | 'user' | 'assistant'>('all');
+    const [labelExportFormat, setLabelExportFormat] = useState<'json' | 'jsonl' | 'finetune'>('json');
+    const [labelViewMode, setLabelViewMode] = useState<'messages' | 'conversations'>('messages');
 
     useEffect(() => { const handleKeyDown = (event) => { if (event.key === 'Escape') onClose(); }; if (isOpen) document.addEventListener('keydown', handleKeyDown); return () => document.removeEventListener('keydown', handleKeyDown); }, [isOpen, onClose]);
     useEffect(() => {
@@ -921,7 +974,38 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentModel, curre
             loadMemories();
         }
     }, [isMemoryPanelOpen]);
-    
+
+    // Fetch browser history graph data
+    const fetchHistoryGraph = useCallback(async () => {
+        if (!currentPath) return;
+        setHistoryGraphLoading(true);
+        setHistoryGraphError(null);
+        try {
+            const result = await (window as any).api?.browserGetHistoryGraph?.({
+                folderPath: currentPath,
+                minVisits: historyMinVisits
+            });
+            if (result?.success) {
+                setHistoryGraphData({ nodes: result.nodes || [], links: result.links || [] });
+                setHistoryGraphStats(result.stats);
+            } else {
+                setHistoryGraphError(result?.error || 'Failed to load history graph');
+            }
+        } catch (err: any) {
+            console.error('Error fetching history graph:', err);
+            setHistoryGraphError(err.message || 'Failed to load history graph');
+        } finally {
+            setHistoryGraphLoading(false);
+        }
+    }, [currentPath, historyMinVisits]);
+
+    // Load history graph when DataDash opens
+    useEffect(() => {
+        if (isOpen && currentPath) {
+            fetchHistoryGraph();
+        }
+    }, [isOpen, currentPath, fetchHistoryGraph]);
+
     // Filter memories based on search and status
     const filteredMemories = memories.filter(memory => {
         const matchesStatus = memoryFilter === 'all' || memory.status === memoryFilter;
@@ -1218,23 +1302,185 @@ const ModelBuilderModal = () => {
         } catch (err) { console.error(`Failed to get schema for ${tableName}:`, err); return null; }
     }, [tableSchemaCache]);
 
-   
+    // Database connection functions
+    const testDbConnection = useCallback(async (connectionString: string) => {
+        setDbConnectionStatus('connecting');
+        setDbConnectionInfo(null);
+        try {
+            const res = await (window as any).api.testDbConnection({ connectionString });
+            if (res.success) {
+                setDbConnectionStatus('connected');
+                setDbConnectionInfo({
+                    resolvedPath: res.resolvedPath,
+                    tableCount: res.tableCount,
+                    fileSize: res.fileSize,
+                    lastModified: res.lastModified,
+                    dbType: res.dbType
+                });
+                return res;
+            } else {
+                setDbConnectionStatus('error');
+                setDbConnectionInfo({ error: res.error, resolvedPath: res.resolvedPath, dbType: res.dbType });
+                return res;
+            }
+        } catch (err) {
+            setDbConnectionStatus('error');
+            setDbConnectionInfo({ error: err.message });
+            return { success: false, error: err.message };
+        }
+    }, []);
+
+    const connectToDatabase = useCallback(async (connectionString: string) => {
+        const testResult = await testDbConnection(connectionString);
+        if (testResult.success) {
+            // Clear existing data
+            setDbTables([]);
+            setTableSchema(null);
+            setSelectedTable(null);
+            setTableSchemaCache({});
+
+            // Load tables for the new database
+            try {
+                const res = await (window as any).api.listTablesForPath({ connectionString });
+                if (res.error) throw new Error(res.error);
+                setDbTables(res.tables || []);
+            } catch (err) {
+                setQueryError("Could not fetch database tables.");
+            }
+        }
+    }, [testDbConnection]);
+
+    const handleViewSchema = useCallback(async (tableName: string) => {
+        setSelectedTable(tableName);
+        setLoadingSchema(true);
+        try {
+            const res = await (window as any).api.getTableSchemaForPath({
+                connectionString: selectedDatabase,
+                tableName
+            });
+            if (res.error) throw new Error(res.error);
+            setTableSchema(res.schema);
+        } catch (err) {
+            console.error(`Failed to get schema for ${tableName}:`, err);
+            setTableSchema(null);
+        } finally {
+            setLoadingSchema(false);
+        }
+    }, [selectedDatabase]);
+
+    const browseForDatabase = useCallback(async () => {
+        try {
+            const res = await (window as any).api.browseForDatabase();
+            if (res.path) {
+                setSelectedDatabase(res.path);
+                await connectToDatabase(res.path);
+            }
+        } catch (err) {
+            console.error('Failed to browse for database:', err);
+        }
+    }, [connectToDatabase]);
+
+    const formatFileSize = (bytes: number) => {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
+
+    const getDbTypeLabel = (dbType: string) => {
+        const labels = {
+            sqlite: 'SQLite',
+            postgresql: 'PostgreSQL',
+            mysql: 'MySQL',
+            mssql: 'SQL Server',
+            snowflake: 'Snowflake'
+        };
+        return labels[dbType] || dbType;
+    };
+
+    // Load supported database types on mount
+    useEffect(() => {
+        const loadSupportedTypes = async () => {
+            try {
+                const types = await (window as any).api.getSupportedDbTypes?.();
+                if (types) setSupportedDbTypes(types);
+            } catch (e) {
+                // Ignore
+            }
+        };
+        loadSupportedTypes();
+    }, []);
+
     useEffect(() => {
         const fetchTables = async () => {
             if (isQueryPanelOpen && dbTables.length === 0) {
                 try {
-                    const res = await window.api.listTables();
+                    const res = await (window as any).api.listTablesForPath({ connectionString: selectedDatabase });
                     if (res.error) throw new Error(res.error);
                     setDbTables(res.tables || []);
+                    // Also test connection to get status
+                    await testDbConnection(selectedDatabase);
                 } catch (err) {
                     setQueryError("Could not fetch database tables.");
                 }
             }
         };
         fetchTables();
-    }, [isQueryPanelOpen, dbTables.length]);
+    }, [isQueryPanelOpen, dbTables.length, selectedDatabase, testDbConnection]);
 
    
+    // Activity Intelligence functions
+    const loadActivityData = useCallback(async () => {
+        setActivityLoading(true);
+        try {
+            const predResponse = await (window as any).api?.getActivityPredictions?.();
+            if (predResponse && !predResponse.error) {
+                setActivityPredictions(predResponse.predictions || []);
+                setActivityStats(predResponse.stats || null);
+                setActivityData(predResponse.recentActivities || []);
+            }
+        } catch (err) {
+            console.error('Failed to load activity data:', err);
+        }
+        setActivityLoading(false);
+    }, []);
+
+    const handleTrainActivityModel = async () => {
+        setActivityTraining(true);
+        try {
+            await (window as any).api?.trainActivityModel?.();
+            await loadActivityData();
+        } catch (err) {
+            console.error('Failed to train activity model:', err);
+        }
+        setActivityTraining(false);
+    };
+
+    const getActivityIcon = (type: string) => {
+        switch (type) {
+            case 'file_open':
+            case 'file_edit':
+                return <FileText size={14} className="text-blue-400" />;
+            case 'website_visit':
+                return <Globe size={14} className="text-green-400" />;
+            case 'terminal_command':
+                return <Terminal size={14} className="text-yellow-400" />;
+            case 'pane_open':
+            case 'pane_close':
+                return <Eye size={14} className="text-purple-400" />;
+            case 'chat_message':
+                return <Activity size={14} className="text-cyan-400" />;
+            default:
+                return <Activity size={14} className="text-gray-400" />;
+        }
+    };
+
+    // Load activity data when panel opens
+    useEffect(() => {
+        if (isActivityPanelOpen) {
+            loadActivityData();
+        }
+    }, [isActivityPanelOpen, loadActivityData]);
+
     const fetchKgData = useCallback(async (generation) => {
         setKgLoading(true); setKgError(null);
        
@@ -1684,6 +1930,60 @@ const handleAcceptGeneratedSql = () => {
 
     const getLinkWidth = React.useCallback((link) => (link.weight ? Math.min(5, link.weight / 2) : 1), []);
 
+    // History Graph processing and styling
+    const processedHistoryGraphData = React.useMemo(() => {
+        let filteredLinks = historyGraphData.links;
+
+        // Filter links by navigation type
+        if (historyEdgeFilter !== 'all') {
+            filteredLinks = historyGraphData.links.filter(link => {
+                if (historyEdgeFilter === 'click') return link.clickWeight > 0;
+                if (historyEdgeFilter === 'manual') return link.manualWeight > 0;
+                return true;
+            });
+        }
+
+        // Filter nodes to only include those that are connected
+        const connectedNodeIds = new Set<string>();
+        filteredLinks.forEach(link => {
+            connectedNodeIds.add(typeof link.source === 'string' ? link.source : link.source?.id);
+            connectedNodeIds.add(typeof link.target === 'string' ? link.target : link.target?.id);
+        });
+
+        // Include all nodes if no links exist, otherwise only connected ones
+        const filteredNodes = filteredLinks.length > 0
+            ? historyGraphData.nodes.filter(n => connectedNodeIds.has(n.id))
+            : historyGraphData.nodes;
+
+        return { nodes: filteredNodes, links: filteredLinks };
+    }, [historyGraphData, historyEdgeFilter]);
+
+    const getHistoryNodeColor = React.useCallback((node: any) => {
+        // Color based on visit count intensity
+        const maxVisits = Math.max(1, ...historyGraphData.nodes.map(n => n.visitCount || 1));
+        const intensity = (node.visitCount || 1) / maxVisits;
+        // Gradient from blue (low) to purple (mid) to red (high)
+        if (intensity < 0.33) return '#3b82f6'; // blue
+        if (intensity < 0.66) return '#8b5cf6'; // purple
+        return '#ef4444'; // red
+    }, [historyGraphData.nodes]);
+
+    const getHistoryNodeSize = React.useCallback((node: any) => {
+        const maxVisits = Math.max(1, ...historyGraphData.nodes.map(n => n.visitCount || 1));
+        const normalized = (node.visitCount || 1) / maxVisits;
+        return 4 + normalized * 16; // Size range: 4 to 20
+    }, [historyGraphData.nodes]);
+
+    const getHistoryLinkColor = React.useCallback((link: any) => {
+        // Green for click links, orange for manual, gray for mixed
+        if (link.clickWeight > 0 && link.manualWeight === 0) return 'rgba(34, 197, 94, 0.6)'; // green
+        if (link.manualWeight > 0 && link.clickWeight === 0) return 'rgba(249, 115, 22, 0.6)'; // orange
+        return 'rgba(156, 163, 175, 0.4)'; // gray for mixed
+    }, []);
+
+    const getHistoryLinkWidth = React.useCallback((link: any) => {
+        return Math.min(8, 1 + (link.weight || 1) / 2);
+    }, []);
 
     const handleKgProcessTrigger = async (type) => { setKgLoading(true); setKgError(null); try { await window.api.kg_triggerProcess({ type }); setCurrentKgGeneration(null); } catch (err) { setKgError(err.message); } finally { setKgLoading(false); } };
     const handleKgRollback = async () => {
@@ -1691,11 +1991,8 @@ const handleAcceptGeneratedSql = () => {
             const targetGen = currentKgGeneration - 1;
             setKgLoading(true);
             try {
-               
                 await window.api.kg_rollback({ generation: targetGen });
-               
-               
-                setCurrentKgGeneration(targetGen); 
+                setCurrentKgGeneration(targetGen);
             } catch (err) {
                 setKgError(err.message);
                 setKgLoading(false);
@@ -1703,7 +2000,120 @@ const handleAcceptGeneratedSql = () => {
         }
     };
 
-    
+    // KG Editing functions
+    const handleAddKgNode = async () => {
+        if (!newNodeName.trim()) return;
+        setKgLoading(true);
+        try {
+            await (window as any).api?.kg_addNode?.({ nodeId: newNodeName.trim(), nodeType: 'concept' });
+            setNewNodeName('');
+            fetchKgData(currentKgGeneration);
+        } catch (err: any) {
+            setKgError(err.message);
+        } finally {
+            setKgLoading(false);
+        }
+    };
+
+    const handleDeleteKgNode = async (nodeId: string) => {
+        if (!confirm(`Delete node "${nodeId}" and all its connections?`)) return;
+        setKgLoading(true);
+        try {
+            await (window as any).api?.kg_deleteNode?.({ nodeId });
+            setSelectedKgNode(null);
+            fetchKgData(currentKgGeneration);
+        } catch (err: any) {
+            setKgError(err.message);
+        } finally {
+            setKgLoading(false);
+        }
+    };
+
+    const handleAddKgEdge = async () => {
+        if (!newEdgeSource.trim() || !newEdgeTarget.trim()) return;
+        setKgLoading(true);
+        try {
+            await (window as any).api?.kg_addEdge?.({ sourceId: newEdgeSource.trim(), targetId: newEdgeTarget.trim() });
+            setNewEdgeSource('');
+            setNewEdgeTarget('');
+            fetchKgData(currentKgGeneration);
+        } catch (err: any) {
+            setKgError(err.message);
+        } finally {
+            setKgLoading(false);
+        }
+    };
+
+    const handleDeleteKgEdge = async (sourceId: string, targetId: string) => {
+        if (!confirm(`Delete connection from "${sourceId}" to "${targetId}"?`)) return;
+        setKgLoading(true);
+        try {
+            await (window as any).api?.kg_deleteEdge?.({ sourceId, targetId });
+            fetchKgData(currentKgGeneration);
+        } catch (err: any) {
+            setKgError(err.message);
+        } finally {
+            setKgLoading(false);
+        }
+    };
+
+    // Memory approval/rejection functions
+    const handleApproveMemory = async (memoryId: number) => {
+        try {
+            await (window as any).api?.executeSQL?.({
+                query: `UPDATE memory_lifecycle SET status = 'human-approved' WHERE id = ?`,
+                params: [memoryId]
+            });
+            loadMemories();
+        } catch (err) {
+            console.error('Error approving memory:', err);
+        }
+    };
+
+    const handleRejectMemory = async (memoryId: number) => {
+        try {
+            await (window as any).api?.executeSQL?.({
+                query: `UPDATE memory_lifecycle SET status = 'human-rejected' WHERE id = ?`,
+                params: [memoryId]
+            });
+            loadMemories();
+        } catch (err) {
+            console.error('Error rejecting memory:', err);
+        }
+    };
+
+    // Load available databases
+    const loadAvailableDatabases = useCallback(async () => {
+        const databases: { name: string; path: string; type: 'global' | 'project' }[] = [
+            { name: 'npcsh_history.db', path: '~/npcsh_history.db', type: 'global' }
+        ];
+
+        // Try to get project-specific databases from currentPath
+        if (currentPath) {
+            try {
+                const projectDb = `${currentPath}/.npcsh/project.db`;
+                databases.push({ name: `Project DB (${currentPath.split('/').pop()})`, path: projectDb, type: 'project' });
+            } catch (e) {
+                // Ignore if project db doesn't exist
+            }
+        }
+
+        // Add global .npcsh databases
+        try {
+            databases.push({ name: 'Global NPC Config', path: '~/.npcsh/npc_config.db', type: 'global' });
+        } catch (e) {
+            // Ignore
+        }
+
+        setAvailableDatabases(databases);
+    }, [currentPath]);
+
+    useEffect(() => {
+        if (isOpen) {
+            loadAvailableDatabases();
+        }
+    }, [isOpen, loadAvailableDatabases]);
+
     if (!isOpen) return null;
     
        
@@ -1742,19 +2152,19 @@ const handleAcceptGeneratedSql = () => {
 
             {contextMenu.visible && <WidgetContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu({visible: false})} onSelect={handleContextMenuSelect} />}
 
-            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-                <div className="theme-bg-secondary rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                    <header className="w-full border-b theme-border p-4 flex justify-between items-center flex-shrink-0">
-                        <h3 className="text-lg font-semibold flex items-center gap-2">
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+                <div className="bg-gray-900 rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col border border-gray-700" onClick={(e) => e.stopPropagation()}>
+                    <header className="w-full border-b border-gray-700 p-4 flex justify-between items-center flex-shrink-0 bg-gray-800">
+                        <h3 className="text-lg font-semibold flex items-center gap-2 text-white">
                             <BarChart3 className="text-blue-400" />
-                            Usage Dashboard
+                            DataDash
                         </h3>
                         <div className="flex items-center gap-2">
-                            <button onClick={() => saveWidgets(defaultWidgets)} className="p-1 rounded-full theme-hover" title="Reset to default layout">
-                                <Repeat size={20} />
+                            <button onClick={() => saveWidgets(defaultWidgets)} className="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" title="Reset to default layout">
+                                <Repeat size={18} />
                             </button>
-                            <button onClick={onClose} className="p-1 rounded-full theme-hover">
-                                <X size={20} />
+                            <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors">
+                                <X size={18} />
                             </button>
                         </div>
                     </header>
@@ -1782,30 +2192,147 @@ const handleAcceptGeneratedSql = () => {
                              </div>
                         </section>
                         
-                        {/* Original SQL Query Panel - Preserved as is */}
-                        <section id="sql-query-panel" className="border theme-border rounded-lg">
-                            <button onClick={() => setIsQueryPanelOpen(!isQueryPanelOpen)} className="w-full p-4 flex justify-between items-center theme-hover"><h4 className="text-lg font-semibold flex items-center gap-3"><Database className="text-purple-400"/>Direct Database Query</h4>{isQueryPanelOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}</button>
+                        {/* SQL Query Panel */}
+                        <section id="sql-query-panel" className="border border-gray-700 rounded-lg bg-gray-900/50">
+                            <button onClick={() => setIsQueryPanelOpen(!isQueryPanelOpen)} className="w-full p-4 flex justify-between items-center hover:bg-gray-800/50 transition-colors"><h4 className="text-lg font-semibold flex items-center gap-3 text-white"><Database className="text-purple-400"/>Database Query Runner</h4>{isQueryPanelOpen ? <ChevronDown size={20} className="text-gray-400" /> : <ChevronRight size={20} className="text-gray-400" />}</button>
                             {isQueryPanelOpen && (
-                                <div className="p-4 border-t theme-border">
+                                <div className="p-4 border-t border-gray-700">
+                                    {/* Connection String Input */}
+                                    <div className={`mb-4 p-3 rounded-lg border ${
+                                        dbConnectionStatus === 'connected' ? 'bg-green-900/20 border-green-700' :
+                                        dbConnectionStatus === 'error' ? 'bg-red-900/20 border-red-700' :
+                                        'bg-gray-800 border-gray-700'
+                                    }`}>
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <label className="text-xs text-gray-400">Database Connection</label>
+                                            {dbConnectionStatus === 'connected' && (
+                                                <span className="flex items-center gap-1 text-xs text-green-400">
+                                                    <CheckCircle size={12} /> Connected
+                                                </span>
+                                            )}
+                                            {dbConnectionStatus === 'error' && (
+                                                <span className="flex items-center gap-1 text-xs text-red-400">
+                                                    <XCircle size={12} /> Error
+                                                </span>
+                                            )}
+                                            {dbConnectionStatus === 'connecting' && (
+                                                <span className="flex items-center gap-1 text-xs text-yellow-400">
+                                                    <Loader size={12} className="animate-spin" /> Connecting...
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={selectedDatabase}
+                                                onChange={(e) => setSelectedDatabase(e.target.value)}
+                                                placeholder="~/database.db or postgresql://user:pass@host:5432/db"
+                                                className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white border border-gray-600 rounded focus:border-purple-500 focus:outline-none font-mono"
+                                            />
+                                            <button
+                                                onClick={browseForDatabase}
+                                                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm transition-colors"
+                                                title="Browse for database file"
+                                            >
+                                                <Search size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => testDbConnection(selectedDatabase)}
+                                                disabled={dbConnectionStatus === 'connecting'}
+                                                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm transition-colors disabled:opacity-50"
+                                                title="Test connection"
+                                            >
+                                                <Activity size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => connectToDatabase(selectedDatabase)}
+                                                disabled={dbConnectionStatus === 'connecting'}
+                                                className="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded text-sm transition-colors disabled:opacity-50 flex items-center gap-1"
+                                            >
+                                                {dbConnectionStatus === 'connecting' ? (
+                                                    <Loader size={14} className="animate-spin" />
+                                                ) : (
+                                                    <Link size={14} />
+                                                )}
+                                                Connect
+                                            </button>
+                                        </div>
+
+                                        {/* Connection Info */}
+                                        {dbConnectionInfo && (
+                                            <div className="mt-2 text-xs">
+                                                {dbConnectionInfo.error ? (
+                                                    <div className="text-red-400 bg-red-900/30 p-2 rounded">
+                                                        {dbConnectionInfo.error}
+                                                        {dbConnectionInfo.resolvedPath && (
+                                                            <div className="text-red-300/70 mt-1">Path: {dbConnectionInfo.resolvedPath}</div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-gray-400 bg-gray-900/50 p-2 rounded grid grid-cols-2 gap-x-4 gap-y-1">
+                                                        <span>Type:</span>
+                                                        <span className="text-purple-400 font-semibold">{getDbTypeLabel(dbConnectionInfo.dbType || 'sqlite')}</span>
+                                                        {dbConnectionInfo.resolvedPath && (
+                                                            <>
+                                                                <span>Path:</span>
+                                                                <span className="text-gray-300 font-mono truncate" title={dbConnectionInfo.resolvedPath}>
+                                                                    {dbConnectionInfo.resolvedPath}
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                        <span>Tables:</span>
+                                                        <span className="text-green-400">{dbConnectionInfo.tableCount}</span>
+                                                        {dbConnectionInfo.fileSize && (
+                                                            <>
+                                                                <span>Size:</span>
+                                                                <span className="text-gray-300">{formatFileSize(dbConnectionInfo.fileSize)}</span>
+                                                            </>
+                                                        )}
+                                                        {dbConnectionInfo.lastModified && (
+                                                            <>
+                                                                <span>Modified:</span>
+                                                                <span className="text-gray-300">
+                                                                    {new Date(dbConnectionInfo.lastModified).toLocaleString()}
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Connection string examples */}
+                                        <div className="mt-2 text-xs text-gray-500">
+                                            <p className="mb-1">Connection string formats:</p>
+                                            <div className="grid grid-cols-1 gap-0.5 font-mono text-gray-600">
+                                                <span>SQLite: ~/database.db</span>
+                                                <span>PostgreSQL: postgresql://user:pass@host:5432/db</span>
+                                                <span>MySQL: mysql://user:pass@host:3306/db</span>
+                                                <span>SQL Server: mssql://user:pass@host/db</span>
+                                                <span>Snowflake: snowflake://user:pass@account/db/schema?warehouse=WH</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-                                        <div className="border theme-border rounded-lg p-3 flex flex-col">
-                                            <h5 className="font-semibold mb-2 flex items-center gap-2">
-                                                <Table size={16}/> 
+                                        <div className="border border-gray-700 rounded-lg p-3 flex flex-col bg-gray-800/50">
+                                            <h5 className="font-semibold mb-2 flex items-center gap-2 text-white">
+                                                <Table size={16} className="text-gray-400"/>
                                                 Database Schema
                                                 </h5>
                                                 <div className="grid grid-cols-2 gap-3 flex-1">
                                                     <div className="space-y-1 max-h-48 overflow-y-auto pr-2">
                         {dbTables.length > 0 ? dbTables.map(name => (
-                            <button key={name} onClick={() => handleViewSchema(name)} 
-                            className={`w-full text-left px-2 py-1 rounded text-sm ${selectedTable === name ? 'theme-button-primary' : 'theme-hover'}`
+                            <button key={name} onClick={() => handleViewSchema(name)}
+                            className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${selectedTable === name ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`
                         }>{name}</button>)
-                        ) 
-                            : <p className="text-sm theme-text-secondary">No tables found.</p>}
+                        )
+                            : <p className="text-sm text-gray-500">No tables found.</p>}
                             </div>
-                            <div className="max-h-48 overflow-y-auto">
+                            <div className="max-h-48 overflow-y-auto bg-gray-900 rounded p-2">
                                 {loadingSchema ? <div className="flex items-center justify-center h-full">
-                                    <Loader className="animate-spin" /></div> : tableSchema ? <ul className="text-sm font-mono space-y-1">{tableSchema.map(col => <li key={col.name}>- {col.name}: 
-                                        <span className="text-yellow-400">{col.type}</span></li>)}</ul> : <p className="text-sm theme-text-secondary">
+                                    <Loader className="animate-spin text-purple-400" /></div> : tableSchema ? <ul className="text-sm font-mono space-y-1">{tableSchema.map(col => <li key={col.name} className="text-gray-300">- <span className="text-white">{col.name}</span>:
+                                        <span className="text-yellow-400">{col.type}</span></li>)}</ul> : <p className="text-sm text-gray-500">
                                             Select a table.
                                             </p> }</div></div></div>
                                         <div className="border theme-border rounded-lg p-3 flex flex-col">
@@ -2199,242 +2726,11 @@ const handleAcceptGeneratedSql = () => {
 </section>
 
 
-                        <section id="memory-management" className="border theme-border rounded-lg">
-    <button 
-        onClick={() => setIsMemoryPanelOpen(!isMemoryPanelOpen)} 
-        className="w-full p-4 flex justify-between items-center theme-hover"
-    >
-        <h4 className="text-lg font-semibold flex items-center gap-3">
-            <Brain className="text-orange-400"/>
-            Memory Management ({memories.length} memories)
-        </h4>
-        {isMemoryPanelOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
-    </button>
-    {isMemoryPanelOpen && (
-        <div className="p-4 border-t theme-border">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-                <div>
-                    <label className="text-sm font-medium mb-2 block">Search Memories</label>
-                    <input 
-                        type="text"
-                        value={memorySearchTerm}
-                        onChange={(e) => setMemorySearchTerm(e.target.value)}
-                        placeholder="Search memory content..." 
-                        className="w-full theme-input text-sm" 
-                    />
-                </div>
-                <div>
-                    <label className="text-sm font-medium mb-2 block">Filter by Status</label>
-                    <select 
-                        value={memoryFilter}
-                        onChange={(e) => setMemoryFilter(e.target.value)}
-                        className="w-full theme-input text-sm"
-                    >
-                        <option value="all">All Statuses</option>
-                        <option value="pending_approval">Pending Approval</option>
-                        <option value="human-approved">Approved</option>
-                        <option value="human-edited">Edited</option>
-                        <option value="human-rejected">Rejected</option>
-                    </select>
-                </div>
-                <div className="flex items-end">
-                    <button 
-                        onClick={loadMemories}
-                        disabled={memoryLoading}
-                        className="px-4 py-2 theme-button rounded text-sm disabled:opacity-50"
-                    >
-                        {memoryLoading ? 'Loading...' : 'Refresh'}
-                    </button>
-                </div>
-            </div>
+{/* Memory Management and Browser History Web sections have been moved to standalone components */}
 
-            {memoryLoading ? (
-                <div className="flex items-center justify-center p-8">
-                    <Loader className="animate-spin text-orange-400" />
-                </div>
-            ) : (
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead className="theme-bg-tertiary sticky top-0">
-                            <tr>
-                                <th className="p-2 text-left font-semibold">Memory Content</th>
-                                <th className="p-2 text-left font-semibold">Status</th>
-                                <th className="p-2 text-left font-semibold">NPC</th>
-                                <th className="p-2 text-left font-semibold">Date</th>
-                                <th className="p-2 text-left font-semibold">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y theme-divide">
-                            {filteredMemories.map(memory => (
-                                <tr key={memory.memory_id} className="theme-hover">
-                                    <td className="p-2">
-                                        <div className="max-w-md">
-                                            <div className="truncate font-medium">
-                                                {memory.final_memory || memory.initial_memory}
-                                            </div>
-                                            {memory.final_memory && memory.final_memory !== memory.initial_memory && (
-                                                <div className="text-xs theme-text-muted mt-1">
-                                                    Original: {memory.initial_memory}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </td>
-                                    <td className="p-2">
-                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                            memory.status === 'human-approved' ? 'bg-green-900 text-green-300' :
-                                            memory.status === 'human-edited' ? 'bg-blue-900 text-blue-300' :
-                                            memory.status === 'human-rejected' ? 'bg-red-900 text-red-300' :
-                                            'bg-yellow-900 text-yellow-300'
-                                        }`}>
-                                            {memory.status}
-                                        </span>
-                                    </td>
-                                    <td className="p-2 text-xs">{memory.npc || 'N/A'}</td>
-                                    <td className="p-2 text-xs">
-                                        {memory.timestamp ? new Date(memory.timestamp.replace(' ', 'T')).toLocaleString() : 'N/A'}
-                                    </td>
-                                    <td className="p-2">
-                                        <div className="flex gap-1">
-                                            <button
-                                                onClick={() => {
-                                                    const edited = prompt('Edit memory:', memory.final_memory || memory.initial_memory);
-                                                    if (edited && edited !== (memory.final_memory || memory.initial_memory)) {
-                                                        // Update memory in database
-                                                        window.api.executeSQL({
-                                                            query: `UPDATE memory_lifecycle SET final_memory = ?, status = 'human-edited' WHERE id = ?`,
-                                                            params: [edited, memory.id]
-                                                        }).then(() => loadMemories());
+{/* Knowledge Graph section has been moved to standalone component */}
 
-                                                        }
-                                                }}
-                                                className="p-1 theme-hover rounded"
-                                                title="Edit"
-                                            >
-                                                <Edit size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    if (confirm('Delete this memory?')) {
-                                                        window.api.executeSQL({
-                                                            query: `DELETE FROM memory_lifecycle WHERE id = ?`,
-                                                            params: [memory.id]
-                                                        }).then(() => loadMemories());
-                                                    }
-                                                }}
-                                                className="p-1 theme-hover rounded text-red-400"
-                                                title="Delete"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {filteredMemories.length === 0 && (
-                        <div className="text-center p-8 theme-text-muted">
-                            No memories found matching the current filters.
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    )}
-</section>
-
-                        {/* Original Knowledge Graph Section - Preserved as is */}
-<section id="knowledge-graph" className="border theme-border rounded-lg p-4">
-    <div className="flex justify-between items-center mb-3">
-        <h4 className="text-lg font-semibold flex items-center gap-3">
-            <GitBranch className="text-green-400"/>Knowledge Graph Inspector
-        </h4>
-        <div className="flex items-center gap-2">
-            <button onClick={() => handleKgProcessTrigger('sleep')} disabled={kgLoading} className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2"><Zap size={14}/> Sleep</button>
-            <button onClick={() => handleKgProcessTrigger('dream')} disabled={kgLoading} className="px-3 py-1 text-xs theme-button rounded flex items-center gap-2"><Brain size={14}/> Dream</button>
-        </div>
-    </div>
-
-    {/* --- NEW: Enhanced Controls --- */}
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <div>
-            <label className="text-xs theme-text-secondary mb-1 block">View Mode</label>
-            <select value={kgViewMode} onChange={(e) => setKgViewMode(e.target.value)} className="w-full px-2 py-1 text-xs theme-input rounded">
-              <option value="full">Full Network</option>
-              <option value="cooccurrence">Concept Co-occurrence</option>
-            </select>
-        </div>
-        <div>
-            <label className="text-xs theme-text-secondary mb-1 block">Node Filter</label>
-            <select value={kgNodeFilter} onChange={(e) => setKgNodeFilter(e.target.value)} className="w-full px-2 py-1 text-xs theme-input rounded">
-              <option value="all">Show All Nodes</option>
-              <option value="high-degree">Show High-Degree Nodes</option>
-            </select>
-        </div>
-    </div>
-    
-    {kgError && <div className="text-red-400 text-center p-4">{kgError}</div>}
-
-    {kgLoading ? (<div className="h-96 flex items-center justify-center theme-bg-tertiary rounded-lg"><Loader className="animate-spin text-green-400" size={32} /></div>) : (
-    <div className="grid grid-cols-4 gap-4">
-        <div className="col-span-1 flex flex-col gap-4">
-            <div className="theme-bg-tertiary p-3 rounded-lg">
-                <h5 className="font-semibold text-sm mb-2">Controls</h5>
-                <label className="text-xs theme-text-secondary">Active Generation</label>
-                <div className="flex items-center gap-2">
-                    <input type="range" min="0" max={kgGenerations.length > 0 ? Math.max(...kgGenerations) : 0} value={currentKgGeneration || 0} onChange={(e) => setCurrentKgGeneration(parseInt(e.target.value))} className="w-full" disabled={kgGenerations.length === 0}/>
-                    <span className="font-mono text-sm p-1 theme-bg-primary rounded">{currentKgGeneration}</span>
-                </div>
-                <button onClick={handleKgRollback} disabled={currentKgGeneration === 0 || kgLoading} className="w-full mt-3 text-xs py-1 theme-button-danger rounded flex items-center justify-center gap-2 disabled:opacity-50"><Repeat size={14} /> Rollback One Gen</button>
-            </div>
-            
-            {/* --- NEW: Enhanced Stats Panel --- */}
-            <div className="theme-bg-tertiary p-3 rounded-lg">
-                <h5 className="font-semibold text-sm mb-2">Current View Stats</h5>
-                <p className="text-xs theme-text-secondary">Nodes: <span className="font-bold theme-text-primary">{processedGraphData.nodes.length}</span></p>
-                <p className="text-xs theme-text-secondary">Links: <span className="font-bold theme-text-primary">{processedGraphData.links.length}</span></p>
-                {networkStats && kgViewMode === 'full' && (
-                    <>
-                    <p className="text-xs theme-text-secondary">Density: <span className="font-bold theme-text-primary">{networkStats.density?.toFixed(4)}</span></p>
-                    <p className="text-xs theme-text-secondary">Avg Degree: <span className="font-bold theme-text-primary">{networkStats.avg_degree?.toFixed(2)}</span></p>
-                    </>
-                )}
-            </div>
-
-            {/* --- NEW: Centrality Panel --- */}
-            {centralityData?.degree && (
-                <div className="theme-bg-tertiary p-3 rounded-lg">
-                    <h5 className="font-semibold text-sm mb-2">Top Central Concepts</h5>
-                    <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {Object.entries(centralityData.degree).sort(([,a], [,b]) => b - a).slice(0, 10).map(([node, score]) => (
-                            <div key={node} className="text-xs" title={node}>
-                                <div className="truncate font-mono">{node}</div>
-                                <div className="text-green-400 font-semibold">{score.toFixed(3)}</div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-
-        <div className="col-span-3 h-96 theme-bg-tertiary rounded-lg relative overflow-hidden">
-            <ForceGraph2D 
-                ref={graphRef} 
-                graphData={processedGraphData} 
-                nodeLabel="id" 
-                nodeVal={getNodeSize} 
-                nodeColor={getNodeColor} 
-                linkWidth={getLinkWidth}
-                linkDirectionalParticles={kgViewMode === 'full' ? 1 : 0} 
-                linkDirectionalParticleWidth={2} 
-                linkColor={() => 'rgba(255,255,255,0.2)'} 
-                width={800} 
-                height={384} 
-                backgroundColor="transparent"
-            />
-        </div>
-    </div>)}
-</section>
+{/* Activity Intelligence and Labeled Data sections have been moved to standalone components */}
 
                     </main>
                 </div>

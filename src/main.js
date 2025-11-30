@@ -63,8 +63,22 @@ const ensureTablesExist = async () => {
           title TEXT,
           url TEXT NOT NULL,
           folder_path TEXT,
+          pane_id TEXT,
+          navigation_type TEXT DEFAULT 'click',
           visit_count INTEGER DEFAULT 1,
           last_visited DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+  `;
+
+  const createBrowserNavigationsTable = `
+      CREATE TABLE IF NOT EXISTS browser_navigations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          pane_id TEXT NOT NULL,
+          from_url TEXT,
+          to_url TEXT NOT NULL,
+          navigation_type TEXT DEFAULT 'click',
+          folder_path TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       );
   `;
 
@@ -74,13 +88,32 @@ const ensureTablesExist = async () => {
       CREATE INDEX IF NOT EXISTS idx_bookmarks_global ON bookmarks(is_global);
       CREATE INDEX IF NOT EXISTS idx_history_folder ON browser_history(folder_path);
       CREATE INDEX IF NOT EXISTS idx_history_url ON browser_history(url);
+      CREATE INDEX IF NOT EXISTS idx_history_pane ON browser_history(pane_id);
+      CREATE INDEX IF NOT EXISTS idx_navigations_pane ON browser_navigations(pane_id);
+      CREATE INDEX IF NOT EXISTS idx_navigations_folder ON browser_navigations(folder_path);
   `;
 
   try {
       await dbQuery(createHighlightsTable);
       await dbQuery(createBookmarksTable);
       await dbQuery(createBrowserHistoryTable);
+      await dbQuery(createBrowserNavigationsTable);
       await dbQuery(createIndexes);
+
+      // Migration: Add new columns to existing browser_history table if they don't exist
+      try {
+          await dbQuery('ALTER TABLE browser_history ADD COLUMN pane_id TEXT');
+          console.log('[DB] Added pane_id column to browser_history');
+      } catch (e) {
+          // Column already exists, ignore
+      }
+      try {
+          await dbQuery("ALTER TABLE browser_history ADD COLUMN navigation_type TEXT DEFAULT 'click'");
+          console.log('[DB] Added navigation_type column to browser_history');
+      } catch (e) {
+          // Column already exists, ignore
+      }
+
       console.log('[DB] All tables are ready.');
   } catch (error) {
       console.error('[DB] FATAL: Could not create tables.', error);
@@ -339,8 +372,7 @@ function registerGlobalShortcut(win) {
     });
     console.log('Macro shortcut registered:', macroSuccess);
     
-    const screenshotSuccess = globalShortcut.register('Alt+Shift+4', async () => {
-     
+    const screenshotSuccess = globalShortcut.register('Ctrl+Alt+4', async () => {
       const now = Date.now();
       if (isCapturingScreenshot || (now - lastScreenshotTime) < SCREENSHOT_COOLDOWN) {
         console.log('Screenshot capture blocked - too soon or already capturing');
@@ -350,71 +382,209 @@ function registerGlobalShortcut(win) {
       isCapturingScreenshot = true;
       lastScreenshotTime = now;
 
-      console.log('Screenshot shortcut triggered');
+      console.log('Screenshot shortcut triggered (Ctrl+Alt+4)');
       const { screen } = require('electron');
       const displays = screen.getAllDisplays();
       const primaryDisplay = displays[0];
-      const selectionWindow = new BrowserWindow({
-        x: 0,
-        y: 0,
-        width: primaryDisplay.bounds.width,
-        height: primaryDisplay.bounds.height,
-        frame: false,
-        transparent: true,
-        alwaysOnTop: true,
-        webPreferences: {
-          nodeIntegration: true,
-          contextIsolation: false
+      const scaleFactor = primaryDisplay.scaleFactor;
+
+      // First capture the full screen
+      try {
+        const sources = await desktopCapturer.getSources({
+          types: ['screen'],
+          thumbnailSize: {
+            width: primaryDisplay.bounds.width * scaleFactor,
+            height: primaryDisplay.bounds.height * scaleFactor
+          }
+        });
+
+        if (!sources || sources.length === 0) {
+          console.error('No screen sources found');
+          isCapturingScreenshot = false;
+          return;
         }
-      });
 
-      const selectionPath = path.join(__dirname, 'renderer', 'components', 'selection.html');
+        const fullScreenImage = sources[0].thumbnail;
+        const fullScreenDataUrl = fullScreenImage.toDataURL();
 
-     
-      const handleScreenshot = async (event, bounds) => {
-        try {
-          const sources = await desktopCapturer.getSources({
-            types: ['screen'],
-            thumbnailSize: {
-              width: bounds.width * primaryDisplay.scaleFactor,
-              height: bounds.height * primaryDisplay.scaleFactor
+        // Create transparent selection overlay window
+        const selectionWindow = new BrowserWindow({
+          x: primaryDisplay.bounds.x,
+          y: primaryDisplay.bounds.y,
+          width: primaryDisplay.bounds.width,
+          height: primaryDisplay.bounds.height,
+          frame: false,
+          transparent: true,
+          alwaysOnTop: true,
+          skipTaskbar: true,
+          resizable: false,
+          movable: false,
+          hasShadow: false,
+          webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false
+          }
+        });
+        selectionWindow.setIgnoreMouseEvents(false);
+        selectionWindow.setVisibleOnAllWorkspaces(true);
+
+        const handleScreenshot = async (event, bounds) => {
+          try {
+            // Crop the already-captured full screen image
+            const cropBounds = {
+              x: Math.round(bounds.x * scaleFactor),
+              y: Math.round(bounds.y * scaleFactor),
+              width: Math.round(bounds.width * scaleFactor),
+              height: Math.round(bounds.height * scaleFactor)
+            };
+
+            const croppedImage = fullScreenImage.crop(cropBounds);
+            const screenshotsDir = path.join(DEFAULT_CONFIG.baseDir, 'screenshots');
+
+            // Ensure screenshots directory exists
+            if (!fs.existsSync(screenshotsDir)) {
+              fs.mkdirSync(screenshotsDir, { recursive: true });
             }
-          });
 
-          console.log(bounds);
-          const image = sources[0].thumbnail.crop(bounds);
-          console.log(image);
-          const screenshotPath = path.join(DEFAULT_CONFIG.baseDir, 'screenshots', `screenshot-${Date.now()}.png`);
+            const screenshotPath = path.join(screenshotsDir, `screenshot-${Date.now()}.png`);
+            fs.writeFileSync(screenshotPath, croppedImage.toPNG());
 
-         
-          fs.writeFileSync(screenshotPath, image.toPNG());
+            console.log('Screenshot saved to:', screenshotPath);
+            win.webContents.send('screenshot-captured', screenshotPath);
 
-         
-          win.webContents.send('screenshot-captured', screenshotPath);
+          } catch (error) {
+            console.error('Screenshot crop/save failed:', error);
+          } finally {
+            ipcMain.removeListener('selection-complete', handleScreenshot);
+            selectionWindow.close();
+            isCapturingScreenshot = false;
+          }
+        };
 
-        } catch (error) {
-          console.error('Screenshot failed:', error);
-        } finally {
-         
+        ipcMain.once('selection-complete', handleScreenshot);
+
+        ipcMain.once('selection-cancel', () => {
           ipcMain.removeListener('selection-complete', handleScreenshot);
           selectionWindow.close();
           isCapturingScreenshot = false;
-        }
-      };
+        });
 
-      ipcMain.once('selection-complete', handleScreenshot);
+        // Load selection HTML - minimal transparent overlay, no background image flash
+        const selectionHtml = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body {
+                overflow: hidden;
+                cursor: crosshair;
+                user-select: none;
+                background: transparent;
+              }
+              #overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(0, 0, 0, 0.15);
+              }
+              #selection {
+                position: fixed;
+                border: 2px dashed #00aaff;
+                background: rgba(0, 170, 255, 0.1);
+                display: none;
+                pointer-events: none;
+              }
+              #dimensions {
+                position: fixed;
+                background: rgba(0, 0, 0, 0.7);
+                color: white;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-family: system-ui, sans-serif;
+                font-size: 12px;
+                display: none;
+                pointer-events: none;
+              }
+            </style>
+          </head>
+          <body>
+            <div id="overlay"></div>
+            <div id="selection"></div>
+            <div id="dimensions"></div>
+            <script>
+              const { ipcRenderer } = require('electron');
 
-      ipcMain.once('selection-cancel', () => {
-        ipcMain.removeListener('selection-complete', handleScreenshot);
-        selectionWindow.close();
-        isCapturingScreenshot = false;
-      });
+              let startX, startY, isSelecting = false;
+              const selection = document.getElementById('selection');
+              const dimensions = document.getElementById('dimensions');
 
-      try {
-        await selectionWindow.loadFile(selectionPath);
-      } catch (err) {
-        console.error('Failed to load selection window:', err);
-        selectionWindow.close();
+              document.addEventListener('mousedown', (e) => {
+                startX = e.clientX;
+                startY = e.clientY;
+                isSelecting = true;
+                selection.style.display = 'block';
+                dimensions.style.display = 'block';
+                selection.style.left = startX + 'px';
+                selection.style.top = startY + 'px';
+                selection.style.width = '0px';
+                selection.style.height = '0px';
+              });
+
+              document.addEventListener('mousemove', (e) => {
+                if (!isSelecting) return;
+
+                const currentX = e.clientX;
+                const currentY = e.clientY;
+
+                const left = Math.min(startX, currentX);
+                const top = Math.min(startY, currentY);
+                const width = Math.abs(currentX - startX);
+                const height = Math.abs(currentY - startY);
+
+                selection.style.left = left + 'px';
+                selection.style.top = top + 'px';
+                selection.style.width = width + 'px';
+                selection.style.height = height + 'px';
+
+                dimensions.style.left = (left + width + 5) + 'px';
+                dimensions.style.top = (top + height + 5) + 'px';
+                dimensions.textContent = width + ' x ' + height;
+              });
+
+              document.addEventListener('mouseup', (e) => {
+                if (!isSelecting) return;
+                isSelecting = false;
+
+                const rect = selection.getBoundingClientRect();
+                if (rect.width > 5 && rect.height > 5) {
+                  ipcRenderer.send('selection-complete', {
+                    x: rect.left,
+                    y: rect.top,
+                    width: rect.width,
+                    height: rect.height
+                  });
+                } else {
+                  ipcRenderer.send('selection-cancel');
+                }
+              });
+
+              document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                  ipcRenderer.send('selection-cancel');
+                }
+              });
+            </script>
+          </body>
+          </html>
+        `;
+
+        selectionWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(selectionHtml));
+
+      } catch (error) {
+        console.error('Screenshot capture failed:', error);
         isCapturingScreenshot = false;
       }
     });
@@ -1248,8 +1418,203 @@ ipcMain.handle('gitPush', async (event, repoPath) => {
   }
 });
 
+// Git diff for a file
+ipcMain.handle('gitDiff', async (event, repoPath, filePath, staged = false) => {
+  log(`[Git] Getting diff for: ${filePath} in ${repoPath} (staged: ${staged})`);
+  try {
+    const git = simpleGit(repoPath);
+    let diff;
+    if (staged) {
+      diff = await git.diff(['--cached', '--', filePath]);
+    } else if (filePath) {
+      diff = await git.diff(['--', filePath]);
+    } else {
+      diff = await git.diff();
+    }
+    return { success: true, diff };
+  } catch (err) {
+    console.error(`[Git] Error getting diff:`, err);
+    return { success: false, error: err.message };
+  }
+});
 
+// Git diff for all changes
+ipcMain.handle('gitDiffAll', async (event, repoPath) => {
+  log(`[Git] Getting all diffs for: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const stagedDiff = await git.diff(['--cached']);
+    const unstagedDiff = await git.diff();
+    return { success: true, staged: stagedDiff, unstaged: unstagedDiff };
+  } catch (err) {
+    console.error(`[Git] Error getting diffs:`, err);
+    return { success: false, error: err.message };
+  }
+});
 
+// Git blame for a file
+ipcMain.handle('gitBlame', async (event, repoPath, filePath) => {
+  log(`[Git] Getting blame for: ${filePath} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    // Use raw to get blame output
+    const blameOutput = await git.raw(['blame', '--line-porcelain', filePath]);
+
+    // Parse the porcelain output
+    const lines = blameOutput.split('\n');
+    const blameData = [];
+    let currentEntry = {};
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.match(/^[0-9a-f]{40}/)) {
+        if (currentEntry.hash) {
+          blameData.push(currentEntry);
+        }
+        const parts = line.split(' ');
+        currentEntry = {
+          hash: parts[0],
+          originalLine: parseInt(parts[1]),
+          finalLine: parseInt(parts[2]),
+        };
+      } else if (line.startsWith('author ')) {
+        currentEntry.author = line.substring(7);
+      } else if (line.startsWith('author-time ')) {
+        currentEntry.timestamp = parseInt(line.substring(12)) * 1000;
+      } else if (line.startsWith('summary ')) {
+        currentEntry.summary = line.substring(8);
+      } else if (line.startsWith('\t')) {
+        currentEntry.content = line.substring(1);
+      }
+    }
+    if (currentEntry.hash) {
+      blameData.push(currentEntry);
+    }
+
+    return { success: true, blame: blameData };
+  } catch (err) {
+    console.error(`[Git] Error getting blame:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Git branches
+ipcMain.handle('gitBranches', async (event, repoPath) => {
+  log(`[Git] Getting branches for: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const branchSummary = await git.branch(['-a']);
+    return {
+      success: true,
+      current: branchSummary.current,
+      branches: branchSummary.all,
+      local: branchSummary.branches
+    };
+  } catch (err) {
+    console.error(`[Git] Error getting branches:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Git create branch
+ipcMain.handle('gitCreateBranch', async (event, repoPath, branchName) => {
+  log(`[Git] Creating branch: ${branchName} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.checkoutLocalBranch(branchName);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error creating branch:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Git switch branch
+ipcMain.handle('gitCheckout', async (event, repoPath, branchName) => {
+  log(`[Git] Switching to branch: ${branchName} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.checkout(branchName);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error switching branch:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Git delete branch
+ipcMain.handle('gitDeleteBranch', async (event, repoPath, branchName, force = false) => {
+  log(`[Git] Deleting branch: ${branchName} in ${repoPath} (force: ${force})`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.deleteLocalBranch(branchName, force);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error deleting branch:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Git commit history
+ipcMain.handle('gitLog', async (event, repoPath, options = {}) => {
+  log(`[Git] Getting commit history for: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const logOptions = {
+      maxCount: options.maxCount || 50,
+      ...options
+    };
+    const logResult = await git.log(logOptions);
+    return { success: true, commits: logResult.all, total: logResult.total };
+  } catch (err) {
+    console.error(`[Git] Error getting log:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Git show commit details
+ipcMain.handle('gitShowCommit', async (event, repoPath, commitHash) => {
+  log(`[Git] Showing commit: ${commitHash} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    // Use raw to avoid pager issues
+    const show = await git.raw(['show', commitHash, '--stat', '--format=fuller', '--no-color']);
+    const diff = await git.raw(['show', commitHash, '--format=', '--no-color']);
+    return { success: true, details: show, diff };
+  } catch (err) {
+    console.error(`[Git] Error showing commit:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Git stash
+ipcMain.handle('gitStash', async (event, repoPath, action = 'push', message = '') => {
+  log(`[Git] Stash ${action} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    let result;
+    switch (action) {
+      case 'push':
+        result = message ? await git.stash(['push', '-m', message]) : await git.stash(['push']);
+        break;
+      case 'pop':
+        result = await git.stash(['pop']);
+        break;
+      case 'list':
+        result = await git.stash(['list']);
+        break;
+      case 'drop':
+        result = await git.stash(['drop']);
+        break;
+      default:
+        result = await git.stash([action]);
+    }
+    return { success: true, result };
+  } catch (err) {
+    console.error(`[Git] Error with stash:`, err);
+    return { success: false, error: err.message };
+  }
+});
 
 ipcMain.handle('browser-add-to-history', async (event, { url, title, folderPath }) => {
     try {
@@ -1407,33 +1772,41 @@ ipcMain.handle('hide-browser', (event, { viewId }) => {
 });
   
  
-ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath }) => {
+ipcMain.handle('browser:addToHistory', async (event, { url, title, folderPath, paneId, navigationType = 'click', fromUrl }) => {
   try {
-    if (!url || url === 'about:blank') { // Don't add blank pages to history
+    if (!url || url === 'about:blank') {
       log('[BROWSER HISTORY] Skipping add to history for blank or invalid URL:', url);
       return { success: true, message: 'Skipped blank URL' };
     }
-   
+
     const existing = await dbQuery(
-      'SELECT id, visit_count FROM browser_history WHERE url = ? AND folder_path = ?', 
+      'SELECT id, visit_count FROM browser_history WHERE url = ? AND folder_path = ?',
       [url, folderPath]
     );
-    
+
     if (existing.length > 0) {
-     
       await dbQuery(
-        'UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ? WHERE id = ?',
-        [title, existing[0].id]
+        'UPDATE browser_history SET visit_count = visit_count + 1, last_visited = CURRENT_TIMESTAMP, title = ?, pane_id = ?, navigation_type = ? WHERE id = ?',
+        [title, paneId, navigationType, existing[0].id]
       );
       log(`[BROWSER HISTORY] Updated history for ${url} in ${folderPath}`);
     } else {
-     
       await dbQuery(
-        'INSERT INTO browser_history (url, title, folder_path) VALUES (?, ?, ?)',
-        [url, title, folderPath]
+        'INSERT INTO browser_history (url, title, folder_path, pane_id, navigation_type) VALUES (?, ?, ?, ?, ?)',
+        [url, title, folderPath, paneId, navigationType]
       );
       log(`[BROWSER HISTORY] Added new history entry for ${url} in ${folderPath}`);
     }
+
+    // Record the navigation edge if we have a fromUrl (previous page in this pane)
+    if (fromUrl && fromUrl !== 'about:blank' && fromUrl !== url) {
+      await dbQuery(
+        'INSERT INTO browser_navigations (pane_id, from_url, to_url, navigation_type, folder_path) VALUES (?, ?, ?, ?, ?)',
+        [paneId, fromUrl, url, navigationType, folderPath]
+      );
+      log(`[BROWSER HISTORY] Recorded navigation: ${fromUrl} -> ${url} (${navigationType})`);
+    }
+
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
@@ -1515,14 +1888,154 @@ ipcMain.handle('browser:deleteBookmark', async (event, { bookmarkId }) => {
 ipcMain.handle('browser:clearHistory', async (event, { folderPath }) => {
   try {
     await dbQuery('DELETE FROM browser_history WHERE folder_path = ?', [folderPath]);
+    await dbQuery('DELETE FROM browser_navigations WHERE folder_path = ?', [folderPath]);
     log(`[BROWSER HISTORY] Cleared history for ${folderPath}`);
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
-  
-  
+
+// Get browser history as a graph for visualization
+ipcMain.handle('browser:getHistoryGraph', async (event, { folderPath, minVisits = 1, dateFrom, dateTo }) => {
+  try {
+    // Build date filter clause
+    let dateFilter = '';
+    const params = [folderPath];
+    if (dateFrom) {
+      dateFilter += ' AND last_visited >= ?';
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      dateFilter += ' AND last_visited <= ?';
+      params.push(dateTo);
+    }
+
+    // Get all history entries as nodes (grouped by domain for cleaner visualization)
+    const historyEntries = await dbQuery(
+      `SELECT url, title, visit_count, last_visited, pane_id, navigation_type
+       FROM browser_history
+       WHERE folder_path = ? AND visit_count >= ?${dateFilter}
+       ORDER BY visit_count DESC`,
+      [...params.slice(0, 1), minVisits, ...params.slice(1)]
+    );
+
+    // Get all navigations as edges
+    let navDateFilter = '';
+    const navParams = [folderPath];
+    if (dateFrom) {
+      navDateFilter += ' AND timestamp >= ?';
+      navParams.push(dateFrom);
+    }
+    if (dateTo) {
+      navDateFilter += ' AND timestamp <= ?';
+      navParams.push(dateTo);
+    }
+
+    const navigations = await dbQuery(
+      `SELECT from_url, to_url, navigation_type, COUNT(*) as weight
+       FROM browser_navigations
+       WHERE folder_path = ?${navDateFilter}
+       GROUP BY from_url, to_url, navigation_type
+       ORDER BY weight DESC`,
+      navParams
+    );
+
+    // Helper to extract domain from URL
+    const getDomain = (url) => {
+      try {
+        return new URL(url).hostname;
+      } catch {
+        return url;
+      }
+    };
+
+    // Build node map (by domain)
+    const domainMap = new Map();
+    for (const entry of historyEntries) {
+      const domain = getDomain(entry.url);
+      if (!domainMap.has(domain)) {
+        domainMap.set(domain, {
+          id: domain,
+          label: domain,
+          visitCount: 0,
+          urls: [],
+          lastVisited: entry.last_visited
+        });
+      }
+      const node = domainMap.get(domain);
+      node.visitCount += entry.visit_count;
+      node.urls.push({ url: entry.url, title: entry.title, visits: entry.visit_count });
+      if (entry.last_visited > node.lastVisited) {
+        node.lastVisited = entry.last_visited;
+      }
+    }
+
+    // Build edge map (domain to domain)
+    const edgeMap = new Map();
+    for (const nav of navigations) {
+      const fromDomain = getDomain(nav.from_url);
+      const toDomain = getDomain(nav.to_url);
+      if (fromDomain === toDomain) continue; // Skip self-loops
+
+      const edgeKey = `${fromDomain}->${toDomain}`;
+      if (!edgeMap.has(edgeKey)) {
+        edgeMap.set(edgeKey, {
+          source: fromDomain,
+          target: toDomain,
+          weight: 0,
+          clickWeight: 0,
+          manualWeight: 0
+        });
+      }
+      const edge = edgeMap.get(edgeKey);
+      edge.weight += nav.weight;
+      if (nav.navigation_type === 'click') {
+        edge.clickWeight += nav.weight;
+      } else {
+        edge.manualWeight += nav.weight;
+      }
+    }
+
+    // Convert maps to arrays, filtering to only include nodes that are in navigations
+    const allDomains = new Set([...domainMap.keys()]);
+    const navigatedDomains = new Set();
+    for (const edge of edgeMap.values()) {
+      navigatedDomains.add(edge.source);
+      navigatedDomains.add(edge.target);
+    }
+
+    // Include all domains that have visits, plus any in navigations
+    const nodes = Array.from(domainMap.values()).filter(n =>
+      n.visitCount >= minVisits || navigatedDomains.has(n.id)
+    );
+    const links = Array.from(edgeMap.values());
+
+    // Calculate stats
+    const totalVisits = nodes.reduce((sum, n) => sum + n.visitCount, 0);
+    const totalNavigations = links.reduce((sum, l) => sum + l.weight, 0);
+    const topDomains = [...nodes].sort((a, b) => b.visitCount - a.visitCount).slice(0, 10);
+
+    log(`[BROWSER HISTORY GRAPH] Built graph with ${nodes.length} nodes, ${links.length} edges`);
+
+    return {
+      success: true,
+      nodes,
+      links,
+      stats: {
+        totalNodes: nodes.length,
+        totalEdges: links.length,
+        totalVisits,
+        totalNavigations,
+        topDomains: topDomains.map(d => ({ domain: d.id, visits: d.visitCount }))
+      }
+    };
+  } catch (error) {
+    log(`[BROWSER HISTORY GRAPH] Error:`, error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('browser-navigate', (event, { viewId, url }) => {
   if (browserViews.has(viewId)) {
     const finalURL = url.startsWith('http') ? url : `https://${url}`;
@@ -1744,6 +2257,87 @@ ipcMain.handle('mcp:listTools', async (event, { serverPath, conversationId, npc,
   }
 });
 
+// Add a desktop integration MCP server
+ipcMain.handle('mcp:addIntegration', async (event, { integrationId, serverScript, envVars, name } = {}) => {
+  try {
+    // Destination directory for MCP servers
+    const npcshDir = path.join(os.homedir(), '.npcsh');
+    const mcpServersDir = path.join(npcshDir, 'mcp_servers');
+
+    // Ensure directories exist
+    await fsPromises.mkdir(mcpServersDir, { recursive: true });
+
+    // Source path (bundled with app)
+    const sourcePath = path.join(__dirname, 'mcp_servers', serverScript);
+    const destPath = path.join(mcpServersDir, serverScript);
+
+    // Check if source exists
+    if (!fs.existsSync(sourcePath)) {
+      return { error: `MCP server script not found: ${serverScript}` };
+    }
+
+    // Copy the script
+    await fsPromises.copyFile(sourcePath, destPath);
+    console.log(`[MCP] Copied ${serverScript} to ${destPath}`);
+
+    // Build server path that will be added to context
+    const serverPath = destPath;
+
+    // Read current global context
+    let globalContext = {};
+    const globalCtxPath = path.join(npcshDir, '.ctx');
+    try {
+      const ctxContent = await fsPromises.readFile(globalCtxPath, 'utf-8');
+      globalContext = JSON.parse(ctxContent);
+    } catch (e) {
+      // File doesn't exist yet, start fresh
+      globalContext = {};
+    }
+
+    // Ensure mcp_servers array exists
+    if (!globalContext.mcp_servers) {
+      globalContext.mcp_servers = [];
+    }
+
+    // Check if this integration already exists
+    const existingIndex = globalContext.mcp_servers.findIndex(s => {
+      if (typeof s === 'string') return s === serverPath;
+      return s.value === serverPath || s.id === integrationId;
+    });
+
+    // Create the server entry with env vars
+    const serverEntry = {
+      id: integrationId,
+      name: name,
+      value: serverPath,
+      env: envVars || {}
+    };
+
+    if (existingIndex >= 0) {
+      // Update existing
+      globalContext.mcp_servers[existingIndex] = serverEntry;
+    } else {
+      // Add new
+      globalContext.mcp_servers.push(serverEntry);
+    }
+
+    // Write back the context
+    await fsPromises.writeFile(globalCtxPath, JSON.stringify(globalContext, null, 2), 'utf-8');
+    console.log(`[MCP] Added ${name} integration to global context`);
+
+    // Notify npcpy backend to reload context (if endpoint exists)
+    try {
+      await fetch('http://127.0.0.1:5337/api/context/reload', { method: 'POST' });
+    } catch (e) {
+      // Ignore if reload endpoint doesn't exist
+    }
+
+    return { success: true, serverPath, error: null };
+  } catch (err) {
+    console.error('Error adding MCP integration', err);
+    return { error: err.message };
+  }
+});
 
 ipcMain.handle('kg:getNetworkStats', async (event, { generation }) => {
   const params = generation !== null ? `?generation=${generation}` : '';
@@ -1789,6 +2383,44 @@ ipcMain.handle('kg:rollback', async (event, { generation }) => {
     body: JSON.stringify({ generation }),
   });
 });
+
+// KG Node/Edge editing handlers
+ipcMain.handle('kg:addNode', async (event, { nodeId, nodeType = 'concept', properties = {} }) => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/node', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: nodeId, type: nodeType, properties }),
+  });
+});
+
+ipcMain.handle('kg:updateNode', async (event, { nodeId, properties }) => {
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/node/${encodeURIComponent(nodeId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ properties }),
+  });
+});
+
+ipcMain.handle('kg:deleteNode', async (event, { nodeId }) => {
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/node/${encodeURIComponent(nodeId)}`, {
+    method: 'DELETE',
+  });
+});
+
+ipcMain.handle('kg:addEdge', async (event, { sourceId, targetId, edgeType = 'related_to', weight = 1 }) => {
+  return await callBackendApi('http://127.0.0.1:5337/api/kg/edge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: sourceId, target: targetId, type: edgeType, weight }),
+  });
+});
+
+ipcMain.handle('kg:deleteEdge', async (event, { sourceId, targetId }) => {
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/edge/${encodeURIComponent(sourceId)}/${encodeURIComponent(targetId)}`, {
+    method: 'DELETE',
+  });
+});
+
 ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
   log(`[Main Process] Received request to interrupt stream: ${streamIdToInterrupt}`);
   
@@ -2089,6 +2721,379 @@ ipcMain.handle('open-new-window', async (event, initialPath) => {
     createWindow(initialPath); // Your existing window creation function
 });
 
+// =============================================================================
+// Multi-Database Connection Support
+// Supports: SQLite, PostgreSQL, MySQL, MSSQL, Snowflake via connection strings
+// =============================================================================
+
+// Parse connection string to determine database type and connection params
+const parseConnectionString = (connString) => {
+  if (!connString) {
+    return { type: 'sqlite', path: path.join(os.homedir(), 'npcsh_history.db') };
+  }
+
+  const str = connString.trim();
+
+  // Handle ~ for home directory in paths
+  const expandHome = (p) => p.startsWith('~') ? p.replace('~', os.homedir()) : p;
+
+  // SQLite: file path, sqlite:path, or sqlite://path
+  if (str.match(/\.(db|sqlite|sqlite3)$/i) || str.startsWith('sqlite:') || str.startsWith('~') || str.startsWith('/') || str.startsWith('.')) {
+    let dbPath = str;
+    if (dbPath.startsWith('sqlite://')) {
+      dbPath = dbPath.replace('sqlite://', '');
+    } else if (dbPath.startsWith('sqlite:')) {
+      dbPath = dbPath.replace('sqlite:', '');
+    }
+    dbPath = expandHome(dbPath);
+    return { type: 'sqlite', path: path.resolve(dbPath) };
+  }
+
+  // PostgreSQL: postgres:// or postgresql://
+  if (str.startsWith('postgres://') || str.startsWith('postgresql://')) {
+    return { type: 'postgresql', connectionString: str };
+  }
+
+  // MySQL: mysql://
+  if (str.startsWith('mysql://')) {
+    return { type: 'mysql', connectionString: str };
+  }
+
+  // MSSQL: mssql:// or sqlserver://
+  if (str.startsWith('mssql://') || str.startsWith('sqlserver://')) {
+    return { type: 'mssql', connectionString: str };
+  }
+
+  // Snowflake: snowflake://
+  if (str.startsWith('snowflake://')) {
+    return { type: 'snowflake', connectionString: str };
+  }
+
+  // Default: assume SQLite file path
+  return { type: 'sqlite', path: path.resolve(expandHome(str)) };
+};
+
+// Get database-specific SQL for listing tables
+const getListTablesSQL = (dbType) => {
+  switch (dbType) {
+    case 'postgresql':
+      return "SELECT tablename as name FROM pg_tables WHERE schemaname = 'public'";
+    case 'mysql':
+      return "SHOW TABLES";
+    case 'mssql':
+      return "SELECT TABLE_NAME as name FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'";
+    case 'snowflake':
+      return "SHOW TABLES";
+    case 'sqlite':
+    default:
+      return "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
+  }
+};
+
+// Get database-specific SQL for table schema
+const getTableSchemaSQL = (dbType, tableName) => {
+  switch (dbType) {
+    case 'postgresql':
+      return `SELECT column_name as name, data_type as type, is_nullable,
+              CASE WHEN pk.column_name IS NOT NULL THEN 1 ELSE 0 END as pk
+              FROM information_schema.columns c
+              LEFT JOIN (
+                SELECT ku.column_name FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name
+                WHERE tc.table_name = '${tableName}' AND tc.constraint_type = 'PRIMARY KEY'
+              ) pk ON c.column_name = pk.column_name
+              WHERE c.table_name = '${tableName}'`;
+    case 'mysql':
+      return `DESCRIBE ${tableName}`;
+    case 'mssql':
+      return `SELECT COLUMN_NAME as name, DATA_TYPE as type, IS_NULLABLE as is_nullable
+              FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${tableName}'`;
+    case 'snowflake':
+      return `DESCRIBE TABLE ${tableName}`;
+    case 'sqlite':
+    default:
+      return `PRAGMA table_info(${tableName})`;
+  }
+};
+
+// Try to load optional database drivers
+const tryRequire = (moduleName) => {
+  try {
+    return require(moduleName);
+  } catch (e) {
+    return null;
+  }
+};
+
+// Execute query on any supported database
+const executeOnDatabase = async (connConfig, query, params = []) => {
+  const { type } = connConfig;
+
+  if (type === 'sqlite') {
+    return new Promise((resolve, reject) => {
+      if (!fs.existsSync(connConfig.path)) {
+        return reject(new Error(`Database file not found: ${connConfig.path}`));
+      }
+
+      const isReadQuery = query.trim().toUpperCase().startsWith('SELECT') ||
+                          query.trim().toUpperCase().startsWith('PRAGMA') ||
+                          query.trim().toUpperCase().startsWith('SHOW');
+      const mode = isReadQuery ? sqlite3.OPEN_READONLY : (sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE);
+
+      const db = new sqlite3.Database(connConfig.path, mode, (err) => {
+        if (err) return reject(err);
+
+        if (isReadQuery) {
+          db.all(query, params, (err, rows) => {
+            db.close();
+            if (err) return reject(err);
+            resolve(rows);
+          });
+        } else {
+          db.run(query, params, function(err) {
+            db.close();
+            if (err) return reject(err);
+            resolve({ lastID: this.lastID, changes: this.changes });
+          });
+        }
+      });
+    });
+  }
+
+  // PostgreSQL
+  if (type === 'postgresql') {
+    const pg = tryRequire('pg');
+    if (!pg) {
+      throw new Error('PostgreSQL driver not installed. Run: npm install pg');
+    }
+    const client = new pg.Client({ connectionString: connConfig.connectionString });
+    await client.connect();
+    try {
+      const result = await client.query(query, params);
+      return result.rows;
+    } finally {
+      await client.end();
+    }
+  }
+
+  // MySQL
+  if (type === 'mysql') {
+    const mysql = tryRequire('mysql2/promise');
+    if (!mysql) {
+      throw new Error('MySQL driver not installed. Run: npm install mysql2');
+    }
+    const connection = await mysql.createConnection(connConfig.connectionString);
+    try {
+      const [rows] = await connection.execute(query, params);
+      return Array.isArray(rows) ? rows : [rows];
+    } finally {
+      await connection.end();
+    }
+  }
+
+  // MSSQL
+  if (type === 'mssql') {
+    const mssql = tryRequire('mssql');
+    if (!mssql) {
+      throw new Error('MSSQL driver not installed. Run: npm install mssql');
+    }
+    await mssql.connect(connConfig.connectionString);
+    try {
+      const result = await mssql.query(query);
+      return result.recordset;
+    } finally {
+      await mssql.close();
+    }
+  }
+
+  // Snowflake
+  if (type === 'snowflake') {
+    const snowflake = tryRequire('snowflake-sdk');
+    if (!snowflake) {
+      throw new Error('Snowflake driver not installed. Run: npm install snowflake-sdk');
+    }
+    // Parse snowflake connection string: snowflake://user:pass@account/database/schema?warehouse=WH
+    const url = new URL(connConfig.connectionString);
+    const connection = snowflake.createConnection({
+      account: url.hostname,
+      username: url.username,
+      password: url.password,
+      database: url.pathname.split('/')[1],
+      schema: url.pathname.split('/')[2],
+      warehouse: url.searchParams.get('warehouse')
+    });
+
+    return new Promise((resolve, reject) => {
+      connection.connect((err, conn) => {
+        if (err) return reject(err);
+        conn.execute({
+          sqlText: query,
+          complete: (err, stmt, rows) => {
+            conn.destroy();
+            if (err) return reject(err);
+            resolve(rows);
+          }
+        });
+      });
+    });
+  }
+
+  throw new Error(`Unsupported database type: ${type}`);
+};
+
+// Test database connection and return basic info
+ipcMain.handle('db:testConnection', async (event, { connectionString }) => {
+  try {
+    const connConfig = parseConnectionString(connectionString);
+    const listSQL = getListTablesSQL(connConfig.type);
+
+    const tables = await executeOnDatabase(connConfig, listSQL);
+    const tableNames = tables.map(r => r.name || r.tablename || r.TABLE_NAME || Object.values(r)[0]);
+
+    const result = {
+      success: true,
+      dbType: connConfig.type,
+      tableCount: tableNames.length,
+      tables: tableNames
+    };
+
+    // Add file info for SQLite
+    if (connConfig.type === 'sqlite' && connConfig.path) {
+      result.resolvedPath = connConfig.path;
+      if (fs.existsSync(connConfig.path)) {
+        const stats = fs.statSync(connConfig.path);
+        result.fileSize = stats.size;
+        result.lastModified = stats.mtime;
+      }
+    }
+
+    return result;
+  } catch (err) {
+    const connConfig = parseConnectionString(connectionString);
+    return {
+      success: false,
+      error: err.message,
+      dbType: connConfig.type,
+      resolvedPath: connConfig.path || null
+    };
+  }
+});
+
+// List tables for a database
+ipcMain.handle('db:listTablesForPath', async (event, { connectionString }) => {
+  try {
+    const connConfig = parseConnectionString(connectionString);
+    const listSQL = getListTablesSQL(connConfig.type);
+    const tables = await executeOnDatabase(connConfig, listSQL);
+    const tableNames = tables.map(r => r.name || r.tablename || r.TABLE_NAME || Object.values(r)[0]);
+    return { tables: tableNames, dbType: connConfig.type };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Get table schema for a database
+ipcMain.handle('db:getTableSchemaForPath', async (event, { connectionString, tableName }) => {
+  // Validate table name (allow dots for schema.table notation)
+  if (!/^[a-zA-Z0-9_.]+$/.test(tableName)) {
+    return { error: 'Invalid table name provided.' };
+  }
+
+  try {
+    const connConfig = parseConnectionString(connectionString);
+    const schemaSQL = getTableSchemaSQL(connConfig.type, tableName);
+    const schemaRows = await executeOnDatabase(connConfig, schemaSQL);
+
+    // Normalize schema response across database types
+    const schema = schemaRows.map(r => ({
+      name: r.name || r.column_name || r.COLUMN_NAME || r.Field,
+      type: r.type || r.data_type || r.DATA_TYPE || r.Type,
+      notnull: r.notnull || (r.is_nullable === 'NO') || (r.Null === 'NO') ? 1 : 0,
+      pk: r.pk || (r.Key === 'PRI') ? 1 : 0
+    }));
+
+    // Try to get row count
+    let rowCount = null;
+    try {
+      const countResult = await executeOnDatabase(connConfig, `SELECT COUNT(*) as count FROM ${tableName}`);
+      rowCount = countResult[0]?.count || countResult[0]?.COUNT || null;
+    } catch (e) {
+      // Ignore count errors
+    }
+
+    return { schema, rowCount, dbType: connConfig.type };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Execute SQL on a database
+ipcMain.handle('db:executeSQLForPath', async (event, { connectionString, query, params = [] }) => {
+  try {
+    const connConfig = parseConnectionString(connectionString);
+    const result = await executeOnDatabase(connConfig, query, params);
+
+    // If it's an array, it's rows from a SELECT
+    if (Array.isArray(result)) {
+      return { rows: result, dbType: connConfig.type };
+    }
+    // Otherwise it's a write result
+    return { ...result, dbType: connConfig.type };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Browse for database file (SQLite only)
+ipcMain.handle('db:browseForDatabase', async () => {
+  const { filePaths } = await dialog.showOpenDialog({
+    title: 'Select Database File',
+    filters: [
+      { name: 'Database Files', extensions: ['db', 'sqlite', 'sqlite3', 'mdb', 'accdb'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  });
+
+  if (filePaths && filePaths.length > 0) {
+    return { path: filePaths[0] };
+  }
+  return { path: null };
+});
+
+// Get supported database types
+ipcMain.handle('db:getSupportedTypes', async () => {
+  const types = [
+    { type: 'sqlite', name: 'SQLite', installed: true, example: '~/database.db or sqlite:~/database.db' }
+  ];
+
+  // Check which drivers are installed
+  if (tryRequire('pg')) {
+    types.push({ type: 'postgresql', name: 'PostgreSQL', installed: true, example: 'postgresql://user:pass@host:5432/database' });
+  } else {
+    types.push({ type: 'postgresql', name: 'PostgreSQL', installed: false, example: 'postgresql://user:pass@host:5432/database', install: 'npm install pg' });
+  }
+
+  if (tryRequire('mysql2/promise')) {
+    types.push({ type: 'mysql', name: 'MySQL', installed: true, example: 'mysql://user:pass@host:3306/database' });
+  } else {
+    types.push({ type: 'mysql', name: 'MySQL', installed: false, example: 'mysql://user:pass@host:3306/database', install: 'npm install mysql2' });
+  }
+
+  if (tryRequire('mssql')) {
+    types.push({ type: 'mssql', name: 'SQL Server', installed: true, example: 'mssql://user:pass@host/database' });
+  } else {
+    types.push({ type: 'mssql', name: 'SQL Server', installed: false, example: 'mssql://user:pass@host/database', install: 'npm install mssql' });
+  }
+
+  if (tryRequire('snowflake-sdk')) {
+    types.push({ type: 'snowflake', name: 'Snowflake', installed: true, example: 'snowflake://user:pass@account/db/schema?warehouse=WH' });
+  } else {
+    types.push({ type: 'snowflake', name: 'Snowflake', installed: false, example: 'snowflake://user:pass@account/db/schema?warehouse=WH', install: 'npm install snowflake-sdk' });
+  }
+
+  return types;
+});
 
 ipcMain.handle('db:exportCSV', async (event, data) => {
     if (!data || data.length === 0) {
@@ -2179,7 +3184,388 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
     }
 });
 
+// ============== Mapx (Mind Map) IPC Handlers ==============
+ipcMain.handle('save-map', async (event, data) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/maps/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error saving map:', err);
+        return { error: err.message };
+    }
+});
 
+ipcMain.handle('load-map', async (event, filePath) => {
+    try {
+        const response = await fetch(`http://127.0.0.1:5337/api/maps/load?path=${encodeURIComponent(filePath)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error loading map:', err);
+        return { error: err.message };
+    }
+});
+
+// ============== SQL Models IPC Handlers (dbt-style npcsql) ==============
+// Models are stored as .sql files in models/ directory (like dbt)
+// Metadata is stored alongside in a models_meta.json file
+
+// Helper to get models directory path
+const getModelsDir = (basePath, isGlobal) => {
+    if (isGlobal) {
+        return path.join(os.homedir(), '.npcsh', 'npc_team', 'models');
+    }
+    return path.join(basePath, 'npc_team', 'models');
+};
+
+// Helper to get metadata file path
+const getModelsMetaPath = (basePath, isGlobal) => {
+    const modelsDir = getModelsDir(basePath, isGlobal);
+    return path.join(modelsDir, 'models_meta.json');
+};
+
+// Helper to load models from directory
+const loadModelsFromDir = (modelsDir) => {
+    const models = [];
+    if (!fs.existsSync(modelsDir)) return models;
+
+    // Load metadata
+    const metaPath = path.join(modelsDir, 'models_meta.json');
+    let metadata = {};
+    if (fs.existsSync(metaPath)) {
+        try {
+            metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+        } catch (e) {
+            console.error('Error reading models metadata:', e);
+        }
+    }
+
+    // Discover .sql files
+    const sqlFiles = fs.readdirSync(modelsDir).filter(f => f.endsWith('.sql'));
+    for (const file of sqlFiles) {
+        const name = file.replace('.sql', '');
+        const filePath = path.join(modelsDir, file);
+        const sql = fs.readFileSync(filePath, 'utf-8');
+        const meta = metadata[name] || {};
+
+        models.push({
+            id: name, // Use filename as ID
+            name,
+            sql,
+            description: meta.description || '',
+            schedule: meta.schedule || '',
+            materialization: meta.materialization || 'table',
+            npc: meta.npc || '',
+            createdAt: meta.createdAt || new Date().toISOString(),
+            updatedAt: meta.updatedAt || new Date().toISOString(),
+            lastRunAt: meta.lastRunAt,
+            lastRunResult: meta.lastRunResult,
+            filePath
+        });
+    }
+    return models;
+};
+
+// Helper to save model metadata
+const saveModelMeta = (modelsDir, name, meta) => {
+    const metaPath = path.join(modelsDir, 'models_meta.json');
+    let metadata = {};
+    if (fs.existsSync(metaPath)) {
+        try {
+            metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+        } catch (e) {}
+    }
+    metadata[name] = meta;
+    fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
+};
+
+// Get global SQL models
+ipcMain.handle('getSqlModelsGlobal', async () => {
+    try {
+        const modelsDir = getModelsDir(null, true);
+        const models = loadModelsFromDir(modelsDir);
+        return { models };
+    } catch (err) {
+        console.error('Error loading global SQL models:', err);
+        return { models: [], error: err.message };
+    }
+});
+
+// Get project SQL models
+ipcMain.handle('getSqlModelsProject', async (event, currentPath) => {
+    try {
+        if (!currentPath) return { models: [], error: 'No project path provided' };
+        const modelsDir = getModelsDir(currentPath, false);
+        const models = loadModelsFromDir(modelsDir);
+        return { models };
+    } catch (err) {
+        console.error('Error loading project SQL models:', err);
+        return { models: [], error: err.message };
+    }
+});
+
+// Save global SQL model (as .sql file)
+ipcMain.handle('saveSqlModelGlobal', async (event, modelData) => {
+    try {
+        const modelsDir = getModelsDir(null, true);
+        if (!fs.existsSync(modelsDir)) {
+            fs.mkdirSync(modelsDir, { recursive: true });
+        }
+
+        // Sanitize model name for filename
+        const safeName = modelData.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sqlFilePath = path.join(modelsDir, `${safeName}.sql`);
+
+        // Write the SQL file
+        fs.writeFileSync(sqlFilePath, modelData.sql);
+
+        // Save metadata
+        const meta = {
+            description: modelData.description || '',
+            schedule: modelData.schedule || '',
+            materialization: modelData.materialization || 'table',
+            npc: modelData.npc || '',
+            createdAt: modelData.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            lastRunAt: modelData.lastRunAt,
+            lastRunResult: modelData.lastRunResult
+        };
+        saveModelMeta(modelsDir, safeName, meta);
+
+        return { success: true, model: { ...modelData, id: safeName, filePath: sqlFilePath } };
+    } catch (err) {
+        console.error('Error saving global SQL model:', err);
+        return { success: false, error: err.message };
+    }
+});
+
+// Save project SQL model (as .sql file)
+ipcMain.handle('saveSqlModelProject', async (event, { path: projectPath, model: modelData }) => {
+    try {
+        if (!projectPath) return { success: false, error: 'No project path provided' };
+
+        const modelsDir = getModelsDir(projectPath, false);
+        if (!fs.existsSync(modelsDir)) {
+            fs.mkdirSync(modelsDir, { recursive: true });
+        }
+
+        // Sanitize model name for filename
+        const safeName = modelData.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sqlFilePath = path.join(modelsDir, `${safeName}.sql`);
+
+        // Write the SQL file
+        fs.writeFileSync(sqlFilePath, modelData.sql);
+
+        // Save metadata
+        const meta = {
+            description: modelData.description || '',
+            schedule: modelData.schedule || '',
+            materialization: modelData.materialization || 'table',
+            npc: modelData.npc || '',
+            createdAt: modelData.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            lastRunAt: modelData.lastRunAt,
+            lastRunResult: modelData.lastRunResult
+        };
+        saveModelMeta(modelsDir, safeName, meta);
+
+        return { success: true, model: { ...modelData, id: safeName, filePath: sqlFilePath } };
+    } catch (err) {
+        console.error('Error saving project SQL model:', err);
+        return { success: false, error: err.message };
+    }
+});
+
+// Delete global SQL model
+ipcMain.handle('deleteSqlModelGlobal', async (event, modelId) => {
+    try {
+        const modelsDir = getModelsDir(null, true);
+        const sqlFilePath = path.join(modelsDir, `${modelId}.sql`);
+
+        // Delete the .sql file
+        if (fs.existsSync(sqlFilePath)) {
+            fs.unlinkSync(sqlFilePath);
+        }
+
+        // Update metadata
+        const metaPath = path.join(modelsDir, 'models_meta.json');
+        if (fs.existsSync(metaPath)) {
+            try {
+                const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+                delete metadata[modelId];
+                fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
+            } catch (e) {}
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error('Error deleting global SQL model:', err);
+        return { success: false, error: err.message };
+    }
+});
+
+// Delete project SQL model
+ipcMain.handle('deleteSqlModelProject', async (event, { path: projectPath, modelId }) => {
+    try {
+        if (!projectPath) return { success: false, error: 'No project path provided' };
+
+        const modelsDir = getModelsDir(projectPath, false);
+        const sqlFilePath = path.join(modelsDir, `${modelId}.sql`);
+
+        // Delete the .sql file
+        if (fs.existsSync(sqlFilePath)) {
+            fs.unlinkSync(sqlFilePath);
+        }
+
+        // Update metadata
+        const metaPath = path.join(modelsDir, 'models_meta.json');
+        if (fs.existsSync(metaPath)) {
+            try {
+                const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+                delete metadata[modelId];
+                fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
+            } catch (e) {}
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error('Error deleting project SQL model:', err);
+        return { success: false, error: err.message };
+    }
+});
+
+// Run SQL model (execute via npcpy backend API)
+ipcMain.handle('runSqlModel', async (event, { path: projectPath, modelId, isGlobal, targetDb: userTargetDb }) => {
+    try {
+        const modelsDir = getModelsDir(isGlobal ? null : projectPath, isGlobal);
+        const sqlFilePath = path.join(modelsDir, `${modelId}.sql`);
+
+        if (!fs.existsSync(sqlFilePath)) {
+            return { success: false, error: `Model file not found: ${sqlFilePath}` };
+        }
+
+        // Load metadata for NPC context
+        const metaPath = path.join(modelsDir, 'models_meta.json');
+        let meta = {};
+        if (fs.existsSync(metaPath)) {
+            try {
+                const allMeta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+                meta = allMeta[modelId] || {};
+            } catch (e) {}
+        }
+
+        const npcDirectory = isGlobal
+            ? path.join(os.homedir(), '.npcsh', 'npc_team')
+            : path.join(projectPath, 'npc_team');
+
+        // Use user-selected database or default to npcsh_history.db
+        let targetDb = userTargetDb || '~/npcsh_history.db';
+        // Expand ~ to home directory
+        if (targetDb.startsWith('~')) {
+            targetDb = path.join(os.homedir(), targetDb.slice(1));
+        }
+
+        // Call the npcpy backend API
+        const response = await fetch('http://127.0.0.1:5337/api/npcsql/run_model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                modelsDir: modelsDir,
+                modelName: modelId,
+                npcDirectory: npcDirectory,
+                targetDb: targetDb
+            })
+        });
+
+        let result;
+        if (!response.ok) {
+            try {
+                result = await response.json();
+            } catch (e) {
+                const errorText = await response.text();
+                result = { success: false, error: errorText || `HTTP ${response.status}` };
+            }
+        } else {
+            result = await response.json();
+        }
+
+        // Update last run timestamp in metadata
+        meta.lastRunAt = new Date().toISOString();
+        meta.lastRunResult = result.success ? 'success' : 'error';
+        saveModelMeta(modelsDir, modelId, meta);
+
+        return result;
+    } catch (err) {
+        console.error('Error running SQL model:', err);
+        return { success: false, error: err.message };
+    }
+});
+
+// ============== Local Model Provider IPC Handlers ==============
+ipcMain.handle('scan-local-models', async (event, provider) => {
+    try {
+        const response = await fetch(`http://127.0.0.1:5337/api/models/local/scan?provider=${encodeURIComponent(provider)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error scanning local models:', err);
+        return { models: [], error: err.message };
+    }
+});
+
+ipcMain.handle('get-local-model-status', async (event, provider) => {
+    try {
+        const response = await fetch(`http://127.0.0.1:5337/api/models/local/status?provider=${encodeURIComponent(provider)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error getting local model status:', err);
+        return { running: false, error: err.message };
+    }
+});
+
+// ============== Activity Tracking IPC Handlers ==============
+ipcMain.handle('track-activity', async (event, activity) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/activity/track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(activity)
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error tracking activity:', err);
+        return { error: err.message };
+    }
+});
+
+ipcMain.handle('get-activity-predictions', async (event) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/activity/predictions');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error getting activity predictions:', err);
+        return { predictions: [], error: err.message };
+    }
+});
+
+ipcMain.handle('train-activity-model', async (event) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/activity/train', { method: 'POST' });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error training activity model:', err);
+        return { error: err.message };
+    }
+});
 
 ipcMain.handle('executeCommandStream', async (event, data) => {
  
@@ -3419,6 +4805,16 @@ ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, context: contextData }),
+  });
+});
+
+ipcMain.handle('init-project-team', async (event, projectPath) => {
+  if (!projectPath) return { error: 'Path is required' };
+  const url = `http://127.0.0.1:5337/api/context/project/init`;
+  return await callBackendApi(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: projectPath }),
   });
 });
 

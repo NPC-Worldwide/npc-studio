@@ -14,7 +14,7 @@ import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, fol
 import { tags as t } from '@lezer/highlight';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { lintKeymap } from '@codemirror/lint';
-import { BrainCircuit, Edit, FileText, MessageSquare } from 'lucide-react';
+import { BrainCircuit, Edit, FileText, MessageSquare, GitBranch, X } from 'lucide-react';
 
 const appHighlightStyle = HighlightStyle.define([
     { tag: t.keyword, color: '#c678dd' },
@@ -250,13 +250,38 @@ const CodeEditorPane = ({
     handleAIEdit,
     startAgenticEdit,
     setPromptModal,
+    onGitBlame,
+    currentPath,
 }) => {
     const paneData = contentDataRef.current[nodeId];
+    const [showBlame, setShowBlame] = useState(false);
+    const [blameData, setBlameData] = useState<any[] | null>(null);
+    const [blameLoading, setBlameLoading] = useState(false);
+
     if (!paneData) return null;
 
     const { contentId: filePath, fileContent, fileChanged } = paneData;
     const fileName = filePath?.split('/').pop() || 'Untitled';
     const isRenaming = renamingPaneId === nodeId;
+
+    const handleLoadBlame = useCallback(async () => {
+        if (!currentPath || !filePath) return;
+        setBlameLoading(true);
+        try {
+            // Get relative path from currentPath
+            const relativePath = filePath.startsWith(currentPath)
+                ? filePath.slice(currentPath.length + 1)
+                : filePath;
+            const blame = await (window as any).api.gitBlame(currentPath, relativePath);
+            setBlameData(blame);
+            setShowBlame(true);
+        } catch (err) {
+            console.error('Failed to load git blame:', err);
+            setBlameData(null);
+        } finally {
+            setBlameLoading(false);
+        }
+    }, [currentPath, filePath]);
 
     const onContentChange = useCallback((value) => {
         if (contentDataRef.current[nodeId]) {
@@ -291,15 +316,69 @@ const CodeEditorPane = ({
 
     return (
         <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
-            <div className="flex-1 overflow-auto min-h-0">
-                <CodeMirrorEditor
-                    value={fileContent || ''}
-                    onChange={onContentChange}
-                    onSave={onSave}
-                    filePath={filePath}
-                    onSelect={handleTextSelection}
-                    onContextMenu={onEditorContextMenu}
-                />
+            {/* Git Blame Toggle Button */}
+            {currentPath && (
+                <div className="absolute top-2 right-2 z-30">
+                    <button
+                        onClick={() => {
+                            if (showBlame) {
+                                setShowBlame(false);
+                            } else {
+                                handleLoadBlame();
+                            }
+                        }}
+                        disabled={blameLoading}
+                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                            showBlame ? 'bg-purple-500/30 text-purple-300' : 'theme-bg-primary theme-text-muted hover:theme-text-primary'
+                        }`}
+                        title="Toggle Git Blame"
+                    >
+                        <GitBranch size={14} />
+                        {blameLoading ? 'Loading...' : showBlame ? 'Hide Blame' : 'Git Blame'}
+                    </button>
+                </div>
+            )}
+
+            <div className="flex-1 flex min-h-0">
+                {/* Git Blame Panel */}
+                {showBlame && blameData && (
+                    <div className="w-64 border-r theme-border flex flex-col bg-black/20 overflow-hidden">
+                        <div className="flex items-center justify-between px-2 py-1 border-b theme-border bg-black/20">
+                            <span className="text-xs font-medium theme-text-muted">Git Blame</span>
+                            <button onClick={() => setShowBlame(false)} className="p-0.5 theme-hover rounded">
+                                <X size={12} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto text-xs font-mono">
+                            {blameData.map((line: any, idx: number) => (
+                                <div
+                                    key={idx}
+                                    className="flex items-center px-2 py-0.5 hover:bg-white/5 border-b border-white/5"
+                                    style={{ minHeight: '20px' }}
+                                >
+                                    <div className="flex-1 truncate">
+                                        <span className="text-purple-400">{line.hash?.slice(0, 7) || '-------'}</span>
+                                        <span className="text-gray-500 mx-1">|</span>
+                                        <span className="text-gray-400">{line.author?.slice(0, 12) || 'Unknown'}</span>
+                                    </div>
+                                    <div className="text-gray-500 text-right w-10">{idx + 1}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Editor */}
+                <div className="flex-1 overflow-auto min-h-0">
+                    <CodeMirrorEditor
+                        value={fileContent || ''}
+                        onChange={onContentChange}
+                        onSave={onSave}
+                        filePath={filePath}
+                        onSelect={handleTextSelection}
+                        onContextMenu={onEditorContextMenu}
+                    />
+                </div>
             </div>
 
             {editorContextMenuPos && activeContentPaneId === nodeId && (
@@ -343,6 +422,15 @@ const CodeEditorPane = ({
                             disabled={!aiEditModal.selectedText}
                             className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary text-sm disabled:opacity-50">
                             <Edit size={16} />Refactor
+                        </button>
+                        <div className="border-t theme-border my-1"></div>
+                        <button
+                            onClick={() => {
+                                setEditorContextMenuPos(null);
+                                handleLoadBlame();
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-purple-400 text-sm">
+                            <GitBranch size={16} />Git Blame
                         </button>
                         <div className="border-t theme-border my-1"></div>
                         <button
