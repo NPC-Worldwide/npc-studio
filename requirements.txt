@@ -5,6 +5,7 @@ redis
 pyyaml
 pillow
 npcpy
+npcsh
 anthropic
 google-genai
 ollama
