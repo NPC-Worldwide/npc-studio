@@ -5563,52 +5563,167 @@ const renderInputArea = () => {
 
 const renderMainContent = () => {
 
+    // Top bar component - always visible
+    const topBar = (
+        <div className="flex-shrink-0 h-8 px-2 flex items-center gap-3 text-[11px] theme-bg-secondary border-b theme-border">
+            {/* Full Path selector - left */}
+            <div className="flex items-center gap-1 min-w-[200px] max-w-[300px]">
+                <button
+                    onClick={goUpDirectory}
+                    className="p-1 theme-hover rounded transition-all flex-shrink-0"
+                    title="Go Up"
+                    aria-label="Go Up Directory"
+                >
+                    <ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/>
+                </button>
+                {isEditingPath ? (
+                    <input
+                        type="text"
+                        value={editedPath}
+                        onChange={(e) => setEditedPath(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                setIsEditingPath(false);
+                                switchToPath(editedPath);
+                            } else if (e.key === 'Escape') {
+                                setIsEditingPath(false);
+                            }
+                        }}
+                        onBlur={() => setIsEditingPath(false)}
+                        autoFocus
+                        className="text-xs theme-text-muted theme-input border rounded px-2 py-0.5 flex-1 min-w-0"
+                    />
+                ) : (
+                    <div
+                        onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }}
+                        className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-0.5 rounded flex-1 min-w-0"
+                        title={currentPath}
+                    >
+                        {currentPath || '...'}
+                    </div>
+                )}
+            </div>
+
+            <div className="flex-1" />
+
+            {/* Search - center */}
+            <div className="flex items-center gap-2 max-w-md w-full">
+                <Search size={14} className="theme-text-muted flex-shrink-0" />
+                <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        if (!e.target.value.trim()) {
+                            setIsSearching(false);
+                            setDeepSearchResults([]);
+                            setMessageSearchResults([]);
+                            setSearchResultsModalOpen(false);
+                        }
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && searchTerm.trim()) {
+                            e.preventDefault();
+                            setSearchResultsModalOpen(true);
+                        }
+                    }}
+                    placeholder={isGlobalSearch ? "Global search (Ctrl+Shift+F)..." : "Search (Ctrl+F)..."}
+                    className="flex-1 bg-transparent theme-text-primary text-xs focus:outline-none"
+                />
+                {(deepSearchResults.length > 0 || messageSearchResults.length > 0) && (
+                    <button
+                        onClick={() => setSearchResultsModalOpen(true)}
+                        className="px-2 py-0.5 text-[10px] bg-blue-600 text-white rounded"
+                    >
+                        {deepSearchResults.length + messageSearchResults.length} results
+                    </button>
+                )}
+                {searchTerm && (
+                    <button
+                        onClick={() => {
+                            setSearchTerm('');
+                            setIsSearching(false);
+                            setDeepSearchResults([]);
+                            setMessageSearchResults([]);
+                            setSearchResultsModalOpen(false);
+                        }}
+                        className="p-1 theme-hover rounded"
+                    >
+                        <X size={12} className="theme-text-muted" />
+                    </button>
+                )}
+            </div>
+
+            <div className="flex-1" />
+
+            {/* DateTime - right */}
+            <div className="flex items-center gap-2">
+                <button
+                    onClick={() => setShowDateTime(!showDateTime)}
+                    className="p-1 theme-hover rounded theme-text-muted"
+                    title={showDateTime ? "Hide date/time" : "Show date/time"}
+                >
+                    <Clock size={14} />
+                </button>
+                {showDateTime && (
+                    <span className="theme-text-muted tabular-nums text-[10px]">
+                        {new Date().toLocaleDateString()} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                )}
+            </div>
+        </div>
+    );
+
     if (!rootLayoutNode) {
         return (
-            <div 
-                className="flex-1 flex items-center justify-center border-2 border-dashed border-gray-400 m-4"
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={async (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (!draggedItem) return;
-                    
-                    const newPaneId = generateId();
-                    const newLayout = { id: newPaneId, type: 'content' };
-                    
-                    let contentType;
-                    if (draggedItem.type === 'conversation') {
-                        contentType = 'chat';
-                    } else if (draggedItem.type === 'browser') {
-                        contentType = 'browser';
-                    } else if (draggedItem.type === 'terminal') {
-                        contentType = 'terminal';
-                    } else if (draggedItem.type === 'file') {
-                        const extension = draggedItem.id.split('.').pop()?.toLowerCase();
-                        if (extension === 'pdf') contentType = 'pdf';
-                        else if (['csv', 'xlsx', 'xls'].includes(extension)) contentType = 'csv';
-                        else if (extension === 'pptx') contentType = 'pptx';
-                        else if (extension === 'tex') contentType = 'latex';
-                        else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
-                        else if (extension === 'mindmap') contentType = 'mindmap';
-                        else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
-                        else contentType = 'editor';
-                    } else {
-                        contentType = 'editor';
-                    }
-                    
-                    contentDataRef.current[newPaneId] = {};
-                    await updateContentPane(newPaneId, contentType, draggedItem.id);
-                    
-                    setRootLayoutNode(newLayout);
-                    setActiveContentPaneId(newPaneId);
-                    setDraggedItem(null);
-                }}  >
-                <div className="text-center text-gray-500">
-                    <div className="text-xl mb-2">No panes open</div>
-                    <div>Drag a conversation or file here to create a new pane</div>
+            <main className={`flex-1 flex flex-col bg-gray-900 ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
+                {topBar}
+                <div
+                    className="flex-1 flex items-center justify-center border-2 border-dashed border-gray-400 m-4"
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (!draggedItem) return;
+
+                        const newPaneId = generateId();
+                        const newLayout = { id: newPaneId, type: 'content' };
+
+                        let contentType;
+                        if (draggedItem.type === 'conversation') {
+                            contentType = 'chat';
+                        } else if (draggedItem.type === 'browser') {
+                            contentType = 'browser';
+                        } else if (draggedItem.type === 'terminal') {
+                            contentType = 'terminal';
+                        } else if (draggedItem.type === 'file') {
+                            const extension = draggedItem.id.split('.').pop()?.toLowerCase();
+                            if (extension === 'pdf') contentType = 'pdf';
+                            else if (['csv', 'xlsx', 'xls'].includes(extension)) contentType = 'csv';
+                            else if (extension === 'pptx') contentType = 'pptx';
+                            else if (extension === 'tex') contentType = 'latex';
+                            else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
+                            else if (extension === 'mindmap') contentType = 'mindmap';
+                            else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
+                            else contentType = 'editor';
+                        } else {
+                            contentType = 'editor';
+                        }
+
+                        contentDataRef.current[newPaneId] = {};
+                        await updateContentPane(newPaneId, contentType, draggedItem.id);
+
+                        setRootLayoutNode(newLayout);
+                        setActiveContentPaneId(newPaneId);
+                        setDraggedItem(null);
+                    }}  >
+                    <div className="text-center text-gray-500">
+                        <div className="text-xl mb-2">No panes open</div>
+                        <div>Drag a conversation or file here to create a new pane</div>
+                    </div>
                 </div>
-            </div>
+            </main>
         );
     }
 
@@ -5629,115 +5744,7 @@ const renderMainContent = () => {
 
     return (
         <main className={`flex-1 flex flex-col bg-gray-900 ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
-            {/* Top Bar - Path selector left, Search center, DateTime right */}
-            <div className="flex-shrink-0 h-8 px-2 flex items-center gap-3 text-[11px] theme-bg-secondary border-b theme-border">
-                {/* Full Path selector - left */}
-                <div className="flex items-center gap-1 min-w-[200px] max-w-[300px]">
-                    <button
-                        onClick={goUpDirectory}
-                        className="p-1 theme-hover rounded transition-all flex-shrink-0"
-                        title="Go Up"
-                        aria-label="Go Up Directory"
-                    >
-                        <ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/>
-                    </button>
-                    {isEditingPath ? (
-                        <input
-                            type="text"
-                            value={editedPath}
-                            onChange={(e) => setEditedPath(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    setIsEditingPath(false);
-                                    switchToPath(editedPath);
-                                } else if (e.key === 'Escape') {
-                                    setIsEditingPath(false);
-                                }
-                            }}
-                            onBlur={() => setIsEditingPath(false)}
-                            autoFocus
-                            className="text-xs theme-text-muted theme-input border rounded px-2 py-0.5 flex-1 min-w-0"
-                        />
-                    ) : (
-                        <div
-                            onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }}
-                            className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-0.5 rounded flex-1 min-w-0"
-                            title={currentPath}
-                        >
-                            {currentPath || '...'}
-                        </div>
-                    )}
-                </div>
-
-                <div className="flex-1" />
-
-                {/* Search - center */}
-                <div className="flex items-center gap-2 max-w-md w-full">
-                    <Search size={14} className="theme-text-muted flex-shrink-0" />
-                    <input
-                        ref={searchInputRef}
-                        type="text"
-                        value={searchTerm}
-                        onChange={(e) => {
-                            setSearchTerm(e.target.value);
-                            if (!e.target.value.trim()) {
-                                setIsSearching(false);
-                                setDeepSearchResults([]);
-                                setMessageSearchResults([]);
-                                setSearchResultsModalOpen(false);
-                            }
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && searchTerm.trim()) {
-                                e.preventDefault();
-                                setSearchResultsModalOpen(true);
-                            }
-                        }}
-                        placeholder={isGlobalSearch ? "Global search (Ctrl+Shift+F)..." : "Search (Ctrl+F)..."}
-                        className="flex-1 bg-transparent theme-text-primary text-xs focus:outline-none"
-                    />
-                    {(deepSearchResults.length > 0 || messageSearchResults.length > 0) && (
-                        <button
-                            onClick={() => setSearchResultsModalOpen(true)}
-                            className="px-2 py-0.5 text-[10px] bg-blue-600 text-white rounded"
-                        >
-                            {deepSearchResults.length + messageSearchResults.length} results
-                        </button>
-                    )}
-                    {searchTerm && (
-                        <button
-                            onClick={() => {
-                                setSearchTerm('');
-                                setIsSearching(false);
-                                setDeepSearchResults([]);
-                                setMessageSearchResults([]);
-                                setSearchResultsModalOpen(false);
-                            }}
-                            className="p-1 theme-hover rounded"
-                        >
-                            <X size={12} className="theme-text-muted" />
-                        </button>
-                    )}
-                </div>
-
-                <div className="flex-1" />
-
-                {/* DateTime - right */}
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => setShowDateTime(!showDateTime)}
-                        className="p-1 theme-hover rounded theme-text-muted"
-                        title={showDateTime ? "Hide date/time" : "Show date/time"}
-                    >
-                        <Clock size={14} />
-                    </button>
-                    {showDateTime && (
-                        <span className="theme-text-muted tabular-nums text-[10px]">
-                            {new Date().toLocaleDateString()} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                    )}
-                </div>
-            </div>
+            {topBar}
             <div className="flex-1 flex overflow-hidden">
                 {rootLayoutNode ? (
                     <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentApi} />
