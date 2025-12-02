@@ -1,12 +1,22 @@
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
-import { Paperclip, Tag, Star } from 'lucide-react';
+import { Paperclip, Tag, Star, ChevronDown, ChevronUp } from 'lucide-react';
 
 const highlightSearchTerm = (content: string, searchTerm: string): string => {
     if (!searchTerm || !content) return content;
     const regex = new RegExp(`(${searchTerm})`, 'gi');
     return content.replace(regex, '**$1**');
 };
+
+// Count approximate lines in content (rough estimate based on newlines and length)
+const countLines = (content: string): number => {
+    if (!content) return 0;
+    const newlineCount = (content.match(/\n/g) || []).length;
+    const estimatedWrappedLines = Math.ceil(content.length / 80); // ~80 chars per line
+    return Math.max(newlineCount + 1, estimatedWrappedLines);
+};
+
+const MAX_COLLAPSED_LINES = 4;
 
 export const ChatMessage = memo(({
     message,
@@ -25,6 +35,10 @@ export const ChatMessage = memo(({
 }) => {
     const showStreamingIndicators = !!message.isStreaming;
     const messageId = message.id || message.timestamp;
+
+    // Collapsible state for long user messages
+    const isLongMessage = message.role === 'user' && countLines(message.content) > MAX_COLLAPSED_LINES;
+    const [isExpanded, setIsExpanded] = useState(false);
 
     return (
         <div
@@ -146,7 +160,7 @@ export const ChatMessage = memo(({
                         </div>
                     </div>
                 )}
-                <div className="prose prose-sm prose-invert max-w-none theme-text-primary">
+                <div className={`prose prose-sm prose-invert max-w-none theme-text-primary ${isLongMessage && !isExpanded ? 'max-h-24 overflow-hidden relative' : ''}`}>
                     {searchTerm && message.content ? (
                         <MarkdownRenderer content={highlightSearchTerm(message.content, searchTerm)} />
                     ) : (
@@ -155,7 +169,33 @@ export const ChatMessage = memo(({
                     {showStreamingIndicators && message.type !== 'error' && (
                         <span className="ml-1 inline-block w-0.5 h-4 theme-text-primary animate-pulse stream-cursor"></span>
                     )}
+                    {/* Fade overlay for collapsed messages */}
+                    {isLongMessage && !isExpanded && (
+                        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-inherit to-transparent pointer-events-none" />
+                    )}
                 </div>
+                {/* Expand/Collapse button for long user messages */}
+                {isLongMessage && (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setIsExpanded(!isExpanded);
+                        }}
+                        className="mt-2 flex items-center gap-1 text-xs theme-text-muted hover:theme-text-primary transition-colors"
+                    >
+                        {isExpanded ? (
+                            <>
+                                <ChevronUp size={14} />
+                                <span>Show less</span>
+                            </>
+                        ) : (
+                            <>
+                                <ChevronDown size={14} />
+                                <span>Show more ({countLines(message.content)} lines)</span>
+                            </>
+                        )}
+                    </button>
+                )}
                 {message.toolCalls && message.toolCalls.length > 0 && (
                     <div className="mt-3 px-3 py-2 theme-bg-tertiary rounded-md border-l-2 border-blue-500">
                         <div className="text-xs text-blue-400 mb-1 font-semibold">Function Calls:</div>

@@ -1,4 +1,4 @@
-import React, { useCallback, memo, useState } from 'react';
+import React, { useCallback, memo, useState, useEffect, useRef } from 'react';
 import {
     BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
@@ -591,6 +591,18 @@ export const LayoutNode = memo(({ node, path, component }) => {
 // DUPLICATE/CONFLICTING DECLARATION COMMENTED OUT - closeContentPane is expected to be passed via props
 // const closeContentPane = useCallback((paneId, nodePath) => { ... }, [activeContentPaneId, findNodeByPath,rootLayoutNode]);
 
+        // Auto-scroll ref and effect for chat pane
+        const chatScrollRef = useRef<HTMLDivElement>(null);
+        const chatMessages = paneData?.chatMessages?.messages || [];
+        const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
+        const lastMessageContent = lastMessage?.content || '';
+        const lastMessageReasoning = lastMessage?.reasoningContent || '';
+
+        useEffect(() => {
+            if (autoScrollEnabled && chatScrollRef.current && contentType === 'chat') {
+                chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+            }
+        }, [chatMessages.length, lastMessageContent, lastMessageReasoning, autoScrollEnabled, contentType]);
 
         const renderPaneContent = () => { // Renamed from renderContent to avoid confusion
             console.log('[RENDER_CONTENT] NodeId:', node.id, 'ContentType:', contentType);
@@ -598,8 +610,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
             switch (contentType) {
                 case 'chat':
                     return (
-                        <div className="flex-1 flex flex-col overflow-hidden">
-                            <div className="flex-1 overflow-hidden">
+                        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                            <div ref={chatScrollRef} className="flex-1 min-h-0 overflow-y-auto">
                                 {renderChatView({ nodeId: node.id })}
                             </div>
                             {chatInputProps && (

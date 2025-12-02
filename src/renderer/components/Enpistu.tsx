@@ -1360,36 +1360,35 @@ const renderChatView = useCallback(({ nodeId }) => {
 
     const messages = paneData.chatMessages.messages || [];
 
+    // Note: The scrollable container is in LayoutNode.tsx, we just render the messages here
     return (
-        <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.map((msg: any, idx: number) => (
-                    <ChatMessage
-                        key={msg.id || msg.timestamp || idx}
-                        message={msg}
-                        isSelected={selectedMessages.has(msg.id || msg.timestamp)}
-                        messageSelectionMode={messageSelectionMode}
-                        toggleMessageSelection={(msgId) => {
-                            const newSet = new Set(selectedMessages);
-                            if (newSet.has(msgId)) {
-                                newSet.delete(msgId);
-                            } else {
-                                newSet.add(msgId);
-                            }
-                            setSelectedMessages(newSet);
-                        }}
-                        handleMessageContextMenu={(e: React.MouseEvent) => handleMessageContextMenu(e, msg)}
-                        searchTerm={searchTerm}
-                        isCurrentSearchResult={false}
-                        onResendMessage={() => handleResendMessage(msg)}
-                        onCreateBranch={() => {}}
-                        messageIndex={idx}
-                        onLabelMessage={handleLabelMessage}
-                        messageLabel={messageLabels[msg.id || msg.timestamp]}
-                        conversationId={paneData.contentId}
-                    />
-                ))}
-            </div>
+        <div className="p-4 space-y-4">
+            {messages.map((msg: any, idx: number) => (
+                <ChatMessage
+                    key={msg.id || msg.timestamp || idx}
+                    message={msg}
+                    isSelected={selectedMessages.has(msg.id || msg.timestamp)}
+                    messageSelectionMode={messageSelectionMode}
+                    toggleMessageSelection={(msgId) => {
+                        const newSet = new Set(selectedMessages);
+                        if (newSet.has(msgId)) {
+                            newSet.delete(msgId);
+                        } else {
+                            newSet.add(msgId);
+                        }
+                        setSelectedMessages(newSet);
+                    }}
+                    handleMessageContextMenu={(e: React.MouseEvent) => handleMessageContextMenu(e, msg)}
+                    searchTerm={searchTerm}
+                    isCurrentSearchResult={false}
+                    onResendMessage={() => handleResendMessage(msg)}
+                    onCreateBranch={() => {}}
+                    messageIndex={idx}
+                    onLabelMessage={handleLabelMessage}
+                    messageLabel={messageLabels[msg.id || msg.timestamp]}
+                    conversationId={paneData.contentId}
+                />
+            ))}
         </div>
     );
 }, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels]);
