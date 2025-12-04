@@ -5138,7 +5138,7 @@ ${contextPrompt}`;
                                             <h3 className="text-sm font-medium theme-text-primary">Branches</h3>
                                             <button onClick={loadGitBranches} className="text-xs theme-text-muted hover:theme-text-primary">Refresh</button>
                                         </div>
-                                        {gitBranches ? (
+                                        {gitBranches?.branches ? (
                                             <div className="space-y-1 max-h-80 overflow-y-auto">
                                                 {gitBranches.branches.map((branch: string) => (
                                                     <div
