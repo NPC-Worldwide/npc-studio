@@ -8,6 +8,7 @@ const WebBrowserViewer = memo(({
     browserContextMenuPos,
     setBrowserContextMenuPos,
     handleNewBrowserTab, // New prop for opening new browser tabs/panes
+    setRootLayoutNode, // For triggering re-renders when title changes
 
     // Props for PaneHeader's drag-and-drop and context menu
     findNodePath,
@@ -101,6 +102,10 @@ const WebBrowserViewer = memo(({
             setTitle(e.title || 'Browser');
             if (paneData) {
                 paneData.browserTitle = e.title;
+                // Trigger re-render to update pane header title
+                if (setRootLayoutNode) {
+                    setRootLayoutNode(prev => ({ ...prev }));
+                }
             }
         };
         const handleDidFailLoad = (e) => {
@@ -314,7 +319,7 @@ const WebBrowserViewer = memo(({
             </div>
 
             {/* Webview Container */}
-            <div className="flex-1 relative theme-bg-secondary">
+            <div className="flex-1 relative theme-bg-secondary min-h-0">
                 {error && (
                     <div className="absolute inset-0 flex items-center justify-center z-10 p-4">
                         <div className="text-center p-6 max-w-md theme-bg-tertiary rounded-lg border theme-border">
@@ -327,7 +332,7 @@ const WebBrowserViewer = memo(({
 
                 <webview
                     ref={webviewRef}
-                    className="w-full h-full"
+                    className="absolute inset-0 w-full h-full"
                     partition={`persist:${viewId}`}
                     style={{ visibility: error ? 'hidden' : 'visible' }}
                 />

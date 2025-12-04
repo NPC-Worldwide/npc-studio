@@ -316,29 +316,6 @@ const CodeEditorPane = ({
 
     return (
         <div className="flex-1 flex flex-col min-h-0 theme-bg-secondary relative">
-            {/* Git Blame Toggle Button */}
-            {currentPath && (
-                <div className="absolute top-2 right-2 z-30">
-                    <button
-                        onClick={() => {
-                            if (showBlame) {
-                                setShowBlame(false);
-                            } else {
-                                handleLoadBlame();
-                            }
-                        }}
-                        disabled={blameLoading}
-                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
-                            showBlame ? 'bg-purple-500/30 text-purple-300' : 'theme-bg-primary theme-text-muted hover:theme-text-primary'
-                        }`}
-                        title="Toggle Git Blame"
-                    >
-                        <GitBranch size={14} />
-                        {blameLoading ? 'Loading...' : showBlame ? 'Hide Blame' : 'Git Blame'}
-                    </button>
-                </div>
-            )}
-
             <div className="flex-1 flex min-h-0">
                 {/* Git Blame Panel */}
                 {showBlame && blameData && (

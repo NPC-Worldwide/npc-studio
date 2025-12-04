@@ -2146,19 +2146,18 @@ ipcMain.handle('saveGlobalSettings', async (event, { global_settings, global_var
 
 // --- MCP Server helpers ---
 async function fetchCtxMcpServers(currentPath) {
-  const servers = new Set();
-  const addServer = (entry) => {
+  const servers = new Map(); // serverPath -> { serverPath, origin }
+  const addServer = (entry, origin) => {
     if (!entry) return;
-    if (typeof entry === 'string') {
-      servers.add(entry);
-    } else if (entry.value) {
-      servers.add(entry.value);
+    const serverPath = typeof entry === 'string' ? entry : entry.value;
+    if (serverPath && !servers.has(serverPath)) {
+      servers.set(serverPath, { serverPath, origin });
     }
   };
   try {
     const globalRes = await fetch('http://127.0.0.1:5337/api/context/global');
     const globalJson = await globalRes.json();
-    (globalJson.context?.mcp_servers || []).forEach(addServer);
+    (globalJson.context?.mcp_servers || []).forEach(s => addServer(s, 'global'));
   } catch (e) {
     console.warn('Failed to load global ctx for MCP servers', e.message);
   }
@@ -2167,25 +2166,26 @@ async function fetchCtxMcpServers(currentPath) {
     try {
       const projRes = await fetch(`http://127.0.0.1:5337/api/context/project?path=${encodeURIComponent(currentPath)}`);
       const projJson = await projRes.json();
-      (projJson.context?.mcp_servers || []).forEach(addServer);
+      (projJson.context?.mcp_servers || []).forEach(s => addServer(s, 'project'));
     } catch (e) {
       console.warn('Failed to load project ctx for MCP servers', e.message);
     }
   }
-  return Array.from(servers);
+  return Array.from(servers.values());
 }
 
 ipcMain.handle('mcp:getServers', async (event, { currentPath } = {}) => {
   try {
     const serverList = await fetchCtxMcpServers(currentPath);
     const statuses = [];
-    for (const serverPath of serverList) {
+    for (const serverInfo of serverList) {
+      const { serverPath, origin } = serverInfo;
       try {
         const statusRes = await fetch(`http://127.0.0.1:5337/api/mcp/server/status?serverPath=${encodeURIComponent(serverPath)}${currentPath ? `&currentPath=${encodeURIComponent(currentPath)}` : ''}`);
         const statusJson = await statusRes.json();
-        statuses.push({ serverPath, status: statusJson.status || (statusJson.running ? 'running' : 'unknown'), details: statusJson });
+        statuses.push({ serverPath, origin, status: statusJson.status || (statusJson.running ? 'running' : 'unknown'), details: statusJson });
       } catch (err) {
-        statuses.push({ serverPath, status: 'error', error: err.message });
+        statuses.push({ serverPath, origin, status: 'error', error: err.message });
       }
     }
     return { servers: statuses, error: null };
@@ -3587,7 +3587,7 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       npcSource: data.npcSource || 'global',
       attachments: data.attachments || [], 
       executionMode: data.executionMode || 'chat', 
-      mcpServerPath: data.executionMode === 'corca' ? data.mcpServerPath : undefined, 
+      mcpServerPath: data.executionMode === 'tool_agent' ? data.mcpServerPath : undefined, 
 
       jinxs: data.jinxs || [],  
       tools: data.tools || [],     
@@ -4335,6 +4335,9 @@ ipcMain.handle('getConversations', async (_, path) => {
             ch.provider,
             ch.npc,
             ch.team,
+            ch.reasoning_content,
+            ch.tool_calls,
+            ch.tool_results,
             json_group_array(
                 json_object(
                     'id', ma.id,
@@ -4380,12 +4383,36 @@ ipcMain.handle('getConversations', async (_, path) => {
                 try {
                     content = JSON.parse(content);
                 } catch (e) {
-                   
+
                 }
             }
-            
-            const newRow = { ...row, attachments, content };
+
+            // Parse tool_calls and tool_results JSON
+            let toolCalls = null;
+            let toolResults = null;
+            if (row.tool_calls) {
+                try {
+                    toolCalls = JSON.parse(row.tool_calls);
+                } catch (e) {}
+            }
+            if (row.tool_results) {
+                try {
+                    toolResults = JSON.parse(row.tool_results);
+                } catch (e) {}
+            }
+
+            const newRow = {
+                ...row,
+                attachments,
+                content,
+                reasoningContent: row.reasoning_content,
+                toolCalls,
+                toolResults
+            };
             delete newRow.attachments_json;
+            delete newRow.reasoning_content;
+            delete newRow.tool_calls;
+            delete newRow.tool_results;
             return newRow;
         });
 

@@ -427,16 +427,22 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderPicViewer, renderMindMapViewer,
-            renderDataLabelerPane, renderGraphViewerPane,
+            renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderProjectEnvPane, renderDiskUsagePane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
             autoScrollEnabled, setAutoScrollEnabled,
             messageSelectionMode, toggleMessageSelectionMode, selectedMessages,
             conversationBranches, showBranchingUI, setShowBranchingUI,
-            // ChatInput props object for rendering input in chat panes
-            chatInputProps,
+            // ChatInput props function for rendering input in chat panes (takes paneId)
+            getChatInputProps,
+            // Zen mode props
+            zenModePaneId, toggleZenMode,
         } = component;
+
+        // Get chat input props for this specific pane
+        const chatInputProps = getChatInputProps ? getChatInputProps(node.id) : null;
 
         const isActive = node.id === activeContentPaneId;
         const isTargeted = dropTarget?.nodePath.join('') === path.join('');
@@ -647,6 +653,26 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderDataLabelerPane({ nodeId: node.id });
                 case 'graph-viewer':
                     return renderGraphViewerPane({ nodeId: node.id });
+                case 'browsergraph':
+                    return renderBrowserGraphPane({ nodeId: node.id });
+                case 'datadash':
+                    return renderDataDashPane({ nodeId: node.id });
+                case 'dbtool':
+                    return renderDBToolPane({ nodeId: node.id });
+                case 'npcteam':
+                    return renderNPCTeamPane({ nodeId: node.id });
+                case 'jinx':
+                    return renderJinxPane({ nodeId: node.id });
+                case 'teammanagement':
+                    return renderTeamManagementPane({ nodeId: node.id });
+                case 'settings':
+                    return renderSettingsPane({ nodeId: node.id });
+                case 'photoviewer':
+                    return renderPhotoViewerPane({ nodeId: node.id });
+                case 'projectenv':
+                    return renderProjectEnvPane({ nodeId: node.id });
+                case 'diskusage':
+                    return renderDiskUsagePane({ nodeId: node.id });
                 default:
                     // This is the content for an empty pane
                     return (
@@ -691,6 +717,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     fileChanged={paneData?.fileChanged} // Only relevant for editor panes
                     onSave={() => { /* No-op, actual save logic is in renderFileEditor */ }}
                     onStartRename={() => { /* No-op, actual rename logic is in renderFileEditor */ }}
+                    isZenMode={zenModePaneId === node.id}
+                    onToggleZenMode={toggleZenMode}
                 >
                     {paneHeaderChildren} {/* Pass the conditional children here */}
                 </PaneHeader>
@@ -788,6 +816,25 @@ export const LayoutNode = memo(({ node, path, component }) => {
                   function: { name: tc.function_name || tc.name || 'tool', arguments: tc.arguments || '' }
                 });
                 msg.content = '';
+              }
+              // Reconstruct contentParts for assistant messages with tool calls from DB
+              if (msg.toolCalls && msg.toolCalls.length > 0) {
+                const contentParts: any[] = [];
+                if (msg.content) {
+                  contentParts.push({ type: 'text', content: msg.content });
+                }
+                msg.toolCalls.forEach((tc: any) => {
+                  contentParts.push({
+                    type: 'tool_call',
+                    call: {
+                      id: tc.id,
+                      function_name: tc.function_name || tc.function?.name,
+                      arguments: tc.arguments || tc.function?.arguments,
+                      status: 'complete'
+                    }
+                  });
+                });
+                msg.contentParts = contentParts;
               }
               formatted.push(msg);
               lastAssistant = msg;

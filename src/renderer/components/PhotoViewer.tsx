@@ -95,7 +95,7 @@ const readJSONFile = (file) => new Promise((resolve, reject) => {
         setPhotoViewerOpen(true);
     };
 
-const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
+const PhotoViewer = ({ currentPath, onStartConversation }) => {
     const [activeTab, setActiveTab] = useState('gallery');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -122,7 +122,7 @@ const PhotoViewer = ({ isOpen, onClose, currentPath, onStartConversation }) => {
     const [metaSearch, setMetaSearch] = useState('');
   
    
-    const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
+    const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, imagePath: null });
     const [renamingImage, setRenamingImage] = useState({ path: null, newName: '' });
     
    
@@ -530,24 +530,6 @@ const renderFineTuneModal = () => {
   }, []);
     useEffect(() => {
         const loadAllData = async () => {
-            if (!isOpen) {
-               
-                setActiveTab('gallery');
-                setSelectedImage(null);
-                setSelectedImageGroup(new Set());
-                setDisplayedImagesCount(IMAGES_PER_PAGE);
-                setLayers([]);
-                setLabels([]);
-                setMetadata(null);
-                setCustomTags([]);
-                setRating(0);
-                // Clear available models and selections when closing
-                setAvailableModels([]);
-                setSelectedModel('');
-                setSelectedProvider('');
-                return;
-            }
-
             const initialSources = [
                 { id: 'project-images', name: 'Project Images', path: currentPath, icon: Folder },
                 { id: 'global-images', name: 'Global Images', path: '~/.npcsh/images', icon: ImageIcon },
@@ -626,7 +608,7 @@ const renderFineTuneModal = () => {
         };
         
         loadAllData();
-    }, [isOpen, currentPath, projectPath]);
+    }, [currentPath, projectPath]);
 
 
 
@@ -778,10 +760,18 @@ const [generateFilename, setGenerateFilename] = useState('vixynt_gen');
 
   
 
-  const handleContextMenu = (e, imgPath) => { /* ... (unchanged) ... */ 
+  const handleContextMenu = (e, imgPath) => {
     e.preventDefault(); e.stopPropagation();
-    if (!selectedImageGroup.has(imgPath)) { setSelectedImage(imgPath); setSelectedImageGroup(new Set([imgPath])); }
-    setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
+    // If right-clicked image is not in current selection, start a new selection with just this image
+    // If it is in current selection, keep the full selection (for multi-select right-click)
+    if (!selectedImageGroup.has(imgPath)) {
+        setSelectedImage(imgPath);
+        setSelectedImageGroup(new Set([imgPath]));
+    } else {
+        // Image is already selected - keep current selection but update selectedImage for single operations
+        setSelectedImage(imgPath);
+    }
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, imagePath: imgPath });
   };
   const handleRenameStart = () => { 
     setRenamingImage({ path: selectedImage, newName: selectedImage.split('/').pop() }); 
@@ -845,18 +835,11 @@ const handleDeleteSelected = async () => {
 
 
   const renderHeader = () => (
-    <div className="flex items-center justify-between p-4 border-b theme-border bg-gray-800/50">
-      <div className="flex items-center gap-4">
-        <h2 className="text-xl font-semibold">Vixynt</h2>
+    <div className="flex items-center justify-between p-3 border-b theme-border flex-shrink-0">
+      <div className="flex items-center gap-3">
+        <h2 className="text-sm font-semibold">Vixynt</h2>
         {renderPathNavigator()}
       </div>
-      <button 
-        onClick={onClose}
-        className="theme-button p-2 hover:bg-red-600/20 hover:text-red-400 transition-colors"
-        title="Close Vixynt"
-      >
-        <X size={20} />
-      </button>
     </div>
   );
   
@@ -1066,26 +1049,13 @@ useEffect(() => {
   
   
     useEffect(() => {
-      if (isOpen) {
         const initialSources = [
           { id: 'project-images', name: 'Project Images', path: projectPath, icon: Folder },
           { id: 'global-images', name: 'Global Images', path: '~/.npcsh/images', icon: ImageIcon },
           { id: 'screenshots', name: 'Screenshots', path: '~/.npcsh/screenshots', icon: Camera },
         ];
         loadImagesForAllSources(initialSources);
-      } else {
-       
-        setActiveTab('gallery');
-        setSelectedImage(null);
-        setSelectedImageGroup(new Set());
-        setDisplayedImagesCount(IMAGES_PER_PAGE);
-        setLayers([]);
-        setLabels([]);
-        setMetadata(null);
-        setCustomTags([]);
-        setRating(0);
-      }
-    }, [isOpen, projectPath, loadImagesForAllSources]);
+    }, [projectPath, loadImagesForAllSources]);
   
     useEffect(() => {
       const handleKeyDown = (e) => {
@@ -1110,8 +1080,6 @@ useEffect(() => {
                   setSelectionPath(null);
               } else if (isCropping) {
                   setIsCropping(false);
-              } else {
-                  onClose?.();
               }
           }
           if ((e.ctrlKey || e.metaKey) && !textEditState.editing) {
@@ -1128,18 +1096,15 @@ useEffect(() => {
               setContextMenu({ visible: false });
           }
       };
-  
-     
-      if (isOpen) {
-          document.addEventListener('keydown', handleKeyDown);
-          document.addEventListener('click', handleClickOutside);
-          
-          return () => {
-              document.removeEventListener('keydown', handleKeyDown);
-              document.removeEventListener('click', handleClickOutside);
-          };
-      }
-  }, [isOpen, contextMenu.visible, renamingImage.path, isEditingPath, selectionPath, isCropping, textEditState.editing, onClose, lightboxIndex, filteredImages.length]);
+
+      document.addEventListener('keydown', handleKeyDown);
+      document.addEventListener('click', handleClickOutside);
+
+      return () => {
+          document.removeEventListener('keydown', handleKeyDown);
+          document.removeEventListener('click', handleClickOutside);
+      };
+  }, [contextMenu.visible, renamingImage.path, isEditingPath, selectionPath, isCropping, textEditState.editing, lightboxIndex, filteredImages.length]);
 
   
 
@@ -1808,8 +1773,6 @@ const renderGallery = () => (
   onStartConversation?.(selectedImages.map(path => ({ path: path.replace('media://', '') })));
   setContextMenu({ visible: false });
   setLightboxIndex(null);
-    
-  onClose?.();
 };
 
 const handleUseForGeneration = () => {
@@ -2816,46 +2779,39 @@ const renderDarkRoomLegacy = () => {
 };
 
 
-if (!isOpen) return null;
-
 return (
-  <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose}>
-    <div className="theme-bg-secondary rounded-lg shadow-xl w-full h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
-      {renderHeader()} {/* Add this line */}
-      <div className="flex-1 flex overflow-hidden">
-        {renderSidebar()}
-        <main className="flex-1 flex flex-col bg-gray-900 overflow-hidden">
-          {/* Rest of your existing content */}
-          <div className="border-b theme-border flex bg-gray-800/50 flex-shrink-0">
-            {[
-                { id: 'gallery', name: 'Gallery', icon: Grid }, 
-                { id: 'generator', name: 'Generate', icon: Sparkles },
-                { id: 'editor', name: 'DarkRoom', icon: Sliders }, 
-                { id: 'metadata', name: 'Metadata', icon: Info }, 
-                { id: 'labeling', name: 'Labeling', icon: Tag }
-            ].map(tab => (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-3 flex items-center gap-2 text-sm border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent theme-text-muted theme-hover'}`}>
-                    <tab.icon size={16} />{tab.name}
-                </button>
-            ))}
-          </div>
+  <div className="flex flex-col h-full overflow-hidden">
+    {renderHeader()}
+    <div className="flex-1 flex overflow-hidden">
+      {renderSidebar()}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Tab navigation */}
+        <div className="border-b theme-border flex flex-shrink-0">
+          {[
+              { id: 'gallery', name: 'Gallery', icon: Grid },
+              { id: 'generator', name: 'Generate', icon: Sparkles },
+              { id: 'editor', name: 'DarkRoom', icon: Sliders },
+              { id: 'metadata', name: 'Metadata', icon: Info },
+              { id: 'labeling', name: 'Labeling', icon: Tag }
+          ].map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-3 py-2 flex items-center gap-2 text-xs border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent theme-text-muted theme-hover'}`}>
+                  <tab.icon size={14} />{tab.name}
+              </button>
+          ))}
+        </div>
 
-          {activeTab === 'gallery' && renderGallery()}
-          {activeTab === 'editor' && renderDarkRoom()}
-          {activeTab === 'generator' && renderGenerator()}
-          {activeTab === 'metadata' && renderMetadata()}
-          {activeTab === 'labeling' && renderLabeling()}
-                      {renderFineTuneModal()}
-
-        </main>
-      </div>
-      {renderImageContextMenu()}
-      {renderLightbox()}
-      
+        {activeTab === 'gallery' && renderGallery()}
+        {activeTab === 'editor' && renderDarkRoom()}
+        {activeTab === 'generator' && renderGenerator()}
+        {activeTab === 'metadata' && renderMetadata()}
+        {activeTab === 'labeling' && renderLabeling()}
+        {renderFineTuneModal()}
+      </main>
     </div>
+    {renderImageContextMenu()}
+    {renderLightbox()}
   </div>
 );
-
 
 };
 

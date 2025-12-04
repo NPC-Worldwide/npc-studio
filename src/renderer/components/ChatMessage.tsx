@@ -160,77 +160,136 @@ export const ChatMessage = memo(({
                         </div>
                     </div>
                 )}
-                <div className={`prose prose-sm prose-invert max-w-none theme-text-primary ${isLongMessage && !isExpanded ? 'max-h-24 overflow-hidden relative' : ''}`}>
-                    {searchTerm && message.content ? (
-                        <MarkdownRenderer content={highlightSearchTerm(message.content, searchTerm)} />
-                    ) : (
-                        <MarkdownRenderer content={message.content || ''} />
-                    )}
-                    {showStreamingIndicators && message.type !== 'error' && (
-                        <span className="ml-1 inline-block w-0.5 h-4 theme-text-primary animate-pulse stream-cursor"></span>
-                    )}
-                    {/* Fade overlay for collapsed messages */}
-                    {isLongMessage && !isExpanded && (
-                        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-inherit to-transparent pointer-events-none" />
-                    )}
-                </div>
-                {/* Expand/Collapse button for long user messages */}
-                {isLongMessage && (
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setIsExpanded(!isExpanded);
-                        }}
-                        className="mt-2 flex items-center gap-1 text-xs theme-text-muted hover:theme-text-primary transition-colors"
-                    >
-                        {isExpanded ? (
-                            <>
-                                <ChevronUp size={14} />
-                                <span>Show less</span>
-                            </>
-                        ) : (
-                            <>
-                                <ChevronDown size={14} />
-                                <span>Show more ({countLines(message.content)} lines)</span>
-                            </>
+                {/* Render content parts interleaved if available, otherwise fall back to legacy rendering */}
+                {message.contentParts && message.contentParts.length > 0 ? (
+                    <>
+                        {message.contentParts.map((part, partIdx) => {
+                            if (part.type === 'text') {
+                                return (
+                                    <div key={partIdx} className={`prose prose-sm prose-invert max-w-none theme-text-primary`}>
+                                        {searchTerm ? (
+                                            <MarkdownRenderer content={highlightSearchTerm(part.content, searchTerm)} />
+                                        ) : (
+                                            <MarkdownRenderer content={part.content || ''} />
+                                        )}
+                                    </div>
+                                );
+                            } else if (part.type === 'tool_call') {
+                                const tool = part.call;
+                                const argVal = tool.arguments !== undefined ? tool.arguments : tool.function?.arguments;
+                                const resultVal = tool.result_preview || '';
+                                const argDisplay = argVal && String(argVal).trim().length > 0
+                                    ? (typeof argVal === 'string' ? argVal : JSON.stringify(argVal, null, 2))
+                                    : 'No arguments';
+                                const resDisplay = resultVal && String(resultVal).trim().length > 0
+                                    ? (typeof resultVal === 'string' ? resultVal : JSON.stringify(resultVal, null, 2))
+                                    : null;
+                                const statusColor = tool.status === 'error' ? 'border-red-500' : (tool.status === 'complete' ? 'border-green-500' : 'border-blue-500');
+                                return (
+                                    <div key={partIdx} className={`my-2 px-3 py-2 theme-bg-tertiary rounded-md border-l-2 ${statusColor}`}>
+                                        <div className="text-xs text-blue-400 mb-1 font-semibold flex items-center gap-2">
+                                            <span>🛠 {tool.function?.name || tool.function_name || "Function"}</span>
+                                            {tool.status === 'running' && <span className="animate-pulse text-yellow-400">running...</span>}
+                                            {tool.status === 'complete' && <span className="text-green-400">✓</span>}
+                                            {tool.status === 'error' && <span className="text-red-400">✗</span>}
+                                        </div>
+                                        <div className="text-[11px] theme-text-muted mb-1">Args:</div>
+                                        <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary max-h-32 overflow-y-auto">
+                                            {argDisplay}
+                                        </pre>
+                                        {resDisplay && (
+                                            <>
+                                                <div className="text-[11px] theme-text-muted mb-1">Result:</div>
+                                                <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary max-h-32 overflow-y-auto">
+                                                    {resDisplay}
+                                                </pre>
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            }
+                            return null;
+                        })}
+                        {showStreamingIndicators && message.type !== 'error' && (
+                            <span className="ml-1 inline-block w-0.5 h-4 theme-text-primary animate-pulse stream-cursor"></span>
                         )}
-                    </button>
-                )}
-                {message.toolCalls && message.toolCalls.length > 0 && (
-                    <div className="mt-3 px-3 py-2 theme-bg-tertiary rounded-md border-l-2 border-blue-500">
-                        <div className="text-xs text-blue-400 mb-1 font-semibold">Function Calls:</div>
-                        {message.toolCalls.map((tool, idx) => (
-                            <div key={idx} className="mb-2 last:mb-0">
-                        <div className="text-blue-300 text-sm">{tool.function_name || tool.function?.name || "Function"}</div>
-                        {(() => {
-                            const argVal = tool.arguments !== undefined ? tool.arguments : tool.function?.arguments;
-                            const resultVal = tool.result_preview || '';
-                            const argDisplay = argVal && String(argVal).trim().length > 0
-                                ? (typeof argVal === 'string' ? argVal : JSON.stringify(argVal, null, 2))
-                                : 'No arguments';
-                            const resDisplay = resultVal && String(resultVal).trim().length > 0
-                                ? (typeof resultVal === 'string' ? resultVal : JSON.stringify(resultVal, null, 2))
-                                : null;
-                            return (
-                                <>
-                                    <div className="text-[11px] theme-text-muted mb-1">Args:</div>
-                                    <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">
-                                        {argDisplay}
-                                    </pre>
-                                    {resDisplay && (
-                                        <>
-                                            <div className="text-[11px] theme-text-muted mb-1">Result:</div>
-                                            <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">
-                                                {resDisplay}
-                                            </pre>
-                                        </>
-                                    )}
-                                </>
-                            );
-                        })()}
+                    </>
+                ) : (
+                    <>
+                        <div className={`prose prose-sm prose-invert max-w-none theme-text-primary ${isLongMessage && !isExpanded ? 'max-h-24 overflow-hidden relative' : ''}`}>
+                            {searchTerm && message.content ? (
+                                <MarkdownRenderer content={highlightSearchTerm(message.content, searchTerm)} />
+                            ) : (
+                                <MarkdownRenderer content={message.content || ''} />
+                            )}
+                            {showStreamingIndicators && message.type !== 'error' && (
+                                <span className="ml-1 inline-block w-0.5 h-4 theme-text-primary animate-pulse stream-cursor"></span>
+                            )}
+                            {/* Fade overlay for collapsed messages */}
+                            {isLongMessage && !isExpanded && (
+                                <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-inherit to-transparent pointer-events-none" />
+                            )}
+                        </div>
+                        {/* Expand/Collapse button for long user messages */}
+                        {isLongMessage && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsExpanded(!isExpanded);
+                                }}
+                                className="mt-2 flex items-center gap-1 text-xs theme-text-muted hover:theme-text-primary transition-colors"
+                            >
+                                {isExpanded ? (
+                                    <>
+                                        <ChevronUp size={14} />
+                                        <span>Show less</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <ChevronDown size={14} />
+                                        <span>Show more ({countLines(message.content)} lines)</span>
+                                    </>
+                                )}
+                            </button>
+                        )}
+                        {/* Legacy tool calls rendering for messages without contentParts */}
+                        {message.toolCalls && message.toolCalls.length > 0 && (
+                            <div className="mt-3 px-3 py-2 theme-bg-tertiary rounded-md border-l-2 border-blue-500">
+                                <div className="text-xs text-blue-400 mb-1 font-semibold">Function Calls:</div>
+                                {message.toolCalls.map((tool, idx) => (
+                                    <div key={idx} className="mb-2 last:mb-0">
+                                        <div className="text-blue-300 text-sm">{tool.function_name || tool.function?.name || "Function"}</div>
+                                        {(() => {
+                                            const argVal = tool.arguments !== undefined ? tool.arguments : tool.function?.arguments;
+                                            const resultVal = tool.result_preview || '';
+                                            const argDisplay = argVal && String(argVal).trim().length > 0
+                                                ? (typeof argVal === 'string' ? argVal : JSON.stringify(argVal, null, 2))
+                                                : 'No arguments';
+                                            const resDisplay = resultVal && String(resultVal).trim().length > 0
+                                                ? (typeof resultVal === 'string' ? resultVal : JSON.stringify(resultVal, null, 2))
+                                                : null;
+                                            return (
+                                                <>
+                                                    <div className="text-[11px] theme-text-muted mb-1">Args:</div>
+                                                    <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">
+                                                        {argDisplay}
+                                                    </pre>
+                                                    {resDisplay && (
+                                                        <>
+                                                            <div className="text-[11px] theme-text-muted mb-1">Result:</div>
+                                                            <pre className="theme-bg-primary p-2 rounded text-xs overflow-x-auto my-1 theme-text-secondary">
+                                                                {resDisplay}
+                                                            </pre>
+                                                        </>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                ))}
                             </div>
-                        ))}
-                    </div>
+                        )}
+                    </>
                 )}
                 {message.attachments?.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2 border-t theme-border pt-2">

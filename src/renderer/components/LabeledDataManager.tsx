@@ -5,6 +5,7 @@ import { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabel
 interface LabeledDataManagerProps {
     isOpen: boolean;
     onClose: () => void;
+    isEmbedded?: boolean; // When true, renders inline without modal wrapper
     messageLabels: { [key: string]: MessageLabel };
     setMessageLabels: React.Dispatch<React.SetStateAction<{ [key: string]: MessageLabel }>>;
     conversationLabels?: { [key: string]: ConversationLabel };
@@ -14,6 +15,7 @@ interface LabeledDataManagerProps {
 const LabeledDataManager: React.FC<LabeledDataManagerProps> = ({
     isOpen,
     onClose,
+    isEmbedded = false,
     messageLabels,
     setMessageLabels,
     conversationLabels = {},
@@ -254,6 +256,258 @@ const LabeledDataManager: React.FC<LabeledDataManagerProps> = ({
 
     if (!isOpen) return null;
 
+    const content = (
+        <>
+            {/* View mode toggle */}
+            <div className={`px-4 py-2 border-b border-gray-700 flex items-center gap-2 ${isEmbedded ? '' : ''}`}>
+                <button
+                    className={`px-3 py-1 rounded text-xs ${viewMode === 'messages' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+                    onClick={() => setViewMode('messages')}
+                >
+                    <Tag size={12} className="inline mr-1" /> Messages ({stats.totalLabels})
+                </button>
+                <button
+                    className={`px-3 py-1 rounded text-xs ${viewMode === 'conversations' ? 'bg-green-600 text-white' : 'bg-green-700 text-gray-300'}`}
+                    onClick={() => setViewMode('conversations')}
+                >
+                    <MessageSquare size={12} className="inline mr-1" /> Conversations ({stats.labeledConversations})
+                </button>
+                {stats.trainingConversations > 0 && (
+                    <span className="text-xs text-gray-400 ml-2">
+                        {stats.trainingConversations} for training
+                    </span>
+                )}
+            </div>
+
+            {/* Stats bar */}
+            <div className="px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex items-center gap-4 text-xs">
+                <span className="text-gray-400">
+                    <span className="text-blue-400 font-medium">{stats.conversations}</span> conversations
+                </span>
+                <span className="text-gray-400">
+                    <span className="text-green-400 font-medium">{stats.userMessages}</span> user
+                </span>
+                <span className="text-gray-400">
+                    <span className="text-purple-400 font-medium">{stats.assistantMessages}</span> assistant
+                </span>
+                <span className="text-gray-400">
+                    <span className="text-yellow-400 font-medium">{stats.withScores}</span> with scores
+                </span>
+                <span className="text-gray-400">
+                    <span className="text-orange-400 font-medium">{stats.withSpans}</span> with spans
+                </span>
+            </div>
+
+            {/* Toolbar */}
+            <div className="p-3 border-b border-gray-700 flex flex-wrap items-center gap-3">
+                {/* Search */}
+                <div className="relative flex-1 min-w-[200px] max-w-[300px]">
+                    <Search size={14} className="absolute left-2.5 top-2.5 text-gray-500" />
+                    <input
+                        type="text"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Search labels..."
+                        className="w-full pl-8 pr-3 py-2 theme-input text-sm rounded"
+                    />
+                </div>
+
+                {/* Category filter */}
+                <select
+                    value={filterCategory}
+                    onChange={(e) => setFilterCategory(e.target.value)}
+                    className="theme-input text-xs px-2 py-2 rounded"
+                >
+                    <option value="">All categories</option>
+                    {allCategories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                </select>
+
+                {/* Role filter */}
+                <select
+                    value={filterRole}
+                    onChange={(e) => setFilterRole(e.target.value as any)}
+                    className="theme-input text-xs px-2 py-2 rounded"
+                >
+                    <option value="all">All roles</option>
+                    <option value="user">User only</option>
+                    <option value="assistant">Assistant only</option>
+                </select>
+
+                <div className="flex-1" />
+
+                {/* Selection actions */}
+                {selectedLabels.size > 0 && (
+                    <span className="text-xs text-gray-400">
+                        {selectedLabels.size} selected
+                    </span>
+                )}
+                <button
+                    onClick={selectedLabels.size > 0 ? clearSelection : selectAll}
+                    className="theme-button px-2 py-1 text-xs rounded"
+                >
+                    {selectedLabels.size > 0 ? 'Clear' : 'Select All'}
+                </button>
+
+                {selectedLabels.size > 0 && (
+                    <button
+                        onClick={deleteSelected}
+                        className="theme-button px-2 py-1 text-xs rounded text-red-400 hover:text-red-300"
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                )}
+            </div>
+
+            {/* Labels list */}
+            <div className="flex-1 overflow-y-auto p-4">
+                {filteredLabels.length === 0 ? (
+                    <div className="text-center text-gray-500 py-8">
+                        {labels.length === 0
+                            ? 'No labeled messages yet. Click the tag icon on any message to start labeling.'
+                            : 'No labels match your filters.'}
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {Object.entries(labelsByConversation).map(([convId, convLabels]) => {
+                            const filteredConvLabels = convLabels.filter(l => filteredLabels.includes(l));
+                            if (filteredConvLabels.length === 0) return null;
+
+                            const isExpanded = expandedConversations.has(convId);
+
+                            return (
+                                <div key={convId} className="border border-gray-700 rounded-lg overflow-hidden">
+                                    <button
+                                        className="w-full flex items-center gap-2 p-3 bg-gray-800 hover:bg-gray-750 text-left"
+                                        onClick={() => toggleConversation(convId)}
+                                    >
+                                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                        <span className="text-sm font-medium truncate flex-1">
+                                            Conversation: {convId.slice(0, 8)}...
+                                        </span>
+                                        <span className="text-xs text-gray-400">
+                                            {filteredConvLabels.length} labels
+                                        </span>
+                                    </button>
+
+                                    {isExpanded && (
+                                        <div className="divide-y divide-gray-700">
+                                            {filteredConvLabels.map(label => (
+                                                <div
+                                                    key={label.id}
+                                                    className={`p-3 hover:bg-gray-800/50 cursor-pointer ${
+                                                        selectedLabels.has(label.id) ? 'bg-blue-900/20' : ''
+                                                    }`}
+                                                    onClick={() => toggleSelectLabel(label.id)}
+                                                >
+                                                    <div className="flex items-start gap-3">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedLabels.has(label.id)}
+                                                            onChange={() => toggleSelectLabel(label.id)}
+                                                            className="mt-1"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        />
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                                                    label.role === 'user'
+                                                                        ? 'bg-blue-600/30 text-blue-300'
+                                                                        : 'bg-green-600/30 text-green-300'
+                                                                }`}>
+                                                                    {label.role}
+                                                                </span>
+                                                                {label.qualityScore && (
+                                                                    <span className="flex items-center gap-0.5 text-xs text-yellow-400">
+                                                                        <Star size={10} fill="currentColor" />
+                                                                        {label.qualityScore}
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-[10px] text-gray-500">
+                                                                    {new Date(label.timestamp).toLocaleString()}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-sm text-gray-300 line-clamp-2">
+                                                                {label.content}
+                                                            </p>
+                                                            {(label.categories?.length > 0 || label.textSpans?.length > 0) && (
+                                                                <div className="flex flex-wrap gap-1 mt-2">
+                                                                    {label.categories?.map(cat => (
+                                                                        <span key={cat} className="px-1.5 py-0.5 bg-gray-700 rounded text-[10px] text-gray-300">
+                                                                            {cat}
+                                                                        </span>
+                                                                    ))}
+                                                                    {label.textSpans?.length > 0 && (
+                                                                        <span className="px-1.5 py-0.5 bg-yellow-600/30 rounded text-[10px] text-yellow-300">
+                                                                            {label.textSpans.length} spans
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-700 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <select
+                        value={exportFormat}
+                        onChange={(e) => setExportFormat(e.target.value as any)}
+                        className="theme-input text-xs px-2 py-1 rounded"
+                    >
+                        <option value="json">JSON</option>
+                        <option value="jsonl">JSONL</option>
+                        <option value="finetune">Fine-tuning format</option>
+                    </select>
+                    <button
+                        onClick={handleExport}
+                        disabled={filteredLabels.length === 0}
+                        className="theme-button-primary px-3 py-1.5 text-xs rounded flex items-center gap-1 disabled:opacity-50"
+                    >
+                        <Download size={14} />
+                        Export {selectedLabels.size > 0 ? `(${selectedLabels.size})` : `(${filteredLabels.length})`}
+                    </button>
+                    <button
+                        onClick={handleImport}
+                        className="theme-button px-3 py-1.5 text-xs rounded flex items-center gap-1"
+                    >
+                        <Upload size={14} />
+                        Import
+                    </button>
+                </div>
+                {!isEmbedded && (
+                    <button
+                        onClick={onClose}
+                        className="theme-button px-4 py-1.5 text-sm rounded"
+                    >
+                        Close
+                    </button>
+                )}
+            </div>
+        </>
+    );
+
+    // If embedded mode, just return content without modal wrapper
+    if (isEmbedded) {
+        return (
+            <div className="flex flex-col h-full">
+                {content}
+            </div>
+        );
+    }
+
+    // Modal mode
     return (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
             <div className="bg-gray-900 rounded-lg border border-gray-700 w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -273,242 +527,7 @@ const LabeledDataManager: React.FC<LabeledDataManagerProps> = ({
                         <X size={20} />
                     </button>
                 </div>
-
-                {/* View mode toggle */}
-                <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-2">
-                    <button
-                        className={`px-3 py-1 rounded text-xs ${viewMode === 'messages' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}
-                        onClick={() => setViewMode('messages')}
-                    >
-                        <Tag size={12} className="inline mr-1" /> Messages ({stats.totalLabels})
-                    </button>
-                    <button
-                        className={`px-3 py-1 rounded text-xs ${viewMode === 'conversations' ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300'}`}
-                        onClick={() => setViewMode('conversations')}
-                    >
-                        <MessageSquare size={12} className="inline mr-1" /> Conversations ({stats.labeledConversations})
-                    </button>
-                    {stats.trainingConversations > 0 && (
-                        <span className="text-xs text-gray-400 ml-2">
-                            {stats.trainingConversations} for training
-                        </span>
-                    )}
-                </div>
-
-                {/* Stats bar */}
-                <div className="px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex items-center gap-4 text-xs">
-                    <span className="text-gray-400">
-                        <span className="text-blue-400 font-medium">{stats.conversations}</span> conversations
-                    </span>
-                    <span className="text-gray-400">
-                        <span className="text-green-400 font-medium">{stats.userMessages}</span> user
-                    </span>
-                    <span className="text-gray-400">
-                        <span className="text-purple-400 font-medium">{stats.assistantMessages}</span> assistant
-                    </span>
-                    <span className="text-gray-400">
-                        <span className="text-yellow-400 font-medium">{stats.withScores}</span> with scores
-                    </span>
-                    <span className="text-gray-400">
-                        <span className="text-orange-400 font-medium">{stats.withSpans}</span> with spans
-                    </span>
-                </div>
-
-                {/* Toolbar */}
-                <div className="p-3 border-b border-gray-700 flex flex-wrap items-center gap-3">
-                    {/* Search */}
-                    <div className="relative flex-1 min-w-[200px] max-w-[300px]">
-                        <Search size={14} className="absolute left-2.5 top-2.5 text-gray-500" />
-                        <input
-                            type="text"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Search labels..."
-                            className="w-full pl-8 pr-3 py-2 theme-input text-sm rounded"
-                        />
-                    </div>
-
-                    {/* Category filter */}
-                    <select
-                        value={filterCategory}
-                        onChange={(e) => setFilterCategory(e.target.value)}
-                        className="theme-input text-xs px-2 py-2 rounded"
-                    >
-                        <option value="">All categories</option>
-                        {allCategories.map(cat => (
-                            <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                    </select>
-
-                    {/* Role filter */}
-                    <select
-                        value={filterRole}
-                        onChange={(e) => setFilterRole(e.target.value as any)}
-                        className="theme-input text-xs px-2 py-2 rounded"
-                    >
-                        <option value="all">All roles</option>
-                        <option value="user">User only</option>
-                        <option value="assistant">Assistant only</option>
-                    </select>
-
-                    <div className="flex-1" />
-
-                    {/* Selection actions */}
-                    {selectedLabels.size > 0 && (
-                        <span className="text-xs text-gray-400">
-                            {selectedLabels.size} selected
-                        </span>
-                    )}
-                    <button
-                        onClick={selectedLabels.size > 0 ? clearSelection : selectAll}
-                        className="theme-button px-2 py-1 text-xs rounded"
-                    >
-                        {selectedLabels.size > 0 ? 'Clear' : 'Select All'}
-                    </button>
-
-                    {selectedLabels.size > 0 && (
-                        <button
-                            onClick={deleteSelected}
-                            className="theme-button px-2 py-1 text-xs rounded text-red-400 hover:text-red-300"
-                        >
-                            <Trash2 size={14} />
-                        </button>
-                    )}
-                </div>
-
-                {/* Labels list */}
-                <div className="flex-1 overflow-y-auto p-4">
-                    {filteredLabels.length === 0 ? (
-                        <div className="text-center text-gray-500 py-8">
-                            {labels.length === 0
-                                ? 'No labeled messages yet. Click the tag icon on any message to start labeling.'
-                                : 'No labels match your filters.'}
-                        </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {Object.entries(labelsByConversation).map(([convId, convLabels]) => {
-                                const filteredConvLabels = convLabels.filter(l => filteredLabels.includes(l));
-                                if (filteredConvLabels.length === 0) return null;
-
-                                const isExpanded = expandedConversations.has(convId);
-
-                                return (
-                                    <div key={convId} className="border border-gray-700 rounded-lg overflow-hidden">
-                                        <button
-                                            className="w-full flex items-center gap-2 p-3 bg-gray-800 hover:bg-gray-750 text-left"
-                                            onClick={() => toggleConversation(convId)}
-                                        >
-                                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                            <span className="text-sm font-medium truncate flex-1">
-                                                Conversation: {convId.slice(0, 8)}...
-                                            </span>
-                                            <span className="text-xs text-gray-400">
-                                                {filteredConvLabels.length} labels
-                                            </span>
-                                        </button>
-
-                                        {isExpanded && (
-                                            <div className="divide-y divide-gray-700">
-                                                {filteredConvLabels.map(label => (
-                                                    <div
-                                                        key={label.id}
-                                                        className={`p-3 hover:bg-gray-800/50 cursor-pointer ${
-                                                            selectedLabels.has(label.id) ? 'bg-blue-900/20' : ''
-                                                        }`}
-                                                        onClick={() => toggleSelectLabel(label.id)}
-                                                    >
-                                                        <div className="flex items-start gap-3">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedLabels.has(label.id)}
-                                                                onChange={() => toggleSelectLabel(label.id)}
-                                                                className="mt-1"
-                                                                onClick={(e) => e.stopPropagation()}
-                                                            />
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex items-center gap-2 mb-1">
-                                                                    <span className={`px-1.5 py-0.5 rounded text-xs ${
-                                                                        label.role === 'user'
-                                                                            ? 'bg-blue-600/30 text-blue-300'
-                                                                            : 'bg-green-600/30 text-green-300'
-                                                                    }`}>
-                                                                        {label.role}
-                                                                    </span>
-                                                                    {label.qualityScore && (
-                                                                        <span className="flex items-center gap-0.5 text-xs text-yellow-400">
-                                                                            <Star size={10} fill="currentColor" />
-                                                                            {label.qualityScore}
-                                                                        </span>
-                                                                    )}
-                                                                    <span className="text-[10px] text-gray-500">
-                                                                        {new Date(label.timestamp).toLocaleString()}
-                                                                    </span>
-                                                                </div>
-                                                                <p className="text-sm text-gray-300 line-clamp-2">
-                                                                    {label.content}
-                                                                </p>
-                                                                {(label.categories?.length > 0 || label.textSpans?.length > 0) && (
-                                                                    <div className="flex flex-wrap gap-1 mt-2">
-                                                                        {label.categories?.map(cat => (
-                                                                            <span key={cat} className="px-1.5 py-0.5 bg-gray-700 rounded text-[10px] text-gray-300">
-                                                                                {cat}
-                                                                            </span>
-                                                                        ))}
-                                                                        {label.textSpans?.length > 0 && (
-                                                                            <span className="px-1.5 py-0.5 bg-yellow-600/30 rounded text-[10px] text-yellow-300">
-                                                                                {label.textSpans.length} spans
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-
-                {/* Footer */}
-                <div className="p-4 border-t border-gray-700 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <select
-                            value={exportFormat}
-                            onChange={(e) => setExportFormat(e.target.value as any)}
-                            className="theme-input text-xs px-2 py-1 rounded"
-                        >
-                            <option value="json">JSON</option>
-                            <option value="jsonl">JSONL</option>
-                            <option value="finetune">Fine-tuning format</option>
-                        </select>
-                        <button
-                            onClick={handleExport}
-                            disabled={filteredLabels.length === 0}
-                            className="theme-button-primary px-3 py-1.5 text-xs rounded flex items-center gap-1 disabled:opacity-50"
-                        >
-                            <Download size={14} />
-                            Export {selectedLabels.size > 0 ? `(${selectedLabels.size})` : `(${filteredLabels.length})`}
-                        </button>
-                        <button
-                            onClick={handleImport}
-                            className="theme-button px-3 py-1.5 text-xs rounded flex items-center gap-1"
-                        >
-                            <Upload size={14} />
-                            Import
-                        </button>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="theme-button px-4 py-1.5 text-sm rounded"
-                    >
-                        Close
-                    </button>
-                </div>
+                {content}
             </div>
         </div>
     );

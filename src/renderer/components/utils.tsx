@@ -645,38 +645,70 @@ export const usePaneAwareStreamListeners = (
             const paneData = contentDataRef.current[targetPaneId];
             if (!paneData || !paneData.chatMessages) return;
 
+            // Helper to process a single parsed event
+            const processEvent = (parsed: any, isDecisionFlag: boolean) => {
+                let content = '', reasoningContent = '', toolCalls = null, isDecision = isDecisionFlag;
+
+                if (parsed.choices?.[0]?.delta) {
+                    isDecision = parsed.choices[0].delta.role === 'decision';
+                    content = parsed.choices[0].delta.content || '';
+                    reasoningContent = parsed.choices[0].delta.reasoning_content || '';
+                }
+
+                if (parsed.type) {
+                    const type = parsed.type;
+                    if (type === 'tool_execution_start' && Array.isArray(parsed.tool_calls)) {
+                        toolCalls = parsed.tool_calls;
+                    } else if ((type === 'tool_start' || type === 'tool_complete' || type === 'tool_result' || type === 'tool_error') && parsed.name) {
+                        toolCalls = [{
+                            id: parsed.id || '',
+                            type: 'function',
+                            function: {
+                                name: parsed.name,
+                                arguments: parsed.args ? (typeof parsed.args === 'object' ? JSON.stringify(parsed.args, null, 2) : String(parsed.args)) : ''
+                            },
+                            status: type === 'tool_error' ? 'error' : ((type === 'tool_complete' || type === 'tool_result') ? 'complete' : 'running'),
+                            result_preview: parsed.result_preview || parsed.result || parsed.error || ''
+                        }];
+                    }
+                } else if (!content && parsed.tool_calls) {
+                    toolCalls = parsed.tool_calls;
+                }
+
+                return { content, reasoningContent, toolCalls, isDecision };
+            };
+
             try {
                 let content = '', reasoningContent = '', toolCalls = null, isDecision = false;
+
                 if (typeof chunk === 'string') {
-                    if (chunk.startsWith('data:')) {
-                        const dataContent = chunk.replace(/^data:\s*/, '').trim();
-                        if (dataContent === '[DONE]') return;
-                        if (dataContent) {
-                            const parsed = JSON.parse(dataContent);
-                            isDecision = parsed.choices?.[0]?.delta?.role === 'decision';
-                            content = parsed.choices?.[0]?.delta?.content || '';
-                            reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content || '';
-                            if (parsed.type) {
-                                const type = parsed.type;
-                                if (type === 'tool_execution_start' && Array.isArray(parsed.tool_calls)) {
-                                    toolCalls = parsed.tool_calls;
-                                } else if ((type === 'tool_start' || type === 'tool_complete' || type === 'tool_error') && parsed.name) {
-                                    toolCalls = [{
-                                        id: parsed.id || '',
-                                        type: 'function',
-                                        function: {
-                                            name: parsed.name,
-                                            arguments: parsed.args ? (typeof parsed.args === 'object' ? JSON.stringify(parsed.args, null, 2) : String(parsed.args)) : ''
-                                        },
-                                        status: type === 'tool_error' ? 'error' : (type === 'tool_complete' ? 'complete' : 'running'),
-                                        result_preview: parsed.result_preview || parsed.error || ''
-                                    }];
+                    // Handle SSE format - may contain multiple events separated by \n\n
+                    const events = chunk.split(/\n\n/).filter((e: string) => e.trim());
+
+                    for (const event of events) {
+                        const trimmedEvent = event.trim();
+                        if (!trimmedEvent) continue;
+
+                        if (trimmedEvent.startsWith('data:')) {
+                            const dataContent = trimmedEvent.replace(/^data:\s*/, '').trim();
+                            if (dataContent === '[DONE]') continue;
+                            if (dataContent) {
+                                try {
+                                    const parsed = JSON.parse(dataContent);
+                                    const result = processEvent(parsed, isDecision);
+                                    content += result.content;
+                                    reasoningContent += result.reasoningContent;
+                                    if (result.toolCalls) toolCalls = result.toolCalls;
+                                    isDecision = result.isDecision;
+                                } catch (parseErr) {
+                                    console.warn('[STREAM] Failed to parse data event:', dataContent, parseErr);
                                 }
-                            } else {
-                                toolCalls = parsed.tool_calls || null;
                             }
+                        } else {
+                            // Plain text chunk
+                            content += trimmedEvent;
                         }
-                    } else { content = chunk; }
+                    }
                 } else if (chunk?.choices) {
                     isDecision = chunk.choices[0]?.delta?.role === 'decision';
                     content = chunk.choices[0]?.delta?.content || '';
@@ -686,7 +718,7 @@ export const usePaneAwareStreamListeners = (
                     const type = chunk.type;
                     if (type === 'tool_execution_start' && Array.isArray(chunk.tool_calls)) {
                         toolCalls = chunk.tool_calls;
-                    } else if ((type === 'tool_start' || type === 'tool_complete' || type === 'tool_error') && chunk.name) {
+                    } else if ((type === 'tool_start' || type === 'tool_complete' || type === 'tool_result' || type === 'tool_error') && chunk.name) {
                         toolCalls = [{
                             id: chunk.id || '',
                             type: 'function',
@@ -694,8 +726,8 @@ export const usePaneAwareStreamListeners = (
                                 name: chunk.name,
                                 arguments: chunk.args ? (typeof chunk.args === 'object' ? JSON.stringify(chunk.args, null, 2) : String(chunk.args)) : ''
                             },
-                            status: type === 'tool_error' ? 'error' : (type === 'tool_complete' ? 'complete' : 'running'),
-                            result_preview: chunk.result_preview || chunk.error || ''
+                            status: type === 'tool_error' ? 'error' : ((type === 'tool_complete' || type === 'tool_result') ? 'complete' : 'running'),
+                            result_preview: chunk.result_preview || chunk.result || chunk.error || ''
                         }];
                     }
                 }
@@ -706,6 +738,22 @@ export const usePaneAwareStreamListeners = (
                     message.role = isDecision ? 'decision' : 'assistant';
                     message.content = (message.content || '') + content;
                     message.reasoningContent = (message.reasoningContent || '') + reasoningContent;
+
+                    // Initialize contentParts if not present
+                    if (!message.contentParts) {
+                        message.contentParts = [];
+                    }
+
+                    // Add text content to parts
+                    if (content) {
+                        const lastPart = message.contentParts[message.contentParts.length - 1];
+                        if (lastPart && lastPart.type === 'text') {
+                            lastPart.content += content;
+                        } else {
+                            message.contentParts.push({ type: 'text', content });
+                        }
+                    }
+
                     if (toolCalls) {
                         const normalizedCalls = (Array.isArray(toolCalls) ? toolCalls : []).map((tc: any) => ({
                             id: tc.id || '',
@@ -730,19 +778,28 @@ export const usePaneAwareStreamListeners = (
                         normalizedCalls.forEach((tc: any) => {
                             const idx = merged.findIndex((mtc: any) => mtc.id === tc.id || mtc.function.name === tc.function.name);
                             if (idx >= 0) {
-                                const existing = merged[idx];
+                                const existingTc = merged[idx];
                                 const newArgs = tc.function?.arguments;
                                 const shouldReplaceArgs = newArgs && String(newArgs).trim().length > 0;
                                 merged[idx] = {
-                                    ...existing,
+                                    ...existingTc,
                                     ...tc,
                                     function: {
-                                        name: tc.function?.name || existing.function?.name || '',
-                                        arguments: shouldReplaceArgs ? newArgs : (existing.function?.arguments || '')
+                                        name: tc.function?.name || existingTc.function?.name || '',
+                                        arguments: shouldReplaceArgs ? newArgs : (existingTc.function?.arguments || '')
                                     }
                                 };
+                                // Update the tool call in contentParts too
+                                const partIdx = message.contentParts.findIndex((p: any) =>
+                                    p.type === 'tool_call' && (p.call.id === tc.id || p.call.function?.name === tc.function?.name)
+                                );
+                                if (partIdx >= 0) {
+                                    message.contentParts[partIdx].call = merged[idx];
+                                }
                             } else {
                                 merged.push(tc);
+                                // Add tool call to contentParts at current position
+                                message.contentParts.push({ type: 'tool_call', call: tc });
                             }
                         });
                         message.toolCalls = merged;
@@ -768,7 +825,7 @@ export const usePaneAwareStreamListeners = (
                         msg.streamId = null;
 
                         const recentUserMsgs = paneData.chatMessages.allMessages.filter((m: any) => m.role === 'user').slice(-3);
-                        const wasAgentMode = recentUserMsgs.some((m: any) => m.executionMode === 'agent');
+                        const wasAgentMode = recentUserMsgs.some((m: any) => m.executionMode === 'tool_agent');
 
                         console.log('Stream complete. Was agent mode?', wasAgentMode);
                         console.log('Assistant response:', msg.content.substring(0, 200));

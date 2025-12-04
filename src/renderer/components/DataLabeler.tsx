@@ -135,6 +135,7 @@ const LabeledDataContent: React.FC<{
         <LabeledDataManager
             isOpen={true}
             onClose={() => {}}
+            isEmbedded={true}
             messageLabels={messageLabels}
             setMessageLabels={setMessageLabels}
             conversationLabels={conversationLabels}

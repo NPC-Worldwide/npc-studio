@@ -2,7 +2,7 @@
 import {
     Folder, File as FileIcon,  Globe, ChevronRight, ChevronLeft, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
-    ListFilter, X, Wrench, FileText, Code2, FileJson, Paperclip,
+    ListFilter, ArrowDown,X, Wrench, FileText, Code2, FileJson, Paperclip,
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
     Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag
 } from 'lucide-react';
@@ -10,6 +10,7 @@ import {
 import { Icon } from 'lucide-react';
 import { avocado } from '@lucide/lab';
 import Sidebar from './Sidebar';
+import StatusBar from './StatusBar';
 import CsvViewer from './CsvViewer';
 import DocxViewer from './DocxViewer';
 import MacroInput from './MacroInput';
@@ -33,6 +34,7 @@ import PicViewer from './PicViewer';
 import MindMapViewer from './MindMapViewer';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import ProjectEnvEditor from './ProjectEnvEditor';
+import DBTool from './DBTool';
 import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
@@ -87,7 +89,9 @@ import MessageLabeling, { MessageLabelStorage, MessageLabel, ConversationLabel, 
 import ConversationLabeling from './ConversationLabeling';
 import ContextFilesPanel from './ContextFilesPanel';
 import GraphViewer from './GraphViewer';
+import BrowserHistoryWeb from './BrowserHistoryWeb';
 import DataLabeler from './DataLabeler';
+import ChatInput from './ChatInput';
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
@@ -123,9 +127,18 @@ const ChatInterface = () => {
     const [folderStructure, setFolderStructure] = useState({});
     const [activeConversationId, setActiveConversationId] = useState(null);
 
-    const [currentModel, setCurrentModel] = useState(null);
-    const [currentProvider, setCurrentProvider] = useState(null);
-    const [currentNPC, setCurrentNPC] = useState(null);
+    const [currentModel, setCurrentModel] = useState(() => {
+        const saved = localStorage.getItem('npcStudioCurrentModel');
+        return saved ? JSON.parse(saved) : null;
+    });
+    const [currentProvider, setCurrentProvider] = useState(() => {
+        const saved = localStorage.getItem('npcStudioCurrentProvider');
+        return saved ? JSON.parse(saved) : null;
+    });
+    const [currentNPC, setCurrentNPC] = useState(() => {
+        const saved = localStorage.getItem('npcStudioCurrentNPC');
+        return saved ? JSON.parse(saved) : null;
+    });
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -189,7 +202,6 @@ const ChatInterface = () => {
         const saved = localStorage.getItem('npcStudioShowDateTime');
         return saved !== null ? JSON.parse(saved) : false;
     });
-    const [diskUsageModalOpen, setDiskUsageModalOpen] = useState(false);
     const [gitModalOpen, setGitModalOpen] = useState(false);
     const [gitModalTab, setGitModalTab] = useState<'status' | 'diff' | 'branches' | 'history'>('status');
     const [gitDiffContent, setGitDiffContent] = useState<{ staged: string; unstaged: string } | null>(null);
@@ -366,7 +378,10 @@ const ChatInterface = () => {
     const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId';
 
     const [isInputExpanded, setIsInputExpanded] = useState(false);
-    const [executionMode, setExecutionMode] = useState('chat');
+    const [executionMode, setExecutionMode] = useState(() => {
+        const saved = localStorage.getItem('npcStudioExecutionMode');
+        return saved ? JSON.parse(saved) : 'chat';
+    });
     const [favoriteModels, setFavoriteModels] = useState(new Set());
     const [showAllModels, setShowAllModels] = useState(true); // Change default to true
 
@@ -393,6 +408,9 @@ const ChatInterface = () => {
     const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
     const rootLayoutNodeRef = useRef(rootLayoutNode);
     const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+
+    // Zen mode state - when set to a paneId, that pane renders full-screen
+    const [zenModePaneId, setZenModePaneId] = useState<string | null>(null);
 
     // Resize handlers for sidebar and input area
     const handleSidebarResize = useCallback((e) => {
@@ -670,6 +688,30 @@ const ChatInterface = () => {
         localStorage.setItem('npcStudioShowDateTime', JSON.stringify(showDateTime));
     }, [showDateTime]);
 
+    // Save model/provider/NPC preferences
+    useEffect(() => {
+        if (currentModel !== null) {
+            localStorage.setItem('npcStudioCurrentModel', JSON.stringify(currentModel));
+        }
+    }, [currentModel]);
+
+    useEffect(() => {
+        if (currentProvider !== null) {
+            localStorage.setItem('npcStudioCurrentProvider', JSON.stringify(currentProvider));
+        }
+    }, [currentProvider]);
+
+    useEffect(() => {
+        if (currentNPC !== null) {
+            localStorage.setItem('npcStudioCurrentNPC', JSON.stringify(currentNPC));
+        }
+    }, [currentNPC]);
+
+    // Save execution mode preference
+    useEffect(() => {
+        localStorage.setItem('npcStudioExecutionMode', JSON.stringify(executionMode));
+    }, [executionMode]);
+
     useEffect(() => {
         const saveCurrentWorkspace = () => {
             if (currentPath && rootLayoutNode) {
@@ -900,22 +942,6 @@ const ChatInterface = () => {
         loadMcpTools();
     }, [executionMode, mcpServerPath, currentPath]);
 
-    // Load MCP servers from contexts for selection in Tool Agent mode
-    useEffect(() => {
-        const loadServers = async () => {
-            if (executionMode !== 'tool_agent') return;
-            const res = await window.api.getMcpServers(currentPath);
-            if (res && Array.isArray(res.servers)) {
-                setAvailableMcpServers(res.servers);
-                if (!res.servers.find(s => s.serverPath === mcpServerPath) && res.servers.length > 0) {
-                    setMcpServerPath(res.servers[0].serverPath);
-                }
-            } else {
-                setAvailableMcpServers([]);
-            }
-        };
-        loadServers();
-    }, [executionMode, currentPath]);
         
 
 
@@ -953,6 +979,7 @@ const ChatInterface = () => {
     const handleFileClickRef = useRef<((filePath: string) => void) | null>(null);
     const createNewTerminalRef = useRef<(() => void) | null>(null);
     const createNewConversationRef = useRef<(() => void) | null>(null);
+    const createNewBrowserRef = useRef<(() => void) | null>(null);
     const handleCreateNewFolderRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
@@ -1008,10 +1035,10 @@ const ChatInterface = () => {
                 }
             }
 
-            // Ctrl+B - Open browser URL dialog
+            // Ctrl+B - New Browser
             if ((e.ctrlKey || e.metaKey) && e.key === 'b' && !e.shiftKey) {
                 e.preventDefault();
-                setBrowserUrlDialogOpen(true);
+                createNewBrowserRef.current?.();
                 return;
             }
 
@@ -1032,7 +1059,7 @@ const ChatInterface = () => {
             // Ctrl+Shift+B - New Browser
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'b' || e.key === 'B')) {
                 e.preventDefault();
-                setBrowserUrlDialogOpen(true);
+                createNewBrowserRef.current?.();
                 return;
             }
 
@@ -1148,6 +1175,12 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
         if (!paneData.chatMessages) {
             paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
+        // Initialize per-pane execution mode if not set
+        if (paneData.executionMode === undefined) {
+            paneData.executionMode = 'chat';
+            paneData.selectedJinx = null;
+            paneData.showJinxDropdown = false;
+        }
         if (skipMessageLoad) {
             paneData.chatMessages.messages = [];
             paneData.chatMessages.allMessages = [];
@@ -1156,7 +1189,31 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
             try {
                 const msgs = await window.api.getConversationMessages(newContentId);
                 const formatted = (msgs && Array.isArray(msgs))
-                    ? msgs.map((m) => ({ ...m, id: m.id || generateId() }))
+                    ? msgs.map((m) => {
+                        const msg = { ...m, id: m.id || generateId() };
+                        // Reconstruct contentParts for assistant messages with tool calls
+                        if (msg.role === 'assistant' && msg.toolCalls && Array.isArray(msg.toolCalls)) {
+                            const contentParts: any[] = [];
+                            // Add text content first
+                            if (msg.content) {
+                                contentParts.push({ type: 'text', content: msg.content });
+                            }
+                            // Add tool calls
+                            msg.toolCalls.forEach((tc: any) => {
+                                contentParts.push({
+                                    type: 'tool_call',
+                                    call: {
+                                        id: tc.id,
+                                        function_name: tc.function_name,
+                                        arguments: tc.arguments,
+                                        status: 'complete'
+                                    }
+                                });
+                            });
+                            msg.contentParts = contentParts;
+                        }
+                        return msg;
+                    })
                     : [];
                 paneData.chatMessages.allMessages = formatted;
                 paneData.chatMessages.messages = formatted.slice(-paneData.chatMessages.displayedMessageCount);
@@ -1351,6 +1408,21 @@ const handleCloseConversationLabelingModal = useCallback(() => {
     setConversationLabelingModal({ isOpen: false, conversation: null });
 }, []);
 
+// Handle resend message - opens resend modal
+const handleResendMessage = useCallback((messageToResend: any) => {
+    if (isStreaming) {
+        console.warn('Cannot resend while streaming');
+        return;
+    }
+
+    setResendModal({
+        isOpen: true,
+        message: messageToResend,
+        selectedModel: currentModel,
+        selectedNPC: currentNPC
+    });
+}, [isStreaming, currentModel, currentNPC]);
+
 // Render functions for different content pane types
 const renderChatView = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -1391,7 +1463,7 @@ const renderChatView = useCallback(({ nodeId }) => {
             ))}
         </div>
     );
-}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels]);
+}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage]);
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -1486,9 +1558,17 @@ const renderBrowserViewer = useCallback(({ nodeId }) => {
         <WebBrowserViewer
             nodeId={nodeId}
             contentDataRef={contentDataRef}
+            currentPath={currentPath}
+            setBrowserContextMenuPos={setBrowserContextMenuPos}
+            setRootLayoutNode={setRootLayoutNode}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
         />
     );
-}, []);
+}, [currentPath, rootLayoutNode, closeContentPane]);
 
 const renderPptxViewer = useCallback(({ nodeId }) => {
     return (
@@ -1564,6 +1644,114 @@ const renderGraphViewerPane = useCallback(({ nodeId }) => {
     );
 }, [currentPath]);
 
+// Render BrowserHistoryWeb pane (browser navigation graph)
+const renderBrowserGraphPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <BrowserHistoryWeb
+            currentPath={currentPath}
+        />
+    );
+}, [currentPath]);
+
+// Handle starting conversation from a viewer (PhotoViewer, etc.)
+const handleStartConversationFromViewer = useCallback(async (images?: Array<{ path: string }>) => {
+    console.log('[handleStartConversationFromViewer] Called with images:', images);
+    if (!images || images.length === 0) {
+        console.log('[handleStartConversationFromViewer] No images provided, returning');
+        return;
+    }
+
+    // Helper to get mime type from extension
+    const getMimeType = (filePath: string): string => {
+        const ext = filePath.split('.').pop()?.toLowerCase() || '';
+        const mimeTypes: { [key: string]: string } = {
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+            'bmp': 'image/bmp',
+            'svg': 'image/svg+xml',
+        };
+        return mimeTypes[ext] || 'image/jpeg';
+    };
+
+    const attachmentsToAdd = images.map(img => ({
+        id: generateId(),
+        name: img.path.split('/').pop() || 'image',
+        type: getMimeType(img.path),
+        path: img.path,
+        size: 0,
+        preview: `file://${img.path}`
+    }));
+
+    console.log('[handleStartConversationFromViewer] Adding attachments:', attachmentsToAdd);
+    setUploadedFiles(prev => {
+        const newFiles = [...prev, ...attachmentsToAdd];
+        console.log('[handleStartConversationFromViewer] New uploadedFiles:', newFiles);
+        return newFiles;
+    });
+}, [setUploadedFiles]);
+
+// Render DataDash pane (for pane-based viewing)
+const renderDataDashPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <DataDash
+            initialAnalysisContext={analysisContext}
+            currentPath={currentPath}
+            currentModel={currentModel}
+            currentProvider={currentProvider}
+            currentNPC={currentNPC}
+            messageLabels={messageLabels}
+            setMessageLabels={setMessageLabels}
+            conversationLabels={conversationLabels}
+            setConversationLabels={setConversationLabels}
+        />
+    );
+}, [analysisContext, currentPath, currentModel, currentProvider, currentNPC, messageLabels, setMessageLabels, conversationLabels, setConversationLabels]);
+
+// Render PhotoViewer pane (for pane-based viewing)
+const renderPhotoViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <PhotoViewer
+            currentPath={currentPath}
+            onStartConversation={handleStartConversationFromViewer}
+        />
+    );
+}, [currentPath, handleStartConversationFromViewer]);
+
+// Render ProjectEnvEditor pane (for pane-based viewing)
+const renderProjectEnvPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <ProjectEnvEditor
+            currentPath={currentPath}
+        />
+    );
+}, [currentPath]);
+
+// Render DiskUsageAnalyzer pane (for pane-based viewing)
+const renderDiskUsagePane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <DiskUsageAnalyzer
+            path={currentPath}
+            isDarkMode={isDarkMode}
+            isPane={true}
+        />
+    );
+}, [currentPath, isDarkMode]);
+
+// Render DBTool pane (for pane-based viewing)
+const renderDBToolPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <DBTool
+            currentPath={currentPath}
+            currentModel={currentModel}
+            currentProvider={currentProvider}
+            currentNPC={currentNPC}
+        />
+    );
+}, [currentPath, currentModel, currentProvider, currentNPC]);
+
 // Use the PDF highlights loader from PdfViewer module
 useEffect(() => {
     loadPdfHighlightsForActivePane(activeContentPaneId, contentDataRef, setPdfHighlights);
@@ -1588,9 +1776,10 @@ useEffect(() => {
                 setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '' });
                 // Close status bar modals
                 setGitModalOpen(false);
-                setDiskUsageModalOpen(false);
                 setWorkspaceModalOpen(false);
                 setSearchResultsModalOpen(false);
+                // Exit zen mode
+                setZenModePaneId(null);
             }
         };
 
@@ -2002,6 +2191,342 @@ const renderMessageContextMenu = () => (
         setActiveContentPaneId(newPaneId);
     }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
+    // Create BrowserHistoryWeb pane (browser navigation graph)
+    const createBrowserGraphPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'browsergraph', 'browsergraph');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+    // Create DataDash pane
+    const createDataDashPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'datadash', 'datadash');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+    // Create DBTool pane
+    const createDBToolPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'dbtool', 'dbtool');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+    // Create PhotoViewer pane
+    const createPhotoViewerPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'photoviewer', 'photoviewer');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+    // Create ProjectEnv pane
+    const createProjectEnvPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'projectenv', 'projectenv');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+    // Create DiskUsage pane
+    const createDiskUsagePane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'diskusage', 'diskusage');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
     const handleGlobalDragStart = useCallback((e, item) => {
     Object.values(contentDataRef.current).forEach(paneData => {
         if (paneData.contentType === 'browser' && paneData.contentId) {
@@ -2043,10 +2568,22 @@ const handleGlobalDragEnd = () => {
   
 
   const createNewBrowser = useCallback(async (url = null) => {
-    if (!url) {
-        setBrowserUrlDialogOpen(true);
-        return;
+    // Check for workspace-specific homepage in .env file
+    let defaultHomepage = 'https://wikipedia.org';
+    if (currentPath) {
+        try {
+            const envResult = await (window as any).api?.readFileContent?.(`${currentPath}/.env`);
+            if (envResult?.content) {
+                const match = envResult.content.match(/^BROWSER_HOMEPAGE=(.+)$/m);
+                if (match) {
+                    defaultHomepage = match[1].trim().replace(/^["']|["']$/g, '');
+                }
+            }
+        } catch {
+            // Ignore errors, use default
+        }
     }
+    const targetUrl = url || defaultHomepage;
 
     const newBrowserId = `browser_${generateId()}`;
     const newPaneId = generateId();
@@ -2100,7 +2637,7 @@ const handleGlobalDragEnd = () => {
     setTimeout(async () => {
         await updateContentPane(newPaneId, 'browser', newBrowserId);
         if (contentDataRef.current[newPaneId]) {
-            contentDataRef.current[newPaneId].browserUrl = url;
+            contentDataRef.current[newPaneId].browserUrl = targetUrl;
         }
         setRootLayoutNode(prev => ({ ...prev }));
     }, 0);
@@ -2397,8 +2934,12 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
     const handleInputSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        const isJinxMode = executionMode !== 'chat' && selectedJinx;
-        const currentJinxInputs = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
+        // Get pane-specific execution mode and selectedJinx
+        const paneExecMode = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.executionMode || 'chat') : 'chat';
+        const paneSelectedJinx = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.selectedJinx || null) : null;
+
+        const isJinxMode = paneExecMode !== 'chat' && paneSelectedJinx;
+        const currentJinxInputs = isJinxMode ? (jinxInputValues[paneSelectedJinx.name] || {}) : {};
 
         const hasContent = (input || '').trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
 
@@ -2426,9 +2967,9 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
         let jinxArgsForApi: any[] = [];
 
         if (isJinxMode) {
-            jinxName = selectedJinx.name;
+            jinxName = paneSelectedJinx.name;
 
-            selectedJinx.inputs.forEach((inputDef: any) => {
+            paneSelectedJinx.inputs.forEach((inputDef: any) => {
                 const inputName = typeof inputDef === 'string' ? inputDef : Object.keys(inputDef)[0];
                 const value = currentJinxInputs[inputName];
                 if (value !== null && String(value).trim()) {
@@ -2442,8 +2983,8 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
             console.log(`[Jinx Submit] Jinx Name: ${jinxName}`);
             console.log(`[Jinx Submit] jinxArgsForApi (ordered array before API call):`, JSON.stringify(jinxArgsForApi, null, 2));
 
-            const jinxCommandParts = [`/${selectedJinx.name}`];
-            selectedJinx.inputs.forEach((inputDef: any) => {
+            const jinxCommandParts = [`/${paneSelectedJinx.name}`];
+            paneSelectedJinx.inputs.forEach((inputDef: any) => {
                 const inputName = typeof inputDef === 'string' ? inputDef : Object.keys(inputDef)[0];
                 const value = currentJinxInputs[inputName];
                 if (value !== null && String(value).trim()) {
@@ -2485,7 +3026,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
                     contextPrompt += browserContents.join('\n\n');
                 }
 
-                if (executionMode === 'agent') {
+                if (paneExecMode === 'tool_agent') {
                     finalPromptForUserMessage = `${input}
 
 Available context:
@@ -2509,7 +3050,7 @@ ${contextPrompt}`;
             content: finalPromptForUserMessage,
             timestamp: new Date().toISOString(),
             attachments: uploadedFiles,
-            executionMode: executionMode,
+            executionMode: paneExecMode,
             isJinxCall: isJinxMode,
             jinxName: isJinxMode ? jinxName : null,
             jinxInputs: isJinxMode ? jinxArgsForApi : null
@@ -2533,7 +3074,7 @@ ${contextPrompt}`;
         if (isJinxMode) {
             setJinxInputValues(prev => ({
                 ...prev,
-                [selectedJinx.name]: {}
+                [paneSelectedJinx.name]: {}
             }));
         }
 
@@ -2567,9 +3108,9 @@ ${contextPrompt}`;
                         return { name: f.name, type: f.type };
                     }),
                     streamId: newStreamId,
-                    executionMode: executionMode,
-                    mcpServerPath: executionMode === 'tool_agent' ? mcpServerPath : undefined,
-                    selectedMcpTools: executionMode === 'tool_agent' ? selectedMcpTools : undefined,
+                    executionMode: paneExecMode,
+                    mcpServerPath: paneExecMode === 'tool_agent' ? mcpServerPath : undefined,
+                    selectedMcpTools: paneExecMode === 'tool_agent' ? selectedMcpTools : undefined,
                 };
                 console.log('[DEBUG] Sending to backend via executeCommandStream:', commandData);
                 await window.api.executeCommandStream(commandData);
@@ -2693,20 +3234,6 @@ ${contextPrompt}`;
             setMessageContextMenuPos(null);
             setMessageSelectionMode(false);
         }
-    };
-
-    const handleResendMessage = (messageToResend: any) => {
-        if (isStreaming) {
-            console.warn('Cannot resend while streaming');
-            return;
-        }
-
-        setResendModal({
-            isOpen: true,
-            message: messageToResend,
-            selectedModel: currentModel,
-            selectedNPC: currentNPC
-        });
     };
 
     const handleDeleteSelectedMessages = async () => {
@@ -2987,8 +3514,291 @@ ${contextPrompt}`;
     useEffect(() => {
         createNewTerminalRef.current = createNewTerminal;
         createNewConversationRef.current = createNewConversation;
+        createNewBrowserRef.current = createNewBrowser;
         handleCreateNewFolderRef.current = handleCreateNewFolder;
-    }, [createNewTerminal, createNewConversation, handleCreateNewFolder]);
+    }, [createNewTerminal, createNewConversation, createNewBrowser, handleCreateNewFolder]);
+
+    // Render NPC Team pane (embedded version for pane layout)
+    const renderNPCTeamPane = useCallback(({ nodeId }: { nodeId: string }) => {
+        return (
+            <NPCTeamMenu
+                isOpen={true}
+                onClose={() => {}}
+                currentPath={currentPath}
+                startNewConversation={(npc) => {
+                    setCurrentNPC(npc.name || npc);
+                    createNewConversation();
+                }}
+                embedded={true}
+            />
+        );
+    }, [currentPath, createNewConversation]);
+
+    // Create NPC Team pane
+    const createNPCTeamPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'npcteam', 'npcteam');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
+
+    // Render Jinx Menu pane (embedded version for pane layout)
+    const renderJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
+        return (
+            <JinxMenu
+                isOpen={true}
+                onClose={() => {}}
+                currentPath={currentPath}
+                embedded={true}
+            />
+        );
+    }, [currentPath]);
+
+    // Create Jinx pane
+    const createJinxPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'jinx', 'jinx');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+    // Render Team Management pane (embedded version for pane layout)
+    const renderTeamManagementPane = useCallback(({ nodeId }: { nodeId: string }) => {
+        return (
+            <TeamManagement
+                isOpen={true}
+                onClose={() => {}}
+                currentPath={currentPath}
+                startNewConversation={(npc) => {
+                    setCurrentNPC(npc.name || npc);
+                    createNewConversation();
+                }}
+                embedded={true}
+            />
+        );
+    }, [currentPath, createNewConversation]);
+
+    // Create Team Management pane
+    const createTeamManagementPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'teammanagement', 'teammanagement');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
+
+    // Render Settings pane (embedded version for pane layout)
+    const renderSettingsPane = useCallback(({ nodeId }: { nodeId: string }) => {
+        return (
+            <SettingsMenu
+                isOpen={true}
+                onClose={() => {}}
+                currentPath={currentPath}
+                onPathChange={handlePathChange}
+                availableModels={availableModels}
+                embedded={true}
+            />
+        );
+    }, [currentPath, handlePathChange, availableModels]);
+
+    // Create Settings pane
+    const createSettingsPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'settings', 'settings');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
     const createNewTextFile = async () => {
             try {
@@ -3607,30 +4417,6 @@ ${contextPrompt}`;
         <>
             <NPCTeamMenu isOpen={npcTeamMenuOpen} onClose={handleCloseNpcTeamMenu} currentPath={currentPath} startNewConversation={startNewConversationWithNpc}/>
             <JinxMenu isOpen={jinxMenuOpen} onClose={() => setJinxMenuOpen(false)} currentPath={currentPath}/>
-        <DataDash
-            isOpen={dashboardMenuOpen}
-            onClose={() => {
-                setDashboardMenuOpen(false);
-                setAnalysisContext(null);
-            }}
-            initialAnalysisContext={analysisContext}
-            currentPath={currentPath}
-            currentModel={currentModel}
-            currentProvider={currentProvider}
-            currentNPC={currentNPC}
-            messageLabels={messageLabels}
-            setMessageLabels={setMessageLabels}
-            conversationLabels={conversationLabels}
-            setConversationLabels={setConversationLabels}
-        />
-                <BrowserUrlDialog
-            isOpen={browserUrlDialogOpen}
-            onClose={() => setBrowserUrlDialogOpen(false)}
-            onNavigate={handleBrowserDialogNavigate}
-            currentPath={currentPath}
-        />
-
-
 
 <SettingsMenu
     isOpen={settingsOpen}
@@ -3645,13 +4431,6 @@ ${contextPrompt}`;
     predictiveTextProvider={predictiveTextProvider}
     setPredictiveTextProvider={setPredictiveTextProvider}
     availableModels={availableModels} // Pass available models for dropdown
-/>
-
-{/* Project Environment Editor Modal */}
-<ProjectEnvEditor
-    isOpen={projectEnvEditorOpen}
-    onClose={() => setProjectEnvEditorOpen(false)}
-    currentPath={currentPath}
 />
 
         {messageContextMenuPos && (
@@ -4104,13 +4883,6 @@ ${contextPrompt}`;
                 />
             )}
 
-            <PhotoViewer 
-    isOpen={photoViewerOpen}
-    onClose={() => setPhotoViewerOpen(false)}
-    currentPath={currentPath}
-    onStartConversation={handleStartConversationFromViewer}
-/>
-
             <CtxEditor
                 isOpen={ctxEditorOpen}
                 onClose={() => setCtxEditorOpen(false)}
@@ -4127,30 +4899,6 @@ ${contextPrompt}`;
                 npcList={availableNPCs.map(npc => ({ name: npc.name, display_name: npc.display_name }))}
                 jinxList={availableJinxs.map(jinx => ({ jinx_name: jinx.name, description: jinx.description }))}
             />
-
-            {/* Disk Usage Modal */}
-            {diskUsageModalOpen && (
-                <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setDiskUsageModalOpen(false)}>
-                    <div className="w-full h-full max-w-6xl max-h-[90vh] theme-bg-primary rounded-lg border theme-border flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between p-4 border-b theme-border">
-                            <div className="flex items-center gap-3">
-                                <HardDrive size={20} className="text-blue-400" />
-                                <h2 className="text-lg font-semibold theme-text-primary">Disk Usage Analyzer</h2>
-                                <span className="text-sm theme-text-muted">{currentPath}</span>
-                            </div>
-                            <button
-                                onClick={() => setDiskUsageModalOpen(false)}
-                                className="p-2 theme-hover rounded-lg"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-auto p-4">
-                            <DiskUsageAnalyzer path={currentPath} isDarkMode={isDarkMode} />
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Git Modal - Enhanced with tabs */}
             {gitModalOpen && (
@@ -4630,17 +5378,79 @@ ${contextPrompt}`;
 
 
 
-// Build chatInputProps object for ChatInput component in chat panes
-const chatInputProps = useMemo(() => ({
+// Per-pane execution mode getter/setter
+const getPaneExecutionMode = useCallback((paneId: string) => {
+    return contentDataRef.current[paneId]?.executionMode || 'chat';
+}, []);
+
+const setPaneExecutionMode = useCallback(async (paneId: string, mode: string) => {
+    if (!contentDataRef.current[paneId]) {
+        contentDataRef.current[paneId] = { executionMode: mode, selectedJinx: null, showJinxDropdown: false };
+    } else {
+        contentDataRef.current[paneId].executionMode = mode;
+    }
+
+    // Load MCP servers when switching to tool_agent mode
+    if (mode === 'tool_agent' && currentPath) {
+        const res = await window.api.getMcpServers(currentPath);
+        if (res && Array.isArray(res.servers)) {
+            setAvailableMcpServers(res.servers);
+            if (!res.servers.find(s => s.serverPath === mcpServerPath) && res.servers.length > 0) {
+                setMcpServerPath(res.servers[0].serverPath);
+            }
+        }
+    }
+
+    // Trigger re-render
+    setRootLayoutNode(prev => ({ ...prev }));
+}, [currentPath, mcpServerPath]);
+
+const getPaneSelectedJinx = useCallback((paneId: string) => {
+    return contentDataRef.current[paneId]?.selectedJinx || null;
+}, []);
+
+const setPaneSelectedJinx = useCallback((paneId: string, jinx: any) => {
+    if (!contentDataRef.current[paneId]) {
+        contentDataRef.current[paneId] = { executionMode: 'chat', selectedJinx: jinx, showJinxDropdown: false };
+    } else {
+        contentDataRef.current[paneId].selectedJinx = jinx;
+    }
+    // Trigger re-render
+    setRootLayoutNode(prev => ({ ...prev }));
+}, []);
+
+// Per-pane dropdown state
+const getPaneShowJinxDropdown = useCallback((paneId: string) => {
+    return contentDataRef.current[paneId]?.showJinxDropdown || false;
+}, []);
+
+const setPaneShowJinxDropdown = useCallback((paneId: string, show: boolean) => {
+    if (!contentDataRef.current[paneId]) {
+        contentDataRef.current[paneId] = { executionMode: 'chat', selectedJinx: null, showJinxDropdown: show };
+    } else {
+        contentDataRef.current[paneId].showJinxDropdown = show;
+    }
+    // Trigger re-render
+    setRootLayoutNode(prev => ({ ...prev }));
+}, []);
+
+// Build chatInputProps function that returns props for a specific pane
+const getChatInputProps = useCallback((paneId: string) => ({
     input, setInput, inputHeight, setInputHeight,
     isInputMinimized, setIsInputMinimized, isInputExpanded, setIsInputExpanded,
     isResizingInput, setIsResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
     uploadedFiles, setUploadedFiles, contextFiles, setContextFiles,
     contextFilesCollapsed, setContextFilesCollapsed, currentPath,
-    executionMode, setExecutionMode, selectedJinx, setSelectedJinx,
+    // Per-pane execution mode
+    executionMode: getPaneExecutionMode(paneId),
+    setExecutionMode: (mode: string) => setPaneExecutionMode(paneId, mode),
+    selectedJinx: getPaneSelectedJinx(paneId),
+    setSelectedJinx: (jinx: any) => setPaneSelectedJinx(paneId, jinx),
     jinxInputValues, setJinxInputValues, jinxsToDisplay,
-    showJinxDropdown, setShowJinxDropdown,
+    // Per-pane dropdown state
+    showJinxDropdown: getPaneShowJinxDropdown(paneId),
+    setShowJinxDropdown: (show: boolean) => setPaneShowJinxDropdown(paneId, show),
     availableModels, modelsLoading, modelsError, currentModel, setCurrentModel,
     currentProvider, setCurrentProvider, favoriteModels, toggleFavoriteModel,
     showAllModels, setShowAllModels, modelsToDisplay, ollamaToolModels, setError,
@@ -4654,7 +5464,9 @@ const chatInputProps = useMemo(() => ({
     input, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
     uploadedFiles, contextFiles, contextFilesCollapsed, currentPath,
-    executionMode, selectedJinx, jinxInputValues, jinxsToDisplay, showJinxDropdown,
+    getPaneExecutionMode, setPaneExecutionMode, getPaneSelectedJinx, setPaneSelectedJinx,
+    getPaneShowJinxDropdown, setPaneShowJinxDropdown,
+    jinxInputValues, jinxsToDisplay,
     availableModels, modelsLoading, modelsError, currentModel, currentProvider,
     favoriteModels, showAllModels, modelsToDisplay, ollamaToolModels,
     availableNPCs, npcsLoading, npcsError, currentNPC,
@@ -4686,13 +5498,28 @@ const layoutComponentApi = useMemo(() => ({
     renderMindMapViewer,
     renderDataLabelerPane,
     renderGraphViewerPane,
+    renderBrowserGraphPane,
+    renderDataDashPane,
+    renderDBToolPane,
+    renderNPCTeamPane,
+    renderJinxPane,
+    renderTeamManagementPane,
+    renderSettingsPane,
+    renderPhotoViewerPane,
+    renderProjectEnvPane,
+    renderDiskUsagePane,
     setPaneContextMenu,
     // Chat-specific props:
     autoScrollEnabled, setAutoScrollEnabled,
     messageSelectionMode, toggleMessageSelectionMode, selectedMessages,
     conversationBranches, showBranchingUI, setShowBranchingUI,
-    // ChatInput props for rendering input in chat panes
-    chatInputProps,
+    // ChatInput props function for rendering input in chat panes (takes paneId)
+    getChatInputProps,
+    // Zen mode props
+    zenModePaneId,
+    toggleZenMode: (paneId: string) => {
+        setZenModePaneId(prev => prev === paneId ? null : paneId);
+    },
 }), [
     rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
@@ -4706,12 +5533,23 @@ const layoutComponentApi = useMemo(() => ({
     renderMindMapViewer,
     renderDataLabelerPane,
     renderGraphViewerPane,
+    renderBrowserGraphPane,
+    renderDataDashPane,
+    renderDBToolPane,
+    renderNPCTeamPane,
+    renderJinxPane,
+    renderTeamManagementPane,
+    renderSettingsPane,
+    renderPhotoViewerPane,
+    renderProjectEnvPane,
+    renderDiskUsagePane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
     autoScrollEnabled, setAutoScrollEnabled,
     messageSelectionMode, toggleMessageSelectionMode, selectedMessages,
     conversationBranches, showBranchingUI, setShowBranchingUI,
-    chatInputProps,
+    getChatInputProps,
+    zenModePaneId,
 ]);
 
 // Handle conversation selection - opens conversation in a pane
@@ -4919,6 +5757,13 @@ const renderPaneContextMenu = () => {
                 className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm min-w-[160px]"
                 style={{ top: y, left: x }}
             >
+                {/* Close Pane at top */}
+                <button onClick={closePane} className="block px-4 py-2 w-full text-left theme-hover text-red-400">
+                    Close Pane
+                </button>
+
+                <div className="border-t theme-border my-1" />
+
                 {/* Create New Section */}
                 <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Create New</div>
                 <button onClick={handleNewChat} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
@@ -4953,11 +5798,6 @@ const renderPaneContextMenu = () => {
                 <button onClick={() => splitPane('bottom')} className="block px-4 py-2 w-full text-left theme-hover">
                     ↓ Split Bottom
                 </button>
-
-                <div className="border-t theme-border my-1" />
-                <button onClick={closePane} className="block px-4 py-2 w-full text-left theme-hover text-red-400">
-                    Close Pane
-                </button>
             </div>
         </>
     );
@@ -4973,46 +5813,6 @@ const renderPdfContextMenu = () => {
 const renderBrowserContextMenu = () => {
     if (!browserContextMenuPos) return null;
     return <div>Browser Context Menu</div>;
-};
-
-// Handle starting conversation from a viewer (PhotoViewer, etc.)
-const handleStartConversationFromViewer = async (images?: Array<{ path: string }>) => {
-    console.log('[handleStartConversationFromViewer] Called with images:', images);
-    if (!images || images.length === 0) {
-        console.log('[handleStartConversationFromViewer] No images provided, returning');
-        return;
-    }
-
-    // Helper to get mime type from extension
-    const getMimeType = (filePath: string): string => {
-        const ext = filePath.split('.').pop()?.toLowerCase() || '';
-        const mimeTypes: { [key: string]: string } = {
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg',
-            'png': 'image/png',
-            'gif': 'image/gif',
-            'webp': 'image/webp',
-            'bmp': 'image/bmp',
-            'svg': 'image/svg+xml',
-        };
-        return mimeTypes[ext] || 'image/jpeg';
-    };
-
-    const attachmentsToAdd = images.map(img => ({
-        id: generateId(),
-        name: img.path.split('/').pop() || 'image',
-        type: getMimeType(img.path),
-        path: img.path,
-        size: 0,
-        preview: `file://${img.path}`
-    }));
-
-    console.log('[handleStartConversationFromViewer] Adding attachments:', attachmentsToAdd);
-    setUploadedFiles(prev => {
-        const newFiles = [...prev, ...attachmentsToAdd];
-        console.log('[handleStartConversationFromViewer] New uploadedFiles:', newFiles);
-        return newFiles;
-    });
 };
 
 // Sidebar rendering function
@@ -5753,78 +6553,19 @@ const renderMainContent = () => {
                     </div>
                 )}
             </div>
-            {/* Workspace Status Bar with Pane Dock */}
-            <div className="flex-shrink-0 h-7 px-2 flex items-center gap-2 text-[11px] theme-text-muted theme-bg-secondary border-t theme-border">
-                {/* Git button */}
-                <button
-                    onClick={() => setGitModalOpen(true)}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded transition-all ${gitBranch ? 'bg-purple-900/30 text-purple-300 hover:bg-purple-900/50' : 'theme-hover'}`}
-                    title="Git"
-                >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="6" y1="3" x2="6" y2="15"></line>
-                        <circle cx="18" cy="6" r="3"></circle>
-                        <circle cx="6" cy="18" r="3"></circle>
-                        <path d="M18 9a9 9 0 0 1-9 9"></path>
-                    </svg>
-                    {gitBranch && <span className="truncate max-w-[80px]">{gitBranch}</span>}
-                    {gitStatus?.hasChanges && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400"></span>}
-                </button>
-
-                {/* Workspace button */}
-                <button
-                    onClick={() => setWorkspaceModalOpen(true)}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded theme-hover"
-                    title="Workspace Info"
-                >
-                    <Folder size={12} />
-                    <span className="opacity-60">{directoryConversations.length} convos</span>
-                </button>
-
-                <div className="flex-1" />
-
-                {/* Pane Dock - centered */}
-                <div className="flex items-center gap-1">
-                    {paneItems.map((pane) => (
-                        <button
-                            key={pane.id}
-                            onClick={() => setActiveContentPaneId(pane.id)}
-                            className={`px-2 py-0.5 rounded text-[10px] transition-all flex items-center gap-1 ${
-                                pane.isActive
-                                    ? 'bg-blue-600 text-white'
-                                    : 'theme-hover theme-text-muted hover:text-white'
-                            }`}
-                            title={pane.title}
-                        >
-                            {pane.type === 'chat' && <MessageSquare size={10} />}
-                            {pane.type === 'editor' && <FileIcon size={10} />}
-                            {pane.type === 'terminal' && <Terminal size={10} />}
-                            {pane.type === 'browser' && <Globe size={10} />}
-                            {pane.type === 'pdf' && <FileText size={10} />}
-                            {!['chat', 'editor', 'terminal', 'browser', 'pdf'].includes(pane.type) && <FileIcon size={10} />}
-                            <span className="truncate max-w-[60px]">{pane.title}</span>
-                        </button>
-                    ))}
-                </div>
-
-                <div className="flex-1" />
-
-                {/* Right side - Predictive text toggle */}
-                <div className="flex items-center gap-1">
-                    <button
-                        onClick={() => setIsPredictiveTextEnabled(!isPredictiveTextEnabled)}
-                        className={`p-1 rounded flex items-center gap-1 text-[10px] ${
-                            isPredictiveTextEnabled
-                                ? 'bg-purple-600/30 text-purple-400 hover:bg-purple-600/50'
-                                : 'theme-hover theme-text-muted'
-                        }`}
-                        title={isPredictiveTextEnabled ? "Disable Predictive Text" : "Enable Predictive Text"}
-                    >
-                        <BrainCircuit size={12} />
-                        <span className="hidden sm:inline">{isPredictiveTextEnabled ? 'AI' : 'AI'}</span>
-                    </button>
-                </div>
-            </div>
+            <StatusBar
+                gitBranch={gitBranch}
+                gitStatus={gitStatus}
+                setGitModalOpen={setGitModalOpen}
+                directoryConversations={directoryConversations}
+                setWorkspaceModalOpen={setWorkspaceModalOpen}
+                paneItems={paneItems}
+                setActiveContentPaneId={setActiveContentPaneId}
+                autoScrollEnabled={autoScrollEnabled}
+                setAutoScrollEnabled={setAutoScrollEnabled}
+                isPredictiveTextEnabled={isPredictiveTextEnabled}
+                setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
+            />
         </main>
     );
 };
@@ -5926,9 +6667,18 @@ const renderMainContent = () => {
         setTeamManagementOpen={setTeamManagementOpen}
         setNpcTeamMenuOpen={setNpcTeamMenuOpen}
         setSidebarCollapsed={setSidebarCollapsed}
-        setDiskUsageModalOpen={setDiskUsageModalOpen}
         createGraphViewerPane={createGraphViewerPane}
+        createBrowserGraphPane={createBrowserGraphPane}
         createDataLabelerPane={createDataLabelerPane}
+        createDataDashPane={createDataDashPane}
+        createDBToolPane={createDBToolPane}
+        createNPCTeamPane={createNPCTeamPane}
+        createJinxPane={createJinxPane}
+        createTeamManagementPane={createTeamManagementPane}
+        createSettingsPane={createSettingsPane}
+        createPhotoViewerPane={createPhotoViewerPane}
+        createProjectEnvPane={createProjectEnvPane}
+        createDiskUsagePane={createDiskUsagePane}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}
@@ -5980,6 +6730,87 @@ const renderMainContent = () => {
 
 </div>
             {renderModals()}
+
+            {/* Zen Mode Overlay */}
+            {zenModePaneId && contentDataRef.current[zenModePaneId] && (
+                <div className="fixed inset-0 z-[200] bg-gray-900 flex flex-col">
+                    {/* Zen mode header with minimize/close */}
+                    <div className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                            <span className="font-semibold">Zen Mode</span>
+                            <span className="text-gray-500">-</span>
+                            <span>{contentDataRef.current[zenModePaneId]?.contentId?.split('/').pop() || 'Focused View'}</span>
+                        </div>
+                        <button
+                            onClick={() => setZenModePaneId(null)}
+                            className="p-1 theme-hover rounded-full flex-shrink-0 transition-all hover:bg-blue-500/20"
+                            title="Exit zen mode (Esc)"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                    {/* Zen mode content */}
+                    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                        {(() => {
+                            const paneData = contentDataRef.current[zenModePaneId];
+                            const contentType = paneData?.contentType;
+                            switch (contentType) {
+                                case 'chat':
+                                    const zenChatInputProps = getChatInputProps(zenModePaneId);
+                                    return (
+                                        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                                            <div className="flex-1 min-h-0 overflow-y-auto">
+                                                {renderChatView({ nodeId: zenModePaneId })}
+                                            </div>
+                                            {zenChatInputProps && (
+                                                <ChatInput
+                                                    {...zenChatInputProps}
+                                                    paneId={zenModePaneId}
+                                                    onFocus={() => setActiveContentPaneId(zenModePaneId)}
+                                                />
+                                            )}
+                                        </div>
+                                    );
+                                case 'editor':
+                                    return renderFileEditor({ nodeId: zenModePaneId });
+                                case 'terminal':
+                                    return renderTerminalView({ nodeId: zenModePaneId });
+                                case 'pdf':
+                                    return renderPdfViewer({ nodeId: zenModePaneId });
+                                case 'csv':
+                                    return renderCsvViewer({ nodeId: zenModePaneId });
+                                case 'docx':
+                                    return renderDocxViewer({ nodeId: zenModePaneId });
+                                case 'browser':
+                                    return renderBrowserViewer({ nodeId: zenModePaneId });
+                                case 'pptx':
+                                    return renderPptxViewer({ nodeId: zenModePaneId });
+                                case 'latex':
+                                    return renderLatexViewer({ nodeId: zenModePaneId });
+                                case 'image':
+                                    return renderPicViewer({ nodeId: zenModePaneId });
+                                case 'mindmap':
+                                    return renderMindMapViewer({ nodeId: zenModePaneId });
+                                case 'data-labeler':
+                                    return renderDataLabelerPane({ nodeId: zenModePaneId });
+                                case 'graph-viewer':
+                                    return renderGraphViewerPane({ nodeId: zenModePaneId });
+                                case 'datadash':
+                                    return renderDataDashPane({ nodeId: zenModePaneId });
+                                case 'photoviewer':
+                                    return renderPhotoViewerPane({ nodeId: zenModePaneId });
+                                case 'projectenv':
+                                    return renderProjectEnvPane({ nodeId: zenModePaneId });
+                                case 'diskusage':
+                                    return renderDiskUsagePane({ nodeId: zenModePaneId });
+                                default:
+                                    return <div className="flex-1 flex items-center justify-center theme-text-muted">Unknown content type</div>;
+                            }
+                        })()}
+                    </div>
+                </div>
+            )}
+
         <BranchingUI />
             
         </div>

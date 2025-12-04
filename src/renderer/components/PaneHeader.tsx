@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, Maximize2, Minimize2 } from 'lucide-react';
 
 export const PaneHeader = React.memo(({
     nodeId,
@@ -13,7 +13,9 @@ export const PaneHeader = React.memo(({
     closeContentPane,
     fileChanged,
     onSave,
-    onStartRename
+    onStartRename,
+    isZenMode,
+    onToggleZenMode
 }) => {
     const nodePath = findNodePath(rootLayoutNode, nodeId);
 
@@ -60,6 +62,21 @@ export const PaneHeader = React.memo(({
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                     {children} {/* This is where the extra buttons will render */}
+
+                    {onToggleZenMode && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleZenMode(nodeId);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className={`p-1 theme-hover rounded-full flex-shrink-0 transition-all ${isZenMode ? 'bg-blue-500/30 text-blue-400' : 'hover:bg-blue-500/20'}`}
+                            aria-label={isZenMode ? "Exit zen mode" : "Enter zen mode"}
+                            title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
+                        >
+                            {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                        </button>
+                    )}
 
                     <button
                         onClick={(e) => {

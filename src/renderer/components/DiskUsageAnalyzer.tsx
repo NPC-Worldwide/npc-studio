@@ -1,7 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ChevronRight, ChevronDown, HardDrive, Folder, File } from 'lucide-react';
+import { Pie } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend
+} from 'chart.js';
 
-const DiskUsageAnalyzer = ({ path = '/', isDarkMode = false }) => {
+// Register chart.js components
+ChartJS.register(ArcElement, Tooltip, Legend);
+
+interface DiskUsageAnalyzerProps {
+  path?: string;
+  isDarkMode?: boolean;
+  isPane?: boolean; // When true, renders as pane content (fills container)
+}
+
+const DiskUsageAnalyzer: React.FC<DiskUsageAnalyzerProps> = ({ path = '/', isDarkMode = false, isPane = false }) => {
   const [folderTree, setFolderTree] = useState(null);
   const [expandedFolders, setExpandedFolders] = useState({});
   const [loading, setLoading] = useState(true);
@@ -52,6 +68,80 @@ const DiskUsageAnalyzer = ({ path = '/', isDarkMode = false }) => {
       [folderPath]: !prev[folderPath],
     }));
   };
+
+  // Pie chart colors
+  const pieColors = [
+    '#8b5cf6', // purple
+    '#3b82f6', // blue
+    '#facc15', // yellow
+    '#ef4444', // red
+    '#22c55e', // green
+    '#f97316', // orange
+    '#06b6d4', // cyan
+    '#ec4899', // pink
+    '#84cc16', // lime
+    '#a855f7', // violet
+  ];
+
+  // Prepare pie chart data from top-level children
+  const pieChartData = useMemo(() => {
+    if (!folderTree || !folderTree.children || folderTree.children.length === 0) {
+      return null;
+    }
+
+    // Sort children by size and take top 8, group rest as "Other"
+    const sortedChildren = [...folderTree.children].sort((a, b) => b.size - a.size);
+    const topItems = sortedChildren.slice(0, 8);
+    const otherItems = sortedChildren.slice(8);
+    const otherSize = otherItems.reduce((sum, item) => sum + item.size, 0);
+
+    const labels = topItems.map(item => item.name);
+    const data = topItems.map(item => item.size);
+    const backgroundColors = topItems.map((_, i) => pieColors[i % pieColors.length]);
+
+    if (otherSize > 0) {
+      labels.push('Other');
+      data.push(otherSize);
+      backgroundColors.push('#6b7280'); // gray
+    }
+
+    return {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: backgroundColors,
+        borderColor: isDarkMode ? '#1f2937' : '#ffffff',
+        borderWidth: 2,
+      }]
+    };
+  }, [folderTree, isDarkMode]);
+
+  const pieChartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: true,
+        position: 'right' as const,
+        labels: {
+          color: isDarkMode ? '#9ca3af' : '#4b5563',
+          font: { size: 11 },
+          boxWidth: 12,
+          padding: 8,
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: (context) => {
+            const value = context.raw as number;
+            const total = (context.dataset.data as number[]).reduce((a, b) => a + b, 0);
+            const percentage = Math.round((value / total) * 100);
+            return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
+          }
+        }
+      }
+    }
+  }), [isDarkMode]);
 
   const FolderItem = ({ item, level = 0, parentSize = 0 }) => {
     const isExpanded = expandedFolders[item.path];
@@ -220,7 +310,7 @@ const DiskUsageAnalyzer = ({ path = '/', isDarkMode = false }) => {
 
   return (
     <div
-      className={`rounded-lg border overflow-hidden ${
+      className={`${isPane ? 'flex flex-col h-full' : 'rounded-lg border'} overflow-hidden ${
         isDarkMode
           ? 'bg-gray-800 border-gray-700'
           : 'bg-white border-gray-200'
@@ -320,11 +410,27 @@ const DiskUsageAnalyzer = ({ path = '/', isDarkMode = false }) => {
             </div>
           </div>
         </div>
+
+        {/* Pie Chart */}
+        {pieChartData && (
+          <div className="mt-4">
+            <div
+              className={`text-xs font-semibold mb-2 ${
+                isDarkMode ? 'text-gray-400' : 'text-gray-600'
+              }`}
+            >
+              Disk Usage Distribution
+            </div>
+            <div style={{ height: '180px' }}>
+              <Pie data={pieChartData} options={pieChartOptions} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tree View */}
       <div
-        className={`overflow-auto max-h-96 ${
+        className={`overflow-auto ${isPane ? 'flex-1' : 'max-h-96'} ${
           isDarkMode ? 'bg-gray-800' : 'bg-white'
         }`}
       >

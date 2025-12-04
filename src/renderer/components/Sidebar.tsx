@@ -3,7 +3,7 @@ import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
-    Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, FolderCog
+    Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import npcLogo from '../../assets/icon.png';
@@ -35,8 +35,8 @@ const Sidebar = (props: any) => {
         setIsEditingPath, setEditedPath, setSettingsOpen, setProjectEnvEditorOpen, setBrowserUrlDialogOpen,
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
         setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed,
-        setDiskUsageModalOpen,
-        createGraphViewerPane, createDataLabelerPane,
+        createGraphViewerPane, createBrowserGraphPane, createDataLabelerPane,
+        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -1902,7 +1902,7 @@ return (
                         <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
                             <Folder size={14} /><span>New Folder</span>
                         </button>
-                        <button onClick={() => setBrowserUrlDialogOpen(true)} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
+                        <button onClick={() => createNewBrowser?.()} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
                             <Globe size={14} /><span>New Browser</span>
                         </button>
                         <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
@@ -1933,7 +1933,7 @@ return (
                         <button onClick={handleCreateNewFolder} className="action-grid-button-wide" aria-label="New Folder" title="New Folder (Ctrl+N)">
                             <Folder size={16} /><span className="text-[10px] ml-1.5">Folder</span>
                         </button>
-                        <button onClick={() => setBrowserUrlDialogOpen(true)} className="action-grid-button-wide" aria-label="New Browser" title="New Browser (Ctrl+Shift+B)">
+                        <button onClick={() => createNewBrowser?.()} className="action-grid-button-wide" aria-label="New Browser" title="New Browser (Ctrl+Shift+B)">
                             <Globe size={16} /><span className="text-[10px] ml-1.5">Browser</span>
                         </button>
                         <button onClick={createNewTerminal} className="action-grid-button-wide" aria-label="New Terminal" title="New Terminal (Ctrl+Shift+T)">
@@ -1977,20 +1977,7 @@ return (
 
         {sidebarCollapsed && <div className="flex-1"></div>}
 
-        {/* Top grid (2x3) - ABOVE delete button */}
-        {!sidebarCollapsed && (
-            <div className="px-4 pb-2">
-                <div className="grid grid-cols-3 grid-rows-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden">
-                    <button onClick={() => setDashboardMenuOpen(true)} className="action-grid-button" aria-label="Data Dash" title="Data Dash"><BarChart3 size={16} /></button>
-                    <button onClick={() => setPhotoViewerOpen(true)} className="action-grid-button" aria-label="Photo Viewer" title="Photo Viewer"><Image size={16} /></button>
-                    <button onClick={() => setProjectEnvEditorOpen?.(true)} className="action-grid-button" aria-label="Project Env" title="Project .env Settings"><FolderCog size={16} /></button>
-                    <button onClick={() => createGraphViewerPane?.()} className="action-grid-button" aria-label="Graph Viewer" title="Graph Viewer (KG + Browser)"><GitBranch size={16} /></button>
-                    <button onClick={() => createDataLabelerPane?.()} className="action-grid-button" aria-label="Data Labeler" title="Data Labeler (Memory + Labels + Activity)"><Tag size={16} /></button>
-                    <button onClick={() => setDiskUsageModalOpen(true)} className="action-grid-button" aria-label="Disk Usage" title="Disk Usage Analyzer"><HardDrive size={16} /></button>
-                </div>
-            </div>
-        )}
-
+        {/* Delete button */}
         <div className={`flex justify-center ${sidebarCollapsed ? 'hidden' : ''}`}>
             <button
                 onClick={deleteSelectedConversations}
@@ -2002,13 +1989,25 @@ return (
         </div>
 
         <div className="p-4 border-t theme-border flex-shrink-0">
-            {/* Bottom row (1x4): Settings | Team Management | NPCs | Jinxs */}
+            {/* 4x3 Grid BELOW delete button */}
             {!sidebarCollapsed && (
-                <div className="grid grid-cols-4 divide-x divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
-                    <button onClick={() => setSettingsOpen(true)} className="action-grid-button" aria-label="Settings" title="Settings"><Settings size={16} /></button>
-                    <button onClick={() => setTeamManagementOpen(true)} className="action-grid-button" aria-label="Team Management" title="Team Management"><Users size={16} /></button>
-                    <button onClick={() => setNpcTeamMenuOpen(true)} className="action-grid-button" aria-label="NPCs" title="NPCs"><Bot size={16} /></button>
-                    <button onClick={() => setJinxMenuOpen(true)} className="action-grid-button" aria-label="Jinxs" title="Jinxs"><Zap size={16} /></button>
+                <div className="grid grid-cols-3 grid-rows-4 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
+                    {/* Row 1: DB Tool | Photo Tool | Data Labeler */}
+                    <button onClick={() => createDBToolPane?.()} className="action-grid-button" aria-label="DB Tool" title="Database Query Tool"><Database size={16} /></button>
+                    <button onClick={() => createPhotoViewerPane?.()} className="action-grid-button" aria-label="Photo Tool" title="Photo Viewer"><Image size={16} /></button>
+                    <button onClick={() => createDataLabelerPane?.()} className="action-grid-button" aria-label="Data Labeler" title="Data Labeler"><Tag size={16} /></button>
+                    {/* Row 2: Data Dash | Knowledge Graph | Web Browser Graph */}
+                    <button onClick={() => createDataDashPane?.()} className="action-grid-button" aria-label="Data Dash" title="Data Dashboard"><BarChart3 size={16} /></button>
+                    <button onClick={() => createGraphViewerPane?.()} className="action-grid-button" aria-label="Knowledge Graph" title="Knowledge Graph"><GitBranch size={16} /></button>
+                    <button onClick={() => createBrowserGraphPane?.()} className="action-grid-button" aria-label="Browser Graph" title="Web Browser Graph"><Network size={16} /></button>
+                    {/* Row 3: Team Management | NPCs | Jinxs */}
+                    <button onClick={() => createTeamManagementPane?.()} className="action-grid-button" aria-label="Team Management" title="Team Management"><Users size={16} /></button>
+                    <button onClick={() => createNPCTeamPane?.()} className="action-grid-button" aria-label="NPCs" title="NPCs"><Bot size={16} /></button>
+                    <button onClick={() => createJinxPane?.()} className="action-grid-button" aria-label="Jinxs" title="Jinxs"><Zap size={16} /></button>
+                    {/* Row 4: Settings | Project Env | Disk Usage Analyzer */}
+                    <button onClick={() => createSettingsPane?.()} className="action-grid-button" aria-label="Settings" title="Settings"><Settings size={16} /></button>
+                    <button onClick={() => createProjectEnvPane?.()} className="action-grid-button" aria-label="Env Variables" title="Environment Variables"><KeyRound size={16} /></button>
+                    <button onClick={() => createDiskUsagePane?.()} className="action-grid-button" aria-label="Disk Usage" title="Disk Usage Analyzer"><HardDrive size={16} /></button>
                 </div>
             )}
 
@@ -2040,7 +2039,7 @@ return (
                 <button onClick={() => { handleCreateNewFolder?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                     <Folder size={16} className="text-yellow-400" /><span>Folder</span>
                 </button>
-                <button onClick={() => { setBrowserUrlDialogOpen?.(true); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                <button onClick={() => { createNewBrowser?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                     <Globe size={16} className="text-cyan-400" /><span>Browser</span>
                 </button>
                 <button onClick={() => { createNewTerminal?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">

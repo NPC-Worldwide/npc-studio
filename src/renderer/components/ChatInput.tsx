@@ -105,6 +105,31 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
 
     const [isHovering, setIsHovering] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const mcpDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close MCP dropdown on ESC or click outside
+    useEffect(() => {
+        if (!showMcpServersDropdown) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setShowMcpServersDropdown(false);
+            }
+        };
+
+        const handleClickOutside = (e: MouseEvent) => {
+            if (mcpDropdownRef.current && !mcpDropdownRef.current.contains(e.target as Node)) {
+                setShowMcpServersDropdown(false);
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showMcpServersDropdown, setShowMcpServersDropdown]);
 
     const isJinxMode = executionMode !== 'chat' && selectedJinx;
     const jinxInputsForSelected = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
@@ -289,7 +314,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
             />
 
             <div
-                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col m-2"
+                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col m-2 overflow-visible"
                 onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
                 onDragEnter={() => setIsHovering(true)}
                 onDragLeave={() => setIsHovering(false)}
@@ -398,42 +423,122 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
 
                 {/* MCP tools for tool_agent mode */}
                 {executionMode === 'tool_agent' && (
-                    <div className="px-2 pb-1 border-t theme-border">
-                        <div className="relative w-1/2">
+                    <div className="px-2 pb-1 border-t theme-border overflow-visible">
+                        <div className="relative w-1/2" ref={mcpDropdownRef}>
                             <button
+                                type="button"
                                 className="theme-input text-xs w-full text-left px-2 py-1 flex items-center justify-between rounded border"
-                                disabled={isStreaming || availableMcpServers.length === 0}
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onClick={() => setShowMcpServersDropdown((p: boolean) => !p)}
                             >
-                                <span className="truncate">{availableMcpServers.find((s: any) => s.serverPath === mcpServerPath)?.serverPath || 'Select MCP server'}</span>
+                                <span className="truncate">
+                                    {(() => {
+                                        const srv = availableMcpServers.find((s: any) => s.serverPath === mcpServerPath);
+                                        if (srv) {
+                                            const origin = srv.origin === 'global' ? '🌐' : '📁';
+                                            return `${origin} ${srv.serverPath}`;
+                                        }
+                                        return 'Select MCP server & tools';
+                                    })()}
+                                </span>
                                 <ChevronDown size={12} />
                             </button>
                             {showMcpServersDropdown && (
-                                <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto">
-                                    {availableMcpServers.map((srv: any) => (
-                                        <div key={srv.serverPath} className="border-b theme-border last:border-b-0">
-                                            <div
-                                                className="px-2 py-1 text-xs theme-hover cursor-pointer"
-                                                onClick={() => {
-                                                    setMcpServerPath(srv.serverPath);
-                                                    setSelectedMcpTools([]);
-                                                    setMcpToolsLoading(true);
-                                                    (window as any).api.listMcpTools({ serverPath: srv.serverPath, currentPath }).then((res: any) => {
-                                                        setMcpToolsLoading(false);
-                                                        if (res.error) {
-                                                            setMcpToolsError(res.error);
-                                                            setAvailableMcpTools([]);
-                                                        } else {
-                                                            setMcpToolsError(null);
-                                                            setAvailableMcpTools(res.tools || []);
-                                                        }
-                                                    });
-                                                }}
-                                            >
-                                                {srv.serverPath}
+                                <div
+                                    className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Escape') {
+                                            setShowMcpServersDropdown(false);
+                                        }
+                                    }}
+                                    tabIndex={-1}
+                                >
+                                    {availableMcpServers.length === 0 && (
+                                        <div className="px-2 py-1 text-xs theme-text-muted">No MCP servers in ctx</div>
+                                    )}
+                                    {/* Group by origin */}
+                                    {['global', 'project'].map(origin => {
+                                        const serversForOrigin = availableMcpServers.filter((s: any) => s.origin === origin);
+                                        if (serversForOrigin.length === 0) return null;
+                                        return (
+                                            <div key={origin}>
+                                                <div className="px-2 py-1 text-[10px] uppercase theme-text-muted border-b theme-border">
+                                                    {origin === 'global' ? '🌐 Global' : '📁 Project'}
+                                                </div>
+                                                {serversForOrigin.map((srv: any) => (
+                                                    <div key={srv.serverPath} className="border-b theme-border last:border-b-0">
+                                                        <div
+                                                            className={`px-2 py-1 text-xs theme-hover cursor-pointer flex items-center justify-between ${srv.serverPath === mcpServerPath ? 'bg-blue-500/20' : ''}`}
+                                                            onClick={() => {
+                                                                setMcpServerPath(srv.serverPath);
+                                                                setMcpToolsLoading(true);
+                                                                (window as any).api.listMcpTools({ serverPath: srv.serverPath, currentPath }).then((res: any) => {
+                                                                    setMcpToolsLoading(false);
+                                                                    if (res.error) {
+                                                                        setMcpToolsError(res.error);
+                                                                        setAvailableMcpTools([]);
+                                                                        setSelectedMcpTools([]);
+                                                                    } else {
+                                                                        setMcpToolsError(null);
+                                                                        const tools = res.tools || [];
+                                                                        setAvailableMcpTools(tools);
+                                                                        // Default: ALL tools selected
+                                                                        const allNames = tools.map((t: any) => t.function?.name).filter(Boolean);
+                                                                        setSelectedMcpTools(allNames);
+                                                                    }
+                                                                });
+                                                            }}
+                                                        >
+                                                            <span className="truncate">{srv.serverPath}</span>
+                                                        </div>
+                                                        {srv.serverPath === mcpServerPath && (
+                                                            <div className="px-3 py-1 space-y-1">
+                                                                {mcpToolsLoading && <div className="text-xs theme-text-muted">Loading MCP tools…</div>}
+                                                                {mcpToolsError && <div className="text-xs text-red-400">Error: {mcpToolsError}</div>}
+                                                                {!mcpToolsLoading && !mcpToolsError && (
+                                                                    <div className="flex flex-col gap-1">
+                                                                        {availableMcpTools.length === 0 && (
+                                                                            <div className="text-xs theme-text-muted">No tools available.</div>
+                                                                        )}
+                                                                        {availableMcpTools.map((tool: any) => {
+                                                                            const name = tool.function?.name || '';
+                                                                            const desc = tool.function?.description || '';
+                                                                            if (!name) return null;
+                                                                            const checked = selectedMcpTools.includes(name);
+                                                                            return (
+                                                                                <details key={name} className="bg-black/30 border theme-border rounded px-2 py-1">
+                                                                                    <summary className="flex items-center gap-2 text-xs theme-text-primary cursor-pointer">
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={checked}
+                                                                                            disabled={isStreaming}
+                                                                                            onClick={(e) => e.stopPropagation()}
+                                                                                            onChange={() => {
+                                                                                                setSelectedMcpTools((prev: string[]) => {
+                                                                                                    if (prev.includes(name)) {
+                                                                                                        return prev.filter((n: string) => n !== name);
+                                                                                                    }
+                                                                                                    return [...prev, name];
+                                                                                                });
+                                                                                            }}
+                                                                                        />
+                                                                                        <span>{name}</span>
+                                                                                    </summary>
+                                                                                    <div className="ml-6 text-[11px] theme-text-muted whitespace-pre-wrap">
+                                                                                        {desc || 'No description.'}
+                                                                                    </div>
+                                                                                </details>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
@@ -448,6 +553,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             className="theme-input text-xs rounded px-2 py-1 border w-full flex items-center justify-between"
                             disabled={isStreaming}
                             onClick={() => setShowJinxDropdown(!showJinxDropdown)}
+                            onMouseDown={(e) => e.stopPropagation()}
                         >
                             <span className="truncate">
                                 {executionMode === 'chat' && '💬 Chat'}
@@ -462,10 +568,6 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     💬 Chat
                                 </div>
                                 <div className="px-2 py-1 text-xs theme-hover cursor-pointer" onClick={() => {
-                                    const modelObj = availableModels.find((m: any) => m.value === currentModel);
-                                    const provider = modelObj?.provider || currentProvider;
-                                    const toolCapable = provider !== 'ollama' || ollamaToolModels.has(currentModel);
-                                    if (!toolCapable) { setError('Model does not support tools'); setShowJinxDropdown(false); return; }
                                     setExecutionMode('tool_agent'); setSelectedJinx(null); setShowJinxDropdown(false);
                                 }}>
                                     🛠 Agent
@@ -503,8 +605,8 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                         )}
                     </div>
 
-                    {/* Model selector */}
-                    <div className="flex-grow flex items-center gap-1">
+                    {/* Model selector - compact */}
+                    <div className="flex items-center gap-1">
                         <select
                             value={currentModel || ''}
                             onChange={(e) => {
@@ -512,32 +614,32 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 setCurrentModel(e.target.value);
                                 if (model?.provider) setCurrentProvider(model.provider);
                             }}
-                            className="theme-input text-xs rounded px-2 py-1 border flex-grow"
+                            className="theme-input text-xs rounded px-1 py-1 border max-w-[120px]"
                             disabled={modelsLoading || !!modelsError || isStreaming}
                         >
-                            {modelsLoading && <option value="">Loading...</option>}
-                            {modelsError && <option value="">Error</option>}
+                            {modelsLoading && <option value="">...</option>}
+                            {modelsError && <option value="">Err</option>}
                             {!modelsLoading && !modelsError && modelsToDisplay.map((m: any) => (
                                 <option key={m.value} value={m.value}>{m.display_name}</option>
                             ))}
                         </select>
-                        <button onClick={() => toggleFavoriteModel(currentModel)} className={`p-1 rounded ${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`} disabled={!currentModel}>
-                            <Star size={12}/>
+                        <button onClick={() => toggleFavoriteModel(currentModel)} className={`p-0.5 rounded ${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`} disabled={!currentModel}>
+                            <Star size={10}/>
                         </button>
-                        <button onClick={() => setShowAllModels(!showAllModels)} className="p-1 theme-hover rounded theme-text-muted" disabled={favoriteModels.size === 0}>
-                            <ListFilter size={12} className={favoriteModels.size === 0 ? 'opacity-30' : ''} />
+                        <button onClick={() => setShowAllModels(!showAllModels)} className="p-0.5 theme-hover rounded theme-text-muted" disabled={favoriteModels.size === 0}>
+                            <ListFilter size={10} className={favoriteModels.size === 0 ? 'opacity-30' : ''} />
                         </button>
                     </div>
 
-                    {/* NPC selector */}
+                    {/* NPC selector - compact */}
                     <select
                         value={currentNPC || ''}
                         onChange={e => setCurrentNPC(e.target.value)}
-                        className="theme-input text-xs rounded px-2 py-1 border flex-grow"
+                        className="theme-input text-xs rounded px-1 py-1 border max-w-[100px]"
                         disabled={npcsLoading || !!npcsError || isStreaming}
                     >
-                        {npcsLoading && <option value="">Loading...</option>}
-                        {npcsError && <option value="">Error</option>}
+                        {npcsLoading && <option value="">...</option>}
+                        {npcsError && <option value="">Err</option>}
                         {!npcsLoading && !npcsError && availableNPCs.map((npc: any) => (
                             <option key={`${npc.source}-${npc.value}`} value={npc.value}>{npc.display_name}</option>
                         ))}

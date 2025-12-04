@@ -16,6 +16,7 @@ interface TeamManagementProps {
     startNewConversation?: (npc: any) => Promise<any>;
     npcList?: any[];
     jinxList?: any[];
+    embedded?: boolean;
 }
 
 type TabId = 'context' | 'npcs' | 'jinxs' | 'cron' | 'models' | 'databases' | 'mcp';
@@ -1277,7 +1278,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     currentPath,
     startNewConversation,
     npcList = [],
-    jinxList = []
+    jinxList = [],
+    embedded = false
 }) => {
     const [activeTab, setActiveTab] = useState<TabId>('context');
     const [isGlobal, setIsGlobal] = useState(false);
@@ -1344,6 +1346,138 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
         { id: 'models', label: 'SQL Models', icon: <Database size={16} /> },
     ];
 
+    if (!isOpen && !embedded) return null;
+
+    const content = (
+        <div className={embedded ? "flex flex-col h-full" : "relative w-[90vw] max-w-6xl h-[85vh] theme-bg-primary rounded-xl shadow-2xl border theme-border flex flex-col overflow-hidden"}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b theme-border flex-shrink-0">
+                <div className="flex items-center gap-3">
+                    <Users className="text-purple-400" size={24} />
+                    <h2 className="text-xl font-semibold">Team Management</h2>
+                </div>
+                <div className="flex items-center gap-4">
+                    {/* Project/Global Toggle */}
+                    <div className="flex items-center gap-2 bg-gray-800 rounded-lg p-1">
+                        {hasProjectTeam ? (
+                            <button
+                                onClick={() => setIsGlobal(false)}
+                                className={`px-3 py-1.5 rounded text-sm font-medium transition ${!isGlobal ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                            >
+                                Project
+                            </button>
+                        ) : (
+                            <button
+                                onClick={handleInitializeProjectTeam}
+                                disabled={initializingTeam || !currentPath}
+                                className="px-3 py-1.5 rounded text-sm font-medium transition text-gray-400 hover:text-white flex items-center gap-1 disabled:opacity-50"
+                                title={currentPath ? "Initialize project team" : "No project folder selected"}
+                            >
+                                <Plus size={14} /> Project
+                            </button>
+                        )}
+                        <button
+                            onClick={() => setIsGlobal(true)}
+                            className={`px-3 py-1.5 rounded text-sm font-medium transition ${isGlobal ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            Global
+                        </button>
+                    </div>
+                    {!embedded && (
+                        <button
+                            onClick={onClose}
+                            className="p-2 rounded-lg theme-hover transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="flex border-b theme-border px-4 flex-shrink-0">
+                {tabs.map((tab) => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                            activeTab === tab.id
+                                ? 'border-purple-500 text-purple-400'
+                                : 'border-transparent theme-text-secondary hover:theme-text-primary'
+                        }`}
+                    >
+                        {tab.icon}
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-auto p-6">
+                {activeTab === 'context' && (
+                    <CtxEditor
+                        isOpen={true}
+                        onClose={() => {}}
+                        currentPath={currentPath}
+                        embedded={true}
+                        isGlobal={isGlobal}
+                    />
+                )}
+                {activeTab === 'npcs' && (
+                    <NPCTeamMenu
+                        isOpen={true}
+                        onClose={() => {}}
+                        currentPath={currentPath}
+                        startNewConversation={startNewConversation}
+                        embedded={true}
+                        isGlobal={isGlobal}
+                    />
+                )}
+                {activeTab === 'jinxs' && (
+                    <JinxMenu
+                        isOpen={true}
+                        onClose={() => {}}
+                        currentPath={currentPath}
+                        embedded={true}
+                        isGlobal={isGlobal}
+                    />
+                )}
+                {activeTab === 'databases' && (
+                    <DatabasesContent
+                        currentPath={currentPath}
+                        isGlobal={isGlobal}
+                    />
+                )}
+                {activeTab === 'mcp' && (
+                    <McpServersContent
+                        currentPath={currentPath}
+                        isGlobal={isGlobal}
+                    />
+                )}
+                {activeTab === 'cron' && (
+                    <CronDaemonContent
+                        currentPath={currentPath}
+                        npcList={npcList}
+                        jinxList={jinxList}
+                        isGlobal={isGlobal}
+                    />
+                )}
+                {activeTab === 'models' && (
+                    <SqlModelsContent
+                        currentPath={currentPath}
+                        isGlobal={isGlobal}
+                    />
+                )}
+            </div>
+        </div>
+    );
+
+    // Embedded mode - return just the content
+    if (embedded) {
+        return content;
+    }
+
+    // Modal mode - wrap in modal container
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
             {/* Backdrop */}
@@ -1351,127 +1485,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                 className="absolute inset-0 bg-black/60 backdrop-blur-sm"
                 onClick={onClose}
             />
-
-            {/* Modal */}
-            <div className="relative w-[90vw] max-w-6xl h-[85vh] theme-bg-primary rounded-xl shadow-2xl border theme-border flex flex-col overflow-hidden">
-                {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b theme-border flex-shrink-0">
-                    <div className="flex items-center gap-3">
-                        <Users className="text-purple-400" size={24} />
-                        <h2 className="text-xl font-semibold">Team Management</h2>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        {/* Project/Global Toggle */}
-                        <div className="flex items-center gap-2 bg-gray-800 rounded-lg p-1">
-                            {hasProjectTeam ? (
-                                <button
-                                    onClick={() => setIsGlobal(false)}
-                                    className={`px-3 py-1.5 rounded text-sm font-medium transition ${!isGlobal ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                                >
-                                    Project
-                                </button>
-                            ) : (
-                                <button
-                                    onClick={handleInitializeProjectTeam}
-                                    disabled={initializingTeam || !currentPath}
-                                    className="px-3 py-1.5 rounded text-sm font-medium transition text-gray-400 hover:text-white flex items-center gap-1 disabled:opacity-50"
-                                    title={currentPath ? "Initialize project team" : "No project folder selected"}
-                                >
-                                    <Plus size={14} /> Project
-                                </button>
-                            )}
-                            <button
-                                onClick={() => setIsGlobal(true)}
-                                className={`px-3 py-1.5 rounded text-sm font-medium transition ${isGlobal ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                            >
-                                Global
-                            </button>
-                        </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2 rounded-lg theme-hover transition-colors"
-                        >
-                            <X size={20} />
-                        </button>
-                    </div>
-                </div>
-
-                {/* Tab Navigation */}
-                <div className="flex border-b theme-border px-4 flex-shrink-0">
-                    {tabs.map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                                activeTab === tab.id
-                                    ? 'border-purple-500 text-purple-400'
-                                    : 'border-transparent theme-text-secondary hover:theme-text-primary'
-                            }`}
-                        >
-                            {tab.icon}
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
-
-                {/* Tab Content */}
-                <div className="flex-1 overflow-auto p-6">
-                    {activeTab === 'context' && (
-                        <CtxEditor
-                            isOpen={true}
-                            onClose={() => {}}
-                            currentPath={currentPath}
-                            embedded={true}
-                            isGlobal={isGlobal}
-                        />
-                    )}
-                    {activeTab === 'npcs' && (
-                        <NPCTeamMenu
-                            isOpen={true}
-                            onClose={() => {}}
-                            currentPath={currentPath}
-                            startNewConversation={startNewConversation}
-                            embedded={true}
-                            isGlobal={isGlobal}
-                        />
-                    )}
-                    {activeTab === 'jinxs' && (
-                        <JinxMenu
-                            isOpen={true}
-                            onClose={() => {}}
-                            currentPath={currentPath}
-                            embedded={true}
-                            isGlobal={isGlobal}
-                        />
-                    )}
-                    {activeTab === 'databases' && (
-                        <DatabasesContent
-                            currentPath={currentPath}
-                            isGlobal={isGlobal}
-                        />
-                    )}
-                    {activeTab === 'mcp' && (
-                        <McpServersContent
-                            currentPath={currentPath}
-                            isGlobal={isGlobal}
-                        />
-                    )}
-                    {activeTab === 'cron' && (
-                        <CronDaemonContent
-                            currentPath={currentPath}
-                            npcList={npcList}
-                            jinxList={jinxList}
-                            isGlobal={isGlobal}
-                        />
-                    )}
-                    {activeTab === 'models' && (
-                        <SqlModelsContent
-                            currentPath={currentPath}
-                            isGlobal={isGlobal}
-                        />
-                    )}
-                </div>
-            </div>
+            {content}
         </div>
     );
 };

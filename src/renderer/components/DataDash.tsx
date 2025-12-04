@@ -766,7 +766,7 @@ const DashboardWidget = ({ config, onContextMenu }) => {
     return (<div className="theme-bg-tertiary p-4 rounded-lg flex flex-col h-full relative" onContextMenu={(e) => onContextMenu(e, config.id)}><div className="flex justify-between items-start flex-shrink-0"><div className="flex items-center gap-3 mb-2 flex-1"><Icon className={config.iconColor || 'text-gray-400'} size={18} /><h4 className="font-semibold theme-text-secondary truncate">{config.title}</h4></div>{(config.toggleOptions || []).length > 0 && (<div className="flex items-center gap-1">{(config.toggleOptions).map(opt => <button key={opt.label} onClick={() => setActiveToggle(opt)} className={`px-2 py-0.5 text-xs rounded ${activeToggle?.label === opt.label ? 'theme-button-primary' : 'theme-button theme-hover'}`}>{opt.label}</button>)}</div>)}</div><div className="flex-1 mt-1 overflow-hidden">{renderContent()}</div></div>);
 };
 
-const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentPath, currentModel, currentProvider, currentNPC, messageLabels = {}, setMessageLabels, conversationLabels = {}, setConversationLabels }) => {
+const DataDash = ({ initialAnalysisContext, currentPath, currentModel, currentProvider, currentNPC, messageLabels = {}, setMessageLabels, conversationLabels = {}, setConversationLabels }) => {
     // Create a database client from window.api - this can be configured for different backends
     const dbClient = useMemo<DatabaseClient>(() =>
         createWindowApiDatabaseClient(window.api as any),
@@ -916,24 +916,21 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentPath, curren
     const [labelExportFormat, setLabelExportFormat] = useState<'json' | 'jsonl' | 'finetune'>('json');
     const [labelViewMode, setLabelViewMode] = useState<'messages' | 'conversations'>('messages');
 
-    useEffect(() => { const handleKeyDown = (event) => { if (event.key === 'Escape') onClose(); }; if (isOpen) document.addEventListener('keydown', handleKeyDown); return () => document.removeEventListener('keydown', handleKeyDown); }, [isOpen, onClose]);
     useEffect(() => {
-        if (isOpen) {
-            const savedWidgets = localStorage.getItem('dataDashWidgets');
-            if (savedWidgets) {
-                try {
-                    setWidgets(JSON.parse(savedWidgets));
-                } catch (err) {
-                    setWidgets(defaultWidgets);
-                    saveWidgets(defaultWidgets);
-                }
-            } else {
+        const savedWidgets = localStorage.getItem('dataDashWidgets');
+        if (savedWidgets) {
+            try {
+                setWidgets(JSON.parse(savedWidgets));
+            } catch (err) {
                 setWidgets(defaultWidgets);
                 saveWidgets(defaultWidgets);
             }
-            fetchKgData(currentKgGeneration);
+        } else {
+            setWidgets(defaultWidgets);
+            saveWidgets(defaultWidgets);
         }
-    }, [isOpen, currentKgGeneration]);
+        fetchKgData(currentKgGeneration);
+    }, [currentKgGeneration]);
 
     const saveWidgets = (newWidgets) => { setWidgets(newWidgets); localStorage.setItem('dataDashWidgets', JSON.stringify(newWidgets)); };
     const handleAddWidget = (widgetConfig) => saveWidgets([...widgets, widgetConfig]);
@@ -1001,10 +998,10 @@ const DataDash = ({ isOpen, onClose, initialAnalysisContext, currentPath, curren
 
     // Load history graph when DataDash opens
     useEffect(() => {
-        if (isOpen && currentPath) {
+        if (currentPath) {
             fetchHistoryGraph();
         }
-    }, [isOpen, currentPath, fetchHistoryGraph]);
+    }, [currentPath, fetchHistoryGraph]);
 
     // Filter memories based on search and status
     const filteredMemories = memories.filter(memory => {
@@ -1517,7 +1514,7 @@ const ModelBuilderModal = () => {
         }
     }, [currentKgGeneration]);
 
-    useEffect(() => { if (isOpen) { fetchKgData(); } }, [isOpen, fetchKgData]);
+    useEffect(() => { fetchKgData(); }, [fetchKgData]);
 
    const generateCSVFilename = (query) => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -1648,19 +1645,17 @@ const [availableNpcs, setAvailableNpcs] = useState([]);
 
 // Load NPCs and models on mount
 useEffect(() => {
-    if (isOpen) {
-        const loadNpcs = async () => {
-            const npcResponse = await window.api.getNPCTeamGlobal();
-            setAvailableNpcs(npcResponse.npcs || []);
-        };
-        loadNpcs();
-        
-        const savedModels = localStorage.getItem('dataDashMLModels');
-        if (savedModels) {
-            setMlModels(JSON.parse(savedModels));
-        }
+    const loadNpcs = async () => {
+        const npcResponse = await window.api.getNPCTeamGlobal();
+        setAvailableNpcs(npcResponse.npcs || []);
+    };
+    loadNpcs();
+
+    const savedModels = localStorage.getItem('dataDashMLModels');
+    if (savedModels) {
+        setMlModels(JSON.parse(savedModels));
     }
-}, [isOpen]);
+}, []);
 
 // Model training function
 const trainModel = async () => {
@@ -2109,20 +2104,14 @@ const handleAcceptGeneratedSql = () => {
     }, [currentPath]);
 
     useEffect(() => {
-        if (isOpen) {
-            loadAvailableDatabases();
-        }
-    }, [isOpen, loadAvailableDatabases]);
+        loadAvailableDatabases();
+    }, [loadAvailableDatabases]);
 
-    if (!isOpen) return null;
-    
-       
-        const filteredWidgets = widgets.filter(widget => widget && widget.id);
+    const filteredWidgets = widgets.filter(widget => widget && widget.id);
 
         
     return (
-        <div> 
-
+        <div className="flex flex-col h-full overflow-hidden">
             {/* Unified Widget Builder for both Add and Edit */}
             <WidgetBuilder
                 isOpen={isAddCustomWidgetModalOpen || isEditWidgetModalOpen}
@@ -2148,489 +2137,41 @@ const handleAcceptGeneratedSql = () => {
                 context={customWidgetContext}
                 generateId={generateId}
             />
-            <ModelBuilderModal isOpen={isMlPanelOpen} onClose={() => setIsMlPanelOpen(false)} />    
+            <ModelBuilderModal isOpen={isMlPanelOpen} onClose={() => setIsMlPanelOpen(false)} />
 
             {contextMenu.visible && <WidgetContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu({visible: false})} onSelect={handleContextMenuSelect} />}
 
-            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-                <div className="bg-gray-900 rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col border border-gray-700" onClick={(e) => e.stopPropagation()}>
-                    <header className="w-full border-b border-gray-700 p-4 flex justify-between items-center flex-shrink-0 bg-gray-800">
-                        <h3 className="text-lg font-semibold flex items-center gap-2 text-white">
-                            <BarChart3 className="text-blue-400" />
-                            DataDash
-                        </h3>
-                        <div className="flex items-center gap-2">
-                            <button onClick={() => saveWidgets(defaultWidgets)} className="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" title="Reset to default layout">
-                                <Repeat size={18} />
-                            </button>
-                            <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors">
-                                <X size={18} />
-                            </button>
-                        </div>
-                    </header>
-                    <main className="flex-1 overflow-y-auto p-6 space-y-8">
-                        {/* The new widget display section, populated by `widgets` state */}
-                        <section id="widgets">
-                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                {filteredWidgets.map(widget => (
-                                    <div key={widget.id} className={`h-56 ${widget.span ? `lg:col-span-${widget.span}` : 'lg:col-span-1'} md:col-span-2 col-span-4`}>
-                                        <DashboardWidget config={widget} onContextMenu={handleContextMenu}/>
-                                    </div>
-                                ))}
-                                <div className="flex items-center justify-center h-56 border-2 border-dashed theme-border rounded-lg hover:bg-gray-800/50 transition-colors">
-                                    <button onClick={
-                                            () => setIsAddCustomWidgetModalOpen(true)
-                                            } 
-                                            className="theme-button text-sm flex flex-col items-center gap-2">
-                                                <Plus size={16}/>
-                                                 Add Widget
-                                                
-                                                </button>
-
-
-                                </div>
-                             </div>
-                        </section>
-                        
-                        {/* SQL Query Panel */}
-                        <section id="sql-query-panel" className="border border-gray-700 rounded-lg bg-gray-900/50">
-                            <button onClick={() => setIsQueryPanelOpen(!isQueryPanelOpen)} className="w-full p-4 flex justify-between items-center hover:bg-gray-800/50 transition-colors"><h4 className="text-lg font-semibold flex items-center gap-3 text-white"><Database className="text-purple-400"/>Database Query Runner</h4>{isQueryPanelOpen ? <ChevronDown size={20} className="text-gray-400" /> : <ChevronRight size={20} className="text-gray-400" />}</button>
-                            {isQueryPanelOpen && (
-                                <div className="p-4 border-t border-gray-700">
-                                    {/* Connection String Input */}
-                                    <div className={`mb-4 p-3 rounded-lg border ${
-                                        dbConnectionStatus === 'connected' ? 'bg-green-900/20 border-green-700' :
-                                        dbConnectionStatus === 'error' ? 'bg-red-900/20 border-red-700' :
-                                        'bg-gray-800 border-gray-700'
-                                    }`}>
-                                        <div className="flex items-center justify-between mb-1.5">
-                                            <label className="text-xs text-gray-400">Database Connection</label>
-                                            {dbConnectionStatus === 'connected' && (
-                                                <span className="flex items-center gap-1 text-xs text-green-400">
-                                                    <CheckCircle size={12} /> Connected
-                                                </span>
-                                            )}
-                                            {dbConnectionStatus === 'error' && (
-                                                <span className="flex items-center gap-1 text-xs text-red-400">
-                                                    <XCircle size={12} /> Error
-                                                </span>
-                                            )}
-                                            {dbConnectionStatus === 'connecting' && (
-                                                <span className="flex items-center gap-1 text-xs text-yellow-400">
-                                                    <Loader size={12} className="animate-spin" /> Connecting...
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={selectedDatabase}
-                                                onChange={(e) => setSelectedDatabase(e.target.value)}
-                                                placeholder="~/database.db or postgresql://user:pass@host:5432/db"
-                                                className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white border border-gray-600 rounded focus:border-purple-500 focus:outline-none font-mono"
-                                            />
-                                            <button
-                                                onClick={browseForDatabase}
-                                                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm transition-colors"
-                                                title="Browse for database file"
-                                            >
-                                                <Search size={16} />
-                                            </button>
-                                            <button
-                                                onClick={() => testDbConnection(selectedDatabase)}
-                                                disabled={dbConnectionStatus === 'connecting'}
-                                                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm transition-colors disabled:opacity-50"
-                                                title="Test connection"
-                                            >
-                                                <Activity size={16} />
-                                            </button>
-                                            <button
-                                                onClick={() => connectToDatabase(selectedDatabase)}
-                                                disabled={dbConnectionStatus === 'connecting'}
-                                                className="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded text-sm transition-colors disabled:opacity-50 flex items-center gap-1"
-                                            >
-                                                {dbConnectionStatus === 'connecting' ? (
-                                                    <Loader size={14} className="animate-spin" />
-                                                ) : (
-                                                    <Link size={14} />
-                                                )}
-                                                Connect
-                                            </button>
-                                        </div>
-
-                                        {/* Connection Info */}
-                                        {dbConnectionInfo && (
-                                            <div className="mt-2 text-xs">
-                                                {dbConnectionInfo.error ? (
-                                                    <div className="text-red-400 bg-red-900/30 p-2 rounded">
-                                                        {dbConnectionInfo.error}
-                                                        {dbConnectionInfo.resolvedPath && (
-                                                            <div className="text-red-300/70 mt-1">Path: {dbConnectionInfo.resolvedPath}</div>
-                                                        )}
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-gray-400 bg-gray-900/50 p-2 rounded grid grid-cols-2 gap-x-4 gap-y-1">
-                                                        <span>Type:</span>
-                                                        <span className="text-purple-400 font-semibold">{getDbTypeLabel(dbConnectionInfo.dbType || 'sqlite')}</span>
-                                                        {dbConnectionInfo.resolvedPath && (
-                                                            <>
-                                                                <span>Path:</span>
-                                                                <span className="text-gray-300 font-mono truncate" title={dbConnectionInfo.resolvedPath}>
-                                                                    {dbConnectionInfo.resolvedPath}
-                                                                </span>
-                                                            </>
-                                                        )}
-                                                        <span>Tables:</span>
-                                                        <span className="text-green-400">{dbConnectionInfo.tableCount}</span>
-                                                        {dbConnectionInfo.fileSize && (
-                                                            <>
-                                                                <span>Size:</span>
-                                                                <span className="text-gray-300">{formatFileSize(dbConnectionInfo.fileSize)}</span>
-                                                            </>
-                                                        )}
-                                                        {dbConnectionInfo.lastModified && (
-                                                            <>
-                                                                <span>Modified:</span>
-                                                                <span className="text-gray-300">
-                                                                    {new Date(dbConnectionInfo.lastModified).toLocaleString()}
-                                                                </span>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {/* Connection string examples */}
-                                        <div className="mt-2 text-xs text-gray-500">
-                                            <p className="mb-1">Connection string formats:</p>
-                                            <div className="grid grid-cols-1 gap-0.5 font-mono text-gray-600">
-                                                <span>SQLite: ~/database.db</span>
-                                                <span>PostgreSQL: postgresql://user:pass@host:5432/db</span>
-                                                <span>MySQL: mysql://user:pass@host:3306/db</span>
-                                                <span>SQL Server: mssql://user:pass@host/db</span>
-                                                <span>Snowflake: snowflake://user:pass@account/db/schema?warehouse=WH</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-                                        <div className="border border-gray-700 rounded-lg p-3 flex flex-col bg-gray-800/50">
-                                            <h5 className="font-semibold mb-2 flex items-center gap-2 text-white">
-                                                <Table size={16} className="text-gray-400"/>
-                                                Database Schema
-                                                </h5>
-                                                <div className="grid grid-cols-2 gap-3 flex-1">
-                                                    <div className="space-y-1 max-h-48 overflow-y-auto pr-2">
-                        {dbTables.length > 0 ? dbTables.map(name => (
-                            <button key={name} onClick={() => handleViewSchema(name)}
-                            className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${selectedTable === name ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`
-                        }>{name}</button>)
-                        )
-                            : <p className="text-sm text-gray-500">No tables found.</p>}
-                            </div>
-                            <div className="max-h-48 overflow-y-auto bg-gray-900 rounded p-2">
-                                {loadingSchema ? <div className="flex items-center justify-center h-full">
-                                    <Loader className="animate-spin text-purple-400" /></div> : tableSchema ? <ul className="text-sm font-mono space-y-1">{tableSchema.map(col => <li key={col.name} className="text-gray-300">- <span className="text-white">{col.name}</span>:
-                                        <span className="text-yellow-400">{col.type}</span></li>)}</ul> : <p className="text-sm text-gray-500">
-                                            Select a table.
-                                            </p> }</div></div></div>
-                                        <div className="border theme-border rounded-lg p-3 flex flex-col">
-                                            <div className="flex border-b theme-border mb-2 items-center justify-between">
-                                                <h5 className="font-semibold flex items-center gap-2">
-                                                    Query History
-                                                    </h5>
-                                                    </div>
-                                                    <ul className="space-y-1 max-h-48 overflow-y-auto text-sm font-mono flex-1">
-                                                        {queryHistory.map(
-                                                            (h, i) => 
-                                                            (<li key={i} className="flex items-center justify-between group p-1 rounded hover:theme-bg-tertiary">
-                                                                <span onClick={
-                                                                    () => handleHistoryAction(i, 'run')
-                                                                    } 
-                                                                    className="truncate cursor-pointer flex-1 pr-2" 
-                                                                    title={h.query}>{h.query}
-                                                                    </span>
-                                                                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                        <button onClick={() => handleHistoryAction(i, 'run')
-
-                                                                        } 
-                                                                        title="Run">
-                                                                            <Play size={14}/>
-                                                                            </button>
-                                                                            
-                                                                            <button onClick={
-                                                                                () => handleHistoryAction(i, 'copy')
-                                                                                } title="Copy">
-                                                                                    <Copy size={14}/>
-                                                                            </button>
-                                                                            <button onClick={
-                                                                                () => handleHistoryAction(i, 'favorite')
-                                                                                } 
-                                                                                title="Favorite">
-                                                                                    <Star size={14} 
-                                                                                className={h.favorited ? 'fill-yellow-400 text-yellow-400' : ''}/>
-                                                                                </button><button onClick={() => handleHistoryAction(i, 'delete')
-
-                                                                                } title="Delete">
-                                                                                    <Trash2 size={14} className="text-red-400"/>
-                                                                                    </button></div></li>
-                                                                                )
-                                                                                )
-                                                                                }
-                                                                                </ul>
-                                                                                </div>
-                                    </div>
-<div className="flex items-center gap-2 mb-2">
-    <span className="text-sm font-semibold">Query Mode:</span>
-    <button 
-        onClick={() => setSqlInputMode('sql')} 
-        className={`px-3 py-1 text-xs rounded ${
-            sqlInputMode === 'sql' 
-                ? 'theme-button-primary' 
-                : 'theme-button'
-        }`}
-    >
-        SQL
-    </button>
-    <button 
-        onClick={() => setSqlInputMode('nl')} 
-        className={`px-3 py-1 text-xs rounded ${
-            sqlInputMode === 'nl' 
-                ? 'theme-button-primary' 
-                : 'theme-button'
-        }`}
-    >
-        Natural Language
-    </button>
-</div>
-
-{sqlInputMode === 'nl' ? (
-    <div className="space-y-3">
-        <div className="flex items-center gap-3">
-            <div className="flex-1">
-                <label className="text-xs theme-text-secondary 
-                    block mb-1">
-                    NPC Context (optional)
-                </label>
-                <select
-                    value={selectedNpcForSql?.name || ''}
-                    onChange={(e) => {
-                        const npc = availableNpcs.find(
-                            n => n.name === e.target.value
-                        );
-                        setSelectedNpcForSql(npc || null);
-                    }}
-                    className="w-full theme-input p-2 text-sm"
-                >
-                    <option value="">No NPC (general query)</option>
-                    {availableNpcs.map(npc => (
-                        <option key={npc.name} value={npc.name}>
-                            {npc.name}
-                        </option>
-                    ))}
-                </select>
-            </div>
-            {selectedNpcForSql && (
-                <div className="text-xs theme-text-secondary 
-                    max-w-xs">
-                    {selectedNpcForSql.primary_directive?.substring(0, 100)}...
-                </div>
-            )}
-        </div>
-        
-        <div className="grid grid-cols-2 gap-3">
-            <div>
-                <textarea
-                    value={nlQuery}
-                    onChange={(e) => setNlQuery(e.target.value)}
-                    rows={4}
-                    className="w-full p-2 theme-input font-mono text-sm"
-                    placeholder="e.g., predict next month's revenue using sales data..."
-                />
-                <button
-                    onClick={handleGenerateSqlWithNpc}
-                    disabled={generatingSql}
-                    className="w-full mt-2 px-4 py-2 
-                        theme-button-primary rounded text-sm 
-                        disabled:opacity-50"
-                >
-                    {generatingSql
-                        ? 'Generating SQL...'
-                        : selectedNpcForSql
-                            ? `Generate with ${selectedNpcForSql.name}`
-                            : 'Generate SQL'}
+            {/* Header */}
+            <div className="flex items-center justify-between border-b theme-border p-3 flex-shrink-0">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <BarChart3 size={16} className="text-blue-400" />
+                    DataDash
+                </h3>
+                <button onClick={() => saveWidgets(defaultWidgets)} className="p-1 rounded theme-hover text-gray-400 hover:text-white transition-colors" title="Reset to default layout">
+                    <Repeat size={14} />
                 </button>
             </div>
-            <div className="theme-bg-tertiary p-2 rounded-lg 
-                flex flex-col">
-                <pre className="flex-1 text-xs font-mono p-2 
-                    overflow-auto">
-                    {generatedSql ||
-                        'Generated SQL will appear here...'}
-                </pre>
-                {generatedSql && (
-                    <button
-                        onClick={handleAcceptGeneratedSql}
-                        className="mt-2 w-full theme-button-success 
-                            text-sm py-1 rounded"
-                    >
-                        Use this SQL
-                    </button>
-                )}
-            </div>
-        </div>
-    </div>
-) : (
 
-<>
-        <textarea 
-            value={sqlQuery} 
-            onChange={(e) => setSqlQuery(e.target.value)} 
-            rows={5}
-            className="w-full p-2 theme-input font-mono text-sm" 
-            placeholder="Enter your SQL query here..." 
-        />
-        <div className="flex justify-end mt-2">
-            <button 
-                onClick={handleExecuteQuery} 
-                disabled={loadingQuery} 
-                className="px-4 py-2 theme-button-primary rounded 
-                    text-sm disabled:opacity-50"
-            >
-                {loadingQuery ? 'Executing...' : 'Execute Query'}
-            </button>
-        </div>
-    </>
-)}
+            {/* Main content */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                {/* Widget grid section */}
+                <section id="widgets">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {filteredWidgets.map(widget => (
+                            <div key={widget.id} className={`h-48 ${widget.span ? `lg:col-span-${widget.span}` : 'lg:col-span-1'} md:col-span-2 col-span-4`}>
+                                <DashboardWidget config={widget} onContextMenu={handleContextMenu}/>
+                            </div>
+                        ))}
+                        <div className="flex items-center justify-center h-48 border-2 border-dashed theme-border rounded-lg hover:bg-gray-800/50 transition-colors">
+                            <button onClick={() => setIsAddCustomWidgetModalOpen(true)} className="theme-button text-sm flex flex-col items-center gap-2">
+                                <Plus size={16}/>
+                                Add Widget
+                            </button>
+                        </div>
+                    </div>
+                </section>
 
-
-                                    {loadingQuery && <div className="flex justify-center p-4"><Loader className="animate-spin"/></div>}
-                                    {queryError && <div className="text-red-400 p-3 mt-2 rounded theme-bg-tertiary">{queryError}</div>}
-                                    {queryResult && queryResult.length > 0 && (
-                                        <div className="mt-4">
-                                            <div className="flex justify-between items-center mb-4">
-                                                <h5 className="font-semibold">Query Results</h5>
-<div className="flex items-center gap-2">
-    <button 
-        onClick={() => setShowModelBuilder(true)} 
-        className="px-3 py-1 text-xs theme-button rounded 
-            flex items-center gap-2"
-    >
-        <BrainCircuit size={14} /> Create ML Model
-    </button>
-    <button 
-        onClick={() => { 
-            setCustomWidgetContext({ query: sqlQuery, result: queryResult }); 
-            setIsAddCustomWidgetModalOpen(true); 
-        }} 
-        className="px-3 py-1 text-xs theme-button-primary rounded 
-            flex items-center gap-2"
-    >
-        <Plus size={14} /> Add to Dashboard
-    </button>
-    <button 
-        onClick={() => exportToCSV(queryResult, sqlQuery)}
-        disabled={!queryResult || queryResult.length === 0} 
-        className="px-3 py-1 text-xs theme-button rounded 
-            flex items-center gap-2 disabled:opacity-50"
-    >
-        <Download size={14} /> Export to CSV
-    </button>
-</div>
-                                                
-                                                
-                                            </div>
-
-                                            <div className="border theme-border rounded-lg p-3 mb-4 theme-bg-tertiary">
-                                                <h6 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                                                    <BarChartIcon size={16} /> Chart Explorer
-                                                </h6>
-                                                <div className="grid grid-cols-4 gap-3 items-end">
-                                                    <div>
-                                                        <label className="text-xs theme-text-secondary">X-Axis</label>
-                                                        <select 
-                                                            value={chartExplorer.xCol}
-                                                            onChange={e => setChartExplorer({...chartExplorer, xCol: e.target.value})}
-                                                            className="w-full theme-input mt-1 text-sm"
-                                                        >
-                                                            <option value="">Select column...</option>
-                                                            {Object.keys(queryResult[0]).map(col => 
-                                                                <option key={col} value={col}>{col}</option>
-                                                            )}
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="text-xs theme-text-secondary">Y-Axis</label>
-                                                        <select 
-                                                            value={chartExplorer.yCol}
-                                                            onChange={e => setChartExplorer({...chartExplorer, yCol: e.target.value})}
-                                                            className="w-full theme-input mt-1 text-sm"
-                                                        >
-                                                            <option value="">Select column...</option>
-                                                            {Object.keys(queryResult[0]).map(col => 
-                                                                <option key={col} value={col}>{col}</option>
-                                                            )}
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="text-xs theme-text-secondary">Chart Type</label>
-                                                        <select 
-                                                            value={chartExplorer.chartType}
-                                                            onChange={e => setChartExplorer({...chartExplorer, chartType: e.target.value})}
-                                                            className="w-full theme-input mt-1 text-sm"
-                                                        >
-                                                            <option value="bar">Bar Chart</option>
-                                                            <option value="line">Line Chart</option>
-                                                            <option value="scatter">Scatter Plot</option>
-                                                        </select>
-                                                    </div>
-                                                    <button 
-                                                        onClick={() => setChartExplorer({...chartExplorer, showChart: !chartExplorer.showChart})}
-                                                        disabled={!chartExplorer.xCol || !chartExplorer.yCol}
-                                                        className="px-3 py-2 theme-button-primary rounded text-sm disabled:opacity-50"
-                                                    >
-                                                        {chartExplorer.showChart ? 'Hide Chart' : 'Plot Chart'}
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {chartExplorer.showChart && chartExplorer.xCol && chartExplorer.yCol && (
-                                                <div className="border theme-border rounded-lg p-3 mb-4 h-80">
-                                                    <QueryChart
-                                                        data={queryResult}
-                                                        config={{
-                                                            x: chartExplorer.xCol,
-                                                            y: chartExplorer.yCol,
-                                                            type: chartExplorer.chartType === 'scatter' ? 'line' : chartExplorer.chartType as 'line' | 'bar'
-                                                        }}
-                                                        height={300}
-                                                    />
-                                                </div>
-                                            )}
-
-                                            <div className="mt-2 overflow-x-auto theme-border border rounded-lg max-h-96">
-                                                <table className="w-full text-sm text-left">
-                                                    <thead className="theme-bg-tertiary sticky top-0">
-                                                        <tr>{Object.keys(queryResult[0]).map(h => <th key={h} className="p-2 font-semibold">{h}</th>)}</tr>
-                                                    </thead>
-                                                    <tbody className="theme-bg-primary divide-y theme-divide">
-                                                        {queryResult.map((row, rIndex) => (
-                                                            <tr key={rIndex}>
-                                                                {Object.keys(row).map(key => 
-                                                                    <td key={key} className="p-2 font-mono truncate max-w-xs">{String(row[key])}</td>
-                                                                )}
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    )}
-                                    </div>
-                            )}
-                        </section>
-                        <section id="ml-models" className="border theme-border rounded-lg">
+                <section id="ml-models" className="border theme-border rounded-lg">
     <button 
         onClick={() => setIsMlPanelOpen(!isMlPanelOpen)} 
         className="w-full p-4 flex justify-between items-center theme-hover"
@@ -2732,8 +2273,6 @@ const handleAcceptGeneratedSql = () => {
 
 {/* Activity Intelligence and Labeled Data sections have been moved to standalone components */}
 
-                    </main>
-                </div>
             </div>
         </div>
     );
