@@ -56,6 +56,27 @@ const ensureTablesExist = async () => {
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       );
   `;
+
+  const createSiteLimitsTable = `
+      CREATE TABLE IF NOT EXISTS site_limits (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          domain TEXT NOT NULL,
+          folder_path TEXT,
+          is_global BOOLEAN DEFAULT 0,
+          hourly_time_limit INTEGER DEFAULT 0,
+          daily_time_limit INTEGER DEFAULT 0,
+          hourly_visit_limit INTEGER DEFAULT 0,
+          daily_visit_limit INTEGER DEFAULT 0,
+          hourly_time_used INTEGER DEFAULT 0,
+          daily_time_used INTEGER DEFAULT 0,
+          hourly_visits INTEGER DEFAULT 0,
+          daily_visits INTEGER DEFAULT 0,
+          last_hourly_reset DATETIME DEFAULT CURRENT_TIMESTAMP,
+          last_daily_reset DATE DEFAULT CURRENT_DATE,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(domain, folder_path)
+      );
+  `;
   
   const createBrowserHistoryTable = `
       CREATE TABLE IF NOT EXISTS browser_history (
@@ -96,6 +117,7 @@ const ensureTablesExist = async () => {
   try {
       await dbQuery(createHighlightsTable);
       await dbQuery(createBookmarksTable);
+      await dbQuery(createSiteLimitsTable);
       await dbQuery(createBrowserHistoryTable);
       await dbQuery(createBrowserNavigationsTable);
       await dbQuery(createIndexes);
@@ -1884,7 +1906,50 @@ ipcMain.handle('browser:deleteBookmark', async (event, { bookmarkId }) => {
     return { success: false, error: error.message };
   }
 });
-  
+
+// Site limits - for restricting time/visits on any domain
+ipcMain.handle('browser:setSiteLimit', async (event, { domain, folderPath, hourlyTimeLimit, dailyTimeLimit, hourlyVisitLimit, dailyVisitLimit, isGlobal = false }) => {
+  try {
+    // Upsert - insert or update on conflict
+    await dbQuery(
+      `INSERT INTO site_limits (domain, folder_path, is_global, hourly_time_limit, daily_time_limit, hourly_visit_limit, daily_visit_limit)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(domain, folder_path) DO UPDATE SET
+         hourly_time_limit = excluded.hourly_time_limit,
+         daily_time_limit = excluded.daily_time_limit,
+         hourly_visit_limit = excluded.hourly_visit_limit,
+         daily_visit_limit = excluded.daily_visit_limit`,
+      [domain, isGlobal ? null : folderPath, isGlobal ? 1 : 0, hourlyTimeLimit || 0, dailyTimeLimit || 0, hourlyVisitLimit || 0, dailyVisitLimit || 0]
+    );
+    log(`[SITE LIMITS] Set limits for ${domain}: hourlyTime=${hourlyTimeLimit}, dailyTime=${dailyTimeLimit}, hourlyVisits=${hourlyVisitLimit}, dailyVisits=${dailyVisitLimit}`);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('browser:getSiteLimits', async (event, { folderPath }) => {
+  try {
+    const limits = await dbQuery(
+      'SELECT * FROM site_limits WHERE (folder_path = ? OR is_global = 1)',
+      [folderPath]
+    );
+    return { success: true, limits };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('browser:deleteSiteLimit', async (event, { limitId }) => {
+  try {
+    await dbQuery('DELETE FROM site_limits WHERE id = ?', [limitId]);
+    log(`[SITE LIMITS] Deleted limit ID: ${limitId}`);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('browser:clearHistory', async (event, { folderPath }) => {
   try {
     await dbQuery('DELETE FROM browser_history WHERE folder_path = ?', [folderPath]);

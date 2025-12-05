@@ -4125,21 +4125,22 @@ ${contextPrompt}`;
                 setPredictiveTextModel(globalSettings.global_settings?.predictive_text_model || 'llama3.2'); // Default to a reasonable model
                 setPredictiveTextProvider(globalSettings.global_settings?.predictive_text_provider || 'ollama'); // Default to a reasonable provider
             }
-            let initialPathToLoad = config.baseDir;
-            const storedPath = localStorage.getItem(LAST_ACTIVE_PATH_KEY);
-            if (storedPath) {
-                const pathExistsResponse = await window.api.readDirectoryStructure(storedPath);
-                if (!pathExistsResponse?.error) {
-                    initialPathToLoad = storedPath;
-                } else {
-                    console.warn(`Stored path "${storedPath}" is invalid or inaccessible. Falling back to default.`);
-                    localStorage.removeItem(LAST_ACTIVE_PATH_KEY);
+            // Only determine initial path on first load (when currentPath is empty)
+            if (!currentPath) {
+                let initialPathToLoad = config.baseDir;
+                const storedPath = localStorage.getItem(LAST_ACTIVE_PATH_KEY);
+                if (storedPath) {
+                    const pathExistsResponse = await window.api.readDirectoryStructure(storedPath);
+                    if (!pathExistsResponse?.error) {
+                        initialPathToLoad = storedPath;
+                    } else {
+                        console.warn(`Stored path "${storedPath}" is invalid or inaccessible. Falling back to default.`);
+                        localStorage.removeItem(LAST_ACTIVE_PATH_KEY);
+                    }
+                } else if (config.default_folder) {
+                    initialPathToLoad = config.default_folder;
                 }
-            } else if (config.default_folder) {
-                initialPathToLoad = config.default_folder;
-            }
 
-            if (currentPath !== initialPathToLoad) {
                 setCurrentPath(initialPathToLoad);
                 return;
             }
@@ -6368,7 +6369,7 @@ const renderMainContent = () => {
             {/* Full Path selector - left */}
             <div className="flex items-center gap-1 min-w-[200px] max-w-[300px]">
                 <button
-                    onClick={goUpDirectory}
+                    onClick={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
                     className="p-1 theme-hover rounded transition-all flex-shrink-0"
                     title="Go Up"
                     aria-label="Go Up Directory"

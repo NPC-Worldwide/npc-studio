@@ -3,7 +3,8 @@ import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
-    Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network
+    Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
+    Star, Clock, Activity, Lock
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import npcLogo from '../../assets/icon.png';
@@ -68,6 +69,42 @@ const Sidebar = (props: any) => {
     const [docDropdownOpen, setDocDropdownOpen] = useState(false);
     // Chat+ dropdown state (click-based)
     const [chatPlusDropdownOpen, setChatPlusDropdownOpen] = useState(false);
+    // Website context menu state
+    const [websiteContextMenu, setWebsiteContextMenu] = useState<{ x: number; y: number; url: string; title: string } | null>(null);
+    // Bookmarks state (from database, path-specific)
+    const [bookmarks, setBookmarks] = useState<Array<{ id: number; url: string; title: string; folder_path: string; is_global: number }>>([]);
+
+    // Load bookmarks from database
+    const loadBookmarks = useCallback(async () => {
+        if (!currentPath) return;
+        try {
+            const result = await (window as any).api.browserGetBookmarks({ folderPath: currentPath });
+            if (result?.success) {
+                setBookmarks(result.bookmarks || []);
+            }
+        } catch (err) {
+            console.error('Error loading bookmarks:', err);
+        }
+    }, [currentPath]);
+
+    useEffect(() => {
+        loadBookmarks();
+    }, [loadBookmarks]);
+
+    // Website subsection collapse states (persisted to localStorage)
+    const [bookmarksCollapsed, setBookmarksCollapsed] = useState(() => localStorage.getItem('sidebar_bookmarksCollapsed') === 'true');
+    const [openBrowsersCollapsed, setOpenBrowsersCollapsed] = useState(() => localStorage.getItem('sidebar_openBrowsersCollapsed') === 'true');
+    const [commonSitesCollapsed, setCommonSitesCollapsed] = useState(() => localStorage.getItem('sidebar_commonSitesCollapsed') === 'true');
+    const [recentHistoryCollapsed, setRecentHistoryCollapsed] = useState(() => localStorage.getItem('sidebar_recentHistoryCollapsed') === 'true');
+
+    // Persist collapse states
+    useEffect(() => { localStorage.setItem('sidebar_bookmarksCollapsed', String(bookmarksCollapsed)); }, [bookmarksCollapsed]);
+    useEffect(() => { localStorage.setItem('sidebar_openBrowsersCollapsed', String(openBrowsersCollapsed)); }, [openBrowsersCollapsed]);
+    useEffect(() => { localStorage.setItem('sidebar_commonSitesCollapsed', String(commonSitesCollapsed)); }, [commonSitesCollapsed]);
+    useEffect(() => { localStorage.setItem('sidebar_recentHistoryCollapsed', String(recentHistoryCollapsed)); }, [recentHistoryCollapsed]);
+
+    // Limit input dialog state
+    const [limitDialog, setLimitDialog] = useState<{ domain: string; hourlyTime: string; dailyTime: string; hourlyVisits: string; dailyVisits: string } | null>(null);
 
 // ===== ALL THE SIDEBAR FUNCTIONS BELOW =====
 
@@ -795,16 +832,30 @@ const renderWebsiteList = () => {
                     {/* Currently Open Browsers */}
                     {openBrowsers.length > 0 && (
                         <div>
-                            <div className="text-xs text-gray-600 px-2 py-1 font-medium">
-                                Open Now ({openBrowsers.length})
+                            <div
+                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                onClick={() => setOpenBrowsersCollapsed(!openBrowsersCollapsed)}
+                            >
+                                <span>Open Now ({openBrowsers.length})</span>
+                                <ChevronRight size={12} className={`transform transition-transform ${openBrowsersCollapsed ? '' : 'rotate-90'}`} />
                             </div>
-                            {openBrowsers.map(browser => (
+                            {!openBrowsersCollapsed && openBrowsers.map(browser => (
                                 <button
                                     key={browser.paneId}
                                     onClick={() => setActiveContentPaneId(browser.paneId)}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setWebsiteContextMenu({
+                                            x: e.clientX,
+                                            y: e.clientY,
+                                            url: browser.url,
+                                            title: browser.title || new URL(browser.url).hostname
+                                        });
+                                    }}
                                     className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all ${
-                                        activeContentPaneId === browser.paneId 
-                                            ? 'conversation-selected border-l-2 border-blue-500' 
+                                        activeContentPaneId === browser.paneId
+                                            ? 'conversation-selected border-l-2 border-blue-500'
                                             : 'hover:bg-gray-800'
                                     }`}
                                 >
@@ -822,26 +873,76 @@ const renderWebsiteList = () => {
                         </div>
                     )}
 
+                    {/* Bookmarks */}
+                    {bookmarks.length > 0 && (
+                        <div>
+                            <div
+                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                onClick={() => setBookmarksCollapsed(!bookmarksCollapsed)}
+                            >
+                                <span>Bookmarks ({bookmarks.length})</span>
+                                <ChevronRight size={12} className={`transform transition-transform ${bookmarksCollapsed ? '' : 'rotate-90'}`} />
+                            </div>
+                            {!bookmarksCollapsed && bookmarks.map((bookmark, idx) => (
+                                <button
+                                    key={`${bookmark.url}-${idx}`}
+                                    onClick={() => createNewBrowser(bookmark.url)}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setWebsiteContextMenu({
+                                            x: e.clientX,
+                                            y: e.clientY,
+                                            url: bookmark.url,
+                                            title: bookmark.title
+                                        });
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all group"
+                                >
+                                    <Star size={14} className="text-yellow-400 flex-shrink-0" />
+                                    <div className="flex flex-col overflow-hidden min-w-0 flex-1">
+                                        <span className="text-xs truncate">{bookmark.title}</span>
+                                        <span className="text-xs text-gray-500 truncate">{bookmark.url}</span>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
                     {/* Common Sites */}
                     {commonSites.length > 0 && (
                         <div>
-                            <div className="text-xs text-gray-600 px-2 py-1 font-medium">
-                                Common Sites
+                            <div
+                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                onClick={() => setCommonSitesCollapsed(!commonSitesCollapsed)}
+                            >
+                                <span>Common Sites ({commonSites.length})</span>
+                                <ChevronRight size={12} className={`transform transition-transform ${commonSitesCollapsed ? '' : 'rotate-90'}`} />
                             </div>
-                            {commonSites.map(site => (
+                            {!commonSitesCollapsed && commonSites.map(site => (
                                 <button
                                     key={site.domain}
                                     draggable="true"
                                     onDragStart={(e) => {
                                         e.dataTransfer.effectAllowed = 'copyMove';
-                                        handleGlobalDragStart(e, { 
-                                            type: 'browser', 
+                                        handleGlobalDragStart(e, {
+                                            type: 'browser',
                                             id: `browser_${generateId()}`,
                                             url: `https://${site.domain}`
                                         });
                                     }}
                                     onDragEnd={handleGlobalDragEnd}
                                     onClick={() => createNewBrowser(`https://${site.domain}`)}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setWebsiteContextMenu({
+                                            x: e.clientX,
+                                            y: e.clientY,
+                                            url: `https://${site.domain}`,
+                                            title: site.domain
+                                        });
+                                    }}
                                     className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all group"
                                 >
                                     <img 
@@ -870,24 +971,38 @@ const renderWebsiteList = () => {
                     {/* Recent History */}
                     {websiteHistory.length > 0 && (
                         <div>
-                            <div className="text-xs text-gray-600 px-2 py-1 font-medium">
-                                Recent History ({websiteHistory.length})
+                            <div
+                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                onClick={() => setRecentHistoryCollapsed(!recentHistoryCollapsed)}
+                            >
+                                <span>Recent History ({websiteHistory.length})</span>
+                                <ChevronRight size={12} className={`transform transition-transform ${recentHistoryCollapsed ? '' : 'rotate-90'}`} />
                             </div>
-                            <div className="max-h-48 overflow-y-auto">
+                            {!recentHistoryCollapsed && <div className="max-h-48 overflow-y-auto">
                                 {websiteHistory.slice(0, 20).map((item, idx) => (
                                     <button
                                         key={`${item.url}-${idx}`}
                                         draggable="true"
                                         onDragStart={(e) => {
                                             e.dataTransfer.effectAllowed = 'copyMove';
-                                            handleGlobalDragStart(e, { 
-                                                type: 'browser', 
+                                            handleGlobalDragStart(e, {
+                                                type: 'browser',
                                                 id: `browser_${generateId()}`,
                                                 url: item.url
                                             });
                                         }}
                                         onDragEnd={handleGlobalDragEnd}
                                         onClick={() => createNewBrowser(item.url)}
+                                        onContextMenu={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            setWebsiteContextMenu({
+                                                x: e.clientX,
+                                                y: e.clientY,
+                                                url: item.url,
+                                                title: item.title || new URL(item.url).hostname
+                                            });
+                                        }}
                                         className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all"
                                     >
                                         <Globe size={12} className="text-gray-400 flex-shrink-0" />
@@ -901,7 +1016,7 @@ const renderWebsiteList = () => {
                                         </div>
                                     </button>
                                 ))}
-                            </div>
+                            </div>}
                         </div>
                     )}
                 </div>
@@ -1584,22 +1699,19 @@ const renderFolderList = (structure) => {
 };
 
     const renderConversationList = (conversations) => {
-        if (!conversations?.length) return null;
-        
-       
-        const sortedConversations = [...conversations].sort((a, b) => {
-            const aTimestamp = new Date(a.last_message_timestamp || a.timestamp).getTime();
-            const bTimestamp = new Date(b.last_message_timestamp || b.timestamp).getTime();
-            return bTimestamp - aTimestamp;
-        });
-        
-       
+        const sortedConversations = conversations?.length
+            ? [...conversations].sort((a, b) => {
+                const aTimestamp = new Date(a.last_message_timestamp || a.timestamp).getTime();
+                const bTimestamp = new Date(b.last_message_timestamp || b.timestamp).getTime();
+                return bTimestamp - aTimestamp;
+            })
+            : [];
+
         const header = (
             <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
                 <div className="text-xs text-gray-400 font-medium">Conversations ({sortedConversations.length})</div>
                 <div className="flex items-center gap-1">
-    
-                    <button 
+                    <button
                         onClick={(e) => {
                             e.stopPropagation();
                             refreshConversations();
@@ -1611,7 +1723,7 @@ const renderFolderList = (structure) => {
                             <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
                         </svg>
                     </button>
-                    <button 
+                    <button
                         onClick={(e) => {
                             e.stopPropagation();
                             setConversationsCollapsed(!conversationsCollapsed);
@@ -1627,11 +1739,20 @@ const renderFolderList = (structure) => {
                 </div>
             </div>
         );
-        
-       
+
+        // Always show the header, even when empty
+        if (!sortedConversations.length) {
+            return (
+                <div className="mt-4">
+                    {header}
+                    <div className="px-3 py-2 text-xs text-gray-500">No conversations yet</div>
+                </div>
+            );
+        }
+
         if (conversationsCollapsed) {
             const activeConversation = activeConversationId ? sortedConversations.find(conv => conv.id === activeConversationId) : null;
-            
+
             return (
                 <div className="mt-4">
                     {header}
@@ -1648,19 +1769,17 @@ const renderFolderList = (structure) => {
                                     <span className="text-xs text-gray-500">{new Date(activeConversation.timestamp).toLocaleString()}</span>
                                 </div>
                             </button>
-                       
-                       
+
+
                         </div>
-                    
+
                     )}
-                    
+
                 </div>
             );
         }
-        
-       
+
         return (
-    
             <div className="mt-4">
                 {header}
                 <div className="px-1">
@@ -1847,6 +1966,96 @@ const renderFolderList = (structure) => {
         )
     );
 
+    const renderWebsiteContextMenu = () => (
+        websiteContextMenu && (
+            <>
+                <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setWebsiteContextMenu(null)}
+                />
+                <div
+                    className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 min-w-[200px]"
+                    style={{ top: websiteContextMenu.y, left: websiteContextMenu.x }}
+                >
+                    <div className="px-3 py-2 text-xs text-gray-400 border-b theme-border truncate max-w-[250px]">
+                        {websiteContextMenu.title}
+                    </div>
+                    <button
+                        onClick={() => {
+                            createNewBrowser(websiteContextMenu.url);
+                            setWebsiteContextMenu(null);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <Globe size={16} />
+                        <span>Open</span>
+                    </button>
+                    <div className="border-t theme-border my-1"></div>
+                    {bookmarks.find(b => b.url === websiteContextMenu.url) ? (
+                        <button
+                            onClick={async () => {
+                                const bookmark = bookmarks.find(b => b.url === websiteContextMenu.url);
+                                if (bookmark) {
+                                    await (window as any).api.browserDeleteBookmark({ bookmarkId: bookmark.id });
+                                    loadBookmarks();
+                                }
+                                setWebsiteContextMenu(null);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400"
+                        >
+                            <Star size={16} className="fill-current" />
+                            <span>Remove Bookmark</span>
+                        </button>
+                    ) : (
+                        <button
+                            onClick={async () => {
+                                await (window as any).api.browserAddBookmark({
+                                    url: websiteContextMenu.url,
+                                    title: websiteContextMenu.title,
+                                    folderPath: currentPath,
+                                    isGlobal: false
+                                });
+                                loadBookmarks();
+                                setWebsiteContextMenu(null);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <Star size={16} />
+                            <span>Add to Bookmarks</span>
+                        </button>
+                    )}
+                    <div className="border-t theme-border my-1"></div>
+                    <button
+                        onClick={() => {
+                            try {
+                                const domain = new URL(websiteContextMenu.url).hostname;
+                                setLimitDialog({ domain, hourlyTime: '0', dailyTime: '0', hourlyVisits: '0', dailyVisits: '0' });
+                            } catch (e) {
+                                console.error('Invalid URL:', e);
+                            }
+                            setWebsiteContextMenu(null);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <Clock size={16} />
+                        <span>Set Limits</span>
+                    </button>
+                    <div className="border-t theme-border my-1"></div>
+                    <button
+                        onClick={() => {
+                            navigator.clipboard.writeText(websiteContextMenu.url);
+                            setWebsiteContextMenu(null);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    >
+                        <FileText size={16} />
+                        <span>Copy URL</span>
+                    </button>
+                </div>
+            </>
+        )
+    );
+
 // Main Sidebar render
 const getPlaceholderText = () => {
     if (isGlobalSearch) {
@@ -1973,6 +2182,103 @@ return (
             {contextMenuPos && renderContextMenu()}
             {sidebarItemContextMenuPos && renderSidebarItemContextMenu()}
             {fileContextMenuPos && renderFileContextMenu()}
+            {websiteContextMenu && renderWebsiteContextMenu()}
+            {/* Limit Input Dialog */}
+            {limitDialog && (
+                <>
+                    <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setLimitDialog(null)} />
+                    <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 theme-bg-secondary border theme-border rounded-lg shadow-xl p-4 min-w-[320px]">
+                        <h3 className="text-sm font-medium mb-1">Set Site Limits</h3>
+                        <p className="text-xs text-gray-400 mb-4">{limitDialog.domain}</p>
+
+                        <div className="space-y-3">
+                            <div>
+                                <label className="text-xs text-gray-400 block mb-1">Time Limits (minutes)</label>
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={limitDialog.hourlyTime}
+                                            onChange={(e) => setLimitDialog({ ...limitDialog, hourlyTime: e.target.value })}
+                                            className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                            placeholder="0"
+                                        />
+                                        <span className="text-xs text-gray-500">per hour</span>
+                                    </div>
+                                    <div className="flex-1">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={limitDialog.dailyTime}
+                                            onChange={(e) => setLimitDialog({ ...limitDialog, dailyTime: e.target.value })}
+                                            className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                            placeholder="0"
+                                        />
+                                        <span className="text-xs text-gray-500">per day</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs text-gray-400 block mb-1">Visit Limits</label>
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={limitDialog.hourlyVisits}
+                                            onChange={(e) => setLimitDialog({ ...limitDialog, hourlyVisits: e.target.value })}
+                                            className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                            placeholder="0"
+                                        />
+                                        <span className="text-xs text-gray-500">per hour</span>
+                                    </div>
+                                    <div className="flex-1">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={limitDialog.dailyVisits}
+                                            onChange={(e) => setLimitDialog({ ...limitDialog, dailyVisits: e.target.value })}
+                                            className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                            placeholder="0"
+                                        />
+                                        <span className="text-xs text-gray-500">per day</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <p className="text-xs text-gray-500 mt-3 mb-3">Set to 0 for no limit</p>
+
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                onClick={() => setLimitDialog(null)}
+                                className="px-3 py-1.5 text-sm rounded theme-hover"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    (window as any).api.browserSetSiteLimit({
+                                        domain: limitDialog.domain,
+                                        folderPath: currentPath,
+                                        hourlyTimeLimit: parseInt(limitDialog.hourlyTime, 10) || 0,
+                                        dailyTimeLimit: parseInt(limitDialog.dailyTime, 10) || 0,
+                                        hourlyVisitLimit: parseInt(limitDialog.hourlyVisits, 10) || 0,
+                                        dailyVisitLimit: parseInt(limitDialog.dailyVisits, 10) || 0,
+                                        isGlobal: false
+                                    });
+                                    setLimitDialog(null);
+                                }}
+                                className="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700"
+                            >
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
 
         {sidebarCollapsed && <div className="flex-1"></div>}
