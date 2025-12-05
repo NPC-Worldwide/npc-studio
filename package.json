@@ -1,6 +1,6 @@
 {
   "name": "npc-studio",
-  "version": "0.0.25",
+  "version": "0.0.26",
   "description": "The AI IDE.",
   "author": "Chris Agostino <info@npcworldwi.de>",
   "main": "src/main.js",
