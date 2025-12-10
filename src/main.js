@@ -3961,7 +3961,7 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
 
 
 
-ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
+ipcMain.handle('createTerminalSession', async (event, { id, cwd }) => {
   if (!pty) {
     return { success: false, error: 'Terminal functionality not available' };
   }
@@ -3969,21 +3969,60 @@ ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
   if (ptyKillTimers.has(id)) {
     clearTimeout(ptyKillTimers.get(id));
     ptyKillTimers.delete(id);
-    
+
     if (ptySessions.has(id)) {
       return { success: true };
     }
   }
 
-  const shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
-  const args = os.platform() === 'win32' ? [] : ['-l'];
-  
+  // Check for npcsh switch in workspace or global .ctx files
+  let useNpcsh = false;
+  const workingDir = cwd || os.homedir();
+  const yaml = require('js-yaml');
+
+  // Check workspace .ctx first
+  const npcTeamDir = path.join(workingDir, 'npc_team');
+  try {
+    if (fs.existsSync(npcTeamDir)) {
+      const ctxFiles = fs.readdirSync(npcTeamDir).filter(f => f.endsWith('.ctx'));
+      if (ctxFiles.length > 0) {
+        const ctxData = yaml.load(fs.readFileSync(path.join(npcTeamDir, ctxFiles[0]), 'utf-8')) || {};
+        if (ctxData.switches?.default_shell === 'npcsh') {
+          useNpcsh = true;
+        }
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  // Fall back to global .ctx
+  if (!useNpcsh) {
+    const globalCtx = path.join(os.homedir(), '.npcsh', 'npc_team', 'npcsh.ctx');
+    try {
+      if (fs.existsSync(globalCtx)) {
+        const ctxData = yaml.load(fs.readFileSync(globalCtx, 'utf-8')) || {};
+        if (ctxData.switches?.default_shell === 'npcsh') {
+          useNpcsh = true;
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Choose shell based on switch
+  let shell, args;
+  if (useNpcsh) {
+    shell = 'npcsh';
+    args = [];
+  } else {
+    shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
+    args = os.platform() === 'win32' ? [] : ['-l'];
+  }
+
   try {
     const ptyProcess = pty.spawn(shell, args, {
       name: 'xterm-256color',
       cols: 80,
       rows: 24,
-      cwd: cwd || os.homedir(),
+      cwd: workingDir,
       env: process.env
     });
 
@@ -4002,8 +4041,8 @@ ipcMain.handle('createTerminalSession', (event, { id, cwd }) => {
       }
     });
 
-    return { success: true };
-    
+    return { success: true, shell: useNpcsh ? 'npcsh' : 'system' };
+
   } catch (error) {
     return { success: false, error: error.message };
   }
