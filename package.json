@@ -50,6 +50,7 @@
       ]
     },
     "win": {
+      "target": ["nsis"],
       "icon": "assets/icon.png",
       "extraResources": [
         {
@@ -62,7 +63,11 @@
           "from": "node_modules/electron/dist/icudtl.dat",
           "to": "icudtl.dat"
         },
-        "node_modules/electron/dist/*.dll"
+        {
+          "from": "node_modules/electron/dist",
+          "to": ".",
+          "filter": ["*.dll"]
+        }
       ]
     },
     "linux": {
