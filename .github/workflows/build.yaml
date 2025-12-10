@@ -181,7 +181,7 @@ jobs:
             echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.deb" >> $GITHUB_OUTPUT
             echo "gcs_path=linux-${{ matrix.arch }}" >> $GITHUB_OUTPUT
           elif [ "${{ runner.os }}" = "Windows" ]; then
-            find dist-electron -name "*npc-studio*.exe" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe \; 
+            find dist-electron -maxdepth 1 -name "*.exe" -exec cp {} upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe \; 
             echo "files=upload/npc-studio_${VERSION}_${{ matrix.arch }}.exe" >> $GITHUB_OUTPUT
             echo "gcs_path=windows-${{ matrix.arch }}" >> $GITHUB_OUTPUT
           elif [ "${{ runner.os }}" = "macOS" ]; then
