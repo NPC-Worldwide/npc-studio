@@ -305,7 +305,8 @@ app.whenReady().then(async () => {
    
     
     backendProcess = spawn(backendPath, {
-      stdio: 'inherit',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
       env: {
         ...process.env,
         CORNERIA_DATA_DIR: dataPath,
