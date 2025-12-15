@@ -50,7 +50,9 @@
       ]
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "assets/icon.png",
       "extraResources": [
         {
@@ -66,7 +68,9 @@
         {
           "from": "node_modules/electron/dist",
           "to": ".",
-          "filter": ["*.dll"]
+          "filter": [
+            "*.dll"
+          ]
         }
       ]
     },
@@ -156,9 +160,6 @@
     "xlsx": "^0.18.5",
     "xterm": "^5.3.0"
   },
-  "optionalDependencies": {
-    "node-pty": "^1.0.0"
-  },
   "devDependencies": {
     "@electron/rebuild": "^3.7.2",
     "@tailwindcss/typography": "^0.5.16",
@@ -182,5 +183,8 @@
   },
   "engines": {
     "node": ">=16"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0-beta42"
   }
 }

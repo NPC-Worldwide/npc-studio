@@ -145,7 +145,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           npx electron-rebuild --force --module-dir . --which-module sqlite3
-          npx electron-rebuild --force --module-dir . --which-module node-pty
+          npx electron-rebuild --force --module-dir . --which-module node-pty || true
       - name: Import Apple Developer ID certificate and set signing environment
         if: runner.os == 'macOS'
         env:
