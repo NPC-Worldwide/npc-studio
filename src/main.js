@@ -7,10 +7,14 @@ const simpleGit = require('simple-git');
 const fsPromises = require('fs/promises');
 const os = require('os');
 let pty;
+let ptyLoadError = null;
 try {
   pty = require('node-pty');
 } catch (error) {
   pty = null;
+  ptyLoadError = error;
+  console.error('Failed to load node-pty:', error.message);
+  console.error('Stack:', error.stack);
 }
 
 const cron = require('node-cron');

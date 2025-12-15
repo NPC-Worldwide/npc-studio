@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "generate-icons": "electron-icon-builder --input=./assets/icon.png --output=./build",
-    "start": "NODE_ENV=development electron .",
+    "start": "cross-env NODE_ENV=development electron .",
     "dev": "vite",
     "build:vite": "vite build",
     "build": "npm run build:vite && electron-builder",
@@ -71,6 +71,10 @@
           "filter": [
             "*.dll"
           ]
+        },
+        {
+          "from": "node_modules/node-pty/prebuilds/win32-x64",
+          "to": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64"
         }
       ]
     },
@@ -146,7 +150,7 @@
     "react-chartjs-2": "^5.3.0",
     "react-datasheet-grid": "^4.11.5",
     "react-dom": "^18.3.1",
-    "react-draggable": "^4.5.0",
+    "react-draggable": "^4.5.0", 
     "react-force-graph-2d": "^1.28.0",
     "react-markdown": "^9.1.0",
     "react-syntax-highlighter": "^15.6.1",
@@ -168,6 +172,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "cross-env": "^10.1.0",
     "electron": "^25.9.8",
     "electron-builder": "^24.13.3",
     "electron-icon-builder": "^2.0.1",

@@ -1,9 +1,8 @@
-// SettingsMenu.jsx - NEW FILE
 import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Keyboard } from 'lucide-react';
 import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
 
-const HOME_DIR = '/home/caug/.npcsh';
+const HOME_DIR = '~/.npcsh';
 
 const defaultKeyboardShortcuts = {
     newConversation: 'Ctrl+Shift+C',
@@ -25,7 +24,7 @@ const defaultSettings = {
     provider: 'ollama',
     embedding_model: 'nomic-text-embed',
     embedding_provider: 'ollama',
-    search_provider: 'google',
+    search_provider: 'duckduckgo',
     default_folder: HOME_DIR,
     is_predictive_text_enabled: false,
     predictive_text_model: 'llama3.2',
