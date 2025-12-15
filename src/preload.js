@@ -330,6 +330,8 @@ writeFileBuffer: (path, uint8) => ipcRenderer.invoke('write-file-buffer', path, 
 
 compileLatex: (path, opts) => ipcRenderer.invoke('compile-latex', path, opts),
 
+fileExists: (path) => ipcRenderer.invoke('file-exists', path),
+
     getNPCTeamProject: async (currentPath) => {
         if (!currentPath || typeof currentPath !== 'string') {
           throw new Error('currentPath must be a string');

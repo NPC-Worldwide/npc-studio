@@ -3827,30 +3827,32 @@ ipcMain.handle('compile-latex', async (_event, texPath, opts) => {
 
   const engine = opts?.engine || 'pdflatex';
 
-  const args = [
+  // Run pdflatex from the directory containing the .tex file
+  const workingDir = path.dirname(texPath);
+  const texFilename = path.basename(texPath);
+  const compileArgs = [
     '-interaction=nonstopmode',
     '-halt-on-error',
     '-file-line-error',
-    texPath
+    texFilename
   ];
+  if (opts?.shellEscape) compileArgs.unshift('-shell-escape');
 
-  if (opts?.shellEscape) args.unshift('-shell-escape');
-
-  console.log('[LATEX] Running first pass:', engine, args);
-  const first = spawnSync(engine, args, { encoding: 'utf8' });
+  console.log('[LATEX] Running first pass:', engine, compileArgs, 'in', workingDir);
+  const first = spawnSync(engine, compileArgs, { encoding: 'utf8', cwd: workingDir });
   console.log('[LATEX] First pass stdout:', first.stdout);
   console.log('[LATEX] First pass stderr:', first.stderr);
 
   if (opts?.bibtex) {
-    const base = texPath.replace(/\.tex$/, '');
+    const base = texFilename.replace(/\.tex$/, '');
     console.log('[LATEX] Running bibtex on:', base);
-    const bib = spawnSync('bibtex', [base], { encoding: 'utf8' });
+    const bib = spawnSync('bibtex', [base], { encoding: 'utf8', cwd: workingDir });
     console.log('[LATEX] Bibtex stdout:', bib.stdout);
     console.log('[LATEX] Bibtex stderr:', bib.stderr);
   }
 
-  console.log('[LATEX] Running second pass:', engine, args);
-  const result = spawnSync(engine, args, { encoding: 'utf8' });
+  console.log('[LATEX] Running second pass:', engine, compileArgs, 'in', workingDir);
+  const result = spawnSync(engine, compileArgs, { encoding: 'utf8', cwd: workingDir });
   console.log('[LATEX] Second pass stdout:', result.stdout);
   console.log('[LATEX] Second pass stderr:', result.stderr);
 
@@ -3866,6 +3868,14 @@ ipcMain.handle('compile-latex', async (_event, texPath, opts) => {
   };
 });
 
+ipcMain.handle('file-exists', async (_event, filePath) => {
+  try {
+    await fsPromises.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+});
 
 ipcMain.handle('read-file-buffer', async (event, filePath) => {
   try {

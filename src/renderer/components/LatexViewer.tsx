@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
-import { Save, Play, ExternalLink, X } from 'lucide-react';
+import { Save, Play, ExternalLink, X, SplitSquareHorizontal } from 'lucide-react';
 
 const LatexViewer = ({
     nodeId,
@@ -8,7 +8,8 @@ const LatexViewer = ({
     rootLayoutNode,
     setDraggedItem,
     setPaneContextMenu,
-    closeContentPane
+    closeContentPane,
+    performSplit
 }) => {
     const [content, setContent] = useState('');
     const [hasChanges, setHasChanges] = useState(false);
@@ -50,26 +51,42 @@ const LatexViewer = ({
         }
     }, [hasChanges, content, filePath]);
 
-    const compile = useCallback(async () => {
+    const openPdfInSplit = useCallback((pdfPath) => {
+        if (!performSplit) return;
+        const nodePath = findNodePath(rootLayoutNode, nodeId);
+        performSplit(nodePath, 'right', 'pdf', pdfPath);
+    }, [performSplit, findNodePath, rootLayoutNode, nodeId]);
+
+    const compile = useCallback(async (openInSplit = true) => {
         setIsCompiling(true);
         setCompileLog('');
         setError(null);
         try {
             const res = await window.api.compileLatex(filePath);
-            if (res?.error) throw new Error(res.error);
-            if (res?.log) setCompileLog(res.log);
-            if (res?.pdfPath) {
-                await window.api.openFile(res.pdfPath);
+            // Show compilation output (stderr contains LaTeX errors)
+            if (res?.error) setCompileLog(res.error);
+            else if (res?.log) setCompileLog(res.log);
+
+            const pdfPath = res?.pdfPath || filePath.replace(/\.tex$/i, '.pdf');
+
+            // Check if PDF exists - pdflatex may return non-zero even when PDF is generated
+            const pdfExists = await window.api.fileExists?.(pdfPath);
+            if (!pdfExists) {
+                setError('Compilation failed - no PDF generated');
+                return;
+            }
+
+            if (openInSplit && performSplit) {
+                openPdfInSplit(pdfPath);
             } else {
-                const fallbackPdf = filePath.replace(/\.tex$/i, '.pdf');
-                await window.api.openFile(fallbackPdf);
+                await window.api.openFile(pdfPath);
             }
         } catch (e) {
             setError(e.message || String(e));
         } finally {
             setIsCompiling(false);
         }
-    }, [filePath]);
+    }, [filePath, performSplit, openPdfInSplit]);
 
     const onKeyDown = useCallback(
         (e) => {
@@ -80,7 +97,7 @@ const LatexViewer = ({
             }
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 e.preventDefault();
-                compile();
+                compile(true); // Open in split pane
                 return;
             }
         },
@@ -133,12 +150,33 @@ const LatexViewer = ({
                             <Save size={14} />
                         </button>
                         <button
-                            onClick={compile}
+                            onClick={() => compile(true)}
                             disabled={isCompiling}
                             className="p-1 theme-hover rounded disabled:opacity-50"
-                            title="Compile to PDF (Ctrl+Enter)"
+                            title="Compile & Preview (Ctrl+Enter)"
                         >
                             <Play size={14} />
+                        </button>
+                        <button
+                            onClick={async (e) => {
+                                e.stopPropagation();
+                                const pdfPath = filePath.replace(/\.tex$/i, '.pdf');
+                                try {
+                                    // Check if PDF exists before opening split
+                                    const exists = await window.api.fileExists?.(pdfPath);
+                                    if (exists === false) {
+                                        setError('PDF not found - compile first');
+                                        return;
+                                    }
+                                    openPdfInSplit(pdfPath);
+                                } catch (_) {
+                                    openPdfInSplit(pdfPath); // Try anyway if check fails
+                                }
+                            }}
+                            className="p-1 theme-hover rounded"
+                            title="Open PDF in split view"
+                        >
+                            <SplitSquareHorizontal size={14} />
                         </button>
                         <button
                             onClick={async (e) => {
@@ -151,7 +189,7 @@ const LatexViewer = ({
                                 }
                             }}
                             className="p-1 theme-hover rounded"
-                            title="Open PDF (if available)"
+                            title="Open PDF externally"
                         >
                             <ExternalLink size={14} />
                         </button>

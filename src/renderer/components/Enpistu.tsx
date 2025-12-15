@@ -1594,9 +1594,10 @@ const renderLatexViewer = useCallback(({ nodeId }) => {
             setDraggedItem={setDraggedItem}
             setPaneContextMenu={setPaneContextMenu}
             closeContentPane={closeContentPane}
+            performSplit={performSplit}
         />
     );
-}, [rootLayoutNode, closeContentPane]);
+}, [rootLayoutNode, closeContentPane, performSplit]);
 
 const renderPicViewer = useCallback(({ nodeId }) => {
     return (
