@@ -121,6 +121,18 @@ const PdfViewer = ({
 
     const paneData = contentDataRef.current[nodeId];
     const filePath = paneData?.contentId; // Get filePath from contentDataRef
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    // Listen for refresh events for this specific PDF
+    useEffect(() => {
+        const handleRefresh = (e: CustomEvent) => {
+            if (e.detail?.pdfPath === filePath) {
+                setRefreshTrigger((prev) => prev + 1);
+            }
+        };
+        window.addEventListener('pdf-refresh', handleRefresh as EventListener);
+        return () => window.removeEventListener('pdf-refresh', handleRefresh as EventListener);
+    }, [filePath]);
 
     const useLoadPdfHighlights = useCallback(async () => {
         if (nodeId) {
@@ -216,7 +228,7 @@ const PdfViewer = ({
         return () => {
             if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
         };
-    }, [filePath]);
+    }, [filePath, refreshTrigger]);
 
     useEffect(() => {
         loadPdfHighlightsForActivePane();

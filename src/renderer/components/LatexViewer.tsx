@@ -52,10 +52,23 @@ const LatexViewer = ({
     }, [hasChanges, content, filePath]);
 
     const openPdfInSplit = useCallback((pdfPath) => {
+        // Check if a PDF pane with this path already exists
+        const existingPaneId = Object.keys(contentDataRef.current).find(
+            (id) => contentDataRef.current[id]?.contentType === 'pdf' &&
+                   contentDataRef.current[id]?.contentId === pdfPath
+        );
+
+        if (existingPaneId) {
+            // Dispatch event to refresh existing PDF pane
+            window.dispatchEvent(new CustomEvent('pdf-refresh', { detail: { pdfPath } }));
+            return;
+        }
+
+        // No existing pane - open new split
         if (!performSplit) return;
         const nodePath = findNodePath(rootLayoutNode, nodeId);
         performSplit(nodePath, 'right', 'pdf', pdfPath);
-    }, [performSplit, findNodePath, rootLayoutNode, nodeId]);
+    }, [performSplit, findNodePath, rootLayoutNode, nodeId, contentDataRef]);
 
     const compile = useCallback(async (openInSplit = true) => {
         setIsCompiling(true);
