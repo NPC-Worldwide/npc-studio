@@ -58,6 +58,14 @@ const LOCAL_PROVIDERS = {
         docsUrl: 'https://github.com/ggerganov/llama.cpp',
         color: 'text-green-400',
         bgColor: 'bg-green-600'
+    },
+    gguf: {
+        name: 'GGUF/GGML',
+        description: 'Direct GGUF/GGML model files (offline, no server)',
+        defaultPort: null,
+        docsUrl: 'https://huggingface.co/docs/hub/gguf',
+        color: 'text-orange-400',
+        bgColor: 'bg-orange-600'
     }
 };
 
@@ -66,13 +74,16 @@ const ModelManager = () => {
     const [providerStatuses, setProviderStatuses] = useState({
         ollama: 'checking',
         lmstudio: 'checking',
-        llamacpp: 'checking'
+        llamacpp: 'checking',
+        gguf: 'ready'
     });
     const [providerModels, setProviderModels] = useState({
         ollama: [],
         lmstudio: [],
-        llamacpp: []
+        llamacpp: [],
+        gguf: []
     });
+    const [ggufDirectory, setGgufDirectory] = useState('');
     const [pullModelName, setPullModelName] = useState('llama3.1');
     const [pullProgress, setPullProgress] = useState(null);
     const [isPulling, setIsPulling] = useState(false);
@@ -85,6 +96,12 @@ const ModelManager = () => {
             const models = await window.api.getLocalOllamaModels();
             if (models && !models.error) {
                 setProviderModels(prev => ({ ...prev, ollama: models }));
+            }
+        } else if (provider === 'gguf') {
+            // Scan for GGUF/GGML files
+            const result = await window.api.scanGgufModels?.(ggufDirectory || null);
+            if (result && !result.error) {
+                setProviderModels(prev => ({ ...prev, gguf: result.models || [] }));
             }
         } else {
             // Use the new scan API for LM Studio and llama.cpp
@@ -183,7 +200,7 @@ const ModelManager = () => {
                         <span className="flex items-center gap-2">
                             {info.name}
                             <span className={`w-2 h-2 rounded-full ${
-                                providerStatuses[key] === 'running' ? 'bg-green-400' :
+                                providerStatuses[key] === 'running' || providerStatuses[key] === 'ready' ? 'bg-green-400' :
                                 providerStatuses[key] === 'checking' ? 'bg-yellow-400 animate-pulse' :
                                 'bg-red-400'
                             }`} />
@@ -202,11 +219,12 @@ const ModelManager = () => {
                         </div>
                         <div className="flex items-center gap-2">
                             <span className={`px-2 py-1 rounded text-xs ${
-                                currentStatus === 'running' ? 'bg-green-900 text-green-300' :
+                                currentStatus === 'running' || currentStatus === 'ready' ? 'bg-green-900 text-green-300' :
                                 currentStatus === 'checking' ? 'bg-yellow-900 text-yellow-300' :
                                 'bg-red-900 text-red-300'
                             }`}>
                                 {currentStatus === 'running' ? 'Running' :
+                                 currentStatus === 'ready' ? 'Ready' :
                                  currentStatus === 'checking' ? 'Checking...' :
                                  currentStatus === 'not_running' ? 'Not Running' : 'Not Found'}
                             </span>
@@ -220,7 +238,12 @@ const ModelManager = () => {
                             </a>
                         </div>
                     </div>
-                    <p className="text-xs text-gray-500 mt-2">Default Port: {providerInfo.defaultPort}</p>
+                    {providerInfo.defaultPort && (
+                        <p className="text-xs text-gray-500 mt-2">Default Port: {providerInfo.defaultPort}</p>
+                    )}
+                    {activeProvider === 'gguf' && (
+                        <p className="text-xs text-gray-500 mt-2">No server required - runs locally via llama-cpp-python</p>
+                    )}
                 </div>
             </Card>
 
@@ -276,7 +299,7 @@ const ModelManager = () => {
                 </Card>
             )}
 
-            {(currentStatus === 'not_found' || currentStatus === 'not_running') && activeProvider !== 'ollama' && (
+            {(currentStatus === 'not_found' || currentStatus === 'not_running') && activeProvider !== 'ollama' && activeProvider !== 'gguf' && (
                 <Card>
                     <div className="text-center p-4">
                         <h4 className="font-semibold text-lg text-white">{providerInfo.name} Not Detected</h4>
@@ -302,8 +325,42 @@ const ModelManager = () => {
                 </Card>
             )}
 
+            {/* GGUF/GGML Directory Configuration */}
+            {activeProvider === 'gguf' && (
+                <div className="space-y-3">
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-2">Models Directory (optional)</label>
+                        <div className="flex gap-2">
+                            <Input
+                                value={ggufDirectory}
+                                onChange={(e) => setGgufDirectory(e.target.value)}
+                                placeholder="~/.npcsh/models/gguf or /path/to/models"
+                                className="flex-1"
+                            />
+                            <Button variant="secondary" onClick={() => fetchModelsForProvider('gguf')} disabled={isScanning}>
+                                {isScanning ? 'Scanning...' : 'Scan'}
+                            </Button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Leave empty to scan default locations. Set NPCSH_GGUF_DIR env var for persistent config.
+                        </p>
+                    </div>
+                    <Card>
+                        <div className="p-3">
+                            <p className="text-sm text-gray-300">
+                                <strong>Usage:</strong> Set provider to <code className="bg-gray-700 px-1 rounded">gguf</code> or <code className="bg-gray-700 px-1 rounded">ggml</code> and
+                                model to the file path (relative to CWD or absolute).
+                            </p>
+                            <p className="text-xs text-gray-500 mt-2">
+                                Example: model=&quot;./models/llama-7b.Q4_K_M.gguf&quot; provider=&quot;gguf&quot;
+                            </p>
+                        </div>
+                    </Card>
+                </div>
+            )}
+
             {/* Model List */}
-            {currentStatus === 'running' && (
+            {(currentStatus === 'running' || activeProvider === 'gguf') && (
                 <div>
                     <div className="flex items-center justify-between mb-2">
                         <h4 className="text-sm text-gray-400">Available Models ({currentModels.length})</h4>
@@ -313,13 +370,14 @@ const ModelManager = () => {
                     </div>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                         {currentModels.length > 0 ? currentModels.map((model, idx) => (
-                            <Card key={model.name || model.id || idx}>
+                            <Card key={model.name || model.id || model.path || idx}>
                                 <div className="flex justify-between items-center p-3">
-                                    <div>
-                                        <p className="font-semibold text-white">{model.name || model.id}</p>
-                                        <p className="text-xs text-gray-500">
+                                    <div className="overflow-hidden">
+                                        <p className="font-semibold text-white">{model.name || model.id || model.filename}</p>
+                                        <p className="text-xs text-gray-500 truncate">
                                             {model.size ? `Size: ${(model.size / 1e9).toFixed(2)} GB` : ''}
                                             {model.modified_at && ` | Modified: ${new Date(model.modified_at).toLocaleDateString()}`}
+                                            {model.path && <span className="block truncate" title={model.path}>Path: {model.path}</span>}
                                         </p>
                                     </div>
                                     {activeProvider === 'ollama' && (
@@ -335,7 +393,9 @@ const ModelManager = () => {
                             </Card>
                         )) : (
                             <p className="text-gray-500 text-center py-4">
-                                No models found. {activeProvider === 'ollama' ? 'Pull a model above.' : 'Load models in the app.'}
+                                {activeProvider === 'ollama' && 'No models found. Pull a model above.'}
+                                {activeProvider === 'gguf' && 'No GGUF/GGML files found. Specify a directory or place files in ~/.npcsh/models/gguf'}
+                                {activeProvider !== 'ollama' && activeProvider !== 'gguf' && 'No models found. Load models in the app.'}
                             </p>
                         )}
                     </div>
