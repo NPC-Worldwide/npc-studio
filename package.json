@@ -71,10 +71,6 @@
           "filter": [
             "*.dll"
           ]
-        },
-        {
-          "from": "node_modules/node-pty/prebuilds/win32-x64",
-          "to": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64"
         }
       ]
     },
