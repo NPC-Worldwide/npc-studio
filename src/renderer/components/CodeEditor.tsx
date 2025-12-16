@@ -59,8 +59,8 @@ const editorTheme = EditorView.theme({
         borderRight: '1px solid #313244',
     },
     '.cm-lineNumbers .cm-gutterElement': {
-        padding: '0 8px 0 16px',
-        minWidth: '40px',
+        padding: '0 4px 0 8px',
+        minWidth: '28px',
     },
     '.cm-foldGutter .cm-gutterElement': {
         padding: '0 4px',

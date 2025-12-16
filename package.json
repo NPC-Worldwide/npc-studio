@@ -1,6 +1,6 @@
 {
   "name": "npc-studio",
-  "version": "0.0.27",
+  "version": "0.0.28",
   "description": "The AI IDE.",
   "author": "Chris Agostino <info@npcworldwi.de>",
   "main": "src/main.js",
@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "generate-icons": "electron-icon-builder --input=./assets/icon.png --output=./build",
-    "start": "NODE_ENV=development electron .",
+    "start": "cross-env NODE_ENV=development electron .",
     "dev": "vite",
     "build:vite": "vite build",
     "build": "npm run build:vite && electron-builder",
@@ -50,7 +50,9 @@
       ]
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "assets/icon.png",
       "extraResources": [
         {
@@ -66,7 +68,9 @@
         {
           "from": "node_modules/electron/dist",
           "to": ".",
-          "filter": ["*.dll"]
+          "filter": [
+            "*.dll"
+          ]
         }
       ]
     },
@@ -129,6 +133,7 @@
     "debounce": "^2.0.0",
     "electron-store": "^10.0.1",
     "install": "^0.13.0",
+    "js-yaml": "^4.1.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.471.1",
     "mammoth": "^1.11.0",
@@ -156,9 +161,6 @@
     "xlsx": "^0.18.5",
     "xterm": "^5.3.0"
   },
-  "optionalDependencies": {
-    "node-pty": "^1.0.0"
-  },
   "devDependencies": {
     "@electron/rebuild": "^3.7.2",
     "@tailwindcss/typography": "^0.5.16",
@@ -167,6 +169,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "cross-env": "^10.1.0",
     "electron": "^25.9.8",
     "electron-builder": "^24.13.3",
     "electron-icon-builder": "^2.0.1",
@@ -182,5 +185,8 @@
   },
   "engines": {
     "node": ">=16"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0-beta42"
   }
 }

@@ -1,16 +1,20 @@
 const { app, BrowserWindow, globalShortcut,ipcMain, protocol, shell, BrowserView} = require('electron');
 const { desktopCapturer } = require('electron');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const simpleGit = require('simple-git');
 const fsPromises = require('fs/promises');
 const os = require('os');
 let pty;
+let ptyLoadError = null;
 try {
   pty = require('node-pty');
 } catch (error) {
   pty = null;
+  ptyLoadError = error;
+  console.error('Failed to load node-pty:', error.message);
+  console.error('Stack:', error.stack);
 }
 
 const cron = require('node-cron');
@@ -215,6 +219,7 @@ let lastScreenshotTime = 0;
 const SCREENSHOT_COOLDOWN = 1000;
 
 let backendProcess = null;
+function killBackendProcess() {  if (backendProcess) {    log('Killing backend process');    if (process.platform === 'win32') {      try {        execSync(`taskkill /F /T /PID ${backendProcess.pid}`, { stdio: 'ignore' });      } catch (e) {        try { backendProcess.kill('SIGKILL'); } catch (e2) {}      }    } else {      backendProcess.kill('SIGTERM');    }    backendProcess = null;  }}
 
 
 async function waitForServer(maxAttempts = 120, delay = 1000) {
@@ -316,6 +321,13 @@ app.whenReady().then(async () => {
       },
     });
 
+    backendProcess.stdout.on("data", (data) => {
+      log(`[Backend stdout]: ${data.toString()}`);
+    });
+
+    backendProcess.stderr.on("data", (data) => {
+      log(`[Backend stderr]: ${data.toString()}`);
+    });
     backendProcess.on('close', (code) => {
       if (code !== 0) {
         console.error('Backend server exited with code:', code);
@@ -2548,7 +2560,7 @@ app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     if (backendProcess) {
       log('Killing backend process');
-      backendProcess.kill();
+      killBackendProcess();
     }
   
   });
@@ -4892,7 +4904,7 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
       if (backendProcess) {
         log('Killing backend process');
-        backendProcess.kill();
+        killBackendProcess();
       }
 
       app.quit();

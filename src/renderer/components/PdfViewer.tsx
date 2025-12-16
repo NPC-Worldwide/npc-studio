@@ -116,7 +116,10 @@ const PdfViewer = ({
     const [selectedPdfText, setSelectedPdfText] = useState(null);
     const [pdfSelectionIndicator, setPdfSelectionIndicator] = useState(null);
 
-    const workerUrl = `${window.location.origin}/pdf.worker.min.js`;
+    // In Electron with file:// protocol, window.location.origin is 'null', so we need to construct the path differently
+    const workerUrl = window.location.protocol === 'file:'
+        ? `${window.location.href.substring(0, window.location.href.lastIndexOf('/'))}/pdf.worker.min.js`
+        : `${window.location.origin}/pdf.worker.min.js`;
     const defaultLayoutPluginInstance = defaultLayoutPlugin();
 
     const paneData = contentDataRef.current[nodeId];

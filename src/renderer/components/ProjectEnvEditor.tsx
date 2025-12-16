@@ -20,7 +20,9 @@ const ProjectEnvEditor: React.FC<ProjectEnvEditorProps> = ({ currentPath }) => {
     const [hasChanges, setHasChanges] = useState(false);
     const [viewMode, setViewMode] = useState<'table' | 'raw'>('table');
 
-    const envPath = currentPath ? `${currentPath}/.env` : null;
+    const envPath = currentPath 
+        ? `${currentPath.replace(/[\\/]$/, '')}/.env` // Remove trailing slash before adding new one
+        : null;
 
     // Parse .env content into variables
     const parseEnvContent = (content: string): EnvVariable[] => {
@@ -102,7 +104,7 @@ const ProjectEnvEditor: React.FC<ProjectEnvEditorProps> = ({ currentPath }) => {
                 ? variablesToEnvContent(envVariables)
                 : envContent;
 
-            await (window as any).api?.writeFile?.(envPath, content);
+            await (window as any).api?.writeFileContent?.(envPath, content);
             setHasChanges(false);
 
             // Sync the other view
