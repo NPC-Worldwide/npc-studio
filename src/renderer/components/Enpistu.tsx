@@ -163,7 +163,8 @@ const ChatInterface = () => {
     const [isMacroInputOpen, setIsMacroInputOpen] = useState(false);
     const [macroText, setMacroText] = useState('');
     const [baseDir, setBaseDir] = useState('');
-    const [promptModal, setPromptModal] = useState({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
+    const [promptModal, setPromptModal] = useState<{ isOpen: boolean; title: string; message: string; defaultValue: string; onConfirm: ((value: string) => void) | null }>({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
+    const [promptModalValue, setPromptModalValue] = useState('');
     const screenshotHandlingRef = useRef(false);
     const fileInputRef = useRef(null);
     const listenersAttached = useRef(false);
@@ -3874,6 +3875,7 @@ ${contextPrompt}`;
     }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
     const createNewTextFile = () => {
+        setPromptModalValue('untitled.py');
         setPromptModal({
             isOpen: true,
             title: 'Create New File',
@@ -4690,48 +4692,54 @@ ${contextPrompt}`;
         <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-lg w-full">
             <div className="flex flex-col items-center text-center">
                 <div className="theme-bg-tertiary p-3 rounded-full mb-4">
-                    {/* You can replace this with a more specific icon if you have one */}
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="theme-text-primary">
-                        <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
-                        <path d="M12 15a6 6 0 0 0-3.25 11.25"/>
-                        <path d="M12 3a6 6 0 0 0 3.25 11.25"/>
-                        <path d="M12 22a6 6 0 0 0 3.25-11.25"/>
-                        <path d="M12 3a6 6 0 0 0-3.25 11.25"/>
-                        <path d="M12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14,2 14,8 20,8"/>
+                        <line x1="12" y1="18" x2="12" y2="12"/>
+                        <line x1="9" y1="15" x2="15" y2="15"/>
                     </svg>
                 </div>
                 <h3 className="text-lg font-medium mb-2 theme-text-primary">{promptModal.title}</h3>
                 <p className="theme-text-muted mb-4 text-sm">{promptModal.message}</p>
             </div>
-<textarea
-    value={input}
-    onChange={(e) => setInput(e.target.value)}
-    onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
-    placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
-    className={`chat-input-textarea w-full theme-input text-sm rounded-lg pl-4 pr-20 py-3 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
-    style={{
-        height: `${Math.max(56, inputHeight - 120)}px`,
-        maxHeight: `${inputHeight - 120}px`
-    }}
-    disabled={isStreaming}
-/>
-
+            <input
+                type="text"
+                value={promptModalValue}
+                onChange={(e) => setPromptModalValue(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        promptModal.onConfirm?.(promptModalValue);
+                        setPromptModal({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
+                        setPromptModalValue('');
+                    } else if (e.key === 'Escape') {
+                        setPromptModal({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
+                        setPromptModalValue('');
+                    }
+                }}
+                placeholder="Enter filename..."
+                className="w-full theme-input text-sm rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+                autoFocus
+            />
             <div className="flex justify-end gap-3">
                 <button
                     className="px-4 py-2 theme-button theme-hover rounded text-sm"
-                    onClick={() => setPromptModal({ ...promptModal, isOpen: false })}
+                    onClick={() => {
+                        setPromptModal({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
+                        setPromptModalValue('');
+                    }}
                 >
                     Cancel
                 </button>
                 <button
                     className="px-4 py-2 theme-button-primary rounded text-sm"
                     onClick={() => {
-                        const value = document.getElementById('customPromptInput').value;
-                        promptModal.onConfirm?.(value);
-                        setPromptModal({ ...promptModal, isOpen: false });
+                        promptModal.onConfirm?.(promptModalValue);
+                        setPromptModal({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
+                        setPromptModalValue('');
                     }}
                 >
-                    OK
+                    Create
                 </button>
             </div>
         </div>
