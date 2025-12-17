@@ -426,7 +426,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             updateContentPane, performSplit,
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
-            renderPptxViewer, renderLatexViewer, renderPicViewer, renderMindMapViewer,
+            renderPptxViewer, renderLatexViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
             renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderProjectEnvPane, renderDiskUsagePane,
             moveContentPane,
@@ -439,6 +439,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
             getChatInputProps,
             // Zen mode props
             zenModePaneId, toggleZenMode,
+            // Renaming props
+            renamingPaneId, setRenamingPaneId, editedFileName, setEditedFileName, handleConfirmRename,
         } = component;
 
         // Get chat input props for this specific pane
@@ -471,6 +473,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 else if (ext === 'pptx') contentType = 'pptx';
                 else if (ext === 'tex') contentType = 'latex';
                 else if (ext === 'mindmap') contentType = 'mindmap';
+                else if (ext === 'zip') contentType = 'zip';
                 else contentType = 'editor';
             } else if (draggedItem.type === 'browser') {
                 contentType = 'browser';
@@ -673,6 +676,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderProjectEnvPane({ nodeId: node.id });
                 case 'diskusage':
                     return renderDiskUsagePane({ nodeId: node.id });
+                case 'zip':
+                    return renderZipViewer({ nodeId: node.id });
                 default:
                     // This is the content for an empty pane
                     return (
@@ -714,11 +719,23 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     setDraggedItem={setDraggedItem}
                     setPaneContextMenu={setPaneContextMenu}
                     closeContentPane={closeContentPane}
-                    fileChanged={paneData?.fileChanged} // Only relevant for editor panes
+                    fileChanged={paneData?.fileChanged}
                     onSave={() => { /* No-op, actual save logic is in renderFileEditor */ }}
-                    onStartRename={() => { /* No-op, actual rename logic is in renderFileEditor */ }}
+                    onStartRename={() => {
+                        if (contentId && (contentType === 'editor' || contentType === 'latex' || contentType === 'csv' || contentType === 'docx' || contentType === 'pptx')) {
+                            setRenamingPaneId(node.id);
+                            setEditedFileName(contentId.split('/').pop() || '');
+                        }
+                    }}
                     isZenMode={zenModePaneId === node.id}
                     onToggleZenMode={toggleZenMode}
+                    // Renaming props
+                    isRenaming={renamingPaneId === node.id}
+                    editedFileName={editedFileName}
+                    setEditedFileName={setEditedFileName}
+                    onConfirmRename={() => handleConfirmRename?.(node.id, contentId)}
+                    onCancelRename={() => setRenamingPaneId(null)}
+                    filePath={contentId}
                 >
                     {paneHeaderChildren} {/* Pass the conditional children here */}
                 </PaneHeader>

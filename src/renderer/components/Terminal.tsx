@@ -3,12 +3,15 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
+const SHELL_PROMPT_KEY = 'npc-studio-shell-profile-prompted';
+
 const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId }) => {
     const terminalRef = useRef(null);
     const xtermInstance = useRef(null);
     const fitAddonRef = useRef(null);
     const isSessionReady = useRef(false);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+    const [showShellPrompt, setShowShellPrompt] = useState(false);
 
     const paneData = contentDataRef.current[nodeId];
     const terminalId = paneData?.contentId;
@@ -55,6 +58,29 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         setContextMenu({ x: e.clientX, y: e.clientY });
     }, []);
 
+    const getShellProfileCommand = useCallback(() => {
+        const platform = navigator.platform.toLowerCase();
+        if (platform.includes('mac')) {
+            return 'source ~/.zshrc 2>/dev/null || source ~/.zprofile 2>/dev/null';
+        } else {
+            return 'source ~/.bashrc 2>/dev/null || source ~/.bash_profile 2>/dev/null';
+        }
+    }, []);
+
+    const handleSourceProfile = useCallback(() => {
+        if (isSessionReady.current && terminalId) {
+            const cmd = getShellProfileCommand();
+            window.api.writeToTerminal({ id: terminalId, data: cmd + '\n' });
+        }
+        localStorage.setItem(SHELL_PROMPT_KEY, 'true');
+        setShowShellPrompt(false);
+    }, [terminalId, getShellProfileCommand]);
+
+    const handleDismissPrompt = useCallback(() => {
+        localStorage.setItem(SHELL_PROMPT_KEY, 'true');
+        setShowShellPrompt(false);
+    }, []);
+
     useEffect(() => {
         if (!terminalRef.current || !terminalId) return;
 
@@ -89,7 +115,8 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             resizeObserver.observe(terminalRef.current);
 
             term.attachCustomKeyEventHandler((event) => {
-                if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+                // Ctrl+Shift+V or Ctrl+V for paste
+                if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
                     navigator.clipboard.readText().then(text => {
                         if (isSessionReady.current) {
                             window.api.writeToTerminal({ id: terminalId, data: text });
@@ -97,12 +124,22 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     });
                     return false;
                 }
-                if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+                // Ctrl+Shift+C for copy (terminal standard - doesn't interfere with SIGINT)
+                if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'c') {
+                    const selection = term.getSelection();
+                    if (selection) {
+                        navigator.clipboard.writeText(selection);
+                    }
+                    return false;
+                }
+                // Ctrl+C without shift - copy only if selection exists, otherwise pass through for SIGINT
+                if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key === 'c') {
                     const selection = term.getSelection();
                     if (selection) {
                         navigator.clipboard.writeText(selection);
                         return false;
                     }
+                    // No selection - let Ctrl+C pass through as SIGINT
                 }
                 return true;
             });
@@ -145,6 +182,11 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     isSessionReady.current = true;
                     if (activeContentPaneId === nodeId) {
                         xtermInstance.current.focus();
+                    }
+                    // Check if this is the first terminal startup
+                    const hasBeenPrompted = localStorage.getItem(SHELL_PROMPT_KEY);
+                    if (!hasBeenPrompted) {
+                        setShowShellPrompt(true);
                     }
                 } else {
                     xtermInstance.current.write(`\r\n[FATAL] Backend failed: ${result.error}\r\n`);
@@ -194,7 +236,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                             onClick={handleCopy}
                             className="w-full px-3 py-1.5 text-left text-sm theme-text hover:bg-blue-500/20"
                         >
-                            Copy <span className="float-right text-xs opacity-50">Ctrl+C</span>
+                            Copy <span className="float-right text-xs opacity-50">Ctrl+Shift+C</span>
                         </button>
                         <button
                             onClick={handlePaste}
@@ -217,6 +259,29 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                         </button>
                     </div>
                 </>
+            )}
+
+            {showShellPrompt && (
+                <div className="absolute top-0 left-0 right-0 bg-blue-900/90 border-b border-blue-700 px-3 py-2 z-30 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-blue-100">
+                        <span className="text-blue-300">Tip:</span>
+                        <span>Source your shell profile to load aliases and environment?</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleSourceProfile}
+                            className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded"
+                        >
+                            Source Profile
+                        </button>
+                        <button
+                            onClick={handleDismissPrompt}
+                            className="px-3 py-1 text-xs bg-gray-600 hover:bg-gray-500 text-white rounded"
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                </div>
             )}
         </div>
     );

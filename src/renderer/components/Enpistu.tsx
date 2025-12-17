@@ -32,6 +32,7 @@ import PptxViewer from './PptxViewer';
 import LatexViewer from './LatexViewer';
 import PicViewer from './PicViewer';
 import MindMapViewer from './MindMapViewer';
+import ZipViewer from './ZipViewer';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import ProjectEnvEditor from './ProjectEnvEditor';
 import DBTool from './DBTool';
@@ -1423,6 +1424,22 @@ const handleResendMessage = useCallback((messageToResend: any) => {
     });
 }, [isStreaming, currentModel, currentNPC]);
 
+// Handle creating a conversation branch from a specific message
+const handleCreateBranch = useCallback((messageIndex: number) => {
+    createBranchPoint(
+        messageIndex,
+        activeContentPaneId,
+        currentBranchId,
+        conversationBranches,
+        contentDataRef,
+        setConversationBranches,
+        setCurrentBranchId,
+        setRootLayoutNode
+    );
+    // Show the branching UI after creating a branch
+    setShowBranchingUI(true);
+}, [activeContentPaneId, currentBranchId, conversationBranches, contentDataRef, setConversationBranches, setCurrentBranchId, setRootLayoutNode]);
+
 // Render functions for different content pane types
 const renderChatView = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -1454,7 +1471,7 @@ const renderChatView = useCallback(({ nodeId }) => {
                     searchTerm={searchTerm}
                     isCurrentSearchResult={false}
                     onResendMessage={() => handleResendMessage(msg)}
-                    onCreateBranch={() => {}}
+                    onCreateBranch={handleCreateBranch}
                     messageIndex={idx}
                     onLabelMessage={handleLabelMessage}
                     messageLabel={messageLabels[msg.id || msg.timestamp]}
@@ -1463,7 +1480,7 @@ const renderChatView = useCallback(({ nodeId }) => {
             ))}
         </div>
     );
-}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage]);
+}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleCreateBranch]);
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -1598,6 +1615,20 @@ const renderLatexViewer = useCallback(({ nodeId }) => {
         />
     );
 }, [rootLayoutNode, closeContentPane, performSplit]);
+
+const renderZipViewer = useCallback(({ nodeId }) => {
+    return (
+        <ZipViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [rootLayoutNode, closeContentPane]);
 
 const renderPicViewer = useCallback(({ nodeId }) => {
     return (
@@ -2020,6 +2051,47 @@ const renderMessageContextMenu = () => (
             },
         });
     };
+
+    // Handle file rename from PaneHeader
+    const handleConfirmRename = useCallback(async (paneId: string, oldFilePath: string) => {
+        if (!editedFileName || !oldFilePath) {
+            setRenamingPaneId(null);
+            return;
+        }
+
+        const directory = oldFilePath.substring(0, oldFilePath.lastIndexOf('/'));
+        const newFilePath = normalizePath(`${directory}/${editedFileName}`);
+
+        if (newFilePath === oldFilePath) {
+            setRenamingPaneId(null);
+            return;
+        }
+
+        try {
+            const result = await window.api.renameFile(oldFilePath, newFilePath);
+            if (result?.error) throw new Error(result.error);
+
+            // Update the content pane with new file path
+            if (contentDataRef.current[paneId]) {
+                contentDataRef.current[paneId].contentId = newFilePath;
+            }
+
+            // Refresh directory structure directly
+            if (currentPath) {
+                const structureResult = await window.api.readDirectoryStructure(currentPath);
+                if (structureResult && !structureResult.error) {
+                    setFolderStructure(structureResult);
+                }
+            }
+            setRootLayoutNode(p => ({ ...p }));
+        } catch (err: any) {
+            setError(`Failed to rename file: ${err.message}`);
+        } finally {
+            setRenamingPaneId(null);
+            setEditedFileName('');
+        }
+    }, [editedFileName, currentPath]);
+
     const createNewTerminal = useCallback(async () => {
         const newTerminalId = `term_${generateId()}`;
         const newPaneId = generateId();
@@ -3801,17 +3873,26 @@ ${contextPrompt}`;
         setActiveContentPaneId(newPaneId);
     }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    const createNewTextFile = async () => {
-            try {
-                const filename = `untitled-${Date.now()}.txt`;
-                const filepath = normalizePath(`${currentPath}/${filename}`);
-                await window.api.writeFileContent(filepath, '');
-                await loadDirectoryStructure(currentPath);
-                await handleFileClick(filepath);
-            } catch (err) {
-                setError(err.message);
+    const createNewTextFile = () => {
+        setPromptModal({
+            isOpen: true,
+            title: 'Create New File',
+            message: 'Enter filename with extension (e.g., script.py, index.js, notes.md)',
+            defaultValue: 'untitled.py',
+            onConfirm: async (filename) => {
+                try {
+                    if (!filename || filename.trim() === '') return;
+                    const cleanName = filename.trim();
+                    const filepath = normalizePath(`${currentPath}/${cleanName}`);
+                    await window.api.writeFileContent(filepath, '');
+                    await loadDirectoryStructure(currentPath);
+                    await handleFileClick(filepath);
+                } catch (err) {
+                    setError(err.message);
+                }
             }
-        };
+        });
+    };
 
     const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx' | 'mindmap') => {
         try {
@@ -5498,6 +5579,7 @@ const layoutComponentApi = useMemo(() => ({
     renderLatexViewer,
     renderPicViewer,
     renderMindMapViewer,
+    renderZipViewer,
     renderDataLabelerPane,
     renderGraphViewerPane,
     renderBrowserGraphPane,
@@ -5522,6 +5604,12 @@ const layoutComponentApi = useMemo(() => ({
     toggleZenMode: (paneId: string) => {
         setZenModePaneId(prev => prev === paneId ? null : paneId);
     },
+    // Renaming props
+    renamingPaneId,
+    setRenamingPaneId,
+    editedFileName,
+    setEditedFileName,
+    handleConfirmRename,
 }), [
     rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
@@ -5533,6 +5621,7 @@ const layoutComponentApi = useMemo(() => ({
     renderLatexViewer,
     renderPicViewer,
     renderMindMapViewer,
+    renderZipViewer,
     renderDataLabelerPane,
     renderGraphViewerPane,
     renderBrowserGraphPane,
@@ -5552,6 +5641,7 @@ const layoutComponentApi = useMemo(() => ({
     conversationBranches, showBranchingUI, setShowBranchingUI,
     getChatInputProps,
     zenModePaneId,
+    renamingPaneId, editedFileName, handleConfirmRename,
 ]);
 
 // Handle conversation selection - opens conversation in a pane
@@ -5628,6 +5718,7 @@ const handleFileClick = useCallback(async (filePath: string) => {
     else if (extension === 'tex') contentType = 'latex';
     else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
     else if (extension === 'mindmap') contentType = 'mindmap';
+    else if (extension === 'zip') contentType = 'zip';
     else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
 
     console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
@@ -6813,8 +6904,18 @@ const renderMainContent = () => {
                 </div>
             )}
 
-        <BranchingUI />
-            
+        <BranchingUI
+            showBranchingUI={showBranchingUI}
+            setShowBranchingUI={setShowBranchingUI}
+            conversationBranches={conversationBranches}
+            currentBranchId={currentBranchId}
+            setCurrentBranchId={setCurrentBranchId}
+            setConversationBranches={setConversationBranches}
+            activeContentPaneId={activeContentPaneId}
+            contentDataRef={contentDataRef}
+            setRootLayoutNode={setRootLayoutNode}
+        />
+
         </div>
     );
 };

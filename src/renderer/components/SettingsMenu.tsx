@@ -88,6 +88,10 @@ const ModelManager = () => {
     const [isPulling, setIsPulling] = useState(false);
     const [isDeleting, setIsDeleting] = useState(null);
     const [isScanning, setIsScanning] = useState(false);
+    // HuggingFace model download state
+    const [hfModelUrl, setHfModelUrl] = useState('');
+    const [hfDownloadProgress, setHfDownloadProgress] = useState(null);
+    const [isDownloadingHf, setIsDownloadingHf] = useState(false);
 
     // Fetch models for a specific provider
     const fetchModelsForProvider = async (provider) => {
@@ -176,6 +180,33 @@ const ModelManager = () => {
         await window.api.deleteOllamaModel({ model: modelName });
         fetchModelsForProvider('ollama');
         setIsDeleting(null);
+    };
+
+    const handleDownloadHfModel = async () => {
+        if (!hfModelUrl.trim() || isDownloadingHf) return;
+        setIsDownloadingHf(true);
+        setHfDownloadProgress({ status: 'Starting download...', percent: 0 });
+        try {
+            const targetDir = ggufDirectory || '~/.npcsh/models/gguf';
+            const result = await (window as any).api.downloadHfModel?.({
+                url: hfModelUrl,
+                targetDir
+            });
+            if (result?.error) {
+                setHfDownloadProgress({ status: 'Error', details: result.error });
+            } else {
+                setHfDownloadProgress({ status: 'Success!', details: `Downloaded to ${result.path}` });
+                setTimeout(() => {
+                    setHfDownloadProgress(null);
+                    setHfModelUrl('');
+                    fetchModelsForProvider('gguf');
+                }, 2000);
+            }
+        } catch (err: any) {
+            setHfDownloadProgress({ status: 'Error', details: err.message });
+        } finally {
+            setIsDownloadingHf(false);
+        }
     };
 
     const currentStatus = providerStatuses[activeProvider];
@@ -344,6 +375,41 @@ const ModelManager = () => {
                             Leave empty to scan default locations. Set NPCSH_GGUF_DIR env var for persistent config.
                         </p>
                     </div>
+
+                    {/* HuggingFace Model Download */}
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-2">Download from HuggingFace</label>
+                        <div className="flex gap-2">
+                            <Input
+                                value={hfModelUrl}
+                                onChange={(e) => setHfModelUrl(e.target.value)}
+                                placeholder="TheBloke/Llama-2-7B-GGUF or full URL"
+                                className="flex-1"
+                            />
+                            <Button variant="primary" onClick={handleDownloadHfModel} disabled={isDownloadingHf || !hfModelUrl.trim()}>
+                                {isDownloadingHf ? 'Downloading...' : 'Download'}
+                            </Button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Enter a HuggingFace model ID (e.g., TheBloke/Llama-2-7B-GGUF) or direct URL to a GGUF file.
+                        </p>
+                    </div>
+
+                    {/* HF Download Progress */}
+                    {hfDownloadProgress && (
+                        <Card>
+                            <div className="p-3">
+                                <p className="text-sm font-semibold text-white">{hfDownloadProgress.status}</p>
+                                {hfDownloadProgress.details && <p className="text-xs text-gray-400 mt-1 font-mono">{hfDownloadProgress.details}</p>}
+                                {hfDownloadProgress.percent > 0 && (
+                                    <div className="w-full bg-gray-600 rounded-full h-2.5 mt-2">
+                                        <div className="bg-orange-500 h-2.5 rounded-full transition-all" style={{ width: `${hfDownloadProgress.percent}%` }} />
+                                    </div>
+                                )}
+                            </div>
+                        </Card>
+                    )}
+
                     <Card>
                         <div className="p-3">
                             <p className="text-sm text-gray-300">

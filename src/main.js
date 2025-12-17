@@ -3607,6 +3607,35 @@ ipcMain.handle('get-local-model-status', async (event, provider) => {
     }
 });
 
+ipcMain.handle('scan-gguf-models', async (event, directory) => {
+    try {
+        const url = directory
+            ? `http://127.0.0.1:5337/api/models/gguf/scan?directory=${encodeURIComponent(directory)}`
+            : 'http://127.0.0.1:5337/api/models/gguf/scan';
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error scanning GGUF models:', err);
+        return { models: [], error: err.message };
+    }
+});
+
+ipcMain.handle('download-hf-model', async (event, { url, targetDir }) => {
+    try {
+        const response = await fetch('http://127.0.0.1:5337/api/models/hf/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, target_dir: targetDir })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (err) {
+        console.error('Error downloading HF model:', err);
+        return { error: err.message };
+    }
+});
+
 // ============== Activity Tracking IPC Handlers ==============
 ipcMain.handle('track-activity', async (event, activity) => {
     try {
@@ -3889,6 +3918,143 @@ ipcMain.handle('file-exists', async (_event, filePath) => {
   }
 });
 
+ipcMain.handle('zip-items', async (_event, itemPaths, customName) => {
+  const archiver = require('archiver');
+  const path = require('path');
+
+  try {
+    if (!itemPaths || itemPaths.length === 0) {
+      return { error: 'No items to zip' };
+    }
+
+    // Determine output path - use parent of first item
+    const firstItem = itemPaths[0];
+    const parentDir = path.dirname(firstItem);
+
+    // Use custom name or generate default
+    let baseName = customName || (itemPaths.length === 1
+      ? path.basename(firstItem, path.extname(firstItem))
+      : 'archive');
+
+    // Remove .zip if user added it
+    baseName = baseName.replace(/\.zip$/i, '');
+
+    // Find unique filename
+    let zipPath = path.join(parentDir, `${baseName}.zip`);
+    let counter = 1;
+    while (fs.existsSync(zipPath)) {
+      zipPath = path.join(parentDir, `${baseName}_${counter}.zip`);
+      counter++;
+    }
+
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    return new Promise((resolve, reject) => {
+      output.on('close', () => {
+        console.log(`[ZIP] Created ${zipPath} (${archive.pointer()} bytes)`);
+        resolve({ success: true, zipPath });
+      });
+
+      archive.on('error', (err) => {
+        reject({ error: err.message });
+      });
+
+      archive.pipe(output);
+
+      // Add each item
+      for (const itemPath of itemPaths) {
+        const stat = fs.statSync(itemPath);
+        const name = path.basename(itemPath);
+
+        if (stat.isDirectory()) {
+          archive.directory(itemPath, name);
+        } else {
+          archive.file(itemPath, { name });
+        }
+      }
+
+      archive.finalize();
+    });
+  } catch (err) {
+    console.error('[ZIP] Error:', err);
+    return { error: err.message };
+  }
+});
+
+// Read zip file contents (list entries)
+ipcMain.handle('read-zip-contents', async (_event, zipPath) => {
+  const AdmZip = require('adm-zip');
+
+  try {
+    if (!fs.existsSync(zipPath)) {
+      return { error: 'Zip file not found' };
+    }
+
+    const zip = new AdmZip(zipPath);
+    const zipEntries = zip.getEntries();
+
+    const entries = zipEntries.map(entry => ({
+      name: entry.name,
+      path: entry.entryName,
+      isDirectory: entry.isDirectory,
+      size: entry.header.size,
+      compressedSize: entry.header.compressedSize
+    }));
+
+    console.log(`[ZIP] Read ${entries.length} entries from ${zipPath}`);
+    return { entries };
+  } catch (err) {
+    console.error('[ZIP] Error reading zip:', err);
+    return { error: err.message };
+  }
+});
+
+// Extract zip file contents
+ipcMain.handle('extract-zip', async (_event, zipPath, targetDir, entryPath = null) => {
+  const AdmZip = require('adm-zip');
+
+  try {
+    if (!fs.existsSync(zipPath)) {
+      return { error: 'Zip file not found' };
+    }
+
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    const zip = new AdmZip(zipPath);
+
+    if (entryPath) {
+      // Extract specific entry
+      const entry = zip.getEntry(entryPath);
+      if (!entry) {
+        return { error: `Entry not found: ${entryPath}` };
+      }
+
+      if (entry.isDirectory) {
+        // Extract directory and all its contents
+        const entries = zip.getEntries().filter(e => e.entryName.startsWith(entryPath));
+        for (const e of entries) {
+          zip.extractEntryTo(e, targetDir, true, true);
+        }
+      } else {
+        zip.extractEntryTo(entry, targetDir, true, true);
+      }
+      console.log(`[ZIP] Extracted ${entryPath} to ${targetDir}`);
+    } else {
+      // Extract all
+      zip.extractAllTo(targetDir, true);
+      console.log(`[ZIP] Extracted all to ${targetDir}`);
+    }
+
+    return { success: true, targetDir };
+  } catch (err) {
+    console.error('[ZIP] Error extracting zip:', err);
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('read-file-buffer', async (event, filePath) => {
   try {
     console.log(`[Main Process] Reading file buffer for: ${filePath}`);
@@ -3989,6 +4155,9 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd }) => {
     return { success: false, error: 'Terminal functionality not available' };
   }
 
+  // Store the sender's webContents for multi-window support
+  const senderWebContents = event.sender;
+
   if (ptyKillTimers.has(id)) {
     clearTimeout(ptyKillTimers.get(id));
     ptyKillTimers.delete(id);
@@ -4049,18 +4218,21 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd }) => {
       env: process.env
     });
 
-    ptySessions.set(id, ptyProcess);
+    // Store both the ptyProcess and the webContents that created it
+    ptySessions.set(id, { ptyProcess, webContents: senderWebContents });
 
     ptyProcess.onData(data => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('terminal-data', { id, data });
+      // Send to the window that created this terminal session
+      if (senderWebContents && !senderWebContents.isDestroyed()) {
+        senderWebContents.send('terminal-data', { id, data });
       }
     });
 
     ptyProcess.onExit(({ exitCode, signal }) => {
       ptySessions.delete(id);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('terminal-closed', { id });
+      // Send to the window that created this terminal session
+      if (senderWebContents && !senderWebContents.isDestroyed()) {
+        senderWebContents.send('terminal-closed', { id });
       }
     });
 
@@ -4081,7 +4253,10 @@ ipcMain.handle('closeTerminalSession', (event, id) => {
 
     const timer = setTimeout(() => {
       if (ptySessions.has(id)) {
-        ptySessions.get(id).kill();
+        const session = ptySessions.get(id);
+        if (session?.ptyProcess) {
+          session.ptyProcess.kill();
+        }
       }
       ptyKillTimers.delete(id);
     }, 100);
@@ -4096,10 +4271,10 @@ ipcMain.handle('writeToTerminal', (event, { id, data }) => {
     return { success: false, error: 'Terminal functionality not available' };
   }
 
-  const ptyProcess = ptySessions.get(id);
+  const session = ptySessions.get(id);
 
-  if (ptyProcess) {
-    ptyProcess.write(data);
+  if (session?.ptyProcess) {
+    session.ptyProcess.write(data);
     return { success: true };
   } else {
     return { success: false, error: 'Session not found in backend' };
@@ -4111,10 +4286,10 @@ ipcMain.handle('resizeTerminal', (event, { id, cols, rows }) => {
     return { success: false, error: 'Terminal functionality not available' };
   }
 
-  const ptyProcess = ptySessions.get(id);
-  if (ptyProcess) {
+  const session = ptySessions.get(id);
+  if (session?.ptyProcess) {
     try {
-      ptyProcess.resize(cols, rows);
+      session.ptyProcess.resize(cols, rows);
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -4725,6 +4900,7 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
                              '.webp',
                              '.bmp',
                              '.svg',
+                             '.zip',
                             ];
   
   const ignorePatterns = ['node_modules', '.git', '.DS_Store'];

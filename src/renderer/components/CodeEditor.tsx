@@ -59,8 +59,11 @@ const editorTheme = EditorView.theme({
         borderRight: '1px solid #313244',
     },
     '.cm-lineNumbers .cm-gutterElement': {
-        padding: '0 4px 0 8px',
-        minWidth: '28px',
+        padding: '0 3px 0 5px',
+        minWidth: '20px',
+    },
+    '.cm-lineNumbers': {
+        minWidth: 'auto',
     },
     '.cm-foldGutter .cm-gutterElement': {
         padding: '0 4px',
@@ -303,8 +306,9 @@ const CodeEditorPane = ({
     }, [nodeId, contentDataRef, setRootLayoutNode]);
 
     const onEditorContextMenu = useCallback((e) => {
+        e.preventDefault();
+        e.stopPropagation(); // Prevent pane context menu from appearing
         if (activeContentPaneId === nodeId) {
-            e.preventDefault();
             setEditorContextMenuPos({ x: e.clientX, y: e.clientY });
         }
     }, [nodeId, activeContentPaneId, setEditorContextMenuPos]);

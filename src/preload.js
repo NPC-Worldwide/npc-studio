@@ -136,6 +136,9 @@ readDocxContent: (filePath) =>
     addPdfHighlight: (data) => ipcRenderer.invoke('db:addPdfHighlight', data),
 
     deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
+    zipItems: (itemPaths, zipName) => ipcRenderer.invoke('zip-items', itemPaths, zipName),
+    readZipContents: (zipPath) => ipcRenderer.invoke('read-zip-contents', zipPath),
+    extractZip: (zipPath, targetDir, entryPath) => ipcRenderer.invoke('extract-zip', zipPath, targetDir, entryPath),
     renameFile: (oldPath, newPath) => ipcRenderer.invoke('renameFile', oldPath, newPath),
     getGlobalContext: () => ipcRenderer.invoke('get-global-context'),
     saveGlobalContext: (contextData) => ipcRenderer.invoke('save-global-context', contextData),
@@ -305,9 +308,11 @@ onTerminalClosed: (callback) => {
     deleteSqlModelProject: (args) => ipcRenderer.invoke('deleteSqlModelProject', args),
     runSqlModel: (args) => ipcRenderer.invoke('runSqlModel', args),
 
-    // Local Model Provider APIs (LM Studio, Ollama, llama.cpp)
+    // Local Model Provider APIs (LM Studio, Ollama, llama.cpp, GGUF)
     scanLocalModels: (provider) => ipcRenderer.invoke('scan-local-models', provider),
     getLocalModelStatus: (provider) => ipcRenderer.invoke('get-local-model-status', provider),
+    scanGgufModels: (directory) => ipcRenderer.invoke('scan-gguf-models', directory),
+    downloadHfModel: (params) => ipcRenderer.invoke('download-hf-model', params),
 
     // Activity Tracking for RNN predictor
     trackActivity: (activity) => ipcRenderer.invoke('track-activity', activity),

@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Maximize2, Minimize2 } from 'lucide-react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { X, Maximize2, Minimize2, Check } from 'lucide-react';
 
 export const PaneHeader = React.memo(({
     nodeId,
@@ -15,14 +15,43 @@ export const PaneHeader = React.memo(({
     onSave,
     onStartRename,
     isZenMode,
-    onToggleZenMode
+    onToggleZenMode,
+    // Renaming props
+    isRenaming,
+    editedFileName,
+    setEditedFileName,
+    onConfirmRename,
+    onCancelRename,
+    filePath
 }) => {
     const nodePath = findNodePath(rootLayoutNode, nodeId);
+    const inputRef = useRef(null);
+
+    useEffect(() => {
+        if (isRenaming && inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, [isRenaming]);
+
+    const handleKeyDown = useCallback((e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            onConfirmRename?.();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            onCancelRename?.();
+        }
+    }, [onConfirmRename, onCancelRename]);
 
     return (
         <div
-            draggable="true"
+            draggable={!isRenaming}
             onDragStart={(e) => {
+                if (isRenaming) {
+                    e.preventDefault();
+                    return;
+                }
                 e.dataTransfer.effectAllowed = 'move';
                 e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
 
@@ -47,18 +76,43 @@ export const PaneHeader = React.memo(({
             <div className="flex justify-between items-center min-h-[28px] w-full">
                 <div className="flex items-center gap-2 truncate min-w-0">
                     {icon}
-                    <span
-                        className="truncate font-semibold cursor-pointer hover:bg-gray-700 px-1 rounded"
-                        title={title}
-                        onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            if (onStartRename) {
-                                onStartRename();
-                            }
-                        }}
-                    >
-                        {title}
-                    </span>
+                    {isRenaming && filePath ? (
+                        <div className="flex items-center gap-1">
+                            <input
+                                ref={inputRef}
+                                type="text"
+                                value={editedFileName}
+                                onChange={(e) => setEditedFileName?.(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                onBlur={() => onCancelRename?.()}
+                                className="px-1 py-0.5 text-xs theme-bg-tertiary theme-border border rounded outline-none focus:ring-1 focus:ring-blue-500 w-40"
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onConfirmRename?.();
+                                }}
+                                onMouseDown={(e) => e.preventDefault()}
+                                className="p-0.5 theme-hover rounded text-green-400"
+                            >
+                                <Check size={12} />
+                            </button>
+                        </div>
+                    ) : (
+                        <span
+                            className="truncate font-semibold cursor-pointer hover:bg-gray-700 px-1 rounded"
+                            title={filePath ? `Double-click to rename: ${title}` : title}
+                            onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                if (onStartRename && filePath) {
+                                    onStartRename();
+                                }
+                            }}
+                        >
+                            {title}{fileChanged ? ' *' : ''}
+                        </span>
+                    )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                     {children} {/* This is where the extra buttons will render */}

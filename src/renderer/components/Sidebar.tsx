@@ -4,7 +4,7 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
     Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
-    Star, Clock, Activity, Lock
+    Star, Clock, Activity, Lock, Archive
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import npcLogo from '../../assets/icon.png';
@@ -71,6 +71,10 @@ const Sidebar = (props: any) => {
     const [chatPlusDropdownOpen, setChatPlusDropdownOpen] = useState(false);
     // Website context menu state
     const [websiteContextMenu, setWebsiteContextMenu] = useState<{ x: number; y: number; url: string; title: string } | null>(null);
+    // Zip modal state
+    const [zipModal, setZipModal] = useState<{ items: string[]; defaultName: string } | null>(null);
+    const [zipName, setZipName] = useState('');
+    const [isZipping, setIsZipping] = useState(false);
     // Bookmarks state (from database, path-specific)
     const [bookmarks, setBookmarks] = useState<Array<{ id: number; url: string; title: string; folder_path: string; is_global: number }>>([]);
 
@@ -449,10 +453,52 @@ const handleSidebarRenameStart = () => {
     if (!sidebarItemContextMenuPos) return;
     const { path } = sidebarItemContextMenuPos;
     const currentName = path.split('/').pop();
-    
+
     setRenamingPath(path);
     setEditedSidebarItemName(currentName);
     setSidebarItemContextMenuPos(null);
+};
+
+const handleZipItems = () => {
+    if (!sidebarItemContextMenuPos) return;
+    const { path: itemPath } = sidebarItemContextMenuPos;
+
+    // Get all selected items or just the right-clicked one
+    const selectedFilePaths = Array.from(selectedFiles);
+    const itemsToZip = selectedFilePaths.length > 0 ? selectedFilePaths : [itemPath];
+
+    // Generate default name
+    const defaultName = itemsToZip.length === 1
+        ? itemsToZip[0].split('/').pop()?.replace(/\.[^/.]+$/, '') || 'archive'
+        : 'archive';
+
+    // Show modal
+    setZipName(defaultName);
+    setZipModal({ items: itemsToZip, defaultName });
+    setSidebarItemContextMenuPos(null);
+};
+
+const executeZip = async () => {
+    if (!zipModal) return;
+
+    const itemsToZip = zipModal.items;
+    const name = zipName;
+
+    setIsZipping(true);
+
+    try {
+        const response = await (window as any).api.zipItems(itemsToZip, name);
+        if (response?.error) throw new Error(response.error);
+
+        // Refresh to show the new zip file
+        await refreshDirectoryStructureOnly();
+    } catch (err: any) {
+        setError(`Failed to create zip: ${err.message}`);
+    } finally {
+        setIsZipping(false);
+        setZipModal(null);
+        setZipName('');
+    }
 };
 
 const handleFolderOverview = async () => {
@@ -722,6 +768,12 @@ const renderWorkspaceIndicator = () => {
         setSelectedFiles(new Set());
     }
     };
+
+const handleRefreshFilesAndFolders = () => {
+    if (currentPath) {
+        refreshDirectoryStructureOnly();
+    }
+};
 
 const refreshDirectoryStructureOnly = async () => {
     try {
@@ -1465,7 +1517,17 @@ useEffect(() => {
                     <Edit size={16} />
                     <span>Rename</span>
                 </button>
-                
+
+                <button
+                    onClick={handleZipItems}
+                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                >
+                    <Archive size={16} />
+                    <span>Zip{selectedFiles.size > 1 ? ` (${selectedFiles.size} items)` : ''}</span>
+                </button>
+
+                <div className="border-t theme-border my-1"></div>
+
                 <button
                     onClick={handleSidebarItemDelete}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400"
@@ -2276,6 +2338,55 @@ return (
                                 Save
                             </button>
                         </div>
+                    </div>
+                </>
+            )}
+            {/* Zip Name Modal */}
+            {zipModal && (
+                <>
+                    <div className="fixed inset-0 bg-black/50 z-50" onClick={() => { if (!isZipping) { setZipModal(null); setZipName(''); } }} />
+                    <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 theme-bg-secondary border theme-border rounded-lg shadow-xl p-4 min-w-[320px]">
+                        <h3 className="text-sm font-medium mb-3">Create Zip Archive</h3>
+                        <p className="text-xs text-gray-400 mb-3">{zipModal.items.length} item{zipModal.items.length > 1 ? 's' : ''} selected</p>
+                        {isZipping ? (
+                            <div className="flex items-center gap-3 py-4">
+                                <svg className="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span className="text-sm">Creating archive...</span>
+                            </div>
+                        ) : (
+                            <>
+                                <input
+                                    type="text"
+                                    value={zipName}
+                                    onChange={(e) => setZipName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && zipName.trim()) executeZip();
+                                        if (e.key === 'Escape') { setZipModal(null); setZipName(''); }
+                                    }}
+                                    autoFocus
+                                    className="w-full px-3 py-2 rounded border theme-border theme-bg-primary text-sm mb-4"
+                                    placeholder="Archive name"
+                                />
+                                <div className="flex gap-2 justify-end">
+                                    <button
+                                        onClick={() => { setZipModal(null); setZipName(''); }}
+                                        className="px-3 py-1.5 text-sm rounded theme-hover"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={executeZip}
+                                        disabled={!zipName.trim()}
+                                        className="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                        Create Zip
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </>
             )}
