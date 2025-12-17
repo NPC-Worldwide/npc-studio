@@ -602,6 +602,24 @@ body.dark-mode .cm-gutters {
   border-right: 1px solid var(--theme-border-dark);
 }
 
+/* Compact line numbers */
+.cm-gutters {
+  padding-left: 0 !important;
+}
+.cm-lineNumbers {
+  min-width: unset !important;
+  width: auto !important;
+}
+.cm-lineNumbers .cm-gutterElement {
+  min-width: unset !important;
+  padding: 0 6px 0 4px !important;
+  text-align: right;
+}
+.cm-gutter.cm-lineNumbers {
+  min-width: unset !important;
+  width: auto !important;
+}
+
 body.dark-mode .cm-activeLine,
 body.dark-mode .cm-activeLineGutter {
   background-color: #334155;

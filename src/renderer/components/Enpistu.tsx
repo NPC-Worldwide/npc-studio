@@ -1051,8 +1051,15 @@ const ChatInterface = () => {
                 return;
             }
 
-            // Ctrl+Shift+C - New Conversation/Chat
+            // Ctrl+Shift+C - New Conversation/Chat (but not when in terminal - let terminal handle copy)
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+                // Check if focus is inside a terminal - if so, let the terminal handle the copy
+                const activeElement = document.activeElement;
+                const isInTerminal = activeElement?.closest('.xterm') || activeElement?.closest('[data-terminal]');
+                if (isInTerminal) {
+                    // Don't prevent default - let the terminal's copy handler work
+                    return;
+                }
                 e.preventDefault();
                 createNewConversationRef.current?.();
                 return;

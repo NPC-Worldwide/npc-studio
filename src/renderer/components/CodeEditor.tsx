@@ -59,11 +59,16 @@ const editorTheme = EditorView.theme({
         borderRight: '1px solid #313244',
     },
     '.cm-lineNumbers .cm-gutterElement': {
-        padding: '0 3px 0 5px',
-        minWidth: '20px',
+        padding: '0 2px 0 4px',
+        minWidth: 'unset',
     },
     '.cm-lineNumbers': {
-        minWidth: 'auto',
+        minWidth: 'unset',
+        width: 'auto',
+    },
+    '.cm-gutter.cm-lineNumbers': {
+        minWidth: 'unset',
+        width: 'auto',
     },
     '.cm-foldGutter .cm-gutterElement': {
         padding: '0 4px',
@@ -166,7 +171,7 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
         highlightActiveLineGutter(),
         highlightSpecialChars(),
         history(),
-        foldGutter(),
+        // foldGutter(), // Removed to save horizontal space
         drawSelection(),
         dropCursor(),
         indentOnInput(),

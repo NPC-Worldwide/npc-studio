@@ -219,8 +219,9 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         <div
             className="flex-1 flex flex-col theme-bg-secondary relative h-full"
             onContextMenu={handleContextMenu}
+            data-terminal="true"
         >
-            <div ref={terminalRef} className="w-full h-full" />
+            <div ref={terminalRef} className="w-full h-full" data-terminal="true" />
 
             {contextMenu && (
                 <>
