@@ -243,11 +243,67 @@
 }
 
 /* ============================================
-   SCALE FACTOR
+   SCALE FACTOR - Must be set on container and text layer
+   Required for pdfjs-dist text layer rendering
    ============================================ */
 
+/* Set on all possible containers - cascade down */
+:root {
+    --scale-factor: 1;
+}
+
+.pdf-viewer-container,
+.pdf-viewer-container *,
+.rpv-core__viewer,
+.rpv-core__inner-pages,
+.rpv-core__inner-page,
+.rpv-core__page-layer,
 .rpv-core__text-layer {
     --scale-factor: 1;
+}
+
+/* Ensure text layer is properly styled for selection */
+.rpv-core__text-layer {
+    --scale-factor: 1 !important;
+}
+
+/* Text layer spans - MUST be invisible but selectable */
+.rpv-core__text-layer > span,
+.rpv-core__text-layer span,
+.pdf-viewer-container .rpv-core__text-layer > span,
+.pdf-viewer-container .rpv-core__text-layer span {
+    position: absolute !important;
+    white-space: pre !important;
+    transform-origin: 0% 0% !important;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+    opacity: 1 !important;
+    background: transparent !important;
+    fill: transparent !important;
+}
+
+/* Hide the text visually but keep it selectable */
+.rpv-core__text-layer,
+.pdf-viewer-container .rpv-core__text-layer {
+    opacity: 1 !important;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+    fill: transparent !important;
+}
+
+/* Target any br elements that might show */
+.rpv-core__text-layer br,
+.pdf-viewer-container .rpv-core__text-layer br {
+    display: none !important;
+}
+
+/* Make sure inner page container has scale factor */
+.rpv-core__inner-page {
+    --scale-factor: 1 !important;
+}
+
+.rpv-core__page-layer {
+    --scale-factor: 1 !important;
 }
 
 /* ============================================
@@ -264,4 +320,28 @@
     opacity: 1 !important;
     pointer-events: none !important;
     z-index: 5 !important;
+}
+
+/* ============================================
+   HIGHLIGHT PLUGIN STYLES
+   ============================================ */
+
+/* Ensure highlight areas are visible */
+.rpv-highlight__area {
+    opacity: 0.4 !important;
+}
+
+/* Make sure highlight popover is visible */
+.rpv-highlight__popup {
+    z-index: 100 !important;
+}
+
+/* Text selection cursor */
+.rpv-core__text-layer:hover {
+    cursor: text !important;
+}
+
+/* Ensure highlight areas don't block text selection */
+.rpv-highlight__area--selected {
+    pointer-events: none !important;
 }

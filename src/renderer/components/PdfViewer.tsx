@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
-import { Viewer, Worker } from '@react-pdf-viewer/core';
+import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
 import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
+import { zoomPlugin } from '@react-pdf-viewer/zoom';
 import {
     ChevronLeft, ChevronRight, Highlighter, MessageSquare, Trash2,
-    Eye, EyeOff, Edit2, Save, X, PanelRightClose, PanelRightOpen
+    Eye, EyeOff, Edit2, Save, X, PanelRightClose, PanelRightOpen, Palette
 } from 'lucide-react';
 
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/default-layout/lib/styles/index.css';
+import '@react-pdf-viewer/zoom/lib/styles/index.css';
 import './PdfViewer.css';
 
 const HIGHLIGHT_COLORS = {
@@ -136,6 +138,103 @@ const PdfContextMenu = ({
                 )}
             </div>
         </>
+    );
+};
+
+// Highlight Note Form Component (for adding notes to highlights)
+const HighlightNoteForm = ({
+    onSave,
+    onCancel,
+    initialColor
+}: {
+    onSave: (note: string, color: string) => void;
+    onCancel: () => void;
+    initialColor: string;
+}) => {
+    const [note, setNote] = useState('');
+    const [color, setColor] = useState(initialColor);
+
+    return (
+        <div
+            style={{
+                background: '#1f2937',
+                border: '1px solid #374151',
+                borderRadius: '8px',
+                padding: '12px',
+                position: 'absolute',
+                zIndex: 100,
+                minWidth: '250px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+            }}
+        >
+            <div style={{ marginBottom: '10px' }}>
+                <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Highlight Color:</div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                    {Object.entries(HIGHLIGHT_COLORS).map(([c, { bg, border }]) => (
+                        <button
+                            key={c}
+                            onClick={() => setColor(c)}
+                            style={{
+                                width: '28px',
+                                height: '28px',
+                                background: bg,
+                                border: color === c ? '2px solid white' : `2px solid ${border}`,
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                            }}
+                            title={c}
+                        />
+                    ))}
+                </div>
+            </div>
+            <textarea
+                placeholder="Add a note (optional)..."
+                rows={3}
+                style={{
+                    background: '#374151',
+                    border: '1px solid #4b5563',
+                    borderRadius: '4px',
+                    padding: '8px',
+                    width: '100%',
+                    marginBottom: '10px',
+                    color: 'white',
+                    resize: 'none',
+                }}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                autoFocus
+            />
+            <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                    style={{
+                        flex: 1,
+                        background: '#3b82f6',
+                        border: 'none',
+                        borderRadius: '4px',
+                        color: 'white',
+                        cursor: 'pointer',
+                        padding: '8px 16px',
+                        fontWeight: 500,
+                    }}
+                    onClick={() => onSave(note, color)}
+                >
+                    Save
+                </button>
+                <button
+                    style={{
+                        background: '#4b5563',
+                        border: 'none',
+                        borderRadius: '4px',
+                        color: 'white',
+                        cursor: 'pointer',
+                        padding: '8px 16px',
+                    }}
+                    onClick={onCancel}
+                >
+                    Cancel
+                </button>
+            </div>
+        </div>
     );
 };
 
@@ -322,10 +421,38 @@ const PdfViewer = ({
     const [showAnnotationsPanel, setShowAnnotationsPanel] = useState(false);
     const [selectedHighlightId, setSelectedHighlightId] = useState<number | null>(null);
     const [selectedColor, setSelectedColor] = useState('yellow');
+    const [currentScale, setCurrentScale] = useState(1);
 
     const workerUrl = window.location.protocol === 'file:'
         ? `${window.location.href.substring(0, window.location.href.lastIndexOf('/'))}/pdf.worker.min.js`
         : `${window.location.origin}/pdf.worker.min.js`;
+
+    // Selection popup for highlighting
+    const [selectionPopup, setSelectionPopup] = useState<{
+        x: number;
+        y: number;
+        text: string;
+        position: any;
+    } | null>(null);
+
+    // Create zoom plugin to track scale
+    const zoomPluginInstance = zoomPlugin();
+
+    // Set scale factor on document load
+    const handleDocumentLoad = useCallback((e: any) => {
+        // Set initial scale factor on wrapper
+        const wrapper = viewerWrapperRef.current;
+        if (wrapper) {
+            wrapper.style.setProperty('--scale-factor', String(currentScale || 1));
+
+            // Also set on all existing text layers
+            const textLayers = wrapper.querySelectorAll('.rpv-core__text-layer');
+            textLayers.forEach((el: HTMLElement) => {
+                el.style.setProperty('--scale-factor', String(currentScale || 1));
+            });
+        }
+    }, [currentScale]);
+
     const defaultLayoutPluginInstance = defaultLayoutPlugin();
 
     const paneData = contentDataRef.current[nodeId];
@@ -456,6 +583,21 @@ const PdfViewer = ({
         loadHighlights();
     }, [nodeId, pdfHighlightsTrigger, loadHighlights]);
 
+    // Update scale factor when it changes
+    useEffect(() => {
+        const wrapper = viewerWrapperRef.current;
+        if (!wrapper || !currentScale) return;
+
+        // Set scale factor on wrapper
+        wrapper.style.setProperty('--scale-factor', String(currentScale));
+
+        // Set on all text layers
+        const textLayers = wrapper.querySelectorAll('.rpv-core__text-layer');
+        textLayers.forEach((el: HTMLElement) => {
+            el.style.setProperty('--scale-factor', String(currentScale));
+        });
+    }, [currentScale]);
+
     const handleActualTextSelect = useMemo(
         () => createPdfTextSelectHandler(setSelectedPdfText, setPdfSelectionIndicator, setPdfContextMenuPos),
         [createPdfTextSelectHandler, setSelectedPdfText, setPdfSelectionIndicator, setPdfContextMenuPos]
@@ -465,38 +607,76 @@ const PdfViewer = ({
         [createPdfContextMenuHandler, selectedPdfText, setPdfContextMenuPos]
     );
 
+    // Handle text selection - show popup with highlight options
     useEffect(() => {
         const wrapper = viewerWrapperRef.current;
         if (!wrapper) return;
 
         const handleMouseUp = (e) => {
-            if (!wrapper.contains(e.target)) return;
+            // Don't process if clicking on the popup itself
+            if (e.target.closest('.highlight-popup')) return;
+
+            if (!wrapper.contains(e.target)) {
+                setSelectionPopup(null);
+                return;
+            }
 
             setTimeout(() => {
                 const selection = window.getSelection();
                 const text = selection?.toString().trim();
 
-                if (text && text.length > 0 && handleActualTextSelect) {
+                if (text && text.length > 0) {
                     const range = selection.getRangeAt(0);
                     const rects = Array.from(range.getClientRects());
-                    const containerRect = wrapper.getBoundingClientRect();
-                    const position = {
-                        pageIndex: 0,
-                        rects: rects.map(rect => ({
+
+                    if (rects.length > 0) {
+                        // Find the page container to get relative positioning
+                        const pageContainer = (e.target as HTMLElement).closest('.rpv-core__page-layer');
+                        const containerRect = pageContainer
+                            ? pageContainer.getBoundingClientRect()
+                            : wrapper.getBoundingClientRect();
+
+                        const position = {
                             pageIndex: 0,
-                            left: ((rect.left - containerRect.left) / containerRect.width) * 100,
-                            top: ((rect.top - containerRect.top) / containerRect.height) * 100,
-                            width: (rect.width / containerRect.width) * 100,
-                            height: (rect.height / containerRect.height) * 100
-                        }))
-                    };
-                    handleActualTextSelect({
-                        text: text,
-                        position: position,
-                        timestamp: Date.now()
-                    });
+                            rects: rects.map(rect => ({
+                                pageIndex: 0,
+                                left: ((rect.left - containerRect.left) / containerRect.width) * 100,
+                                top: ((rect.top - containerRect.top) / containerRect.height) * 100,
+                                width: (rect.width / containerRect.width) * 100,
+                                height: (rect.height / containerRect.height) * 100
+                            }))
+                        };
+
+                        // Get the last rect for popup positioning
+                        const lastRect = rects[rects.length - 1];
+
+                        setSelectionPopup({
+                            x: lastRect.right,
+                            y: lastRect.bottom + 8,
+                            text: text,
+                            position: position
+                        });
+
+                        // Also update the old selection state for context menu
+                        if (handleActualTextSelect) {
+                            handleActualTextSelect({
+                                text: text,
+                                position: position,
+                                timestamp: Date.now()
+                            });
+                        }
+                    }
+                } else {
+                    setSelectionPopup(null);
                 }
             }, 50);
+        };
+
+        const handleMouseDown = (e) => {
+            // Hide popup when clicking elsewhere (but not on the popup)
+            if (!e.target.closest('.highlight-popup')) {
+                setSelectionPopup(null);
+            }
         };
 
         const contextMenuListener = (e) => {
@@ -505,13 +685,24 @@ const PdfViewer = ({
         };
 
         document.addEventListener('mouseup', handleMouseUp);
+        document.addEventListener('mousedown', handleMouseDown);
         document.addEventListener('contextmenu', contextMenuListener, true);
 
         return () => {
             document.removeEventListener('mouseup', handleMouseUp);
+            document.removeEventListener('mousedown', handleMouseDown);
             document.removeEventListener('contextmenu', contextMenuListener);
         };
     }, [handleActualTextSelect, handleActualContextMenu]);
+
+    // Handle highlighting from the popup
+    const handleQuickHighlight = useCallback((color: string) => {
+        if (selectionPopup) {
+            handleHighlightPdfSelection(selectionPopup.text, selectionPopup.position, color);
+            setSelectionPopup(null);
+            window.getSelection()?.removeAllRanges();
+        }
+    }, [selectionPopup, handleHighlightPdfSelection]);
 
     if (error) return <div className="p-4 text-red-500">Error: {error}</div>;
     if (!pdfData) return <div className="p-4">Loading PDF...</div>;
@@ -521,7 +712,8 @@ const PdfViewer = ({
             {/* Main PDF viewer */}
             <div
                 ref={viewerWrapperRef}
-                className="flex-1 relative overflow-hidden"
+                className="flex-1 relative overflow-hidden pdf-viewer-container"
+                style={{ ['--scale-factor' as any]: currentScale || 1 }}
             >
                 {/* Toggle annotations panel button */}
                 <button
@@ -535,45 +727,39 @@ const PdfViewer = ({
                 <Worker workerUrl={workerUrl}>
                     <Viewer
                         fileUrl={pdfData}
-                        plugins={[defaultLayoutPluginInstance]}
-                        renderViewer={(viewerProps) => (
-                            <div className="pdf-viewer-container">
-                                {viewerProps.children}
-                                {pdfSelectionIndicator && (
-                                    <div
-                                        style={{
-                                            position: 'absolute',
-                                            left: 0,
-                                            top: 0,
-                                            width: '100%',
-                                            height: '100%',
-                                            pointerEvents: 'none'
-                                        }}
-                                    >
-                                        {pdfSelectionIndicator.rects.map((rect, idx) => (
-                                            <div
-                                                key={idx}
-                                                style={{
-                                                    position: 'absolute',
-                                                    left: `${rect.left}%`,
-                                                    top: `${rect.top}%`,
-                                                    width: `${rect.width}%`,
-                                                    height: `${rect.height}%`,
-                                                    backgroundColor: 'rgba(255, 255, 0, 0.4)',
-                                                }}
-                                            />
-                                        ))}
-                                    </div>
-                                )}
-                                {showHighlights && pdfHighlights && pdfHighlights.length > 0 && pdfHighlights.map((highlight, idx) => {
-                                    const rects = highlight.position?.rects || [];
+                        plugins={[defaultLayoutPluginInstance, zoomPluginInstance]}
+                        defaultScale={SpecialZoomLevel.PageWidth}
+                        onDocumentLoad={handleDocumentLoad}
+                        onZoom={(e) => {
+                            setCurrentScale(e.scale);
+                            // Update scale factors on all text layers
+                            const wrapper = viewerWrapperRef.current;
+                            if (wrapper) {
+                                requestAnimationFrame(() => {
+                                    const textLayers = wrapper.querySelectorAll('.rpv-core__text-layer');
+                                    textLayers.forEach((textLayer: HTMLElement) => {
+                                        textLayer.style.setProperty('--scale-factor', String(e.scale));
+                                    });
+                                });
+                            }
+                        }}
+                        renderPage={(props) => (
+                            <>
+                                {props.canvasLayer.children}
+                                {props.textLayer.children}
+                                {props.annotationLayer.children}
+                                {/* Render highlights for this page */}
+                                {showHighlights && pdfHighlights && pdfHighlights.map((highlight, idx) => {
+                                    const rects = (highlight.position?.rects || []).filter(r =>
+                                        r.pageIndex === props.pageIndex
+                                    );
                                     if (rects.length === 0) return null;
                                     const colorStyle = HIGHLIGHT_COLORS[highlight.color || 'yellow'] || HIGHLIGHT_COLORS.yellow;
                                     const isSelected = selectedHighlightId === highlight.id;
 
                                     return rects.map((rect, rectIdx) => (
                                         <div
-                                            key={`${idx}-${rectIdx}-highlight`}
+                                            key={`${highlight.id}-${rectIdx}`}
                                             style={{
                                                 position: 'absolute',
                                                 left: `${rect.left}%`,
@@ -581,16 +767,66 @@ const PdfViewer = ({
                                                 width: `${rect.width}%`,
                                                 height: `${rect.height}%`,
                                                 backgroundColor: colorStyle.bg,
-                                                border: isSelected ? '2px solid blue' : `1px solid ${colorStyle.border}`,
+                                                border: isSelected ? '2px solid #3b82f6' : 'none',
                                                 pointerEvents: 'none',
+                                                zIndex: 1,
+                                                mixBlendMode: 'multiply',
                                             }}
                                         />
                                     ));
                                 })}
-                            </div>
+                            </>
                         )}
                     />
                 </Worker>
+
+                {/* Selection popup with color buttons */}
+                {selectionPopup && (
+                    <div
+                        className="highlight-popup fixed z-50"
+                        style={{
+                            left: selectionPopup.x,
+                            top: selectionPopup.y,
+                        }}
+                    >
+                        <div
+                            className="flex gap-1 p-2 rounded-lg shadow-lg"
+                            style={{
+                                background: '#1f2937',
+                                border: '1px solid #374151',
+                            }}
+                        >
+                            {Object.entries(HIGHLIGHT_COLORS).map(([colorName, { bg, border }]) => (
+                                <button
+                                    key={colorName}
+                                    onClick={() => handleQuickHighlight(colorName)}
+                                    className="w-7 h-7 rounded transition-transform hover:scale-110"
+                                    style={{
+                                        background: bg,
+                                        border: `2px solid ${border}`,
+                                    }}
+                                    title={`Highlight ${colorName}`}
+                                />
+                            ))}
+                            <button
+                                onClick={() => {
+                                    if (selectionPopup) {
+                                        navigator.clipboard.writeText(selectionPopup.text);
+                                        setSelectionPopup(null);
+                                    }
+                                }}
+                                className="w-7 h-7 rounded flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700"
+                                style={{ background: '#374151' }}
+                                title="Copy text"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 <PdfContextMenu
                     pdfContextMenuPos={pdfContextMenuPos}
