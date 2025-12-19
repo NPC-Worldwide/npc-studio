@@ -4,7 +4,7 @@ import {
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
-    Image as ImageIcon, Tag
+    Image as ImageIcon, Tag, Folder
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
@@ -711,6 +711,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'image') {
             headerIcon = <ImageIcon size={14} className="text-purple-400" />;
             headerTitle = contentId?.split('/').pop() || 'Image Viewer';
+        } else if (contentType === 'folder') {
+            headerIcon = <Folder size={14} className="text-yellow-400" />;
+            headerTitle = contentId?.split('/').pop() || 'Folder';
         } else if (contentId) {
             headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();

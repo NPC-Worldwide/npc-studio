@@ -13,7 +13,9 @@ readDocxContent: (filePath) =>
     readDirectoryStructure: (dirPath) => ipcRenderer.invoke('readDirectoryStructure', dirPath),
     goUpDirectory: (currentPath) => ipcRenderer.invoke('goUpDirectory', currentPath),
     readDirectory: (dirPath) => ipcRenderer.invoke('readDirectory', dirPath),
+    ensureDir: (dirPath) => ipcRenderer.invoke('ensureDirectory', dirPath),
     ensureDirectory: (dirPath) => ipcRenderer.invoke('ensureDirectory', dirPath),
+    getHomeDir: () => ipcRenderer.invoke('getHomeDir'),
     readDirectoryImages: (dirPath) => ipcRenderer.invoke('readDirectoryImages', dirPath),
     open_directory_picker: () => ipcRenderer.invoke('open_directory_picker'),
 
@@ -134,6 +136,8 @@ readDocxContent: (filePath) =>
     
     getHighlightsForFile: (filePath) => ipcRenderer.invoke('db:getHighlightsForFile', { filePath }),
     addPdfHighlight: (data) => ipcRenderer.invoke('db:addPdfHighlight', data),
+    updatePdfHighlight: (data) => ipcRenderer.invoke('db:updatePdfHighlight', data),
+    deletePdfHighlight: (id) => ipcRenderer.invoke('db:deletePdfHighlight', { id }),
 
     deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
     zipItems: (itemPaths, zipName) => ipcRenderer.invoke('zip-items', itemPaths, zipName),

@@ -1,516 +1,432 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-    X, Loader, FileText, Folder, FolderOpen,
-    Grid, List, Search, Book, FileType, ChevronLeft, ChevronRight,
-    Star, Clock, Tag, Filter, SortAsc, SortDesc, Home, RefreshCw
+    FileText, Search, Grid, List, RefreshCw, Folder, Book,
+    SortAsc, SortDesc, Home, FolderOpen, Star, StarOff, ChevronRight
 } from 'lucide-react';
 
-const ITEMS_PER_PAGE = 20;
-
-interface DocumentItem {
-    path: string;
+interface Document {
     name: string;
-    type: 'pdf' | 'epub' | 'folder';
-    size?: number;
-    modified?: string;
-    pages?: number;
-    coverUrl?: string;
+    path: string;
+    type: 'pdf' | 'epub';
+    size: number;
+    modified: string;
+    favorite?: boolean;
 }
 
 interface LibraryViewerProps {
     currentPath: string;
-    onOpenDocument: (path: string, type: 'pdf' | 'epub') => void;
+    onOpenDocument: (path: string, type: string) => void;
     onClose?: () => void;
 }
 
-const LibraryViewer: React.FC<LibraryViewerProps> = ({ currentPath, onOpenDocument, onClose }) => {
-    const [loading, setLoading] = useState(false);
+const formatFileSize = (bytes: number): string => {
+    if (!bytes || bytes === 0) return '--';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
+const formatDate = (isoString: string): string => {
+    if (!isoString) return '--';
+    try {
+        const date = new Date(isoString);
+        return date.toLocaleDateString();
+    } catch {
+        return '--';
+    }
+};
+
+const getDocIcon = (type: string) => {
+    if (type === 'pdf') {
+        return <FileText size={20} className="text-red-400" />;
+    }
+    return <Book size={20} className="text-green-400" />;
+};
+
+const DOC_EXTENSIONS = ['pdf', 'epub'];
+
+const LibraryViewer: React.FC<LibraryViewerProps> = ({ currentPath, onOpenDocument }) => {
+    const [documents, setDocuments] = useState<Document[]>([]);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [libraryPath, setLibraryPath] = useState(currentPath || '~/Documents');
-    const [isEditingPath, setIsEditingPath] = useState(false);
-    const [documents, setDocuments] = useState<DocumentItem[]>([]);
-    const [folders, setFolders] = useState<DocumentItem[]>([]);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-    const [sortBy, setSortBy] = useState<'name' | 'date' | 'size'>('name');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-    const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
-    const [currentPage, setCurrentPage] = useState(0);
-    const [pathHistory, setPathHistory] = useState<string[]>([]);
-    const [recentDocuments, setRecentDocuments] = useState<DocumentItem[]>([]);
-    const [showRecent, setShowRecent] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+    const [sortBy, setSortBy] = useState<'name' | 'size' | 'modified' | 'type'>('name');
+    const [sortAsc, setSortAsc] = useState(true);
+    const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
+    const [favorites, setFavorites] = useState<Set<string>>(new Set());
+    const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+    const [activeSource, setActiveSource] = useState<'workspace' | 'library' | 'all'>('all');
 
-    const pathInputRef = useRef<HTMLInputElement>(null);
+    // Load favorites from localStorage
+    useEffect(() => {
+        const saved = localStorage.getItem('library_favorites');
+        if (saved) {
+            setFavorites(new Set(JSON.parse(saved)));
+        }
+    }, []);
 
-    // Load documents from the current path
-    const loadDocuments = useCallback(async (path: string) => {
+    // Save favorites to localStorage
+    const saveFavorites = useCallback((favs: Set<string>) => {
+        localStorage.setItem('library_favorites', JSON.stringify([...favs]));
+    }, []);
+
+    const toggleFavorite = useCallback((path: string) => {
+        setFavorites(prev => {
+            const next = new Set(prev);
+            if (next.has(path)) {
+                next.delete(path);
+            } else {
+                next.add(path);
+            }
+            saveFavorites(next);
+            return next;
+        });
+    }, [saveFavorites]);
+
+    // Scan directory for documents recursively
+    const scanDirectory = useCallback(async (dirPath: string, maxDepth: number = 3): Promise<Document[]> => {
+        const docs: Document[] = [];
+
+        const scan = async (path: string, depth: number) => {
+            if (depth > maxDepth) return;
+
+            try {
+                const items = await (window as any).api?.readDirectory?.(path);
+                if (!items || !Array.isArray(items)) return;
+
+                for (const item of items) {
+                    if (item.isDirectory) {
+                        // Skip node_modules, .git, etc.
+                        if (!['node_modules', '.git', '__pycache__', '.next', 'dist', 'build'].includes(item.name)) {
+                            await scan(item.path, depth + 1);
+                        }
+                    } else {
+                        const ext = item.name.split('.').pop()?.toLowerCase() || '';
+                        if (DOC_EXTENSIONS.includes(ext)) {
+                            docs.push({
+                                name: item.name,
+                                path: item.path,
+                                type: ext as Document['type'],
+                                size: item.size || 0,
+                                modified: item.modified || ''
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn(`Failed to scan ${path}:`, e);
+            }
+        };
+
+        await scan(dirPath, 0);
+        return docs;
+    }, []);
+
+    // Load documents from both sources
+    const loadDocuments = useCallback(async () => {
         setLoading(true);
         setError(null);
+
         try {
-            // Get directory listing
-            const result = await (window as any).api?.readDir?.(path);
-            if (!result || result.error) {
-                setError(result?.error || 'Failed to read directory');
-                setLoading(false);
-                return;
+            const allDocs: Document[] = [];
+
+            // Scan workspace
+            if (activeSource === 'workspace' || activeSource === 'all') {
+                const workspaceDocs = await scanDirectory(currentPath);
+                allDocs.push(...workspaceDocs);
             }
 
-            const items = result.entries || [];
-            const docs: DocumentItem[] = [];
-            const dirs: DocumentItem[] = [];
-
-            for (const item of items) {
-                if (item.isDirectory) {
-                    dirs.push({
-                        path: item.path,
-                        name: item.name,
-                        type: 'folder'
-                    });
-                } else {
-                    const ext = item.name.toLowerCase().split('.').pop();
-                    if (ext === 'pdf') {
-                        docs.push({
-                            path: item.path,
-                            name: item.name,
-                            type: 'pdf',
-                            size: item.size,
-                            modified: item.mtime
-                        });
-                    } else if (ext === 'epub') {
-                        docs.push({
-                            path: item.path,
-                            name: item.name,
-                            type: 'epub',
-                            size: item.size,
-                            modified: item.mtime
-                        });
+            // Scan ~/.npcsh/pdfs
+            if (activeSource === 'library' || activeSource === 'all') {
+                const homeDir = await (window as any).api?.getHomeDir?.();
+                if (homeDir) {
+                    const libraryPath = `${homeDir}/.npcsh/pdfs`;
+                    // Ensure directory exists
+                    try {
+                        await (window as any).api?.ensureDir?.(libraryPath);
+                        const libraryDocs = await scanDirectory(libraryPath);
+                        allDocs.push(...libraryDocs);
+                    } catch (e) {
+                        console.warn('Library directory not accessible:', e);
                     }
                 }
             }
 
-            // Sort folders and documents
-            dirs.sort((a, b) => a.name.localeCompare(b.name));
-            setFolders(dirs);
-            setDocuments(docs);
-            setCurrentPage(0);
+            // Deduplicate by path
+            const uniqueDocs = Array.from(new Map(allDocs.map(d => [d.path, d])).values());
+            setDocuments(uniqueDocs);
         } catch (err: any) {
             setError(err.message || 'Failed to load documents');
-        } finally {
-            setLoading(false);
         }
-    }, []);
 
-    // Load recent documents
-    const loadRecentDocuments = useCallback(async () => {
-        try {
-            const recent = await (window as any).api?.getRecentDocuments?.();
-            if (recent && Array.isArray(recent)) {
-                setRecentDocuments(recent.filter((r: any) =>
-                    r.path.endsWith('.pdf') || r.path.endsWith('.epub')
-                ).map((r: any) => ({
-                    path: r.path,
-                    name: r.path.split('/').pop() || r.path,
-                    type: r.path.endsWith('.pdf') ? 'pdf' : 'epub'
-                })));
-            }
-        } catch (e) {
-            // No recent docs available
-        }
-    }, []);
+        setLoading(false);
+    }, [currentPath, activeSource, scanDirectory]);
 
     useEffect(() => {
-        loadDocuments(libraryPath);
-        loadRecentDocuments();
-    }, [libraryPath, loadDocuments, loadRecentDocuments]);
-
-    // Navigate to a folder
-    const navigateToFolder = useCallback((path: string) => {
-        setPathHistory(prev => [...prev, libraryPath]);
-        setLibraryPath(path);
-    }, [libraryPath]);
-
-    // Go back in history
-    const goBack = useCallback(() => {
-        if (pathHistory.length > 0) {
-            const prevPath = pathHistory[pathHistory.length - 1];
-            setPathHistory(prev => prev.slice(0, -1));
-            setLibraryPath(prevPath);
-        }
-    }, [pathHistory]);
-
-    // Go to home directory
-    const goHome = useCallback(() => {
-        setPathHistory([]);
-        setLibraryPath('~/Documents');
-    }, []);
-
-    // Handle document click
-    const handleDocumentClick = useCallback((doc: DocumentItem) => {
-        if (doc.type === 'folder') {
-            navigateToFolder(doc.path);
-        } else {
-            onOpenDocument(doc.path, doc.type);
-        }
-    }, [navigateToFolder, onOpenDocument]);
+        loadDocuments();
+    }, [loadDocuments]);
 
     // Filter and sort documents
-    const filteredDocs = documents
-        .filter(doc => doc.name.toLowerCase().includes(searchTerm.toLowerCase()))
-        .sort((a, b) => {
+    const filteredDocs = useMemo(() => {
+        let result = [...documents];
+
+        // Filter by favorites
+        if (showFavoritesOnly) {
+            result = result.filter(d => favorites.has(d.path));
+        }
+
+        // Filter by search
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            result = result.filter(d => d.name.toLowerCase().includes(q));
+        }
+
+        // Sort
+        result.sort((a, b) => {
             let cmp = 0;
-            if (sortBy === 'name') {
-                cmp = a.name.localeCompare(b.name);
-            } else if (sortBy === 'date') {
-                cmp = (a.modified || '').localeCompare(b.modified || '');
-            } else if (sortBy === 'size') {
-                cmp = (a.size || 0) - (b.size || 0);
+            switch (sortBy) {
+                case 'name':
+                    cmp = a.name.localeCompare(b.name);
+                    break;
+                case 'size':
+                    cmp = (a.size || 0) - (b.size || 0);
+                    break;
+                case 'modified':
+                    cmp = (a.modified || '').localeCompare(b.modified || '');
+                    break;
+                case 'type':
+                    cmp = a.type.localeCompare(b.type);
+                    break;
             }
-            return sortOrder === 'asc' ? cmp : -cmp;
+            return sortAsc ? cmp : -cmp;
         });
 
-    // Pagination
-    const totalPages = Math.ceil(filteredDocs.length / ITEMS_PER_PAGE);
-    const paginatedDocs = filteredDocs.slice(
-        currentPage * ITEMS_PER_PAGE,
-        (currentPage + 1) * ITEMS_PER_PAGE
-    );
+        return result;
+    }, [documents, searchQuery, sortBy, sortAsc, showFavoritesOnly, favorites]);
 
-    // Format file size
-    const formatSize = (bytes?: number) => {
-        if (!bytes) return '-';
-        if (bytes < 1024) return `${bytes} B`;
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    };
-
-    // Toggle sort
-    const toggleSort = (field: 'name' | 'date' | 'size') => {
-        if (sortBy === field) {
-            setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortBy(field);
-            setSortOrder('asc');
-        }
-    };
+    const handleOpenDocument = useCallback((doc: Document) => {
+        onOpenDocument(doc.path, doc.type);
+    }, [onOpenDocument]);
 
     return (
-        <div className="flex flex-col h-full theme-bg-primary">
-            {/* Header */}
-            <div className="flex items-center gap-2 p-3 border-b theme-border theme-bg-secondary">
-                <button
-                    onClick={goBack}
-                    disabled={pathHistory.length === 0}
-                    className="p-1.5 theme-hover rounded disabled:opacity-30"
-                    title="Go back"
-                >
-                    <ChevronLeft size={18} />
-                </button>
-                <button
-                    onClick={goHome}
-                    className="p-1.5 theme-hover rounded"
-                    title="Home"
-                >
-                    <Home size={18} />
-                </button>
-                <button
-                    onClick={() => loadDocuments(libraryPath)}
-                    className="p-1.5 theme-hover rounded"
-                    title="Refresh"
-                >
-                    <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-                </button>
-
-                {/* Path breadcrumb */}
-                <div className="flex-1 flex items-center gap-1 px-2 py-1 theme-bg-tertiary rounded text-sm overflow-hidden">
-                    <Folder size={14} className="text-yellow-400 flex-shrink-0" />
-                    {isEditingPath ? (
-                        <input
-                            ref={pathInputRef}
-                            type="text"
-                            value={libraryPath}
-                            onChange={(e) => setLibraryPath(e.target.value)}
-                            onBlur={() => setIsEditingPath(false)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    setIsEditingPath(false);
-                                    loadDocuments(libraryPath);
-                                } else if (e.key === 'Escape') {
-                                    setIsEditingPath(false);
-                                }
-                            }}
-                            className="flex-1 bg-transparent outline-none theme-text-primary"
-                            autoFocus
-                        />
-                    ) : (
-                        <span
-                            onClick={() => setIsEditingPath(true)}
-                            className="truncate cursor-pointer hover:underline theme-text-primary"
-                        >
-                            {libraryPath}
-                        </span>
-                    )}
+        <div className="flex-1 flex flex-col min-h-0 theme-bg-primary">
+            {/* Toolbar */}
+            <div className="flex items-center gap-2 p-2 border-b theme-border theme-bg-secondary">
+                {/* Source tabs */}
+                <div className="flex border theme-border rounded overflow-hidden mr-2">
+                    <button
+                        onClick={() => setActiveSource('all')}
+                        className={`px-3 py-1.5 text-xs ${activeSource === 'all' ? 'bg-blue-600 text-white' : 'theme-hover'}`}
+                        title="All documents"
+                    >
+                        All
+                    </button>
+                    <button
+                        onClick={() => setActiveSource('workspace')}
+                        className={`px-3 py-1.5 text-xs flex items-center gap-1 ${activeSource === 'workspace' ? 'bg-blue-600 text-white' : 'theme-hover'}`}
+                        title="Workspace documents"
+                    >
+                        <FolderOpen size={12} /> Workspace
+                    </button>
+                    <button
+                        onClick={() => setActiveSource('library')}
+                        className={`px-3 py-1.5 text-xs flex items-center gap-1 ${activeSource === 'library' ? 'bg-blue-600 text-white' : 'theme-hover'}`}
+                        title="~/.npcsh/pdfs"
+                    >
+                        <Home size={12} /> Library
+                    </button>
                 </div>
 
+                <button
+                    onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+                    className={`p-1.5 rounded ${showFavoritesOnly ? 'bg-yellow-500/20 text-yellow-400' : 'theme-hover'}`}
+                    title="Show favorites only"
+                >
+                    <Star size={16} />
+                </button>
+
+                <button
+                    onClick={loadDocuments}
+                    className="p-1.5 rounded theme-hover"
+                    title="Refresh"
+                >
+                    <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                </button>
+
                 {/* Search */}
-                <div className="flex items-center gap-1 px-2 py-1 theme-bg-tertiary rounded">
-                    <Search size={14} className="opacity-50" />
+                <div className="flex-1 relative">
+                    <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
                     <input
                         type="text"
-                        placeholder="Search..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-32 bg-transparent outline-none text-sm theme-text-primary"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search documents..."
+                        className="w-full pl-7 pr-2 py-1.5 text-sm rounded bg-gray-800 border theme-border focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                 </div>
 
-                {/* View mode toggle */}
-                <div className="flex items-center gap-1 border-l theme-border pl-2">
+                {/* Sort */}
+                <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="px-2 py-1.5 text-sm bg-gray-800 border theme-border rounded"
+                >
+                    <option value="name">Name</option>
+                    <option value="type">Type</option>
+                    <option value="size">Size</option>
+                    <option value="modified">Modified</option>
+                </select>
+
+                <button
+                    onClick={() => setSortAsc(!sortAsc)}
+                    className="p-1.5 rounded theme-hover"
+                    title={sortAsc ? 'Sort ascending' : 'Sort descending'}
+                >
+                    {sortAsc ? <SortAsc size={16} /> : <SortDesc size={16} />}
+                </button>
+
+                {/* View mode */}
+                <div className="flex border theme-border rounded overflow-hidden">
                     <button
                         onClick={() => setViewMode('grid')}
-                        className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-blue-500/30 text-blue-400' : 'theme-hover'}`}
+                        className={`p-1.5 ${viewMode === 'grid' ? 'bg-blue-600' : 'theme-hover'}`}
                         title="Grid view"
                     >
-                        <Grid size={16} />
+                        <Grid size={14} />
                     </button>
                     <button
                         onClick={() => setViewMode('list')}
-                        className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-blue-500/30 text-blue-400' : 'theme-hover'}`}
+                        className={`p-1.5 ${viewMode === 'list' ? 'bg-blue-600' : 'theme-hover'}`}
                         title="List view"
                     >
-                        <List size={16} />
+                        <List size={14} />
                     </button>
                 </div>
-
-                {/* Recent toggle */}
-                <button
-                    onClick={() => setShowRecent(!showRecent)}
-                    className={`p-1.5 rounded ${showRecent ? 'bg-yellow-500/30 text-yellow-400' : 'theme-hover'}`}
-                    title="Recent documents"
-                >
-                    <Clock size={16} />
-                </button>
-
-                {onClose && (
-                    <button onClick={onClose} className="p-1.5 theme-hover rounded text-red-400">
-                        <X size={18} />
-                    </button>
-                )}
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-auto p-3">
+            <div className="flex-1 overflow-auto p-2">
                 {loading ? (
-                    <div className="flex items-center justify-center h-full">
-                        <Loader className="animate-spin" size={32} />
+                    <div className="flex items-center justify-center h-full text-gray-500">
+                        <RefreshCw size={24} className="animate-spin mr-2" />
+                        Scanning for documents...
                     </div>
                 ) : error ? (
-                    <div className="flex flex-col items-center justify-center h-full text-red-400">
-                        <p>{error}</p>
-                        <button
-                            onClick={() => loadDocuments(libraryPath)}
-                            className="mt-2 px-3 py-1 theme-button-secondary rounded"
-                        >
-                            Retry
-                        </button>
+                    <div className="flex items-center justify-center h-full text-red-400">
+                        {error}
                     </div>
-                ) : showRecent ? (
-                    /* Recent documents view */
-                    <div>
-                        <h3 className="text-sm font-medium theme-text-muted mb-3 flex items-center gap-2">
-                            <Clock size={14} /> Recent Documents
-                        </h3>
-                        {recentDocuments.length === 0 ? (
-                            <p className="text-center theme-text-muted py-8">No recent documents</p>
-                        ) : viewMode === 'grid' ? (
-                            <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-                                {recentDocuments.map((doc) => (
-                                    <DocumentCard
-                                        key={doc.path}
-                                        doc={doc}
-                                        onClick={() => handleDocumentClick(doc)}
-                                    />
-                                ))}
+                ) : filteredDocs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                        <FileText size={48} className="opacity-30 mb-4" />
+                        <p>{searchQuery ? 'No matching documents' : 'No documents found'}</p>
+                        <p className="text-xs mt-2">
+                            Documents in workspace and ~/.npcsh/pdfs will appear here
+                        </p>
+                    </div>
+                ) : viewMode === 'grid' ? (
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
+                        {filteredDocs.map(doc => (
+                            <div
+                                key={doc.path}
+                                onClick={() => setSelectedDoc(doc.path)}
+                                onDoubleClick={() => handleOpenDocument(doc)}
+                                className={`flex flex-col items-center gap-2 p-4 rounded-lg cursor-pointer transition-colors ${
+                                    selectedDoc === doc.path
+                                        ? 'bg-blue-600/30 ring-1 ring-blue-500'
+                                        : 'hover:bg-gray-800'
+                                }`}
+                            >
+                                <div className="relative">
+                                    <div className={`w-16 h-20 rounded flex items-center justify-center ${
+                                        doc.type === 'pdf' ? 'bg-red-900/30' :
+                                        doc.type === 'epub' ? 'bg-green-900/30' :
+                                        'bg-gray-800'
+                                    }`}>
+                                        {getDocIcon(doc.type)}
+                                    </div>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); toggleFavorite(doc.path); }}
+                                        className="absolute -top-1 -right-1 p-0.5"
+                                    >
+                                        {favorites.has(doc.path) ? (
+                                            <Star size={14} className="text-yellow-400 fill-yellow-400" />
+                                        ) : (
+                                            <Star size={14} className="text-gray-600 hover:text-gray-400" />
+                                        )}
+                                    </button>
+                                </div>
+                                <div className="text-center w-full">
+                                    <p className="text-xs truncate" title={doc.name}>
+                                        {doc.name}
+                                    </p>
+                                    <p className="text-xs text-gray-500 uppercase">
+                                        {doc.type}
+                                    </p>
+                                </div>
                             </div>
-                        ) : (
-                            <div className="space-y-1">
-                                {recentDocuments.map((doc) => (
-                                    <DocumentRow
-                                        key={doc.path}
-                                        doc={doc}
-                                        onClick={() => handleDocumentClick(doc)}
-                                        formatSize={formatSize}
-                                    />
-                                ))}
-                            </div>
-                        )}
+                        ))}
                     </div>
                 ) : (
-                    /* Main library view */
-                    <div>
-                        {/* Folders */}
-                        {folders.length > 0 && (
-                            <div className="mb-4">
-                                <h3 className="text-sm font-medium theme-text-muted mb-2 flex items-center gap-2">
-                                    <FolderOpen size={14} /> Folders
-                                </h3>
-                                <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-                                    {folders.map((folder) => (
-                                        <button
-                                            key={folder.path}
-                                            onClick={() => navigateToFolder(folder.path)}
-                                            className="flex flex-col items-center gap-1 p-2 rounded theme-hover"
-                                        >
-                                            <Folder size={32} className="text-yellow-400" />
-                                            <span className="text-xs truncate w-full text-center">
-                                                {folder.name}
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Documents */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <h3 className="text-sm font-medium theme-text-muted flex items-center gap-2">
-                                    <Book size={14} /> Documents ({filteredDocs.length})
-                                </h3>
-                                <div className="flex items-center gap-2 text-xs">
-                                    <button
-                                        onClick={() => toggleSort('name')}
-                                        className={`flex items-center gap-1 px-2 py-1 rounded ${sortBy === 'name' ? 'bg-blue-500/20 text-blue-400' : 'theme-hover'}`}
-                                    >
-                                        Name
-                                        {sortBy === 'name' && (sortOrder === 'asc' ? <SortAsc size={12} /> : <SortDesc size={12} />)}
-                                    </button>
-                                    <button
-                                        onClick={() => toggleSort('date')}
-                                        className={`flex items-center gap-1 px-2 py-1 rounded ${sortBy === 'date' ? 'bg-blue-500/20 text-blue-400' : 'theme-hover'}`}
-                                    >
-                                        Date
-                                        {sortBy === 'date' && (sortOrder === 'asc' ? <SortAsc size={12} /> : <SortDesc size={12} />)}
-                                    </button>
-                                    <button
-                                        onClick={() => toggleSort('size')}
-                                        className={`flex items-center gap-1 px-2 py-1 rounded ${sortBy === 'size' ? 'bg-blue-500/20 text-blue-400' : 'theme-hover'}`}
-                                    >
-                                        Size
-                                        {sortBy === 'size' && (sortOrder === 'asc' ? <SortAsc size={12} /> : <SortDesc size={12} />)}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {paginatedDocs.length === 0 ? (
-                                <p className="text-center theme-text-muted py-8">
-                                    {searchTerm ? 'No documents match your search' : 'No PDF or EPUB files in this folder'}
-                                </p>
-                            ) : viewMode === 'grid' ? (
-                                <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-                                    {paginatedDocs.map((doc) => (
-                                        <DocumentCard
-                                            key={doc.path}
-                                            doc={doc}
-                                            onClick={() => handleDocumentClick(doc)}
-                                        />
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="space-y-1">
-                                    {paginatedDocs.map((doc) => (
-                                        <DocumentRow
-                                            key={doc.path}
-                                            doc={doc}
-                                            onClick={() => handleDocumentClick(doc)}
-                                            formatSize={formatSize}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-
-                            {/* Pagination */}
-                            {totalPages > 1 && (
-                                <div className="flex items-center justify-center gap-2 mt-4">
-                                    <button
-                                        onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-                                        disabled={currentPage === 0}
-                                        className="p-1.5 theme-hover rounded disabled:opacity-30"
-                                    >
-                                        <ChevronLeft size={16} />
-                                    </button>
-                                    <span className="text-sm theme-text-muted">
-                                        Page {currentPage + 1} of {totalPages}
-                                    </span>
-                                    <button
-                                        onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
-                                        disabled={currentPage >= totalPages - 1}
-                                        className="p-1.5 theme-hover rounded disabled:opacity-30"
-                                    >
-                                        <ChevronRight size={16} />
-                                    </button>
-                                </div>
-                            )}
+                    <div className="space-y-0.5">
+                        {/* List header */}
+                        <div className="flex items-center gap-2 px-2 py-1 text-xs text-gray-500 border-b theme-border">
+                            <span className="w-6"></span>
+                            <span className="flex-1">Name</span>
+                            <span className="w-16 text-center">Type</span>
+                            <span className="w-20 text-right">Size</span>
+                            <span className="w-28 text-right">Modified</span>
                         </div>
+                        {filteredDocs.map(doc => (
+                            <div
+                                key={doc.path}
+                                onClick={() => setSelectedDoc(doc.path)}
+                                onDoubleClick={() => handleOpenDocument(doc)}
+                                className={`flex items-center gap-2 px-2 py-2 rounded cursor-pointer transition-colors ${
+                                    selectedDoc === doc.path
+                                        ? 'bg-blue-600/30 ring-1 ring-blue-500'
+                                        : 'hover:bg-gray-800'
+                                }`}
+                            >
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); toggleFavorite(doc.path); }}
+                                    className="w-6 flex justify-center"
+                                >
+                                    {favorites.has(doc.path) ? (
+                                        <Star size={14} className="text-yellow-400 fill-yellow-400" />
+                                    ) : (
+                                        <Star size={14} className="text-gray-600 hover:text-gray-400" />
+                                    )}
+                                </button>
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    {getDocIcon(doc.type)}
+                                    <span className="text-sm truncate" title={doc.path}>
+                                        {doc.name}
+                                    </span>
+                                </div>
+                                <span className="w-16 text-xs text-gray-500 text-center uppercase">
+                                    {doc.type}
+                                </span>
+                                <span className="w-20 text-xs text-gray-500 text-right">
+                                    {formatFileSize(doc.size)}
+                                </span>
+                                <span className="w-28 text-xs text-gray-500 text-right">
+                                    {formatDate(doc.modified)}
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 )}
+            </div>
+
+            {/* Status bar */}
+            <div className="flex items-center justify-between px-3 py-1 text-xs text-gray-500 border-t theme-border theme-bg-secondary">
+                <span>{filteredDocs.length} documents</span>
+                <span>{favorites.size} favorites</span>
             </div>
         </div>
     );
 };
-
-// Document card for grid view
-const DocumentCard: React.FC<{ doc: DocumentItem; onClick: () => void }> = ({ doc, onClick }) => (
-    <button
-        onClick={onClick}
-        className="flex flex-col items-center gap-1.5 p-2 rounded theme-hover transition-colors group"
-    >
-        <div className="relative w-16 h-20 flex items-center justify-center">
-            {doc.type === 'pdf' ? (
-                <div className="w-full h-full bg-red-900/30 border border-red-700/50 rounded flex items-center justify-center">
-                    <FileText size={24} className="text-red-400" />
-                </div>
-            ) : (
-                <div className="w-full h-full bg-green-900/30 border border-green-700/50 rounded flex items-center justify-center">
-                    <Book size={24} className="text-green-400" />
-                </div>
-            )}
-            <span className={`absolute bottom-0 right-0 px-1 py-0.5 text-[9px] font-bold uppercase rounded-tl ${
-                doc.type === 'pdf' ? 'bg-red-600 text-red-100' : 'bg-green-600 text-green-100'
-            }`}>
-                {doc.type}
-            </span>
-        </div>
-        <span className="text-xs text-center truncate w-full px-1 theme-text-primary group-hover:text-blue-400">
-            {doc.name.replace(/\.(pdf|epub)$/i, '')}
-        </span>
-    </button>
-);
-
-// Document row for list view
-const DocumentRow: React.FC<{
-    doc: DocumentItem;
-    onClick: () => void;
-    formatSize: (bytes?: number) => string
-}> = ({ doc, onClick, formatSize }) => (
-    <button
-        onClick={onClick}
-        className="flex items-center gap-3 w-full px-3 py-2 rounded theme-hover text-left group"
-    >
-        {doc.type === 'pdf' ? (
-            <FileText size={18} className="text-red-400 flex-shrink-0" />
-        ) : (
-            <Book size={18} className="text-green-400 flex-shrink-0" />
-        )}
-        <span className="flex-1 truncate theme-text-primary group-hover:text-blue-400">
-            {doc.name}
-        </span>
-        <span className="text-xs theme-text-muted w-20 text-right">{formatSize(doc.size)}</span>
-        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-            doc.type === 'pdf' ? 'bg-red-600/30 text-red-400' : 'bg-green-600/30 text-green-400'
-        }`}>
-            {doc.type.toUpperCase()}
-        </span>
-    </button>
-);
 
 export default LibraryViewer;

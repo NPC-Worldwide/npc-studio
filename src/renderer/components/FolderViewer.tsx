@@ -23,11 +23,21 @@ interface FileItem {
 }
 
 const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
+    if (!bytes || bytes === 0) return '--';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
+const formatDate = (isoString: string): string => {
+    if (!isoString) return '--';
+    try {
+        const date = new Date(isoString);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+        return '--';
+    }
 };
 
 const getFileTypeIcon = (item: FileItem) => {
@@ -79,31 +89,33 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
     const [items, setItems] = useState<FileItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-    const [sortBy, setSortBy] = useState<'name' | 'size' | 'modified'>('name');
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+    const [sortBy, setSortBy] = useState<'name' | 'size' | 'modified' | 'type'>('name');
     const [sortAsc, setSortAsc] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
     const [history, setHistory] = useState<string[]>([folderPath]);
     const [historyIndex, setHistoryIndex] = useState(0);
 
-    const loadDirectory = useCallback(async (path: string) => {
+    const loadDirectory = useCallback(async (dirPath: string) => {
         setLoading(true);
         setError(null);
         try {
-            const result = await (window as any).api?.listDirectory?.(path);
-            if (result?.error) {
-                setError(result.error);
+            const result = await (window as any).api?.readDirectory?.(dirPath);
+            console.log('readDirectory result:', result);
+            if (!result || !Array.isArray(result)) {
+                setError('Failed to read directory');
                 setItems([]);
-            } else if (result?.items) {
-                const processed = result.items.map((item: any) => ({
+            } else {
+                const processed = result.map((item: any) => ({
                     name: item.name,
                     path: item.path,
                     type: item.isDirectory ? 'directory' : 'file',
-                    size: item.size || 0,
-                    modified: item.modified,
+                    size: item.size ?? 0,
+                    modified: item.modified ?? '',
                     extension: item.name.includes('.') ? item.name.split('.').pop() : ''
                 }));
+                console.log('processed items:', processed);
                 setItems(processed);
             }
         } catch (err: any) {
@@ -190,6 +202,8 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
                 comparison = (a.size || 0) - (b.size || 0);
             } else if (sortBy === 'modified') {
                 comparison = (a.modified || '').localeCompare(b.modified || '');
+            } else if (sortBy === 'type') {
+                comparison = (a.extension || '').localeCompare(b.extension || '');
             }
             return sortAsc ? comparison : -comparison;
         });
@@ -339,6 +353,12 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
                                 Name {sortBy === 'name' && (sortAsc ? '↑' : '↓')}
                             </button>
                             <button
+                                onClick={() => { setSortBy('type'); if (sortBy === 'type') setSortAsc(!sortAsc); }}
+                                className="w-16 text-center hover:text-gray-300"
+                            >
+                                Type {sortBy === 'type' && (sortAsc ? '↑' : '↓')}
+                            </button>
+                            <button
                                 onClick={() => { setSortBy('size'); if (sortBy === 'size') setSortAsc(!sortAsc); }}
                                 className="w-20 text-right hover:text-gray-300"
                             >
@@ -346,7 +366,7 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
                             </button>
                             <button
                                 onClick={() => { setSortBy('modified'); if (sortBy === 'modified') setSortAsc(!sortAsc); }}
-                                className="w-32 text-right hover:text-gray-300"
+                                className="w-40 text-right hover:text-gray-300"
                             >
                                 Modified {sortBy === 'modified' && (sortAsc ? '↑' : '↓')}
                             </button>
@@ -366,11 +386,14 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
                                 <span className="flex-1 text-sm truncate" title={item.name}>
                                     {item.name}
                                 </span>
+                                <span className="w-16 text-xs text-gray-500 text-center uppercase">
+                                    {item.type === 'directory' ? 'folder' : (item.extension || '--')}
+                                </span>
                                 <span className="w-20 text-xs text-gray-500 text-right">
                                     {item.type === 'file' ? formatFileSize(item.size || 0) : '--'}
                                 </span>
-                                <span className="w-32 text-xs text-gray-500 text-right truncate">
-                                    {item.modified || '--'}
+                                <span className="w-40 text-xs text-gray-500 text-right truncate">
+                                    {formatDate(item.modified || '')}
                                 </span>
                             </div>
                         ))}

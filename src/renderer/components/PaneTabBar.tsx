@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { X, Plus, MessageSquare, Terminal, Globe, FileText, Image, Book, File, GripVertical } from 'lucide-react';
+import { X, Plus, MessageSquare, Terminal, Globe, FileText, Image, Book, File, GripVertical, Folder } from 'lucide-react';
 
 interface Tab {
     id: string;
@@ -35,6 +35,8 @@ const getTabIcon = (contentType: string) => {
             return <Image size={12} className="text-purple-400" />;
         case 'editor':
             return <FileText size={12} className="text-gray-400" />;
+        case 'folder':
+            return <Folder size={12} className="text-yellow-400" />;
         default:
             return <File size={12} className="text-gray-400" />;
     }

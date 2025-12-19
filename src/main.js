@@ -45,7 +45,8 @@ const ensureTablesExist = async () => {
           file_path TEXT NOT NULL,
           highlighted_text TEXT NOT NULL,
           position_json TEXT NOT NULL,
-          annotation TEXT DEFAULT '', -- <--- CRITICAL FIX: ADDED ANNOTATION COLUMN
+          annotation TEXT DEFAULT '',
+          color TEXT DEFAULT 'yellow',
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       );
   `;
@@ -3287,24 +3288,25 @@ app.on('will-quit', () => {
         return { jinxs: [], error: err.message };
     }
 });
-ipcMain.handle('db:addPdfHighlight', async (event, { filePath, text, position, annotation = '' }) => {
+ipcMain.handle('db:addPdfHighlight', async (event, { filePath, text, position, annotation = '', color = 'yellow' }) => {
   console.log('[DB_ADD_HIGHLIGHT] Received request:', {
     filePath,
     textLength: text?.length,
     positionType: typeof position,
     position: position,
-    annotation
+    annotation,
+    color
   });
-  
+
   try {
     const positionJson = JSON.stringify(position);
     console.log('[DB_ADD_HIGHLIGHT] Stringified position:', positionJson.substring(0, 100));
-    
+
     const result = await dbQuery(
-      'INSERT INTO pdf_highlights (file_path, highlighted_text, position_json, annotation) VALUES (?, ?, ?, ?)',
-      [filePath, text, positionJson, annotation]
+      'INSERT INTO pdf_highlights (file_path, highlighted_text, position_json, annotation, color) VALUES (?, ?, ?, ?, ?)',
+      [filePath, text, positionJson, annotation, color]
     );
-    
+
     console.log('[DB_ADD_HIGHLIGHT] Insert result:', result);
     return { success: true, lastID: result.lastID };
   } catch (error) {
@@ -3348,6 +3350,44 @@ ipcMain.handle('db:getHighlightsForFile', async (event, { filePath }) => {
   }
 });
 
+ipcMain.handle('db:updatePdfHighlight', async (event, { id, annotation, color }) => {
+  console.log('[DB_UPDATE_HIGHLIGHT] Updating highlight:', id);
+  try {
+    const updates = [];
+    const params = [];
+
+    if (annotation !== undefined) {
+      updates.push('annotation = ?');
+      params.push(annotation);
+    }
+    if (color !== undefined) {
+      updates.push('color = ?');
+      params.push(color);
+    }
+
+    if (updates.length === 0) {
+      return { success: false, error: 'No updates provided' };
+    }
+
+    params.push(id);
+    await dbQuery(`UPDATE pdf_highlights SET ${updates.join(', ')} WHERE id = ?`, params);
+    return { success: true };
+  } catch (error) {
+    console.error('[DB_UPDATE_HIGHLIGHT] Error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('db:deletePdfHighlight', async (event, { id }) => {
+  console.log('[DB_DELETE_HIGHLIGHT] Deleting highlight:', id);
+  try {
+    await dbQuery('DELETE FROM pdf_highlights WHERE id = ?', [id]);
+    return { success: true };
+  } catch (error) {
+    console.error('[DB_DELETE_HIGHLIGHT] Error:', error);
+    return { success: false, error: error.message };
+  }
+});
 
 ipcMain.handle('db:listTables', async () => {
   try {
@@ -5683,15 +5723,34 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
     return parentPath;
   });
 
+  ipcMain.handle('getHomeDir', async () => {
+    return os.homedir();
+  });
+
   ipcMain.handle('readDirectory', async (_, dir) => {
-   
+
     try {
       const items = await fsPromises.readdir(dir, { withFileTypes: true });
-      return items.map(item => ({
-        name: item.name,
-        isDirectory: item.isDirectory(),
-        path: path.join(dir, item.name)
+      const results = await Promise.all(items.map(async item => {
+        const fullPath = path.join(dir, item.name);
+        let size = 0;
+        let modified = '';
+        try {
+          const stats = await fsPromises.stat(fullPath);
+          size = stats.size;
+          modified = stats.mtime.toISOString();
+        } catch (e) {
+          // Ignore stat errors
+        }
+        return {
+          name: item.name,
+          isDirectory: item.isDirectory(),
+          path: fullPath,
+          size,
+          modified
+        };
       }));
+      return results;
     } catch (err) {
       console.error('Error in readDirectory:', err);
       throw err;

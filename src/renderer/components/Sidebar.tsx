@@ -4,7 +4,7 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
     Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
-    Star, Clock, Activity, Lock, Archive
+    Star, Clock, Activity, Lock, Archive, BookOpen
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import npcLogo from '../../assets/icon.png';
@@ -37,7 +37,7 @@ const Sidebar = (props: any) => {
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
         setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed,
         createGraphViewerPane, createBrowserGraphPane, createDataLabelerPane,
-        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane,
+        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -1636,6 +1636,9 @@ const renderFolderList = (structure) => {
                 return (
                     <div key={fullPath} className="pl-4">
                         <button
+                            draggable="true"
+                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'folder', id: fullPath }); }}
+                            onDragEnd={handleGlobalDragEnd}
                             onClick={(e) => {
                                 // Check for Ctrl or Meta key (Command on Mac)
                                 if (e.ctrlKey || e.metaKey) {
@@ -1649,10 +1652,10 @@ const renderFolderList = (structure) => {
                                     });
                                 }
                             }}
-                            onDoubleClick={() => handleOpenFolderAsWorkspace(fullPath)} // ADDED THIS LINE
+                            onDoubleClick={() => handleOpenFolderAsWorkspace(fullPath)}
                             onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')}
                             className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
-                            title={`Click to expand/collapse ${name}`}
+                            title={`Drag to open as folder viewer, Click to expand, Ctrl+Click to open as workspace`}
                         >
                             <Folder size={16} className="text-blue-400 flex-shrink-0" />
                             {isRenaming ? (
@@ -2409,10 +2412,10 @@ return (
             {/* 4x3 Grid BELOW delete button */}
             {!sidebarCollapsed && (
                 <div className="grid grid-cols-3 grid-rows-4 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
-                    {/* Row 1: DB Tool | Photo Tool | Data Labeler */}
-                    <button onClick={() => createDBToolPane?.()} className="action-grid-button" aria-label="DB Tool" title="Database Query Tool"><Database size={16} /></button>
+                    {/* Row 1: DB Tool | Photo Tool | Library */}
+                    <button onClick={() => createDBToolPane?.()} className="action-grid-button" aria-label="DB Tool" title="Database Query Tool (includes Data Labeler)"><Database size={16} /></button>
                     <button onClick={() => createPhotoViewerPane?.()} className="action-grid-button" aria-label="Photo Tool" title="Photo Viewer"><Image size={16} /></button>
-                    <button onClick={() => createDataLabelerPane?.()} className="action-grid-button" aria-label="Data Labeler" title="Data Labeler"><Tag size={16} /></button>
+                    <button onClick={() => createLibraryViewerPane?.()} className="action-grid-button" aria-label="Library" title="Document Library (PDFs, EPUBs)"><BookOpen size={16} /></button>
                     {/* Row 2: Data Dash | Knowledge Graph | Web Browser Graph */}
                     <button onClick={() => createDataDashPane?.()} className="action-grid-button" aria-label="Data Dash" title="Data Dashboard"><BarChart3 size={16} /></button>
                     <button onClick={() => createGraphViewerPane?.()} className="action-grid-button" aria-label="Knowledge Graph" title="Knowledge Graph"><GitBranch size={16} /></button>

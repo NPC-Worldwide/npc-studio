@@ -37,6 +37,7 @@ import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import ProjectEnvEditor from './ProjectEnvEditor';
 import DBTool from './DBTool';
 import LibraryViewer from './LibraryViewer';
+import FolderViewer from './FolderViewer';
 import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
@@ -1615,6 +1616,41 @@ const renderTerminalView = useCallback(({ nodeId }) => {
     );
 }, [currentPath, activeContentPaneId]);
 
+// PDF highlight handlers
+const handleCopyPdfText = useCallback((text: string) => {
+    if (text) {
+        navigator.clipboard.writeText(text);
+    }
+}, []);
+
+const handleHighlightPdfSelection = useCallback(async (text: string, position: any, color: string = 'yellow') => {
+    if (!text || !position || !activeContentPaneId) return;
+
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'pdf') return;
+
+    const filePath = paneData.contentId;
+    try {
+        await (window as any).api.addPdfHighlight({
+            filePath,
+            text,
+            position,
+            annotation: '',
+            color
+        });
+        // Trigger reload of highlights
+        setPdfHighlightsTrigger(prev => prev + 1);
+    } catch (err) {
+        console.error('Failed to save highlight:', err);
+    }
+}, [activeContentPaneId]);
+
+const handleApplyPromptToPdfText = useCallback((promptType: string, text: string) => {
+    if (!text) return;
+    // Could integrate with chat or AI features here
+    console.log(`Apply ${promptType} to:`, text);
+}, []);
+
 const renderPdfViewer = useCallback(({ nodeId }) => {
     return (
         <PdfViewer
@@ -1624,15 +1660,15 @@ const renderPdfViewer = useCallback(({ nodeId }) => {
             activeContentPaneId={activeContentPaneId}
             pdfContextMenuPos={pdfContextMenuPos}
             setPdfContextMenuPos={setPdfContextMenuPos}
-            handleCopyPdfText={() => {}}
-            handleHighlightPdfSelection={() => {}}
-            handleApplyPromptToPdfText={() => {}}
+            handleCopyPdfText={handleCopyPdfText}
+            handleHighlightPdfSelection={handleHighlightPdfSelection}
+            handleApplyPromptToPdfText={handleApplyPromptToPdfText}
             pdfHighlights={pdfHighlights}
             setPdfHighlights={setPdfHighlights}
             pdfHighlightsTrigger={pdfHighlightsTrigger}
         />
     );
-}, [currentPath, activeContentPaneId, pdfContextMenuPos, pdfHighlights, pdfHighlightsTrigger]);
+}, [currentPath, activeContentPaneId, pdfContextMenuPos, pdfHighlights, pdfHighlightsTrigger, handleCopyPdfText, handleHighlightPdfSelection, handleApplyPromptToPdfText]);
 
 const renderCsvViewer = useCallback(({ nodeId }) => {
     return (
@@ -1912,6 +1948,62 @@ const renderLibraryViewerPane = useCallback(({ nodeId }: { nodeId: string }) => 
     );
 }, [currentPath, handleOpenDocumentFromLibrary]);
 
+// Render FolderViewer pane (for pane-based folder browsing)
+const renderFolderViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const folderPath = paneData?.contentId || currentPath || '/';
+
+    const handleOpenFile = (filePath: string) => {
+        // Open the file in a new pane or tab
+        const ext = filePath.split('.').pop()?.toLowerCase();
+        let contentType = 'editor';
+        if (ext === 'pdf') contentType = 'pdf';
+        else if (['csv', 'xlsx', 'xls'].includes(ext || '')) contentType = 'csv';
+        else if (['docx', 'doc'].includes(ext || '')) contentType = 'docx';
+        else if (ext === 'pptx') contentType = 'pptx';
+        else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext || '')) contentType = 'image';
+
+        // Add as a new tab in the current pane
+        if (paneData) {
+            if (!paneData.tabs || paneData.tabs.length === 0) {
+                paneData.tabs = [{
+                    id: `tab_${Date.now()}_0`,
+                    contentType: 'folder',
+                    contentId: folderPath,
+                    title: folderPath.split('/').pop() || 'Folder'
+                }];
+                paneData.activeTabIndex = 0;
+            }
+            const newTab = {
+                id: `tab_${Date.now()}_${paneData.tabs.length}`,
+                contentType,
+                contentId: filePath,
+                title: filePath.split('/').pop() || 'File'
+            };
+            paneData.tabs.push(newTab);
+            paneData.activeTabIndex = paneData.tabs.length - 1;
+            paneData.contentType = contentType;
+            paneData.contentId = filePath;
+            setRootLayoutNode(prev => ({ ...prev }));
+        }
+    };
+
+    const handleNavigate = (newPath: string) => {
+        if (paneData) {
+            paneData.contentId = newPath;
+            setRootLayoutNode(prev => ({ ...prev }));
+        }
+    };
+
+    return (
+        <FolderViewer
+            folderPath={folderPath}
+            onOpenFile={handleOpenFile}
+            onNavigate={handleNavigate}
+        />
+    );
+}, [currentPath, setRootLayoutNode]);
+
 // Render ProjectEnvEditor pane (for pane-based viewing)
 const renderProjectEnvPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
@@ -1948,9 +2040,6 @@ const renderDBToolPane = useCallback(({ nodeId }: { nodeId: string }) => {
 useEffect(() => {
     loadPdfHighlightsForActivePane(activeContentPaneId, contentDataRef, setPdfHighlights);
 }, [activeContentPaneId, pdfHighlightsTrigger]);
-
-
-
 
     useEffect(() => {
         if (currentPath) {
@@ -5814,6 +5903,7 @@ const layoutComponentApi = useMemo(() => ({
     renderSettingsPane,
     renderPhotoViewerPane,
     renderLibraryViewerPane,
+    renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
     setPaneContextMenu,
@@ -5859,6 +5949,7 @@ const layoutComponentApi = useMemo(() => ({
     renderSettingsPane,
     renderPhotoViewerPane,
     renderLibraryViewerPane,
+    renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
@@ -7025,6 +7116,7 @@ const renderMainContent = () => {
         createPhotoViewerPane={createPhotoViewerPane}
         createProjectEnvPane={createProjectEnvPane}
         createDiskUsagePane={createDiskUsagePane}
+        createLibraryViewerPane={createLibraryViewerPane}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}

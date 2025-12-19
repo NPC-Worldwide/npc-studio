@@ -94,10 +94,23 @@ const PicViewer: React.FC<PicViewerProps> = ({ nodeId, contentDataRef }) => {
         setPosition({ x: 0, y: 0 });
     }, []);
 
+    // Auto-fit to width when image loads
+    const handleImageLoad = useCallback(() => {
+        setImageLoaded(true);
+        // Auto-fit to pane width
+        if (containerRef.current && imageRef.current) {
+            const containerWidth = containerRef.current.clientWidth - 40;
+            const imgWidth = imageRef.current.naturalWidth;
+            const fitScale = containerWidth / imgWidth;
+            // Don't scale up small images, only scale down large ones
+            setScale(Math.min(fitScale, 1));
+            setPosition({ x: 0, y: 0 });
+        }
+    }, []);
+
     useEffect(() => {
         setImageLoaded(false);
         setError(null);
-        setScale(1);
         setRotation(0);
         setPosition({ x: 0, y: 0 });
     }, [filePath]);
@@ -195,7 +208,7 @@ const PicViewer: React.FC<PicViewerProps> = ({ nodeId, contentDataRef }) => {
                             userSelect: 'none',
                             pointerEvents: 'none'
                         }}
-                        onLoad={() => setImageLoaded(true)}
+                        onLoad={handleImageLoad}
                         onError={() => setError('Could not load image file')}
                         draggable={false}
                     />

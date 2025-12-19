@@ -117,7 +117,7 @@ const PhotoViewer = ({ currentPath, onStartConversation }) => {
     const [lastClickedIndex, setLastClickedIndex] = useState(null);
     const [displayedImagesCount, setDisplayedImagesCount] = useState(IMAGES_PER_PAGE);
     const [lightboxIndex, setLightboxIndex] = useState(null);  
-    const [viewMode, setViewMode] = useState('grid');
+    const [viewMode, setViewMode] = useState('list');
     const [searchTerm, setSearchTerm] = useState('');
     const [metaSearch, setMetaSearch] = useState('');
   
@@ -1599,8 +1599,8 @@ const renderGallery = () => (
                         return (
                             <div className={`relative aspect-square rounded-lg overflow-hidden cursor-pointer group
                                 ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`}>
-                                <img src={img} alt="" className="w-full h-full object-cover bg-gray-800" />
-                                <div className={`absolute inset-0 transition-all duration-200
+                                <img src={img} alt="" className="w-full h-full object-cover bg-gray-800" draggable={false} />
+                                <div className={`absolute inset-0 transition-all duration-200 pointer-events-none
                                     ${!isSelected ? 'group-hover:bg-black/40' : ''}`} />
                                 {isSelected && (
                                     <div className="absolute top-2 right-2 bg-blue-500 rounded-full p-1">
