@@ -2410,7 +2410,6 @@ const createMaskFromSelection = async (sel) => {
     return canvas.toDataURL('image/png');
 };
 const renderDarkRoom = () => {
-    // Use the npcts ImageEditor component with custom generative fill integration
     const handleGenerativeFill = async (sel: any, prompt: string) => {
         if (!prompt) {
             setError('Need a prompt');
@@ -2423,7 +2422,7 @@ const renderDarkRoom = () => {
         <ImageEditor
             imageSrc={selectedImage}
             onGenerativeFill={handleGenerativeFill}
-            showHeader={false}
+            showHeader={true}
             title="DarkRoom"
             className="flex-1"
         />

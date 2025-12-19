@@ -319,7 +319,7 @@ const PdfViewer = ({
     const [selectedPdfText, setSelectedPdfText] = useState(null);
     const [pdfSelectionIndicator, setPdfSelectionIndicator] = useState(null);
     const [showHighlights, setShowHighlights] = useState(true);
-    const [showAnnotationsPanel, setShowAnnotationsPanel] = useState(true);
+    const [showAnnotationsPanel, setShowAnnotationsPanel] = useState(false);
     const [selectedHighlightId, setSelectedHighlightId] = useState<number | null>(null);
     const [selectedColor, setSelectedColor] = useState('yellow');
 
@@ -574,7 +574,6 @@ const PdfViewer = ({
                                     return rects.map((rect, rectIdx) => (
                                         <div
                                             key={`${idx}-${rectIdx}-highlight`}
-                                            onClick={() => handleSelectHighlight(highlight)}
                                             style={{
                                                 position: 'absolute',
                                                 left: `${rect.left}%`,
@@ -583,7 +582,7 @@ const PdfViewer = ({
                                                 height: `${rect.height}%`,
                                                 backgroundColor: colorStyle.bg,
                                                 border: isSelected ? '2px solid blue' : `1px solid ${colorStyle.border}`,
-                                                cursor: 'pointer',
+                                                pointerEvents: 'none',
                                             }}
                                         />
                                     ));
