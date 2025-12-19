@@ -14,7 +14,7 @@ import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, fol
 import { tags as t } from '@lezer/highlight';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { lintKeymap } from '@codemirror/lint';
-import { BrainCircuit, Edit, FileText, MessageSquare, GitBranch, X } from 'lucide-react';
+import { BrainCircuit, Edit, FileText, MessageSquare, GitBranch, X, Play } from 'lucide-react';
 
 const appHighlightStyle = HighlightStyle.define([
     { tag: t.keyword, color: '#c678dd' },
@@ -141,7 +141,7 @@ const editorTheme = EditorView.theme({
     },
 }, { dark: true });
 
-const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMenu, onSelect }) => {
+const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMenu, onSelect, onSendToTerminal }) => {
     const editorRef = useRef(null);
 
     const languageExtension = useMemo(() => {
@@ -162,8 +162,34 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
 
     const customKeymap = useMemo(() => keymap.of([
         { key: 'Mod-s', run: () => { if (onSave) onSave(); return true; } },
+        { key: 'Ctrl-Enter', run: (view) => {
+            if (onSendToTerminal) {
+                const selection = view.state.sliceDoc(
+                    view.state.selection.main.from,
+                    view.state.selection.main.to
+                );
+                if (selection) {
+                    onSendToTerminal(selection);
+                    return true;
+                }
+            }
+            return false;
+        }},
+        { key: 'Mod-Enter', run: (view) => {
+            if (onSendToTerminal) {
+                const selection = view.state.sliceDoc(
+                    view.state.selection.main.from,
+                    view.state.selection.main.to
+                );
+                if (selection) {
+                    onSendToTerminal(selection);
+                    return true;
+                }
+            }
+            return false;
+        }},
         indentWithTab,
-    ]), [onSave]);
+    ]), [onSave, onSendToTerminal]);
 
     const extensions = useMemo(() => [
         // Core editor features
@@ -260,6 +286,8 @@ const CodeEditorPane = ({
     setPromptModal,
     onGitBlame,
     currentPath,
+    onRunScript,
+    onSendToTerminal,
 }) => {
     const paneData = contentDataRef.current[nodeId];
     const [showBlame, setShowBlame] = useState(false);
@@ -363,6 +391,7 @@ const CodeEditorPane = ({
                         filePath={filePath}
                         onSelect={handleTextSelection}
                         onContextMenu={onEditorContextMenu}
+                        onSendToTerminal={onSendToTerminal}
                     />
                 </div>
             </div>
@@ -418,6 +447,19 @@ const CodeEditorPane = ({
                             className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-purple-400 text-sm">
                             <GitBranch size={16} />Git Blame
                         </button>
+                        {filePath?.endsWith('.py') && onRunScript && (
+                            <>
+                                <div className="border-t theme-border my-1"></div>
+                                <button
+                                    onClick={() => {
+                                        setEditorContextMenuPos(null);
+                                        onRunScript(filePath);
+                                    }}
+                                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-green-400 text-sm">
+                                    <Play size={16} />Run Python Script
+                                </button>
+                            </>
+                        )}
                         <div className="border-t theme-border my-1"></div>
                         <button
                             onClick={() => {

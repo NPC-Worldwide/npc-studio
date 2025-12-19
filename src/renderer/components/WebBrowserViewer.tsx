@@ -31,9 +31,13 @@ const WebBrowserViewer = memo(({
     // Track navigation type for history graph
     const isManualNavigationRef = useRef(false);
     const previousUrlRef = useRef<string | null>(null);
+    const lastHistorySaveRef = useRef<string | null>(null);
+    const historyDebounceRef = useRef<NodeJS.Timeout | null>(null);
+    const hasInitializedRef = useRef(false);
 
     const paneData = contentDataRef.current[nodeId];
-    const initialUrl = paneData?.browserUrl || 'about:blank';
+    // Capture initial URL only once using a ref to prevent reload loops
+    const initialUrlRef = useRef(paneData?.browserUrl || 'about:blank');
     // Use 'default' as the shared session to persist cookies across all browser panes
     // This ensures users stay logged into sites when opening new browser tabs
     const viewId = 'default-browser-session';
@@ -42,13 +46,24 @@ const WebBrowserViewer = memo(({
         const webview = webviewRef.current;
         if (!webview) return;
 
-        const urlToLoad = initialUrl.startsWith('http')
-            ? initialUrl
-            : `https://${initialUrl === 'about:blank' ? 'google.com' : initialUrl}`;
+        // Only set the URL on first initialization to prevent reload loops
+        if (!hasInitializedRef.current) {
+            hasInitializedRef.current = true;
+            const initialUrl = initialUrlRef.current;
+            let urlToLoad = initialUrl;
+            if (!initialUrl.startsWith('http')) {
+                if (initialUrl === 'about:blank') {
+                    urlToLoad = 'https://google.com';
+                } else {
+                    const isLocalhost = initialUrl.startsWith('localhost') || initialUrl.startsWith('127.0.0.1');
+                    urlToLoad = isLocalhost ? `http://${initialUrl}` : `https://${initialUrl}`;
+                }
+            }
 
-        setCurrentUrl(urlToLoad);
-        setUrlInput(urlToLoad);
-        webview.src = urlToLoad;
+            setCurrentUrl(urlToLoad);
+            setUrlInput(urlToLoad);
+            webview.src = urlToLoad;
+        }
         webview.setAttribute('partition', `persist:${viewId}`); // Ensure persistence per pane
 
         const handleDidStartLoading = () => setLoading(true);
@@ -57,18 +72,21 @@ const WebBrowserViewer = memo(({
             if (webview) {
                 setCanGoBack(webview.canGoBack());
                 setCanGoForward(webview.canGoForward());
-                // Update title in contentDataRef for PaneHeader
-                if (paneData) {
-                    paneData.browserTitle = webview.getTitle();
-                    // Force a re-render to update PaneHeader title
-                    // This is a bit of a hack, ideally paneData updates would trigger this more gracefully
-                    // For now, rely on setRootLayoutNode in Enpistu to do it eventually
+                // Update title in contentDataRef for PaneHeader (use ref to avoid closure issues)
+                if (contentDataRef.current[nodeId]) {
+                    contentDataRef.current[nodeId].browserTitle = webview.getTitle();
                 }
             }
         };
 
         const handleDidNavigate = (e) => {
             const url = e.url;
+
+            // Skip if this is the same URL we just processed (prevents loops)
+            if (url === previousUrlRef.current) {
+                return;
+            }
+
             const fromUrl = previousUrlRef.current;
             const navigationType = isManualNavigationRef.current ? 'manual' : 'click';
 
@@ -77,36 +95,52 @@ const WebBrowserViewer = memo(({
             setError(null);
             setIsSecure(url.startsWith('https://'));
 
-            if (url && url !== 'about:blank') {
-                (window as any).api?.browserAddToHistory?.({
-                    url,
-                    title: webview.getTitle() || url,
-                    folderPath: currentPath,
-                    paneId: nodeId,
-                    navigationType,
-                    fromUrl
-                }).catch((err: any) => console.error('[Browser] History save error:', err));
+            // Debounce history saves to prevent rapid-fire saves during redirects
+            if (url && url !== 'about:blank' && url !== lastHistorySaveRef.current) {
+                // Clear any pending history save
+                if (historyDebounceRef.current) {
+                    clearTimeout(historyDebounceRef.current);
+                }
+
+                // Debounce the history save by 2 seconds to let redirects fully settle
+                historyDebounceRef.current = setTimeout(() => {
+                    // Only save if URL hasn't changed since the timeout was set
+                    const currentWebviewUrl = webview?.getURL?.();
+                    if (currentWebviewUrl && url === currentWebviewUrl) {
+                        lastHistorySaveRef.current = url;
+                        (window as any).api?.browserAddToHistory?.({
+                            url,
+                            title: webview.getTitle() || url,
+                            folderPath: currentPath,
+                            paneId: nodeId,
+                            navigationType,
+                            fromUrl
+                        }).catch((err: any) => console.error('[Browser] History save error:', err));
+                    }
+                }, 2000);
             }
 
             // Update tracking refs
             previousUrlRef.current = url;
             isManualNavigationRef.current = false; // Reset after navigation
 
-            // Update paneData url to reflect navigation
-            if (paneData) {
-                paneData.browserUrl = url;
+            // Update paneData url to reflect navigation (but don't trigger re-renders)
+            if (contentDataRef.current[nodeId]) {
+                contentDataRef.current[nodeId].browserUrl = url;
             }
         };
 
         const handlePageTitleUpdated = (e) => {
-            setTitle(e.title || 'Browser');
-            if (paneData) {
-                paneData.browserTitle = e.title;
-                // Trigger re-render to update pane header title
-                if (setRootLayoutNode) {
-                    setRootLayoutNode(prev => ({ ...prev }));
-                }
+            const newTitle = e.title || 'Browser';
+            setTitle(newTitle);
+
+            // Update paneData title without triggering layout re-renders
+            // The title state update above handles the local display
+            if (contentDataRef.current[nodeId]) {
+                contentDataRef.current[nodeId].browserTitle = newTitle;
             }
+            // NOTE: Removed setRootLayoutNode call - it was causing render loops
+            // The pane header will get the title from local state instead
         };
         const handleDidFailLoad = (e) => {
             if (e.errorCode !== -3) { // Ignore aborted loads
@@ -138,6 +172,11 @@ const WebBrowserViewer = memo(({
         // webview.addEventListener('context-menu', handleWebviewContextMenu); // Use IPC instead
 
         return () => {
+            // Clear debounce timeouts
+            if (historyDebounceRef.current) {
+                clearTimeout(historyDebounceRef.current);
+            }
+
             if (webview) {
                 webview.removeEventListener('did-start-loading', handleDidStartLoading);
                 webview.removeEventListener('did-stop-loading', handleDidStopLoading);
@@ -148,12 +187,20 @@ const WebBrowserViewer = memo(({
                 // webview.removeEventListener('context-menu', handleWebviewContextMenu);
             }
         };
-    }, [initialUrl, currentPath, viewId, paneData, setBrowserContextMenuPos]);
+    // Note: initialUrl and paneData removed from deps to prevent reload loops
+    // The initial URL is captured in a ref and only used once
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentPath, viewId, nodeId, setBrowserContextMenuPos, setRootLayoutNode]);
 
     const handleNavigate = useCallback(() => {
         const targetUrl = urlInput;
         if (!targetUrl.trim()) return;
-        const finalUrl = targetUrl.startsWith('http') ? targetUrl : `https://${targetUrl}`;
+        // Use http:// for localhost/127.0.0.1, https:// for everything else
+        let finalUrl = targetUrl;
+        if (!targetUrl.startsWith('http')) {
+            const isLocalhost = targetUrl.startsWith('localhost') || targetUrl.startsWith('127.0.0.1');
+            finalUrl = isLocalhost ? `http://${targetUrl}` : `https://${targetUrl}`;
+        }
         // Mark this as manual navigation (user typed URL)
         isManualNavigationRef.current = true;
         if (webviewRef.current) webviewRef.current.src = finalUrl;
@@ -163,9 +210,18 @@ const WebBrowserViewer = memo(({
     const handleForward = useCallback(() => webviewRef.current?.goForward(), []);
     const handleRefresh = useCallback(() => webviewRef.current?.reload(), []);
     const handleHome = useCallback(() => {
-        const homeUrl = initialUrl.startsWith('http') ? initialUrl : `https://${initialUrl === 'about:blank' ? 'google.com' : initialUrl}`;
+        const initial = initialUrlRef.current;
+        let homeUrl = initial;
+        if (!initial.startsWith('http')) {
+            if (initial === 'about:blank') {
+                homeUrl = 'https://google.com';
+            } else {
+                const isLocalhost = initial.startsWith('localhost') || initial.startsWith('127.0.0.1');
+                homeUrl = isLocalhost ? `http://${initial}` : `https://${initial}`;
+            }
+        }
         if (webviewRef.current) webviewRef.current.src = homeUrl;
-    }, [initialUrl]);
+    }, []);
 
     const handleClearSessionData = useCallback(async () => {
         if (!webviewRef.current) return;

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut,ipcMain, protocol, shell, BrowserView} = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage } = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -954,11 +954,16 @@ ipcMain.handle('executeJinx', async (event, data) => {
 });
 
     ipcMain.handle('getAvailableModels', async (event, currentPath) => {
-     
+
       if (!currentPath) {
           log('Error: getAvailableModels called without currentPath');
           return { models: [], error: 'Current path is required to fetch models.' };
       }
+
+      let backendModels = [];
+      let backendError = null;
+
+      // Try to fetch from backend first
       try {
           const url = `http://127.0.0.1:5337/api/models?currentPath=${encodeURIComponent(currentPath)}`;
           log('Fetching models from:', url);
@@ -968,18 +973,82 @@ ipcMain.handle('executeJinx', async (event, data) => {
           if (!response.ok) {
               const errorText = await response.text();
               log(`Error fetching models: ${response.status} ${response.statusText} - ${errorText}`);
-              throw new Error(`HTTP error ${response.status}: ${errorText}`);
+              backendError = `HTTP error ${response.status}: ${errorText}`;
+          } else {
+              const data = await response.json();
+              log('Received models from backend:', data.models?.length);
+              backendModels = data.models || [];
+          }
+      } catch (err) {
+          log('Backend not available:', err.message);
+          backendError = err.message;
+      }
+
+      // Always scan for local GGUF models (even if backend failed)
+      const ggufModels = [];
+      try {
+          const homeDir = require('os').homedir();
+          const fsPromises = require('fs').promises;
+
+          const ggufDirs = [
+              path.join(homeDir, '.cache', 'huggingface', 'hub'),
+              path.join(homeDir, '.cache', 'lm-studio', 'models'),
+              path.join(homeDir, '.lmstudio', 'models'),
+              path.join(homeDir, 'llama.cpp', 'models'),
+              path.join(homeDir, '.npcsh', 'models', 'gguf'),
+              path.join(homeDir, '.npcsh', 'models'),
+              path.join(homeDir, 'models'),
+          ];
+
+          const seenPaths = new Set();
+
+          const scanDir = async (dir, depth = 0) => {
+              if (depth > 5) return;
+              try {
+                  const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+                  for (const entry of entries) {
+                      const fullPath = path.join(dir, entry.name);
+                      // Use stat to follow symlinks
+                      try {
+                          const stats = await fsPromises.stat(fullPath);
+                          if (stats.isDirectory() && !entry.name.startsWith('.git') && entry.name !== 'node_modules') {
+                              await scanDir(fullPath, depth + 1);
+                          } else if (stats.isFile()) {
+                              const ext = path.extname(entry.name).toLowerCase();
+                              if (ext === '.gguf' && !seenPaths.has(fullPath)) {
+                                  seenPaths.add(fullPath);
+                                  if (stats.size > 50 * 1024 * 1024) { // Files > 50MB
+                                      ggufModels.push({
+                                          value: fullPath,
+                                          display_name: `[GGUF] ${entry.name}`,
+                                          provider: 'gguf',
+                                          size: stats.size,
+                                          path: fullPath
+                                      });
+                                  }
+                              }
+                          }
+                      } catch (statErr) { /* skip broken symlinks */ }
+                  }
+              } catch (e) { /* directory doesn't exist */ }
+          };
+
+          for (const dir of ggufDirs) {
+              await scanDir(dir);
           }
 
-          const data = await response.json();
-          log('Received models:', data.models?.length);
-          return data;
-
-      } catch (err) {
-          log('Error in getAvailableModels handler:', err);
-         
-          return { models: [], error: err.message || 'Failed to fetch models from backend' };
+          log('Found GGUF models:', ggufModels.length);
+      } catch (ggufErr) {
+          log('Error scanning GGUF models:', ggufErr);
       }
+
+      const allModels = [...backendModels, ...ggufModels];
+
+      if (allModels.length === 0 && backendError) {
+          return { models: [], error: backendError };
+      }
+
+      return { models: allModels };
   });
 
 
@@ -2171,6 +2240,512 @@ ipcMain.handle('browser-get-selected-text', (event, { viewId }) => {
   return { success: false, error: 'Browser view not found' };
 });
 
+// ==================== PASSWORD MANAGER ====================
+const passwordsFilePath = path.join(os.homedir(), '.npc_studio', 'credentials.enc');
+
+// Ensure the credentials file exists
+const ensurePasswordsFile = async () => {
+  const dir = path.dirname(passwordsFilePath);
+  await fsPromises.mkdir(dir, { recursive: true });
+  try {
+    await fsPromises.access(passwordsFilePath);
+  } catch {
+    // File doesn't exist, create empty encrypted store
+    const emptyData = JSON.stringify({ credentials: [] });
+    if (safeStorage.isEncryptionAvailable()) {
+      const encrypted = safeStorage.encryptString(emptyData);
+      await fsPromises.writeFile(passwordsFilePath, encrypted);
+    } else {
+      // Fallback to base64 if encryption not available (less secure)
+      await fsPromises.writeFile(passwordsFilePath, Buffer.from(emptyData).toString('base64'));
+    }
+  }
+};
+
+// Read all credentials
+const readCredentials = async () => {
+  await ensurePasswordsFile();
+  const fileContent = await fsPromises.readFile(passwordsFilePath);
+  let decrypted;
+  if (safeStorage.isEncryptionAvailable()) {
+    decrypted = safeStorage.decryptString(fileContent);
+  } else {
+    decrypted = Buffer.from(fileContent.toString(), 'base64').toString('utf8');
+  }
+  return JSON.parse(decrypted);
+};
+
+// Write all credentials
+const writeCredentials = async (data) => {
+  await ensurePasswordsFile();
+  const jsonData = JSON.stringify(data);
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString(jsonData);
+    await fsPromises.writeFile(passwordsFilePath, encrypted);
+  } else {
+    await fsPromises.writeFile(passwordsFilePath, Buffer.from(jsonData).toString('base64'));
+  }
+};
+
+// Save a credential
+ipcMain.handle('password-save', async (event, { site, username, password, notes }) => {
+  try {
+    const data = await readCredentials();
+    const existingIndex = data.credentials.findIndex(c => c.site === site && c.username === username);
+
+    const credential = {
+      id: existingIndex >= 0 ? data.credentials[existingIndex].id : crypto.randomUUID(),
+      site,
+      username,
+      password,
+      notes: notes || '',
+      createdAt: existingIndex >= 0 ? data.credentials[existingIndex].createdAt : new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (existingIndex >= 0) {
+      data.credentials[existingIndex] = credential;
+    } else {
+      data.credentials.push(credential);
+    }
+
+    await writeCredentials(data);
+    return { success: true, id: credential.id };
+  } catch (err) {
+    console.error('Error saving credential:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Get credentials for a site (for auto-fill)
+ipcMain.handle('password-get-for-site', async (event, { site }) => {
+  try {
+    const data = await readCredentials();
+    // Match by domain - extract domain from URL
+    const extractDomain = (url) => {
+      try {
+        const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+        return parsed.hostname.replace(/^www\./, '');
+      } catch {
+        return url.replace(/^www\./, '');
+      }
+    };
+
+    const siteDomain = extractDomain(site);
+    const matches = data.credentials.filter(c => {
+      const credDomain = extractDomain(c.site);
+      return credDomain === siteDomain || siteDomain.endsWith(`.${credDomain}`) || credDomain.endsWith(`.${siteDomain}`);
+    });
+
+    // Return without exposing password in list (get specific one with password-get)
+    return {
+      success: true,
+      credentials: matches.map(c => ({ id: c.id, site: c.site, username: c.username }))
+    };
+  } catch (err) {
+    console.error('Error getting credentials for site:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Get a specific credential with password
+ipcMain.handle('password-get', async (event, { id }) => {
+  try {
+    const data = await readCredentials();
+    const credential = data.credentials.find(c => c.id === id);
+    if (!credential) {
+      return { success: false, error: 'Credential not found' };
+    }
+    return { success: true, credential };
+  } catch (err) {
+    console.error('Error getting credential:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// List all credentials (without passwords)
+ipcMain.handle('password-list', async () => {
+  try {
+    const data = await readCredentials();
+    return {
+      success: true,
+      credentials: data.credentials.map(c => ({
+        id: c.id,
+        site: c.site,
+        username: c.username,
+        notes: c.notes,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt
+      }))
+    };
+  } catch (err) {
+    console.error('Error listing credentials:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Delete a credential
+ipcMain.handle('password-delete', async (event, { id }) => {
+  try {
+    const data = await readCredentials();
+    const index = data.credentials.findIndex(c => c.id === id);
+    if (index < 0) {
+      return { success: false, error: 'Credential not found' };
+    }
+    data.credentials.splice(index, 1);
+    await writeCredentials(data);
+    return { success: true };
+  } catch (err) {
+    console.error('Error deleting credential:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Check if encryption is available
+ipcMain.handle('password-encryption-status', async () => {
+  return {
+    available: safeStorage.isEncryptionAvailable(),
+    message: safeStorage.isEncryptionAvailable()
+      ? 'Credentials are encrypted using system keychain'
+      : 'Encryption not available - credentials stored with basic encoding'
+  };
+});
+
+// ==================== END PASSWORD MANAGER ====================
+
+// ==================== PYTHON ENVIRONMENT CONFIGURATION ====================
+const pythonEnvConfigPath = path.join(os.homedir(), '.npc_studio', 'python_envs.json');
+
+// Ensure python env config file exists
+const ensurePythonEnvConfig = async () => {
+  const dir = path.dirname(pythonEnvConfigPath);
+  await fsPromises.mkdir(dir, { recursive: true });
+  try {
+    await fsPromises.access(pythonEnvConfigPath);
+  } catch {
+    await fsPromises.writeFile(pythonEnvConfigPath, JSON.stringify({ workspaces: {} }));
+  }
+};
+
+// Read python env config
+const readPythonEnvConfig = async () => {
+  await ensurePythonEnvConfig();
+  const content = await fsPromises.readFile(pythonEnvConfigPath, 'utf8');
+  return JSON.parse(content);
+};
+
+// Write python env config
+const writePythonEnvConfig = async (data) => {
+  await ensurePythonEnvConfig();
+  await fsPromises.writeFile(pythonEnvConfigPath, JSON.stringify(data, null, 2));
+};
+
+// Get Python environment config for a workspace
+ipcMain.handle('python-env-get', async (event, { workspacePath }) => {
+  try {
+    const config = await readPythonEnvConfig();
+    return config.workspaces[workspacePath] || null;
+  } catch (err) {
+    console.error('Error getting python env config:', err);
+    return null;
+  }
+});
+
+// Save Python environment config for a workspace
+ipcMain.handle('python-env-save', async (event, { workspacePath, envConfig }) => {
+  try {
+    const config = await readPythonEnvConfig();
+    config.workspaces[workspacePath] = {
+      ...envConfig,
+      updatedAt: Date.now()
+    };
+    await writePythonEnvConfig(config);
+    return { success: true };
+  } catch (err) {
+    console.error('Error saving python env config:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Delete Python environment config for a workspace
+ipcMain.handle('python-env-delete', async (event, { workspacePath }) => {
+  try {
+    const config = await readPythonEnvConfig();
+    delete config.workspaces[workspacePath];
+    await writePythonEnvConfig(config);
+    return { success: true };
+  } catch (err) {
+    console.error('Error deleting python env config:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// List all Python environment configs
+ipcMain.handle('python-env-list', async () => {
+  try {
+    const config = await readPythonEnvConfig();
+    return config.workspaces;
+  } catch (err) {
+    console.error('Error listing python env configs:', err);
+    return {};
+  }
+});
+
+// Detect available Python environments in a workspace
+ipcMain.handle('python-env-detect', async (event, { workspacePath }) => {
+  const detected = [];
+  const platform = process.platform;
+  const isWindows = platform === 'win32';
+  const pythonBin = isWindows ? 'python.exe' : 'python';
+  const pythonBin3 = isWindows ? 'python3.exe' : 'python3';
+
+  // Check for venv/virtualenv patterns
+  const venvPaths = ['.venv', 'venv', '.env', 'env'];
+  for (const venvDir of venvPaths) {
+    const binDir = isWindows ? 'Scripts' : 'bin';
+    const venvPythonPath = path.join(workspacePath, venvDir, binDir, pythonBin);
+    const venvPython3Path = path.join(workspacePath, venvDir, binDir, pythonBin3);
+    try {
+      await fsPromises.access(venvPythonPath);
+      detected.push({
+        type: 'venv',
+        name: `venv (${venvDir})`,
+        path: venvPythonPath,
+        venvPath: venvDir
+      });
+    } catch {
+      try {
+        await fsPromises.access(venvPython3Path);
+        detected.push({
+          type: 'venv',
+          name: `venv (${venvDir})`,
+          path: venvPython3Path,
+          venvPath: venvDir
+        });
+      } catch {
+        // Not found
+      }
+    }
+  }
+
+  // Check for uv-created .venv (same as venv but often in .venv)
+  // uv uses standard venv structure, so it's already covered above
+
+  // Check for pyenv - both local .python-version and globally installed versions
+  const pyenvRoot = process.env.PYENV_ROOT || path.join(os.homedir(), '.pyenv');
+  const pyenvVersionsDir = path.join(pyenvRoot, 'versions');
+
+  // First check for local .python-version file (project-specific)
+  const pyenvVersionFile = path.join(workspacePath, '.python-version');
+  let localPyenvVersion = null;
+  try {
+    localPyenvVersion = (await fsPromises.readFile(pyenvVersionFile, 'utf8')).trim();
+    const pyenvPythonPath = path.join(pyenvVersionsDir, localPyenvVersion, 'bin', pythonBin);
+    try {
+      await fsPromises.access(pyenvPythonPath);
+      detected.push({
+        type: 'pyenv',
+        name: `pyenv (${localPyenvVersion}) - local`,
+        path: pyenvPythonPath,
+        pyenvVersion: localPyenvVersion,
+        isLocalVersion: true
+      });
+    } catch {
+      // pyenv version file exists but version not installed
+      detected.push({
+        type: 'pyenv',
+        name: `pyenv (${localPyenvVersion}) - not installed`,
+        path: null,
+        pyenvVersion: localPyenvVersion,
+        notInstalled: true
+      });
+    }
+  } catch {
+    // No .python-version file - that's fine
+  }
+
+  // Also scan for all installed pyenv versions
+  try {
+    const versions = await fsPromises.readdir(pyenvVersionsDir);
+    for (const version of versions) {
+      // Skip if this is the local version (already added)
+      if (version === localPyenvVersion) continue;
+
+      // Skip non-version directories (like .DS_Store, envs, etc)
+      if (version.startsWith('.') || version === 'envs') continue;
+
+      const pyenvPythonPath = path.join(pyenvVersionsDir, version, 'bin', pythonBin);
+      try {
+        await fsPromises.access(pyenvPythonPath);
+        detected.push({
+          type: 'pyenv',
+          name: `pyenv (${version})`,
+          path: pyenvPythonPath,
+          pyenvVersion: version
+        });
+      } catch {
+        // This version doesn't have python binary - skip
+      }
+    }
+  } catch {
+    // pyenv versions directory doesn't exist or not readable
+  }
+
+  // Check for conda environment.yml or environment.yaml
+  const condaEnvFiles = ['environment.yml', 'environment.yaml'];
+  for (const envFile of condaEnvFiles) {
+    const envFilePath = path.join(workspacePath, envFile);
+    try {
+      const content = await fsPromises.readFile(envFilePath, 'utf8');
+      // Simple YAML parsing to get name
+      const nameMatch = content.match(/^name:\s*(.+)$/m);
+      if (nameMatch) {
+        const envName = nameMatch[1].trim();
+        // Try common conda paths
+        const condaPaths = [
+          path.join(os.homedir(), 'anaconda3'),
+          path.join(os.homedir(), 'miniconda3'),
+          path.join(os.homedir(), 'miniforge3'),
+          path.join(os.homedir(), '.conda')
+        ];
+        for (const condaRoot of condaPaths) {
+          const condaPythonPath = path.join(condaRoot, 'envs', envName, 'bin', pythonBin);
+          try {
+            await fsPromises.access(condaPythonPath);
+            detected.push({
+              type: 'conda',
+              name: `conda (${envName})`,
+              path: condaPythonPath,
+              condaEnv: envName,
+              condaRoot: condaRoot
+            });
+            break;
+          } catch {
+            // Try next conda path
+          }
+        }
+      }
+    } catch {
+      // No conda env file
+    }
+  }
+
+  // Check for pyproject.toml with uv or poetry
+  const pyprojectPath = path.join(workspacePath, 'pyproject.toml');
+  try {
+    const content = await fsPromises.readFile(pyprojectPath, 'utf8');
+    if (content.includes('[tool.uv]') || content.includes('uv.lock')) {
+      // uv project - check for .venv
+      const uvVenvPath = path.join(workspacePath, '.venv', isWindows ? 'Scripts' : 'bin', pythonBin);
+      try {
+        await fsPromises.access(uvVenvPath);
+        // Only add if not already detected as venv
+        if (!detected.some(d => d.path === uvVenvPath)) {
+          detected.push({
+            type: 'uv',
+            name: 'uv (.venv)',
+            path: uvVenvPath,
+            venvPath: '.venv'
+          });
+        }
+      } catch {
+        detected.push({
+          type: 'uv',
+          name: 'uv (not synced)',
+          path: null,
+          notInstalled: true,
+          hint: 'Run "uv sync" to create environment'
+        });
+      }
+    }
+  } catch {
+    // No pyproject.toml
+  }
+
+  // Check uv.lock file
+  const uvLockPath = path.join(workspacePath, 'uv.lock');
+  try {
+    await fsPromises.access(uvLockPath);
+    const uvVenvPath = path.join(workspacePath, '.venv', isWindows ? 'Scripts' : 'bin', pythonBin);
+    try {
+      await fsPromises.access(uvVenvPath);
+      if (!detected.some(d => d.type === 'uv')) {
+        detected.push({
+          type: 'uv',
+          name: 'uv (.venv)',
+          path: uvVenvPath,
+          venvPath: '.venv'
+        });
+      }
+    } catch {
+      if (!detected.some(d => d.type === 'uv')) {
+        detected.push({
+          type: 'uv',
+          name: 'uv (not synced)',
+          path: null,
+          notInstalled: true,
+          hint: 'Run "uv sync" to create environment'
+        });
+      }
+    }
+  } catch {
+    // No uv.lock
+  }
+
+  // Always add system Python as fallback
+  detected.push({
+    type: 'system',
+    name: 'System Python',
+    path: isWindows ? 'python' : 'python3'
+  });
+
+  return detected;
+});
+
+// Get the resolved Python path for running scripts
+ipcMain.handle('python-env-resolve', async (event, { workspacePath }) => {
+  try {
+    const config = await readPythonEnvConfig();
+    const envConfig = config.workspaces[workspacePath];
+
+    if (!envConfig) {
+      // No config - return system python
+      return { pythonPath: process.platform === 'win32' ? 'python' : 'python3' };
+    }
+
+    const platform = process.platform;
+    const isWindows = platform === 'win32';
+    const pythonBin = isWindows ? 'python.exe' : 'python';
+
+    switch (envConfig.type) {
+      case 'venv':
+      case 'uv': {
+        const binDir = isWindows ? 'Scripts' : 'bin';
+        const venvPath = envConfig.venvPath || '.venv';
+        return { pythonPath: path.join(workspacePath, venvPath, binDir, pythonBin) };
+      }
+      case 'pyenv': {
+        const pyenvRoot = process.env.PYENV_ROOT || path.join(os.homedir(), '.pyenv');
+        return { pythonPath: path.join(pyenvRoot, 'versions', envConfig.pyenvVersion, 'bin', pythonBin) };
+      }
+      case 'conda': {
+        const condaRoot = envConfig.condaRoot || path.join(os.homedir(), 'anaconda3');
+        return { pythonPath: path.join(condaRoot, 'envs', envConfig.condaEnv, 'bin', pythonBin) };
+      }
+      case 'custom': {
+        return { pythonPath: envConfig.customPath };
+      }
+      case 'system':
+      default:
+        return { pythonPath: isWindows ? 'python' : 'python3' };
+    }
+  } catch (err) {
+    console.error('Error resolving python path:', err);
+    return { pythonPath: process.platform === 'win32' ? 'python' : 'python3' };
+  }
+});
+
+// ==================== END PYTHON ENVIRONMENT ====================
 
 ipcMain.handle('loadProjectSettings', async (event, currentPath) => {
     try {
@@ -3609,12 +4184,118 @@ ipcMain.handle('get-local-model-status', async (event, provider) => {
 
 ipcMain.handle('scan-gguf-models', async (event, directory) => {
     try {
-        const url = directory
-            ? `http://127.0.0.1:5337/api/models/gguf/scan?directory=${encodeURIComponent(directory)}`
-            : 'http://127.0.0.1:5337/api/models/gguf/scan';
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return await response.json();
+        const homeDir = require('os').homedir();
+        const fsPromises = require('fs').promises;
+
+        // Default directories to scan for GGUF/GGML files
+        const defaultDirs = [
+            // HuggingFace cache (where transformers downloads GGUF files)
+            path.join(homeDir, '.cache', 'huggingface', 'hub'),
+            // LM Studio locations
+            path.join(homeDir, '.cache', 'lm-studio', 'models'),
+            path.join(homeDir, 'lm-studio', 'models'),
+            path.join(homeDir, '.lmstudio', 'models'),
+            path.join(homeDir, '.local', 'share', 'lmstudio', 'models'),
+            // llama.cpp locations
+            path.join(homeDir, 'llama.cpp', 'models'),
+            path.join(homeDir, '.llama.cpp', 'models'),
+            path.join(homeDir, '.local', 'share', 'llama.cpp', 'models'),
+            // Kobold.cpp locations
+            path.join(homeDir, 'koboldcpp', 'models'),
+            path.join(homeDir, '.koboldcpp', 'models'),
+            path.join(homeDir, '.local', 'share', 'koboldcpp', 'models'),
+            // Ollama models (GGUF based)
+            path.join(homeDir, '.ollama', 'models', 'blobs'),
+            // GPT4All
+            path.join(homeDir, '.cache', 'gpt4all'),
+            path.join(homeDir, '.local', 'share', 'gpt4all'),
+            // General model directories
+            path.join(homeDir, '.npcsh', 'models', 'gguf'),
+            path.join(homeDir, '.npcsh', 'models'),
+            path.join(homeDir, 'models'),
+            path.join(homeDir, 'Models'),
+            // Text-generation-webui (oobabooga)
+            path.join(homeDir, 'text-generation-webui', 'models'),
+        ];
+
+        // Directories to scan
+        const dirsToScan = directory
+            ? [directory.replace(/^~/, homeDir)]
+            : defaultDirs;
+
+        const models = [];
+        const seenPaths = new Set();
+
+        // Recursive function to find GGUF/GGML files (follows symlinks)
+        const scanDirectory = async (dir, depth = 0) => {
+            if (depth > 5) return; // Limit recursion depth
+            try {
+                const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name);
+                    // Use stat to follow symlinks (HuggingFace uses symlinks)
+                    try {
+                        const stats = await fsPromises.stat(fullPath);
+                        if (stats.isDirectory()) {
+                            // Skip some directories that are unlikely to have models
+                            if (!entry.name.startsWith('.git') && entry.name !== 'node_modules') {
+                                await scanDirectory(fullPath, depth + 1);
+                            }
+                        } else if (stats.isFile()) {
+                            const ext = path.extname(entry.name).toLowerCase();
+                            if (ext === '.gguf' || ext === '.ggml' || ext === '.bin') {
+                                // Skip .bin files that are too small (likely not models)
+                                if (ext === '.bin' && entry.name.length < 10) continue;
+
+                                if (!seenPaths.has(fullPath)) {
+                                    seenPaths.add(fullPath);
+                                    // Only include files larger than 50MB (likely actual models)
+                                    if (stats.size > 50 * 1024 * 1024) {
+                                        models.push({
+                                            name: entry.name,
+                                            filename: entry.name,
+                                            path: fullPath,
+                                            size: stats.size,
+                                            modified_at: stats.mtime.toISOString(),
+                                            source: dir.includes('.cache/huggingface') ? 'HuggingFace' :
+                                                    dir.includes('lm-studio') || dir.includes('lmstudio') ? 'LM Studio' :
+                                                    dir.includes('llama.cpp') ? 'llama.cpp' :
+                                                    dir.includes('koboldcpp') ? 'KoboldCPP' :
+                                                    dir.includes('ollama') ? 'Ollama' :
+                                                    dir.includes('gpt4all') ? 'GPT4All' :
+                                                    dir.includes('text-generation-webui') ? 'oobabooga' :
+                                                    'Local'
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    } catch (statErr) {
+                        // Skip broken symlinks or files we can't stat
+                    }
+                }
+            } catch (err) {
+                // Directory doesn't exist or can't be read - skip silently
+            }
+        };
+
+        // Scan all directories
+        for (const dir of dirsToScan) {
+            await scanDirectory(dir);
+        }
+
+        // Sort by modification date (newest first)
+        models.sort((a, b) => new Date(b.modified_at) - new Date(a.modified_at));
+
+        return {
+            models,
+            scannedDirectories: dirsToScan.filter(d => {
+                try {
+                    require('fs').accessSync(d);
+                    return true;
+                } catch { return false; }
+            })
+        };
     } catch (err) {
         console.error('Error scanning GGUF models:', err);
         return { models: [], error: err.message };
@@ -4150,7 +4831,7 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
 
 
 
-ipcMain.handle('createTerminalSession', async (event, { id, cwd }) => {
+ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) => {
   if (!pty) {
     return { success: false, error: 'Terminal functionality not available' };
   }
@@ -4167,46 +4848,60 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd }) => {
     }
   }
 
-  // Check for npcsh switch in workspace or global .ctx files
-  let useNpcsh = false;
   const workingDir = cwd || os.homedir();
-  const yaml = require('js-yaml');
+  let shell, args;
+  let actualShellType = shellType || 'system';
 
-  // Check workspace .ctx first
-  const npcTeamDir = path.join(workingDir, 'npc_team');
-  try {
-    if (fs.existsSync(npcTeamDir)) {
-      const ctxFiles = fs.readdirSync(npcTeamDir).filter(f => f.endsWith('.ctx'));
-      if (ctxFiles.length > 0) {
-        const ctxData = yaml.load(fs.readFileSync(path.join(npcTeamDir, ctxFiles[0]), 'utf-8')) || {};
-        if (ctxData.switches?.default_shell === 'npcsh') {
-          useNpcsh = true;
-        }
-      }
-    }
-  } catch (e) { /* ignore */ }
+  // If shellType is explicitly set, use that
+  if (shellType === 'npcsh') {
+    shell = 'npcsh';
+    args = [];
+  } else if (shellType === 'guac' || shellType === 'ipython') {
+    // guac is IPython-based - try guac first, fall back to ipython
+    shell = 'guac';
+    args = [];
+    // We'll try guac, and if it fails, we'll handle it below
+  } else if (shellType === 'system' || !shellType) {
+    // Check for npcsh switch in workspace or global .ctx files for auto-detection
+    let useNpcsh = false;
+    const yaml = require('js-yaml');
 
-  // Fall back to global .ctx
-  if (!useNpcsh) {
-    const globalCtx = path.join(os.homedir(), '.npcsh', 'npc_team', 'npcsh.ctx');
+    // Check workspace .ctx first
+    const npcTeamDir = path.join(workingDir, 'npc_team');
     try {
-      if (fs.existsSync(globalCtx)) {
-        const ctxData = yaml.load(fs.readFileSync(globalCtx, 'utf-8')) || {};
-        if (ctxData.switches?.default_shell === 'npcsh') {
-          useNpcsh = true;
+      if (fs.existsSync(npcTeamDir)) {
+        const ctxFiles = fs.readdirSync(npcTeamDir).filter(f => f.endsWith('.ctx'));
+        if (ctxFiles.length > 0) {
+          const ctxData = yaml.load(fs.readFileSync(path.join(npcTeamDir, ctxFiles[0]), 'utf-8')) || {};
+          if (ctxData.switches?.default_shell === 'npcsh') {
+            useNpcsh = true;
+          }
         }
       }
     } catch (e) { /* ignore */ }
-  }
 
-  // Choose shell based on switch
-  let shell, args;
-  if (useNpcsh) {
-    shell = 'npcsh';
-    args = [];
-  } else {
-    shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
-    args = os.platform() === 'win32' ? [] : ['-l'];
+    // Fall back to global .ctx
+    if (!useNpcsh) {
+      const globalCtx = path.join(os.homedir(), '.npcsh', 'npc_team', 'npcsh.ctx');
+      try {
+        if (fs.existsSync(globalCtx)) {
+          const ctxData = yaml.load(fs.readFileSync(globalCtx, 'utf-8')) || {};
+          if (ctxData.switches?.default_shell === 'npcsh') {
+            useNpcsh = true;
+          }
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    if (useNpcsh) {
+      shell = 'npcsh';
+      args = [];
+      actualShellType = 'npcsh';
+    } else {
+      shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
+      args = os.platform() === 'win32' ? [] : ['-l'];
+      actualShellType = 'system';
+    }
   }
 
   try {
@@ -4219,7 +4914,7 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd }) => {
     });
 
     // Store both the ptyProcess and the webContents that created it
-    ptySessions.set(id, { ptyProcess, webContents: senderWebContents });
+    ptySessions.set(id, { ptyProcess, webContents: senderWebContents, shellType: actualShellType });
 
     ptyProcess.onData(data => {
       // Send to the window that created this terminal session
@@ -4236,9 +4931,40 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd }) => {
       }
     });
 
-    return { success: true, shell: useNpcsh ? 'npcsh' : 'system' };
+    return { success: true, shell: actualShellType };
 
   } catch (error) {
+    // If guac failed, try ipython
+    if (shellType === 'guac' || shellType === 'ipython') {
+      try {
+        const ptyProcess = pty.spawn('ipython', [], {
+          name: 'xterm-256color',
+          cols: 80,
+          rows: 24,
+          cwd: workingDir,
+          env: process.env
+        });
+
+        ptySessions.set(id, { ptyProcess, webContents: senderWebContents, shellType: 'ipython' });
+
+        ptyProcess.onData(data => {
+          if (senderWebContents && !senderWebContents.isDestroyed()) {
+            senderWebContents.send('terminal-data', { id, data });
+          }
+        });
+
+        ptyProcess.onExit(({ exitCode, signal }) => {
+          ptySessions.delete(id);
+          if (senderWebContents && !senderWebContents.isDestroyed()) {
+            senderWebContents.send('terminal-closed', { id });
+          }
+        });
+
+        return { success: true, shell: 'ipython' };
+      } catch (ipythonError) {
+        return { success: false, error: `Neither guac nor ipython available: ${error.message}` };
+      }
+    }
     return { success: false, error: error.message };
   }
 });

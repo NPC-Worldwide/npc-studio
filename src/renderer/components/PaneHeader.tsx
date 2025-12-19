@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { X, Maximize2, Minimize2, Check } from 'lucide-react';
+import { X, Maximize2, Minimize2, Check, Play, Plus, MessageSquare, Terminal, Globe, BookOpen, FileText } from 'lucide-react';
 
 export const PaneHeader = React.memo(({
     nodeId,
@@ -22,10 +22,16 @@ export const PaneHeader = React.memo(({
     setEditedFileName,
     onConfirmRename,
     onCancelRename,
-    filePath
+    filePath,
+    onRunScript,
+    // Tab support
+    onAddTab,
+    hasMultipleTabs
 }) => {
+    const isPythonFile = filePath?.endsWith('.py');
     const nodePath = findNodePath(rootLayoutNode, nodeId);
     const inputRef = useRef(null);
+    const [showAddTabMenu, setShowAddTabMenu] = useState(false);
 
     useEffect(() => {
         if (isRenaming && inputRef.current) {
@@ -116,6 +122,70 @@ export const PaneHeader = React.memo(({
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                     {children} {/* This is where the extra buttons will render */}
+
+                    {/* Add Tab button */}
+                    {onAddTab && (
+                        <div className="relative">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowAddTabMenu(!showAddTabMenu);
+                                }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="p-1 theme-hover rounded-full flex-shrink-0 transition-all hover:bg-blue-500/20"
+                                aria-label="Add new tab"
+                                title="Add new tab to this pane"
+                            >
+                                <Plus size={14} className="text-blue-400" />
+                            </button>
+                            {showAddTabMenu && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setShowAddTabMenu(false)} />
+                                    <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[140px] py-1">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onAddTab('chat'); setShowAddTabMenu(false); }}
+                                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"
+                                        >
+                                            <MessageSquare size={12} className="text-blue-400" /> Chat
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onAddTab('terminal'); setShowAddTabMenu(false); }}
+                                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"
+                                        >
+                                            <Terminal size={12} className="text-green-400" /> Terminal
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onAddTab('browser'); setShowAddTabMenu(false); }}
+                                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"
+                                        >
+                                            <Globe size={12} className="text-cyan-400" /> Browser
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onAddTab('library'); setShowAddTabMenu(false); }}
+                                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"
+                                        >
+                                            <BookOpen size={12} className="text-red-400" /> Library
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {isPythonFile && onRunScript && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onRunScript(filePath);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="p-1 theme-hover rounded-full flex-shrink-0 transition-all hover:bg-green-500/20"
+                            aria-label="Run Python script"
+                            title="Run Python script"
+                        >
+                            <Play size={14} className="text-green-400" />
+                        </button>
+                    )}
 
                     {onToggleZenMode && (
                         <button

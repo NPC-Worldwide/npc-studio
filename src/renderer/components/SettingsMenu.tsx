@@ -1,6 +1,251 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Keyboard } from 'lucide-react';
+import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Keyboard, KeyRound, Plus, Copy, ExternalLink, Terminal } from 'lucide-react';
 import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
+import PythonEnvSettings from './PythonEnvSettings';
+
+// Password Manager Component
+const PasswordManager = () => {
+    const [credentials, setCredentials] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [encryptionStatus, setEncryptionStatus] = useState<any>(null);
+    const [showAddForm, setShowAddForm] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
+    const [formData, setFormData] = useState({ site: '', username: '', password: '', notes: '' });
+    const [revealedPasswords, setRevealedPasswords] = useState<Record<string, string>>({});
+
+    const loadCredentials = useCallback(async () => {
+        setLoading(true);
+        try {
+            const result = await (window as any).api.passwordList();
+            if (result.success) {
+                setCredentials(result.credentials);
+            }
+            const status = await (window as any).api.passwordEncryptionStatus();
+            setEncryptionStatus(status);
+        } catch (err) {
+            console.error('Failed to load credentials:', err);
+        }
+        setLoading(false);
+    }, []);
+
+    useEffect(() => {
+        loadCredentials();
+    }, [loadCredentials]);
+
+    const handleSave = async () => {
+        if (!formData.site || !formData.username || !formData.password) return;
+        try {
+            const result = await (window as any).api.passwordSave(formData);
+            if (result.success) {
+                setFormData({ site: '', username: '', password: '', notes: '' });
+                setShowAddForm(false);
+                setEditingId(null);
+                loadCredentials();
+            }
+        } catch (err) {
+            console.error('Failed to save credential:', err);
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!confirm('Delete this credential?')) return;
+        try {
+            const result = await (window as any).api.passwordDelete(id);
+            if (result.success) {
+                loadCredentials();
+            }
+        } catch (err) {
+            console.error('Failed to delete credential:', err);
+        }
+    };
+
+    const handleEdit = async (id: string) => {
+        try {
+            const result = await (window as any).api.passwordGet(id);
+            if (result.success) {
+                setFormData({
+                    site: result.credential.site,
+                    username: result.credential.username,
+                    password: result.credential.password,
+                    notes: result.credential.notes || ''
+                });
+                setEditingId(id);
+                setShowAddForm(true);
+            }
+        } catch (err) {
+            console.error('Failed to get credential:', err);
+        }
+    };
+
+    const revealPassword = async (id: string) => {
+        if (revealedPasswords[id]) {
+            setRevealedPasswords(prev => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+            });
+            return;
+        }
+        try {
+            const result = await (window as any).api.passwordGet(id);
+            if (result.success) {
+                setRevealedPasswords(prev => ({ ...prev, [id]: result.credential.password }));
+            }
+        } catch (err) {
+            console.error('Failed to reveal password:', err);
+        }
+    };
+
+    const copyToClipboard = async (id: string, field: 'username' | 'password') => {
+        try {
+            const result = await (window as any).api.passwordGet(id);
+            if (result.success) {
+                await navigator.clipboard.writeText(result.credential[field]);
+            }
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    };
+
+    if (loading) {
+        return <div className="text-center py-8 text-gray-400">Loading credentials...</div>;
+    }
+
+    return (
+        <div className="space-y-4">
+            {/* Encryption status */}
+            {encryptionStatus && (
+                <div className={`p-3 rounded-lg text-sm ${encryptionStatus.available ? 'bg-green-900/30 text-green-400' : 'bg-yellow-900/30 text-yellow-400'}`}>
+                    <KeyRound size={16} className="inline mr-2" />
+                    {encryptionStatus.message}
+                </div>
+            )}
+
+            {/* Add/Edit form */}
+            {showAddForm ? (
+                <Card title={editingId ? 'Edit Credential' : 'Add New Credential'}>
+                    <div className="space-y-3">
+                        <Input
+                            label="Site/URL"
+                            value={formData.site}
+                            onChange={(e) => setFormData({ ...formData, site: e.target.value })}
+                            placeholder="example.com or https://example.com"
+                        />
+                        <Input
+                            label="Username/Email"
+                            value={formData.username}
+                            onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                            placeholder="user@example.com"
+                        />
+                        <div className="relative">
+                            <Input
+                                label="Password"
+                                type={showPassword['form'] ? 'text' : 'password'}
+                                value={formData.password}
+                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                placeholder="••••••••"
+                            />
+                            <button
+                                type="button"
+                                className="absolute right-2 top-8 p-1 text-gray-400 hover:text-white"
+                                onClick={() => setShowPassword(prev => ({ ...prev, form: !prev.form }))}
+                            >
+                                {showPassword['form'] ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                        </div>
+                        <Input
+                            label="Notes (optional)"
+                            value={formData.notes}
+                            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                            placeholder="Additional notes..."
+                        />
+                        <div className="flex gap-2 pt-2">
+                            <Button variant="primary" onClick={handleSave}>
+                                <Save size={16} /> {editingId ? 'Update' : 'Save'}
+                            </Button>
+                            <Button variant="secondary" onClick={() => {
+                                setShowAddForm(false);
+                                setEditingId(null);
+                                setFormData({ site: '', username: '', password: '', notes: '' });
+                            }}>
+                                Cancel
+                            </Button>
+                        </div>
+                    </div>
+                </Card>
+            ) : (
+                <Button variant="primary" onClick={() => setShowAddForm(true)}>
+                    <Plus size={16} /> Add Credential
+                </Button>
+            )}
+
+            {/* Credentials list */}
+            <div className="space-y-2">
+                {credentials.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400">
+                        No saved credentials yet. Add one to get started.
+                    </div>
+                ) : (
+                    credentials.map((cred) => (
+                        <div key={cred.id} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+                            <div className="flex items-center justify-between">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <ExternalLink size={14} className="text-gray-500" />
+                                        <span className="font-medium text-white truncate">{cred.site}</span>
+                                    </div>
+                                    <div className="text-sm text-gray-400 mt-1">{cred.username}</div>
+                                    {revealedPasswords[cred.id] && (
+                                        <div className="text-sm text-green-400 mt-1 font-mono">{revealedPasswords[cred.id]}</div>
+                                    )}
+                                    {cred.notes && <div className="text-xs text-gray-500 mt-1">{cred.notes}</div>}
+                                </div>
+                                <div className="flex items-center gap-1 ml-2">
+                                    <button
+                                        onClick={() => copyToClipboard(cred.id, 'username')}
+                                        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                                        title="Copy username"
+                                    >
+                                        <Copy size={14} />
+                                    </button>
+                                    <button
+                                        onClick={() => revealPassword(cred.id)}
+                                        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                                        title={revealedPasswords[cred.id] ? "Hide password" : "Show password"}
+                                    >
+                                        {revealedPasswords[cred.id] ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </button>
+                                    <button
+                                        onClick={() => copyToClipboard(cred.id, 'password')}
+                                        className="p-1.5 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300"
+                                        title="Copy password"
+                                    >
+                                        <KeyRound size={14} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleEdit(cred.id)}
+                                        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                                        title="Edit"
+                                    >
+                                        <Settings size={14} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDelete(cred.id)}
+                                        className="p-1.5 hover:bg-gray-700 rounded text-red-400 hover:text-red-300"
+                                        title="Delete"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+};
 
 const HOME_DIR = '~/.npcsh';
 
@@ -83,6 +328,7 @@ const ModelManager = () => {
         gguf: []
     });
     const [ggufDirectory, setGgufDirectory] = useState('');
+    const [scannedDirectories, setScannedDirectories] = useState<string[]>([]);
     const [pullModelName, setPullModelName] = useState('llama3.1');
     const [pullProgress, setPullProgress] = useState(null);
     const [isPulling, setIsPulling] = useState(false);
@@ -105,6 +351,9 @@ const ModelManager = () => {
             const result = await window.api.scanGgufModels?.(ggufDirectory || null);
             if (result && !result.error) {
                 setProviderModels(prev => ({ ...prev, gguf: result.models || [] }));
+                if (result.scannedDirectories) {
+                    setScannedDirectories(result.scannedDirectories);
+                }
             }
         } else {
             // Use the new scan API for LM Studio and llama.cpp
@@ -359,12 +608,12 @@ const ModelManager = () => {
             {activeProvider === 'gguf' && (
                 <div className="space-y-3">
                     <div>
-                        <label className="block text-sm text-gray-400 mb-2">Models Directory (optional)</label>
+                        <label className="block text-sm text-gray-400 mb-2">Custom Models Directory (optional)</label>
                         <div className="flex gap-2">
                             <Input
                                 value={ggufDirectory}
                                 onChange={(e) => setGgufDirectory(e.target.value)}
-                                placeholder="~/.npcsh/models/gguf or /path/to/models"
+                                placeholder="Leave empty to scan all default locations"
                                 className="flex-1"
                             />
                             <Button variant="secondary" onClick={() => fetchModelsForProvider('gguf')} disabled={isScanning}>
@@ -372,9 +621,23 @@ const ModelManager = () => {
                             </Button>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
-                            Leave empty to scan default locations. Set NPCSH_GGUF_DIR env var for persistent config.
+                            Leave empty to auto-scan HuggingFace cache, LM Studio, llama.cpp, KoboldCPP, GPT4All, and more.
                         </p>
                     </div>
+
+                    {/* Show scanned directories */}
+                    {scannedDirectories.length > 0 && (
+                        <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+                            <p className="text-xs text-gray-400 mb-2">Scanned locations ({scannedDirectories.length} found):</p>
+                            <div className="max-h-24 overflow-y-auto">
+                                {scannedDirectories.map((dir, idx) => (
+                                    <p key={idx} className="text-xs text-gray-500 font-mono truncate" title={dir}>
+                                        {dir.replace(/^\/home\/[^/]+/, '~')}
+                                    </p>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* HuggingFace Model Download */}
                     <div>
@@ -383,7 +646,7 @@ const ModelManager = () => {
                             <Input
                                 value={hfModelUrl}
                                 onChange={(e) => setHfModelUrl(e.target.value)}
-                                placeholder="TheBloke/Llama-2-7B-GGUF or full URL"
+                                placeholder="unsloth/Qwen3-4B-GGUF or TheBloke/Llama-2-7B-GGUF"
                                 className="flex-1"
                             />
                             <Button variant="primary" onClick={handleDownloadHfModel} disabled={isDownloadingHf || !hfModelUrl.trim()}>
@@ -391,7 +654,7 @@ const ModelManager = () => {
                             </Button>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
-                            Enter a HuggingFace model ID (e.g., TheBloke/Llama-2-7B-GGUF) or direct URL to a GGUF file.
+                            Enter a HuggingFace model ID or direct URL. Downloaded models will be auto-detected on next scan.
                         </p>
                     </div>
 
@@ -413,12 +676,17 @@ const ModelManager = () => {
                     <Card>
                         <div className="p-3">
                             <p className="text-sm text-gray-300">
-                                <strong>Usage:</strong> Set provider to <code className="bg-gray-700 px-1 rounded">gguf</code> or <code className="bg-gray-700 px-1 rounded">ggml</code> and
-                                model to the file path (relative to CWD or absolute).
+                                <strong>Auto-scanned locations:</strong>
                             </p>
-                            <p className="text-xs text-gray-500 mt-2">
-                                Example: model=&quot;./models/llama-7b.Q4_K_M.gguf&quot; provider=&quot;gguf&quot;
-                            </p>
+                            <ul className="text-xs text-gray-500 mt-1 space-y-0.5 list-disc list-inside">
+                                <li>~/.cache/huggingface/hub (HuggingFace transformers)</li>
+                                <li>~/.cache/lm-studio/models, ~/.lmstudio/models (LM Studio)</li>
+                                <li>~/llama.cpp/models, ~/.llama.cpp/models (llama.cpp)</li>
+                                <li>~/koboldcpp/models (KoboldCPP)</li>
+                                <li>~/.cache/gpt4all (GPT4All)</li>
+                                <li>~/text-generation-webui/models (oobabooga)</li>
+                                <li>~/.npcsh/models/gguf, ~/models (general)</li>
+                            </ul>
                         </div>
                     </Card>
                 </div>
@@ -437,13 +705,33 @@ const ModelManager = () => {
                         {currentModels.length > 0 ? currentModels.map((model, idx) => (
                             <Card key={model.name || model.id || model.path || idx}>
                                 <div className="flex justify-between items-center p-3">
-                                    <div className="overflow-hidden">
-                                        <p className="font-semibold text-white">{model.name || model.id || model.filename}</p>
-                                        <p className="text-xs text-gray-500 truncate">
-                                            {model.size ? `Size: ${(model.size / 1e9).toFixed(2)} GB` : ''}
-                                            {model.modified_at && ` | Modified: ${new Date(model.modified_at).toLocaleDateString()}`}
-                                            {model.path && <span className="block truncate" title={model.path}>Path: {model.path}</span>}
+                                    <div className="overflow-hidden flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <p className="font-semibold text-white truncate">{model.name || model.id || model.filename}</p>
+                                            {model.source && (
+                                                <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                                    model.source === 'HuggingFace' ? 'bg-yellow-900/50 text-yellow-300' :
+                                                    model.source === 'LM Studio' ? 'bg-purple-900/50 text-purple-300' :
+                                                    model.source === 'llama.cpp' ? 'bg-green-900/50 text-green-300' :
+                                                    model.source === 'KoboldCPP' ? 'bg-blue-900/50 text-blue-300' :
+                                                    model.source === 'Ollama' ? 'bg-cyan-900/50 text-cyan-300' :
+                                                    model.source === 'GPT4All' ? 'bg-pink-900/50 text-pink-300' :
+                                                    model.source === 'oobabooga' ? 'bg-indigo-900/50 text-indigo-300' :
+                                                    'bg-gray-700 text-gray-300'
+                                                }`}>
+                                                    {model.source}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-gray-500">
+                                            {model.size ? `${(model.size / 1e9).toFixed(2)} GB` : ''}
+                                            {model.modified_at && ` • ${new Date(model.modified_at).toLocaleDateString()}`}
                                         </p>
+                                        {model.path && (
+                                            <p className="text-xs text-gray-600 truncate font-mono" title={model.path}>
+                                                {model.path.replace(/^\/home\/[^/]+/, '~')}
+                                            </p>
+                                        )}
                                     </div>
                                     {activeProvider === 'ollama' && (
                                         <button
@@ -459,7 +747,7 @@ const ModelManager = () => {
                         )) : (
                             <p className="text-gray-500 text-center py-4">
                                 {activeProvider === 'ollama' && 'No models found. Pull a model above.'}
-                                {activeProvider === 'gguf' && 'No GGUF/GGML files found. Specify a directory or place files in ~/.npcsh/models/gguf'}
+                                {activeProvider === 'gguf' && 'No GGUF/GGML files found. Click "Scan" to search common locations or download from HuggingFace.'}
                                 {activeProvider !== 'ollama' && activeProvider !== 'gguf' && 'No models found. Load models in the app.'}
                             </p>
                         )}
@@ -571,7 +859,9 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
         { id: 'global', name: 'Global Settings' },
         { id: 'shortcuts', name: 'Keyboard Shortcuts' },
         { id: 'models', name: 'Model Management' },
-        { id: 'providers', name: 'Custom Providers' }
+        { id: 'providers', name: 'Custom Providers' },
+        { id: 'passwords', name: 'Passwords' },
+        { id: 'python', name: 'Python Environment' }
     ];
 
     const isSensitiveField = (key) => {
@@ -785,6 +1075,9 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                         </Button>
                     </Card>
                 )}
+
+                {activeTab === 'passwords' && <PasswordManager />}
+                {activeTab === 'python' && <PythonEnvSettings currentPath={currentPath} />}
             </div>
 
             <div className="border-t border-gray-700 p-4 flex justify-end">

@@ -319,6 +319,22 @@ onTerminalClosed: (callback) => {
     getActivityPredictions: () => ipcRenderer.invoke('get-activity-predictions'),
     trainActivityModel: () => ipcRenderer.invoke('train-activity-model'),
 
+    // Password Manager APIs
+    passwordSave: (params) => ipcRenderer.invoke('password-save', params),
+    passwordGetForSite: (site) => ipcRenderer.invoke('password-get-for-site', { site }),
+    passwordGet: (id) => ipcRenderer.invoke('password-get', { id }),
+    passwordList: () => ipcRenderer.invoke('password-list'),
+    passwordDelete: (id) => ipcRenderer.invoke('password-delete', { id }),
+    passwordEncryptionStatus: () => ipcRenderer.invoke('password-encryption-status'),
+
+    // Python Environment Configuration
+    pythonEnvGet: (workspacePath) => ipcRenderer.invoke('python-env-get', { workspacePath }),
+    pythonEnvSave: (workspacePath, envConfig) => ipcRenderer.invoke('python-env-save', { workspacePath, envConfig }),
+    pythonEnvDelete: (workspacePath) => ipcRenderer.invoke('python-env-delete', { workspacePath }),
+    pythonEnvList: () => ipcRenderer.invoke('python-env-list'),
+    pythonEnvDetect: (workspacePath) => ipcRenderer.invoke('python-env-detect', { workspacePath }),
+    pythonEnvResolve: (workspacePath) => ipcRenderer.invoke('python-env-resolve', { workspacePath }),
+
     generativeFill: async (params) => {
     return ipcRenderer.invoke('generative-fill', params);
 },

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, memo, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { Terminal as TerminalIcon, Code, Sparkles } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 
 const SHELL_PROMPT_KEY = 'npc-studio-shell-profile-prompted';
@@ -12,9 +13,12 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
     const isSessionReady = useRef(false);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
     const [showShellPrompt, setShowShellPrompt] = useState(false);
+    const [activeShell, setActiveShell] = useState<string>('system');
+    const [pythonEnv, setPythonEnv] = useState<string | null>(null);
 
     const paneData = contentDataRef.current[nodeId];
     const terminalId = paneData?.contentId;
+    const shellType = paneData?.shellType || 'system';
 
     const handleCopy = useCallback(() => {
         if (xtermInstance.current) {
@@ -175,17 +179,19 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     id: terminalId,
                     cwd: currentPath,
                     cols: xtermInstance.current.cols,
-                    rows: xtermInstance.current.rows
+                    rows: xtermInstance.current.rows,
+                    shellType: shellType
                 });
                 if (isEffectCancelled) return;
                 if (result.success) {
                     isSessionReady.current = true;
+                    setActiveShell(result.shell || 'system');
                     if (activeContentPaneId === nodeId) {
                         xtermInstance.current.focus();
                     }
                     // Check if this is the first terminal startup
                     const hasBeenPrompted = localStorage.getItem(SHELL_PROMPT_KEY);
-                    if (!hasBeenPrompted) {
+                    if (!hasBeenPrompted && result.shell === 'system') {
                         setShowShellPrompt(true);
                     }
                 } else {
@@ -196,7 +202,28 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             }
         };
 
+        // Load Python environment info for display
+        const loadPythonEnv = async () => {
+            try {
+                const envConfig = await (window as any).api?.pythonEnvGet?.(currentPath);
+                if (envConfig) {
+                    if (envConfig.type === 'venv' || envConfig.type === 'uv') {
+                        setPythonEnv(`${envConfig.type}:${envConfig.venvPath || '.venv'}`);
+                    } else if (envConfig.type === 'pyenv') {
+                        setPythonEnv(`pyenv:${envConfig.pyenvVersion}`);
+                    } else if (envConfig.type === 'conda') {
+                        setPythonEnv(`conda:${envConfig.condaEnv}`);
+                    } else if (envConfig.type === 'custom') {
+                        setPythonEnv('custom');
+                    }
+                }
+            } catch (e) {
+                // No Python env configured
+            }
+        };
+
         initBackendSession();
+        loadPythonEnv();
 
         return () => {
             isEffectCancelled = true;
@@ -205,7 +232,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             removeClosedListener();
             window.api.closeTerminalSession(terminalId);
         };
-    }, [terminalId, currentPath]);
+    }, [terminalId, currentPath, shellType]);
 
     useEffect(() => {
         if (activeContentPaneId === nodeId && xtermInstance.current) {
@@ -284,6 +311,37 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     </div>
                 </div>
             )}
+
+            {/* Shell/Environment Indicator */}
+            <div className="absolute bottom-1 left-1 flex items-center gap-2 z-20 pointer-events-none">
+                {/* Shell Type Indicator */}
+                <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                    activeShell === 'npcsh' ? 'bg-purple-600/80 text-purple-100' :
+                    activeShell === 'guac' || activeShell === 'ipython' ? 'bg-yellow-600/80 text-yellow-100' :
+                    'bg-gray-700/80 text-gray-300'
+                }`}>
+                    {activeShell === 'npcsh' ? (
+                        <Sparkles size={12} />
+                    ) : activeShell === 'guac' || activeShell === 'ipython' ? (
+                        <Code size={12} />
+                    ) : (
+                        <TerminalIcon size={12} />
+                    )}
+                    <span>
+                        {activeShell === 'npcsh' ? 'npcsh' :
+                         activeShell === 'guac' || activeShell === 'ipython' ? 'guac' :
+                         'shell'}
+                    </span>
+                </div>
+
+                {/* Python Environment Indicator */}
+                {pythonEnv && (
+                    <div className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-700/80 text-green-100">
+                        <span className="opacity-70">py:</span>
+                        <span>{pythonEnv}</span>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

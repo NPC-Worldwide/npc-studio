@@ -7,6 +7,7 @@ import {
     Image as ImageIcon, Tag
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
+import PaneTabBar from './PaneTabBar';
 import { getFileIcon } from './utils';
 import ChatInput from './ChatInput';
 
@@ -423,12 +424,12 @@ export const LayoutNode = memo(({ node, path, component }) => {
     if (node.type === 'content') {
         const { activeContentPaneId, setActiveContentPaneId, draggedItem,
             setDraggedItem, dropTarget, setDropTarget, contentDataRef,
-            updateContentPane, performSplit,
+            updateContentPane, performSplit, setRootLayoutNode,
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
-            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderProjectEnvPane, renderDiskUsagePane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -441,6 +442,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
             zenModePaneId, toggleZenMode,
             // Renaming props
             renamingPaneId, setRenamingPaneId, editedFileName, setEditedFileName, handleConfirmRename,
+            // Script running
+            onRunScript,
         } = component;
 
         // Get chat input props for this specific pane
@@ -456,6 +459,59 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
             if (component.draggedItem.type === 'pane') {
                 if (component.draggedItem.id === node.id) return;
+
+                // When dropping pane on CENTER, add it as a tab instead of moving
+                if (side === 'center') {
+                    const sourcePaneData = contentDataRef.current[component.draggedItem.id];
+                    const targetPaneData = contentDataRef.current[node.id];
+
+                    if (sourcePaneData?.contentType && targetPaneData) {
+                        // Initialize target tabs if needed
+                        if (!targetPaneData.tabs || targetPaneData.tabs.length === 0) {
+                            targetPaneData.tabs = [{
+                                id: `tab_${Date.now()}_0`,
+                                contentType: targetPaneData.contentType,
+                                contentId: targetPaneData.contentId,
+                                title: targetPaneData.contentId?.split('/').pop() || targetPaneData.contentType
+                            }];
+                            targetPaneData.activeTabIndex = 0;
+                        }
+
+                        // If source pane has tabs, add all of them
+                        if (sourcePaneData.tabs && sourcePaneData.tabs.length > 0) {
+                            sourcePaneData.tabs.forEach(tab => {
+                                targetPaneData.tabs.push({
+                                    ...tab,
+                                    id: `tab_${Date.now()}_${targetPaneData.tabs.length}`
+                                });
+                            });
+                        } else {
+                            // Add source content as a single new tab
+                            targetPaneData.tabs.push({
+                                id: `tab_${Date.now()}_${targetPaneData.tabs.length}`,
+                                contentType: sourcePaneData.contentType,
+                                contentId: sourcePaneData.contentId,
+                                title: sourcePaneData.contentId?.split('/').pop() || sourcePaneData.contentType
+                            });
+                        }
+
+                        // Switch to the newly added tab
+                        targetPaneData.activeTabIndex = targetPaneData.tabs.length - 1;
+                        const activeTab = targetPaneData.tabs[targetPaneData.activeTabIndex];
+                        targetPaneData.contentType = activeTab.contentType;
+                        targetPaneData.contentId = activeTab.contentId;
+
+                        // Close the source pane
+                        closeContentPane(component.draggedItem.id, component.draggedItem.nodePath);
+
+                        setRootLayoutNode?.(prev => ({ ...prev }));
+                        component.setDraggedItem(null);
+                        component.setDropTarget(null);
+                        return;
+                    }
+                }
+
+                // For non-center drops, use normal move behavior
                 component.moveContentPane(component.draggedItem.id, component.draggedItem.nodePath, path, side);
                 component.setDraggedItem(null);
                 component.setDropTarget(null);
@@ -465,6 +521,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
             let contentType;
             if (draggedItem.type === 'conversation') {
                 contentType = 'chat';
+            } else if (draggedItem.type === 'folder') {
+                contentType = 'folder';
             } else if (draggedItem.type === 'file') {
                 const ext = draggedItem.id.split('.').pop()?.toLowerCase();
                 if (ext === 'pdf') contentType = 'pdf';
@@ -484,7 +542,37 @@ export const LayoutNode = memo(({ node, path, component }) => {
             }
 
             if (side === 'center') {
-                updateContentPane(node.id, contentType, draggedItem.id);
+                const paneData = contentDataRef.current[node.id];
+                // Dropping on center ALWAYS adds as a tab (not replace)
+                if (paneData?.contentType) {
+                    // Initialize tabs if this pane doesn't have them yet
+                    if (!paneData.tabs || paneData.tabs.length === 0) {
+                        // Convert current content to first tab
+                        paneData.tabs = [{
+                            id: `tab_${Date.now()}_0`,
+                            contentType: paneData.contentType,
+                            contentId: paneData.contentId,
+                            title: paneData.contentId?.split('/').pop() || paneData.contentType
+                        }];
+                        paneData.activeTabIndex = 0;
+                    }
+                    // Add new content as new tab
+                    const newTab = {
+                        id: `tab_${Date.now()}_${paneData.tabs.length}`,
+                        contentType,
+                        contentId: draggedItem.id,
+                        title: draggedItem.id?.split('/').pop() || contentType
+                    };
+                    paneData.tabs.push(newTab);
+                    paneData.activeTabIndex = paneData.tabs.length - 1;
+                    // Update main paneData to reflect the new active tab
+                    paneData.contentType = contentType;
+                    paneData.contentId = draggedItem.id;
+                    setRootLayoutNode?.(prev => ({ ...prev }));
+                } else {
+                    // Empty pane - just set content directly
+                    updateContentPane(node.id, contentType, draggedItem.id);
+                }
             } else {
                 performSplit(path, side, contentType, draggedItem.id);
             }
@@ -493,8 +581,117 @@ export const LayoutNode = memo(({ node, path, component }) => {
         };
 
         const paneData = contentDataRef.current[node.id];
-        const contentType = paneData?.contentType;
-        const contentId = paneData?.contentId;
+
+        // Tab support: only show tabs when there are multiple
+        const tabs = paneData?.tabs || [];
+        const activeTabIndex = paneData?.activeTabIndex ?? 0;
+        const showTabBar = tabs.length > 1; // Only show when multiple tabs
+
+        // Get content type/id from active tab if tabs exist, otherwise use paneData directly
+        const activeTab = tabs.length > 0 ? tabs[activeTabIndex] : null;
+        const contentType = activeTab?.contentType || paneData?.contentType;
+        const contentId = activeTab?.contentId || paneData?.contentId;
+
+        // Tab management handlers
+        const handleTabSelect = (index: number) => {
+            if (paneData) {
+                paneData.activeTabIndex = index;
+                // Force re-render
+                setRootLayoutNode?.(prev => ({ ...prev }));
+            }
+        };
+
+        const handleTabClose = (index: number) => {
+            if (paneData && tabs.length > 0) {
+                const newTabs = [...tabs];
+                newTabs.splice(index, 1);
+
+                if (newTabs.length === 0) {
+                    // Close the pane if no tabs left
+                    closeContentPane(node.id, path);
+                } else {
+                    paneData.tabs = newTabs;
+                    // Adjust active index if needed
+                    if (paneData.activeTabIndex >= newTabs.length) {
+                        paneData.activeTabIndex = newTabs.length - 1;
+                    }
+                    setRootLayoutNode?.(prev => ({ ...prev }));
+                }
+            }
+        };
+
+        const handleTabReorder = (fromIndex: number, toIndex: number) => {
+            if (paneData && tabs.length > 0) {
+                const newTabs = [...tabs];
+                const [movedTab] = newTabs.splice(fromIndex, 1);
+                newTabs.splice(toIndex, 0, movedTab);
+                paneData.tabs = newTabs;
+                // Update active index to follow the moved tab if it was active
+                if (paneData.activeTabIndex === fromIndex) {
+                    paneData.activeTabIndex = toIndex;
+                } else if (fromIndex < paneData.activeTabIndex && toIndex >= paneData.activeTabIndex) {
+                    paneData.activeTabIndex--;
+                } else if (fromIndex > paneData.activeTabIndex && toIndex <= paneData.activeTabIndex) {
+                    paneData.activeTabIndex++;
+                }
+                setRootLayoutNode?.(prev => ({ ...prev }));
+            }
+        };
+
+        // Handler for adding new tabs from the + button
+        const handleAddTab = (contentType: string) => {
+            if (paneData) {
+                // Initialize tabs if needed (convert current content to first tab)
+                if (!paneData.tabs || paneData.tabs.length === 0) {
+                    if (paneData.contentType) {
+                        paneData.tabs = [{
+                            id: `tab_${Date.now()}_0`,
+                            contentType: paneData.contentType,
+                            contentId: paneData.contentId,
+                            title: paneData.contentId?.split('/').pop() || paneData.contentType
+                        }];
+                    } else {
+                        paneData.tabs = [];
+                    }
+                    paneData.activeTabIndex = 0;
+                }
+
+                // Create new tab based on content type
+                const newTabId = `tab_${Date.now()}_${paneData.tabs.length}`;
+                let newContentId = null;
+                let title = contentType;
+
+                if (contentType === 'chat') {
+                    newContentId = `conv_${Date.now()}`;
+                    title = 'New Chat';
+                } else if (contentType === 'terminal') {
+                    newContentId = `term_${Date.now()}`;
+                    title = 'Terminal';
+                } else if (contentType === 'browser') {
+                    newContentId = 'https://google.com';
+                    title = 'Browser';
+                } else if (contentType === 'library') {
+                    newContentId = 'library';
+                    title = 'Library';
+                }
+
+                const newTab = {
+                    id: newTabId,
+                    contentType,
+                    contentId: newContentId,
+                    title
+                };
+
+                paneData.tabs.push(newTab);
+                paneData.activeTabIndex = paneData.tabs.length - 1;
+
+                // Also update main paneData to reflect active tab
+                paneData.contentType = contentType;
+                paneData.contentId = newContentId;
+
+                setRootLayoutNode?.(prev => ({ ...prev }));
+            }
+        };
 
         let headerIcon = <FileIcon size={14} className="text-gray-400" />;
         let headerTitle = 'Empty Pane';
@@ -672,12 +869,16 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderSettingsPane({ nodeId: node.id });
                 case 'photoviewer':
                     return renderPhotoViewerPane({ nodeId: node.id });
+                case 'library':
+                    return renderLibraryViewerPane({ nodeId: node.id });
                 case 'projectenv':
                     return renderProjectEnvPane({ nodeId: node.id });
                 case 'diskusage':
                     return renderDiskUsagePane({ nodeId: node.id });
                 case 'zip':
                     return renderZipViewer({ nodeId: node.id });
+                case 'folder':
+                    return renderFolderViewerPane({ nodeId: node.id });
                 default:
                     // This is the content for an empty pane
                     return (
@@ -710,6 +911,18 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
                 onDrop={(e) => onDrop(e, 'center')}
             >
+                {/* Tab bar - shows when there are multiple tabs */}
+                {showTabBar && (
+                    <PaneTabBar
+                        tabs={tabs}
+                        activeTabIndex={activeTabIndex}
+                        onTabSelect={handleTabSelect}
+                        onTabClose={handleTabClose}
+                        onTabReorder={handleTabReorder}
+                        nodeId={node.id}
+                    />
+                )}
+
                 <PaneHeader
                     nodeId={node.id}
                     icon={headerIcon}
@@ -719,7 +932,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     setDraggedItem={setDraggedItem}
                     setPaneContextMenu={setPaneContextMenu}
                     closeContentPane={closeContentPane}
-                    fileChanged={paneData?.fileChanged}
+                    fileChanged={paneData?.fileChanged || activeTab?.fileChanged}
                     onSave={() => { /* No-op, actual save logic is in renderFileEditor */ }}
                     onStartRename={() => {
                         if (contentId && (contentType === 'editor' || contentType === 'latex' || contentType === 'csv' || contentType === 'docx' || contentType === 'pptx')) {
@@ -736,12 +949,19 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     onConfirmRename={() => handleConfirmRename?.(node.id, contentId)}
                     onCancelRename={() => setRenamingPaneId(null)}
                     filePath={contentId}
+                    onRunScript={onRunScript}
                 >
                     {paneHeaderChildren} {/* Pass the conditional children here */}
                 </PaneHeader>
 
                 {draggedItem && (
                     <>
+                        {/* Center drop zone - explicit zone for adding as tab */}
+                        <div
+                            className={`absolute left-1/4 right-1/4 top-1/4 bottom-1/4 z-10 ${isTargeted && dropTarget.side === 'center' ? 'bg-green-500/30 border-2 border-dashed border-green-400' : ''}`}
+                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
+                            onDrop={(e) => onDrop(e, 'center')}
+                        />
                         <div className={`absolute left-0 top-0 bottom-0 w-1/4 z-10 ${isTargeted && dropTarget.side === 'left' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'left' }); }} onDrop={(e) => onDrop(e, 'left')} />
                         <div className={`absolute right-0 top-0 bottom-0 w-1/4 z-10 ${isTargeted && dropTarget.side === 'right' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'right' }); }} onDrop={(e) => onDrop(e, 'right')} />
                         <div className={`absolute left-0 top-0 right-0 h-1/4 z-10 ${isTargeted && dropTarget.side === 'top' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'top' }); }} onDrop={(e) => onDrop(e, 'top')} />

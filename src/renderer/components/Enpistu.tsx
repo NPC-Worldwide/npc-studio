@@ -4,7 +4,7 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, ArrowDown,X, Wrench, FileText, Code2, FileJson, Paperclip,
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
-    Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag
+    Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen
 } from 'lucide-react';
 
 import { Icon } from 'lucide-react';
@@ -36,6 +36,7 @@ import ZipViewer from './ZipViewer';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import ProjectEnvEditor from './ProjectEnvEditor';
 import DBTool from './DBTool';
+import LibraryViewer from './LibraryViewer';
 import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
@@ -117,6 +118,7 @@ const ChatInterface = () => {
     const [projectEnvEditorOpen, setProjectEnvEditorOpen] = useState(false);
     const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
     const [photoViewerType, setPhotoViewerType] = useState('images');
+    const [libraryViewerOpen, setLibraryViewerOpen] = useState(false);
     const [selectedConvos, setSelectedConvos] = useState(new Set());
     const [lastClickedIndex, setLastClickedIndex] = useState(null);
     const [contextMenuPos, setContextMenuPos] = useState(null);
@@ -1448,6 +1450,84 @@ const handleCreateBranch = useCallback((messageIndex: number) => {
     setShowBranchingUI(true);
 }, [activeContentPaneId, currentBranchId, conversationBranches, contentDataRef, setConversationBranches, setCurrentBranchId, setRootLayoutNode]);
 
+// Handle running a Python script in a new terminal
+const handleRunScript = useCallback(async (scriptPath: string) => {
+    if (!scriptPath) return;
+
+    // Create a new terminal pane
+    const newPaneId = `pane-${Date.now()}`;
+
+    // Add terminal to content data
+    contentDataRef.current[newPaneId] = {
+        contentType: 'terminal',
+        contentId: newPaneId,
+        terminalId: newPaneId
+    };
+
+    // Add pane to layout
+    setRootLayoutNode((prev) => {
+        if (!prev) {
+            return { id: newPaneId, type: 'content' };
+        }
+        if (prev.type === 'content') {
+            return {
+                id: `split-${Date.now()}`,
+                type: 'split',
+                direction: 'horizontal',
+                children: [prev, { id: newPaneId, type: 'content' }],
+                sizes: [50, 50]
+            };
+        }
+        const newRoot = JSON.parse(JSON.stringify(prev));
+        newRoot.children.push({ id: newPaneId, type: 'content' });
+        const equalSize = 100 / newRoot.children.length;
+        newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+        return newRoot;
+    });
+
+    setActiveContentPaneId(newPaneId);
+
+    // Wait for terminal to initialize then send the run command
+    setTimeout(async () => {
+        // Get the script directory and filename
+        const scriptDir = scriptPath.substring(0, scriptPath.lastIndexOf('/'));
+        const scriptName = scriptPath.split('/').pop();
+
+        // Get configured Python environment or use system default
+        let pythonCmd = 'python3';
+        try {
+            const resolved = await window.api?.pythonEnvResolve?.(currentPath);
+            if (resolved?.pythonPath) {
+                pythonCmd = resolved.pythonPath;
+            }
+        } catch (e) {
+            console.warn('Failed to resolve Python environment, using system python:', e);
+        }
+
+        // Send the command to run the script
+        const runCommand = `cd "${scriptDir}" && ${pythonCmd} "${scriptName}"\n`;
+        window.api?.writeToTerminal?.({ id: newPaneId, data: runCommand });
+    }, 500);
+}, [currentPath, setRootLayoutNode, setActiveContentPaneId]);
+
+// Handle sending selected code to an open terminal (Ctrl+Enter)
+const handleSendToTerminal = useCallback((text: string) => {
+    if (!text) return;
+
+    // Find the first open terminal pane
+    const terminalPaneId = Object.keys(contentDataRef.current).find(
+        id => contentDataRef.current[id]?.type === 'terminal'
+    );
+
+    if (!terminalPaneId) {
+        console.warn('No terminal pane open. Please open a terminal first.');
+        return;
+    }
+
+    // Send the text to the terminal (add newline to execute)
+    window.api?.writeToTerminal?.({ id: terminalPaneId, data: text + '\n' });
+}, []);
+
 // Render functions for different content pane types
 const renderChatView = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -1513,11 +1593,16 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             handleEditorCopy={() => {}}
             handleEditorPaste={() => {}}
             handleAddToChat={() => {}}
+            handleAIEdit={() => {}}
+            startAgenticEdit={() => {}}
+            onGitBlame={() => {}}
             setPromptModal={setPromptModal}
             currentPath={currentPath}
+            onRunScript={handleRunScript}
+            onSendToTerminal={handleSendToTerminal}
         />
     );
-}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath]);
+}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal]);
 
 const renderTerminalView = useCallback(({ nodeId }) => {
     return (
@@ -1759,6 +1844,73 @@ const renderPhotoViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
         />
     );
 }, [currentPath, handleStartConversationFromViewer]);
+
+// Handle opening a document from the library viewer
+const handleOpenDocumentFromLibrary = useCallback(async (path: string, type: 'pdf' | 'epub') => {
+    // Open the document in a new pane
+    const newPaneId = generateId();
+
+    setRootLayoutNode(oldRoot => {
+        contentDataRef.current[newPaneId] = {};
+
+        if (!oldRoot) {
+            return { id: newPaneId, type: 'content' };
+        }
+
+        let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+        if (activeContentPaneId) {
+            const pathToActive = findNodePath(newRoot, activeContentPaneId);
+            if (pathToActive && pathToActive.length > 0) {
+                const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                const targetIndex = pathToActive[pathToActive.length - 1];
+
+                if (targetParent && targetParent.type === 'split') {
+                    const newChildren = [...targetParent.children];
+                    newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                    const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                    targetParent.children = newChildren;
+                    targetParent.sizes = newSizes;
+                    return newRoot;
+                }
+            }
+        }
+
+        if (newRoot.type === 'content') {
+            return {
+                id: generateId(),
+                type: 'split',
+                direction: 'horizontal',
+                children: [newRoot, { id: newPaneId, type: 'content' }],
+                sizes: [50, 50],
+            };
+        } else if (newRoot.type === 'split') {
+            newRoot.children.push({ id: newPaneId, type: 'content' });
+            const equalSize = 100 / newRoot.children.length;
+            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+            return newRoot;
+        }
+
+        return { id: newPaneId, type: 'content' };
+    });
+
+    setTimeout(async () => {
+        await updateContentPane(newPaneId, type, path);
+        setRootLayoutNode(prev => ({ ...prev }));
+    }, 0);
+
+    setActiveContentPaneId(newPaneId);
+}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+// Render LibraryViewer pane (for pane-based viewing)
+const renderLibraryViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <LibraryViewer
+            currentPath={currentPath}
+            onOpenDocument={handleOpenDocumentFromLibrary}
+        />
+    );
+}, [currentPath, handleOpenDocumentFromLibrary]);
 
 // Render ProjectEnvEditor pane (for pane-based viewing)
 const renderProjectEnvPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -2100,26 +2252,26 @@ const renderMessageContextMenu = () => (
         }
     }, [editedFileName, currentPath]);
 
-    const createNewTerminal = useCallback(async () => {
+    const createNewTerminal = useCallback(async (shellType: 'system' | 'npcsh' | 'guac' = 'system') => {
         const newTerminalId = `term_${generateId()}`;
         const newPaneId = generateId();
-        
+
         // Create layout first
         setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-            
+            contentDataRef.current[newPaneId] = { shellType };
+
             if (!oldRoot) {
                 return { id: newPaneId, type: 'content' };
             }
 
             let newRoot = JSON.parse(JSON.stringify(oldRoot));
-            
+
             if (activeContentPaneId) {
                 const pathToActive = findNodePath(newRoot, activeContentPaneId);
                 if (pathToActive && pathToActive.length > 0) {
                     const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
                     const targetIndex = pathToActive[pathToActive.length - 1];
-                    
+
                     if (targetParent && targetParent.type === 'split') {
                         const newChildren = [...targetParent.children];
                         newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
@@ -2130,7 +2282,7 @@ const renderMessageContextMenu = () => (
                     }
                 }
             }
-            
+
             if (newRoot.type === 'content') {
                 return {
                     id: generateId(),
@@ -2145,16 +2297,16 @@ const renderMessageContextMenu = () => (
                 newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
                 return newRoot;
             }
-            
+
             return { id: newPaneId, type: 'content' };
         });
-        
-        // Then update content
+
+        // Then update content (shellType is already in paneData from above)
         setTimeout(async () => {
             await updateContentPane(newPaneId, 'terminal', newTerminalId);
             setRootLayoutNode(prev => ({ ...prev }));
         }, 0);
-        
+
         setActiveContentPaneId(newPaneId);
         setActiveConversationId(null);
         setCurrentFile(null);
@@ -2490,6 +2642,62 @@ const renderMessageContextMenu = () => (
 
         setTimeout(async () => {
             await updateContentPane(newPaneId, 'photoviewer', 'photoviewer');
+            setRootLayoutNode(prev => ({ ...prev }));
+        }, 0);
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+    // Create LibraryViewer pane
+    const createLibraryViewerPane = useCallback(async () => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {};
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setTimeout(async () => {
+            await updateContentPane(newPaneId, 'library', 'library');
             setRootLayoutNode(prev => ({ ...prev }));
         }, 0);
 
@@ -5605,6 +5813,7 @@ const layoutComponentApi = useMemo(() => ({
     renderTeamManagementPane,
     renderSettingsPane,
     renderPhotoViewerPane,
+    renderLibraryViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
     setPaneContextMenu,
@@ -5625,6 +5834,8 @@ const layoutComponentApi = useMemo(() => ({
     editedFileName,
     setEditedFileName,
     handleConfirmRename,
+    // Script running
+    onRunScript: handleRunScript,
 }), [
     rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
@@ -5647,6 +5858,7 @@ const layoutComponentApi = useMemo(() => ({
     renderTeamManagementPane,
     renderSettingsPane,
     renderPhotoViewerPane,
+    renderLibraryViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
@@ -5657,6 +5869,7 @@ const layoutComponentApi = useMemo(() => ({
     getChatInputProps,
     zenModePaneId,
     renamingPaneId, editedFileName, handleConfirmRename,
+    handleRunScript,
 ]);
 
 // Handle conversation selection - opens conversation in a pane
@@ -5838,8 +6051,8 @@ const renderPaneContextMenu = () => {
         setPaneContextMenu(null);
     };
 
-    const handleNewTerminal = () => {
-        createNewTerminal();
+    const handleNewTerminal = (shellType: 'system' | 'npcsh' | 'guac' = 'system') => {
+        createNewTerminal(shellType);
         setPaneContextMenu(null);
     };
 
@@ -5855,6 +6068,11 @@ const renderPaneContextMenu = () => {
 
     const handleNewTextFile = () => {
         createNewTextFile();
+        setPaneContextMenu(null);
+    };
+
+    const handleNewLibrary = () => {
+        createLibraryViewerPane();
         setPaneContextMenu(null);
     };
 
@@ -5877,11 +6095,31 @@ const renderPaneContextMenu = () => {
                 <button onClick={handleNewChat} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
                     <MessageSquare size={14} className="text-blue-400" /> Chat
                 </button>
-                <button onClick={handleNewTerminal} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
-                    <Terminal size={14} className="text-green-400" /> Terminal
-                </button>
+                {/* Terminal submenu */}
+                <div className="relative group">
+                    <button className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover justify-between">
+                        <span className="flex items-center gap-2">
+                            <Terminal size={14} className="text-green-400" /> Terminal
+                        </span>
+                        <ChevronRight size={14} className="opacity-50" />
+                    </button>
+                    <div className="absolute left-full top-0 ml-1 theme-bg-secondary theme-border border rounded shadow-lg py-1 min-w-[140px] hidden group-hover:block">
+                        <button onClick={() => handleNewTerminal('system')} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
+                            <Terminal size={14} className="text-gray-400" /> Shell
+                        </button>
+                        <button onClick={() => handleNewTerminal('npcsh')} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
+                            <Sparkles size={14} className="text-purple-400" /> npcsh
+                        </button>
+                        <button onClick={() => handleNewTerminal('guac')} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
+                            <Code size={14} className="text-yellow-400" /> guac
+                        </button>
+                    </div>
+                </div>
                 <button onClick={handleNewBrowser} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
                     <Globe size={14} className="text-cyan-400" /> Browser
+                </button>
+                <button onClick={handleNewLibrary} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
+                    <BookOpen size={14} className="text-red-400" /> Library
                 </button>
                 <button onClick={handleNewFolder} className="flex items-center gap-2 px-4 py-2 w-full text-left theme-hover">
                     <Folder size={14} className="text-yellow-400" /> Folder
@@ -6907,6 +7145,8 @@ const renderMainContent = () => {
                                     return renderDataDashPane({ nodeId: zenModePaneId });
                                 case 'photoviewer':
                                     return renderPhotoViewerPane({ nodeId: zenModePaneId });
+                                case 'library':
+                                    return renderLibraryViewerPane({ nodeId: zenModePaneId });
                                 case 'projectenv':
                                     return renderProjectEnvPane({ nodeId: zenModePaneId });
                                 case 'diskusage':
