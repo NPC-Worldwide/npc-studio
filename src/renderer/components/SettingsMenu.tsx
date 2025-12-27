@@ -275,6 +275,7 @@ const defaultSettings = {
     predictive_text_model: 'llama3.2',
     predictive_text_provider: 'ollama',
     keyboard_shortcuts: defaultKeyboardShortcuts,
+    default_new_pane_type: 'chat',
 };
 
 // Local provider configuration
@@ -799,7 +800,8 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
     const loadGlobalSettings = async () => {
         const data = await window.api.loadGlobalSettings();
         if (data.error) return;
-        setGlobalSettings(data.global_settings || defaultSettings);
+        // Merge with defaults to ensure new settings have default values
+        setGlobalSettings({ ...defaultSettings, ...(data.global_settings || {}) });
         
         if (data.global_vars && Object.keys(data.global_vars).length > 0) {
             const parsedCustomVars = Object.entries(data.global_vars)
@@ -869,6 +871,13 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
             global_settings: globalSettings,
             global_vars: globalVars
         });
+
+        // Also save to localStorage for immediate pickup by other components
+        if (globalSettings.default_new_pane_type) {
+            localStorage.setItem('npcStudio_defaultNewPaneType', globalSettings.default_new_pane_type);
+            // Dispatch custom event for same-window updates
+            window.dispatchEvent(new CustomEvent('defaultPaneTypeChanged', { detail: globalSettings.default_new_pane_type }));
+        }
 
         const envVars = customEnvVars.reduce((acc, { key, value }) => {
             if (key && value) acc[key] = value;
@@ -943,6 +952,19 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                 </div>
                             )}
                         </div>
+
+                        <Select
+                            label="Default New Pane Type"
+                            value={globalSettings.default_new_pane_type || 'chat'}
+                            onChange={(e) => setGlobalSettings({...globalSettings, default_new_pane_type: e.target.value})}
+                            options={[
+                                { value: 'chat', label: 'Chat' },
+                                { value: 'browser', label: 'Browser' },
+                                { value: 'terminal', label: 'Terminal' },
+                                { value: 'folder', label: 'Folder' },
+                                { value: 'code', label: 'Code File' },
+                            ]}
+                        />
 
                         <Card title="Custom Global Variables">
                             {customGlobalVars.map((variable, index) => (

@@ -353,11 +353,8 @@ const ChatInterface = () => {
 
     const [browserContextMenuPos, setBrowserContextMenuPos] = useState(null);
 
-    // Python environment setup prompt
-    const [pythonEnvPrompt, setPythonEnvPrompt] = useState({ isOpen: false, dismissed: false });
-    const [pythonEnvPromptCheckedPaths, setPythonEnvPromptCheckedPaths] = useState<Set<string>>(new Set());
 
-
+        
     const [workspaceIndicatorExpanded, setWorkspaceIndicatorExpanded] = useState(false);
 
 
@@ -1108,43 +1105,17 @@ const ChatInterface = () => {
     
     
     useEffect(() => {
-        const cleanup = window.api.onBrowserShowContextMenu((data) => {
-            console.log('[REACT BROWSER CONTEXT] Received context menu event', data);
-
-            setBrowserContextMenuPos({
-                x: data.x,
-                y: data.y,
-                selectedText: data.selectedText || '',
-                linkURL: data.linkURL || '',
-                srcURL: data.srcURL || '',
-                pageURL: data.pageURL || '',
-                isEditable: data.isEditable || false,
-                mediaType: data.mediaType || 'none',
-                canCopy: data.canCopy || false,
-                canPaste: data.canPaste || false,
-                canSaveImage: data.canSaveImage || false,
-                canSaveLink: data.canSaveLink || false,
-            });
+        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText }) => {
+            console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText });
+           
+            setBrowserContextMenuPos({ x, y, selectedText });
         });
-
+    
         return () => {
             cleanup();
         };
     }, []);
-
-    // Handle download requests forwarded from main process
-    useEffect(() => {
-        const cleanup = window.api.onBrowserDownloadRequested?.(async (data: { url: string; filename: string; mimeType: string; totalBytes: number }) => {
-            console.log('[DOWNLOAD] Received download request from main:', data);
-            // Call browserSaveLink with currentPath - this follows the IPC pattern
-            await (window as any).api?.browserSaveLink?.(data.url, data.filename, currentPath);
-        });
-
-        return () => {
-            cleanup?.();
-        };
-    }, [currentPath]);
-
+    
     useEffect(() => {
         if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
@@ -1163,41 +1134,10 @@ const ChatInterface = () => {
                 saveWorkspaceToStorage(currentPath, workspaceData);
             }
         }
-
+        
         // Switch to new path
         setCurrentPath(newPath);
-
-        // Update browser download directory
-        if (newPath && window.api?.setDownloadDirectory) {
-            window.api.setDownloadDirectory(newPath);
-        }
     }, [currentPath, rootLayoutNode, serializeWorkspace, saveWorkspaceToStorage]);
-
-    // Check if Python environment is configured when workspace changes
-    useEffect(() => {
-        const checkPythonEnv = async () => {
-            if (!currentPath || pythonEnvPrompt.dismissed) return;
-
-            // Don't check the same path twice in a session
-            if (pythonEnvPromptCheckedPaths.has(currentPath)) return;
-
-            try {
-                const result = await (window as any).api?.pythonEnvCheckConfigured?.(currentPath);
-                setPythonEnvPromptCheckedPaths(prev => new Set([...prev, currentPath]));
-
-                if (!result?.configured) {
-                    // No Python env configured - show prompt
-                    setPythonEnvPrompt({ isOpen: true, dismissed: false });
-                }
-            } catch (err) {
-                console.error('Error checking python env config:', err);
-            }
-        };
-
-        // Small delay to not interrupt initial load
-        const timer = setTimeout(checkPythonEnv, 1500);
-        return () => clearTimeout(timer);
-    }, [currentPath, pythonEnvPrompt.dismissed, pythonEnvPromptCheckedPaths]);
 
 
 const validateWorkspaceData = (workspaceData) => {
@@ -1303,16 +1243,6 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
 
     setRootLayoutNode(oldRoot => syncLayoutWithContentData(oldRoot, contentDataRef.current));
 }, [trackActivity]);
-
-// Helper to find existing pane by content type (for singleton tools)
-const findExistingPaneByContentType = useCallback((targetContentType: string): string | null => {
-    for (const [paneId, paneData] of Object.entries(contentDataRef.current)) {
-        if ((paneData as any)?.contentType === targetContentType) {
-            return paneId;
-        }
-    }
-    return null;
-}, []);
 
 // Perform split on a pane - creates a new pane and splits the layout
 const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
@@ -1635,11 +1565,25 @@ const renderChatView = useCallback(({ nodeId }) => {
                     onLabelMessage={handleLabelMessage}
                     messageLabel={messageLabels[msg.id || msg.timestamp]}
                     conversationId={paneData.contentId}
+                    onOpenFile={(path: string) => {
+                        const ext = path.split('.').pop()?.toLowerCase();
+                        let contentType = 'editor';
+                        if (ext === 'pdf') contentType = 'pdf';
+                        else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext || '')) contentType = 'image';
+                        else if (['csv', 'xlsx', 'xls'].includes(ext || '')) contentType = 'csv';
+                        else if (['docx', 'doc'].includes(ext || '')) contentType = 'docx';
+                        else if (ext === 'pptx') contentType = 'pptx';
+                        // Open in new tile to the right
+                        const nodePath = findNodePath(rootLayoutNodeRef.current, nodeId);
+                        if (nodePath) {
+                            performSplit(nodePath, 'right', contentType, path);
+                        }
+                    }}
                 />
             ))}
         </div>
     );
-}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleCreateBranch]);
+}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleCreateBranch, findNodePath, performSplit]);
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -2094,6 +2038,57 @@ const renderDiskUsagePane = useCallback(({ nodeId }: { nodeId: string }) => {
     );
 }, [currentPath, isDarkMode]);
 
+// Markdown Preview Component (needs to be a proper component for hooks)
+const MarkdownPreviewContent: React.FC<{ filePath: string }> = ({ filePath }) => {
+    const [content, setContent] = useState<string>('');
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (filePath) {
+            setLoading(true);
+            window.api.readFileContent(filePath).then((result: any) => {
+                setContent(result.content || '');
+                setLoading(false);
+            }).catch(() => {
+                setContent('Error loading file');
+                setLoading(false);
+            });
+        }
+    }, [filePath]);
+
+    if (loading) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-text-muted">
+                Loading...
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex-1 overflow-auto p-4 theme-bg-primary">
+            <div className="prose prose-invert max-w-none">
+                <MarkdownRenderer content={content} />
+            </div>
+        </div>
+    );
+};
+
+// Render Markdown Preview pane
+const renderMarkdownPreviewPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const filePath = paneData?.contentId;
+
+    if (!filePath) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-text-muted">
+                No file selected
+            </div>
+        );
+    }
+
+    return <MarkdownPreviewContent filePath={filePath} />;
+}, []);
+
 // Render DBTool pane (for pane-based viewing)
 const renderDBToolPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
@@ -2125,7 +2120,6 @@ useEffect(() => {
                 setMessageContextMenuPos(null);
                 setEditorContextMenuPos(null);
                 setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '' });
-                setBrowserContextMenuPos(null);
                 // Close status bar modals
                 setGitModalOpen(false);
                 setWorkspaceModalOpen(false);
@@ -2472,15 +2466,8 @@ const renderMessageContextMenu = () => (
         setCurrentFile(null);
     }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create DataLabeler pane (singleton - only one per folder)
+    // Create DataLabeler pane
     const createDataLabelerPane = useCallback(async () => {
-        // Check if DataLabeler pane already exists
-        const existingPaneId = findExistingPaneByContentType('data-labeler');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2533,17 +2520,10 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create GraphViewer pane (singleton - only one per folder)
+    // Create GraphViewer pane
     const createGraphViewerPane = useCallback(async () => {
-        // Check if GraphViewer pane already exists
-        const existingPaneId = findExistingPaneByContentType('graph-viewer');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2596,17 +2576,10 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create BrowserHistoryWeb pane (browser navigation graph) (singleton - only one per folder)
+    // Create BrowserHistoryWeb pane (browser navigation graph)
     const createBrowserGraphPane = useCallback(async () => {
-        // Check if BrowserGraph pane already exists
-        const existingPaneId = findExistingPaneByContentType('browsergraph');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2659,17 +2632,10 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create DataDash pane (singleton - only one per folder)
+    // Create DataDash pane
     const createDataDashPane = useCallback(async () => {
-        // Check if DataDash pane already exists
-        const existingPaneId = findExistingPaneByContentType('datadash');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2722,17 +2688,10 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create DBTool pane (singleton - only one per folder)
+    // Create DBTool pane
     const createDBToolPane = useCallback(async () => {
-        // Check if DBTool pane already exists
-        const existingPaneId = findExistingPaneByContentType('dbtool');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2785,17 +2744,10 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create PhotoViewer pane (singleton - only one per folder)
+    // Create PhotoViewer pane
     const createPhotoViewerPane = useCallback(async () => {
-        // Check if PhotoViewer pane already exists
-        const existingPaneId = findExistingPaneByContentType('photoviewer');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2848,17 +2800,10 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create LibraryViewer pane (singleton - only one per folder)
+    // Create LibraryViewer pane
     const createLibraryViewerPane = useCallback(async () => {
-        // Check if LibraryViewer pane already exists
-        const existingPaneId = findExistingPaneByContentType('library');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2911,17 +2856,10 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create ProjectEnv pane (singleton - only one per folder)
+    // Create ProjectEnv pane
     const createProjectEnvPane = useCallback(async () => {
-        // Check if ProjectEnv pane already exists
-        const existingPaneId = findExistingPaneByContentType('projectenv');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2974,17 +2912,10 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create DiskUsage pane (singleton - only one per folder)
+    // Create DiskUsage pane
     const createDiskUsagePane = useCallback(async () => {
-        // Check if DiskUsage pane already exists
-        const existingPaneId = findExistingPaneByContentType('diskusage');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -3037,7 +2968,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
     const handleGlobalDragStart = useCallback((e, item) => {
     Object.values(contentDataRef.current).forEach(paneData => {
@@ -4046,15 +3977,8 @@ ${contextPrompt}`;
         );
     }, [currentPath, createNewConversation]);
 
-    // Create NPC Team pane (singleton - only one per folder)
+    // Create NPC Team pane
     const createNPCTeamPane = useCallback(async () => {
-        // Check if NPC Team pane already exists
-        const existingPaneId = findExistingPaneByContentType('npcteam');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -4107,7 +4031,7 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
 
     // Render Jinx Menu pane (embedded version for pane layout)
     const renderJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -4121,15 +4045,8 @@ ${contextPrompt}`;
         );
     }, [currentPath]);
 
-    // Create Jinx pane (singleton - only one per folder)
+    // Create Jinx pane
     const createJinxPane = useCallback(async () => {
-        // Check if Jinx pane already exists
-        const existingPaneId = findExistingPaneByContentType('jinx');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -4182,7 +4099,7 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
     // Render Team Management pane (embedded version for pane layout)
     const renderTeamManagementPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -4200,15 +4117,8 @@ ${contextPrompt}`;
         );
     }, [currentPath, createNewConversation]);
 
-    // Create Team Management pane (singleton - only one per folder)
+    // Create Team Management pane
     const createTeamManagementPane = useCallback(async () => {
-        // Check if Team Management pane already exists
-        const existingPaneId = findExistingPaneByContentType('teammanagement');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            return;
-        }
-
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -4261,12 +4171,10 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
 
     // Render Settings pane (embedded version for pane layout)
     const renderSettingsPane = useCallback(({ nodeId }: { nodeId: string }) => {
-        const paneData = contentDataRef.current[nodeId] || {};
-        const initialTab = paneData.settingsInitialTab || 'global';
         return (
             <SettingsMenu
                 isOpen={true}
@@ -4275,29 +4183,16 @@ ${contextPrompt}`;
                 onPathChange={handlePathChange}
                 availableModels={availableModels}
                 embedded={true}
-                initialTab={initialTab}
             />
         );
     }, [currentPath, handlePathChange, availableModels]);
 
-    // Create Settings pane (singleton - only one per folder)
-    const createSettingsPane = useCallback(async (initialTab = 'global') => {
-        // Check if Settings pane already exists
-        const existingPaneId = findExistingPaneByContentType('settings');
-        if (existingPaneId) {
-            setActiveContentPaneId(existingPaneId);
-            // Update the initial tab if one was specified
-            if (initialTab !== 'global' && contentDataRef.current[existingPaneId]) {
-                contentDataRef.current[existingPaneId].settingsInitialTab = initialTab;
-                setRootLayoutNode(prev => ({ ...prev })); // Trigger re-render
-            }
-            return;
-        }
-
+    // Create Settings pane
+    const createSettingsPane = useCallback(async () => {
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = { settingsInitialTab: initialTab };
+            contentDataRef.current[newPaneId] = {};
 
             if (!oldRoot) {
                 return { id: newPaneId, type: 'content' };
@@ -4346,7 +4241,7 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
     const createNewTextFile = () => {
         setPromptModalValue('untitled.py');
@@ -4370,13 +4265,14 @@ ${contextPrompt}`;
         });
     };
 
-    const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx' | 'mindmap') => {
+    const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx' | 'mapx') => {
         try {
-            const filename = `untitled-${Date.now()}.${docType}`;
+            const ext = docType === 'mapx' ? 'mapx' : docType;
+            const filename = `untitled-${Date.now()}.${ext}`;
             const filepath = normalizePath(`${currentPath}/${filename}`);
             // Create empty document - the viewer components will handle creating proper structure
-            // For mindmap, create initial JSON structure
-            if (docType === 'mindmap') {
+            // For mindmap (.mapx), create initial JSON structure
+            if (docType === 'mapx') {
                 const initialMindMap = {
                     nodes: [{ id: 'root', label: 'Central Idea', x: 400, y: 300, color: '#3b82f6' }],
                     links: []
@@ -4522,21 +4418,6 @@ ${contextPrompt}`;
             setMacroText('');
         });
     }, []);
-
-    // Handle browser download complete - refresh folder listing
-    useEffect(() => {
-        if (!window.api?.onDownloadComplete) return;
-
-        const cleanup = window.api.onDownloadComplete((data) => {
-            console.log('[DOWNLOAD] Completed:', data);
-            if (data.state === 'completed' && data.directory === currentPath) {
-                // Refresh folder listing
-                loadDirectoryStructure(currentPath);
-            }
-        });
-
-        return cleanup;
-    }, [currentPath, loadDirectoryStructure]);
 
     // Screenshot capture handler - creates new conversation with screenshot attachment
     useEffect(() => {
@@ -4715,10 +4596,6 @@ ${contextPrompt}`;
                 }
 
                 setCurrentPath(initialPathToLoad);
-                // Set browser download directory to current path
-                if (window.api?.setDownloadDirectory) {
-                    window.api.setDownloadDirectory(initialPathToLoad);
-                }
                 return;
             }
 
@@ -5237,52 +5114,7 @@ ${contextPrompt}`;
             </div>
         </div>
     </div>
-)}
-
-{/* Python Environment Setup Prompt */}
-{pythonEnvPrompt.isOpen && (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-md w-full">
-            <div className="flex flex-col items-center text-center">
-                <div className="theme-bg-tertiary p-3 rounded-full mb-4">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-400">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                        <path d="M2 17l10 5 10-5"/>
-                        <path d="M2 12l10 5 10-5"/>
-                    </svg>
-                </div>
-                <h3 className="text-lg font-medium mb-2 theme-text-primary">Python Environment</h3>
-                <p className="theme-text-muted mb-4 text-sm">
-                    No Python environment is configured for this workspace. Would you like to set one up now?
-                </p>
-                <p className="text-xs text-gray-500 mb-4">
-                    This is useful for managing packages like transformers, diffusers, torch, etc.
-                </p>
-            </div>
-            <div className="flex justify-center gap-3">
-                <button
-                    className="px-4 py-2 theme-button theme-hover rounded text-sm"
-                    onClick={() => {
-                        setPythonEnvPrompt({ isOpen: false, dismissed: true });
-                    }}
-                >
-                    Skip for Now
-                </button>
-                <button
-                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm"
-                    onClick={() => {
-                        setPythonEnvPrompt({ isOpen: false, dismissed: false });
-                        // Open settings to Python tab
-                        createSettingsPane('python');
-                    }}
-                >
-                    Configure Python
-                </button>
-            </div>
-        </div>
-    </div>
-)}
-
+)}        
             {aiEditModal.isOpen && aiEditModal.type === 'agentic' && !aiEditModal.isLoading && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                     <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-6xl w-full max-h-[85vh] overflow-hidden flex flex-col">
@@ -6089,6 +5921,20 @@ const getChatInputProps = useCallback((paneId: string) => ({
     mcpToolsLoading, setMcpToolsLoading, mcpToolsError, setMcpToolsError,
     showMcpServersDropdown, setShowMcpServersDropdown,
     activeConversationId,
+    onOpenFile: (path: string) => {
+        const ext = path.split('.').pop()?.toLowerCase();
+        let contentType = 'editor';
+        if (ext === 'pdf') contentType = 'pdf';
+        else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext || '')) contentType = 'image';
+        else if (['csv', 'xlsx', 'xls'].includes(ext || '')) contentType = 'csv';
+        else if (['docx', 'doc'].includes(ext || '')) contentType = 'docx';
+        else if (ext === 'pptx') contentType = 'pptx';
+        // Open in new tile to the right
+        const nodePath = findNodePath(rootLayoutNodeRef.current, paneId);
+        if (nodePath) {
+            performSplit(nodePath, 'right', contentType, path);
+        }
+    },
 }), [
     input, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
@@ -6100,7 +5946,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
     favoriteModels, showAllModels, modelsToDisplay, ollamaToolModels,
     availableNPCs, npcsLoading, npcsError, currentNPC,
     availableMcpServers, mcpServerPath, selectedMcpTools, availableMcpTools,
-    mcpToolsLoading, mcpToolsError, showMcpServersDropdown, activeConversationId,
+    mcpToolsLoading, mcpToolsError, showMcpServersDropdown, activeConversationId, findNodePath, performSplit,
 ]);
 
 const layoutComponentApi = useMemo(() => ({
@@ -6140,6 +5986,7 @@ const layoutComponentApi = useMemo(() => ({
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
+    renderMarkdownPreviewPane,
     setPaneContextMenu,
     // Chat-specific props:
     autoScrollEnabled, setAutoScrollEnabled,
@@ -6186,6 +6033,7 @@ const layoutComponentApi = useMemo(() => ({
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
+    renderMarkdownPreviewPane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
     autoScrollEnabled, setAutoScrollEnabled,
@@ -6270,7 +6118,7 @@ const handleFileClick = useCallback(async (filePath: string) => {
     else if (extension === 'pptx') contentType = 'pptx';
     else if (extension === 'tex') contentType = 'latex';
     else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
-    else if (extension === 'mindmap') contentType = 'mindmap';
+    else if (extension === 'mapx') contentType = 'mindmap';
     else if (extension === 'zip') contentType = 'zip';
     else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
 
@@ -6483,297 +6331,7 @@ const renderPdfContextMenu = () => {
 // Render browser context menu
 const renderBrowserContextMenu = () => {
     if (!browserContextMenuPos) return null;
-
-    const { x, y, selectedText, linkURL, srcURL, pageURL, isEditable, mediaType, canCopy, canSaveImage, canSaveLink } = browserContextMenuPos;
-
-    const closeMenu = () => setBrowserContextMenuPos(null);
-
-    const handleCopy = () => {
-        if (selectedText) {
-            navigator.clipboard.writeText(selectedText);
-        }
-        closeMenu();
-    };
-
-    const handleCopyLink = () => {
-        if (linkURL) {
-            navigator.clipboard.writeText(linkURL);
-        }
-        closeMenu();
-    };
-
-    const handleOpenLinkInNewPane = () => {
-        if (linkURL) {
-            createNewBrowser(linkURL);
-        }
-        closeMenu();
-    };
-
-    const handleOpenLinkExternal = async () => {
-        if (linkURL) {
-            await (window as any).api?.browserOpenExternal?.(linkURL);
-        }
-        closeMenu();
-    };
-
-    const handleSaveImage = async () => {
-        if (srcURL) {
-            await (window as any).api?.browserSaveImage?.(srcURL, currentPath);
-        }
-        closeMenu();
-    };
-
-    const handleSaveLinkAs = async () => {
-        if (linkURL) {
-            await (window as any).api?.browserSaveLink?.(linkURL, undefined, currentPath);
-        }
-        closeMenu();
-    };
-
-    const handleCopyImageAddress = () => {
-        if (srcURL) {
-            navigator.clipboard.writeText(srcURL);
-        }
-        closeMenu();
-    };
-
-    const handleSendToChat = () => {
-        if (selectedText) {
-            const citation = `[From ${pageURL || 'webpage'}]\n\n> ${selectedText}`;
-            setInput(prev => `${prev}${prev ? '\n\n' : ''}${citation}`);
-        }
-        closeMenu();
-    };
-
-    const handleStartNewConvo = async () => {
-        if (selectedText) {
-            // Create a new conversation with the selected text
-            await createNewConversation();
-            // Wait a bit for the conversation to be created, then set the input
-            setTimeout(() => {
-                const citation = `[From ${pageURL || 'webpage'}]\n\n> ${selectedText}`;
-                setInput(citation);
-            }, 200);
-        }
-        closeMenu();
-    };
-
-    const handleSummarize = () => {
-        if (selectedText) {
-            const prompt = `Please summarize the following text:\n\n---\n${selectedText}\n---`;
-            setInput(prompt);
-        }
-        closeMenu();
-    };
-
-    const handleExplain = () => {
-        if (selectedText) {
-            const prompt = `Please explain this text in simple terms:\n\n---\n${selectedText}\n---`;
-            setInput(prompt);
-        }
-        closeMenu();
-    };
-
-    const handleTranslate = () => {
-        if (selectedText) {
-            const prompt = `Please translate this text to English:\n\n---\n${selectedText}\n---`;
-            setInput(prompt);
-        }
-        closeMenu();
-    };
-
-    const handleSelectAll = () => {
-        // This would require sending a command to the webview - for now just close
-        closeMenu();
-    };
-
-    // Calculate position to keep menu within viewport
-    const menuWidth = 220;
-    const menuHeight = 400; // Approximate max height
-    const adjustedX = Math.min(x, window.innerWidth - menuWidth - 10);
-    const adjustedY = Math.min(y, window.innerHeight - menuHeight - 10);
-
-    return (
-        <>
-            {/* Backdrop to close menu */}
-            <div
-                className="fixed inset-0 z-[9998]"
-                onClick={closeMenu}
-                onKeyDown={(e) => e.key === 'Escape' && closeMenu()}
-                tabIndex={-1}
-            />
-
-            {/* Context Menu */}
-            <div
-                className="fixed z-[9999] theme-bg-secondary border theme-border rounded-lg shadow-xl py-1 min-w-[200px]"
-                style={{
-                    left: Math.max(10, adjustedX),
-                    top: Math.max(10, adjustedY),
-                    maxHeight: '80vh',
-                    overflowY: 'auto'
-                }}
-            >
-                {/* Browser Actions Section */}
-                {(canCopy || linkURL) && (
-                    <>
-                        <div className="px-3 py-1 text-xs theme-text-muted font-medium uppercase tracking-wide">
-                            Browser
-                        </div>
-
-                        {canCopy && (
-                            <button
-                                onClick={handleCopy}
-                                className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                                </svg>
-                                Copy
-                            </button>
-                        )}
-
-                        {linkURL && (
-                            <>
-                                <button
-                                    onClick={handleCopyLink}
-                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                                    </svg>
-                                    Copy Link Address
-                                </button>
-                                <button
-                                    onClick={handleOpenLinkInNewPane}
-                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                    </svg>
-                                    Open Link in New Pane
-                                </button>
-                                <button
-                                    onClick={handleSaveLinkAs}
-                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
-                                    Save Link As...
-                                </button>
-                                <button
-                                    onClick={handleOpenLinkExternal}
-                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                    </svg>
-                                    Open in Default Browser
-                                </button>
-                            </>
-                        )}
-
-                        {canSaveImage && srcURL && (
-                            <>
-                                <button
-                                    onClick={handleSaveImage}
-                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
-                                    Save Image As...
-                                </button>
-                                <button
-                                    onClick={handleCopyImageAddress}
-                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                    </svg>
-                                    Copy Image Address
-                                </button>
-                            </>
-                        )}
-
-                        <div className="border-t theme-border my-1" />
-                    </>
-                )}
-
-                {/* NPC Studio Actions Section */}
-                {selectedText && (
-                    <>
-                        <div className="px-3 py-1 text-xs theme-text-muted font-medium uppercase tracking-wide">
-                            NPC Studio
-                        </div>
-
-                        <button
-                            onClick={handleSendToChat}
-                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                            </svg>
-                            Send to Chat
-                        </button>
-
-                        <button
-                            onClick={handleStartNewConvo}
-                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                            Start New Conversation
-                        </button>
-
-                        <div className="border-t theme-border my-1" />
-
-                        <div className="px-3 py-1 text-xs theme-text-muted font-medium uppercase tracking-wide">
-                            AI Actions
-                        </div>
-
-                        <button
-                            onClick={handleSummarize}
-                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            Summarize
-                        </button>
-
-                        <button
-                            onClick={handleExplain}
-                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                            </svg>
-                            Explain
-                        </button>
-
-                        <button
-                            onClick={handleTranslate}
-                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-                            </svg>
-                            Translate
-                        </button>
-                    </>
-                )}
-
-                {/* If no text selected and no link, show minimal menu */}
-                {!selectedText && !linkURL && (
-                    <div className="px-3 py-2 text-sm theme-text-muted italic">
-                        Select text for more options
-                    </div>
-                )}
-            </div>
-        </>
-    );
+    return <div>Browser Context Menu</div>;
 };
 
 // Sidebar rendering function
@@ -6813,513 +6371,7 @@ const renderAttachmentThumbnails = () => {
 };
 
 // Input area rendering function
-const renderInputArea = () => {
-    const isJinxMode = executionMode !== 'chat' && selectedJinx;
-    const jinxInputsForSelected = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
-    const hasJinxContent = isJinxMode && Object.values(jinxInputsForSelected).some(val => val !== null && String(val).trim());
-    const inputStr = typeof input === 'string' ? input : '';
-    const hasContextFiles = contextFiles.length > 0;
-    const hasInputContent = inputStr.trim() || uploadedFiles.length > 0 || hasJinxContent || hasContextFiles;
-    const canSend = !isStreaming && hasInputContent && (activeConversationId || isJinxMode);
 
-    if (isInputMinimized) {
-        return (
-            <div className="px-4 py-1 border-t theme-border theme-bg-secondary flex-shrink-0">
-                <div className="flex justify-center">
-                    <button
-                        onClick={() => setIsInputMinimized(false)}
-                        className="p-2 w-full theme-button theme-hover rounded-full transition-all group"
-                        title="Expand input area"
-                    >
-                        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                            <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                className="transform rotate-180 group-hover:scale-75 transition-all duration-200"
-                            >
-                                <path d="M18 15l-6-6-6 6"/>
-                            </svg>
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                        </div>
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    if (isInputExpanded) {
-        return (
-            <div className="fixed inset-0 bg-black/80 z-50 flex flex-col p-4">
-                <div className="flex-1 flex flex-col theme-bg-primary theme-border border rounded-lg">
-                    <div className="p-2 border-b theme-border flex-shrink-0 flex justify-end">
-                        <button
-                            type="button"
-                            onClick={() => setIsInputExpanded(false)}
-                            className="p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover"
-                            aria-label="Minimize input"
-                        >
-                            <Minimize2 size={20} />
-                        </button>
-                    </div>
-                    <div className="flex-1 p-2 flex">
-                         <textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (!isStreaming && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                    e.preventDefault();
-                                    handleInputSubmit(e);
-                                    setIsInputExpanded(false);
-                                }
-                            }}
-                            placeholder={isStreaming ? "Streaming response..." : "Type a message... (Ctrl+Enter to send)"}
-                            className="w-full h-full theme-input text-base rounded-lg p-4 focus:outline-none border-0 resize-none bg-transparent"
-                            disabled={isStreaming}
-                            autoFocus
-                        />
-                    </div>
-                    <div className="p-2 border-t theme-border flex-shrink-0 flex items-center justify-end gap-2">
-                        {isStreaming ? (
-                            <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1" aria-label="Stop generating">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
-                                Stop
-                            </button>
-                        ) : (
-                            <button type="button" onClick={(e) => { handleInputSubmit(e); setIsInputExpanded(false); }} disabled={(!(input || '').trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
-                                <Send size={16}/>
-                                Send (Ctrl+Enter)
-                            </button>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div
-            className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0 relative"
-            style={{ height: `${inputHeight}px` }}
-        >
-            <div
-                className="absolute top-0 left-0 right-0 h-1 cursor-row-resize hover:bg-blue-500 transition-colors z-50"
-                onMouseDown={(e) => {
-                    e.preventDefault();
-                    setIsResizingInput(true);
-                }}
-                style={{
-                    backgroundColor: isResizingInput ? '#3b82f6' : 'transparent'
-                }}
-            />
-
-            <div
-                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col"
-                onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
-                onDragEnter={() => setIsHovering(true)}
-                onDragLeave={() => setIsHovering(false)}
-                onDrop={handleDrop}
-            >
-                {isHovering && (
-                    <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center z-10 pointer-events-none">
-                        <span className="text-blue-300 font-semibold">Drop files here</span>
-                    </div>
-                )}
-
-                <div className="flex-1 overflow-y-auto">
-                    {/* Context Files Panel */}
-                    <ContextFilesPanel
-                        isCollapsed={contextFilesCollapsed}
-                        onToggleCollapse={() => setContextFilesCollapsed(!contextFilesCollapsed)}
-                        contextFiles={contextFiles}
-                        setContextFiles={setContextFiles}
-                        currentPath={currentPath}
-                    />
-
-                    {renderAttachmentThumbnails()}
-
-                    <div className="flex items-end p-2 gap-2 relative z-0">
-                        <div className="flex-grow relative">
-                            {isJinxMode ? (
-                                <div className="flex flex-col gap-2 w-full">
-                                    {selectedJinx.inputs && selectedJinx.inputs.length > 0 && (
-                                        <div className="space-y-2">
-                                            {selectedJinx.inputs.map((rawInputDef, idx) => {
-                                                const inputDef = (typeof rawInputDef === 'string')
-                                                                 ? { [rawInputDef]: "" }
-                                                                 : rawInputDef;
-
-                                                const inputName = (inputDef && typeof inputDef === 'object' && Object.keys(inputDef).length > 0)
-                                                                  ? Object.keys(inputDef)[0]
-                                                                  : `__unnamed_input_${idx}__`;
-
-                                                if (!inputName || inputName.startsWith('__unnamed_input_')) {
-                                                    return (
-                                                        <div key={`malformed-${selectedJinx.name}-${idx}`} className="text-red-400 text-xs">
-                                                            Error: Malformed input definition for "{selectedJinx.name}" at index {idx}.
-                                                        </div>
-                                                    );
-                                                }
-
-                                                            const inputPlaceholder = inputDef[inputName] || '';
-                                                            const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command'].includes(inputName.toLowerCase());
-
-                                                            return (
-                                                                <div key={`${selectedJinx.name}-${inputName}`} className="flex flex-col">
-                                                        <label htmlFor={`jinx-input-${selectedJinx.name}-${inputName}`} className="text-xs theme-text-muted mb-1 capitalize">
-                                                            {inputName}:
-                                                        </label>
-                                                            {isTextArea ? (
-                                                                <textarea
-                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
-                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                                    onChange={(e) => setJinxInputValues(prev => ({
-                                                                        ...prev,
-                                                                    [selectedJinx.name]: {
-                                                                        ...prev[selectedJinx.name],
-                                                                        [inputName]: e.target.value
-                                                                    }
-                                                                }))}
-                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                                    className="theme-input text-sm rounded px-2 py-1 border min-h-[60px] resize-vertical"
-                                                                    rows={3}
-                                                                    onKeyDown={(e) => {
-                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
-                                                                            e.preventDefault();
-                                                                            handleInputSubmit(e);
-                                                                        }
-                                                                    }}
-                                                                    disabled={isStreaming}
-                                                                />
-                                                            ) : (
-                                                                <input
-                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
-                                                                    type="text"
-                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                                    onChange={(e) => setJinxInputValues(prev => ({
-                                                                        ...prev,
-                                                                        [selectedJinx.name]: {
-                                                                            ...prev[selectedJinx.name],
-                                                                            [inputName]: e.target.value
-                                                                        }
-                                                                    }))}
-                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                                    className="theme-input text-sm rounded px-2 py-1 border"
-                                                                    onKeyDown={(e) => {
-                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
-                                                                            e.preventDefault();
-                                                                            handleInputSubmit(e);
-                                                                        }
-                                                                    }}
-                                                                    disabled={isStreaming}
-                                                                />
-                                                            )}
-                                                        </div>
-                                                    );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                <textarea
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
-                                    placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
-                                    className={`w-full theme-input text-sm rounded-lg pl-4 pr-20 py-3 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
-                                    style={{
-                                        height: `${Math.max(56, inputHeight - 120)}px`,
-                                        maxHeight: `${inputHeight - 120}px`
-                                    }}
-                                    disabled={isStreaming}
-                                />
-                            )}
-
-                            <div className="absolute top-2 right-2 flex gap-1">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsInputMinimized(true)}
-                                    className="p-1 theme-text-muted hover:theme-text-primary rounded-lg theme-hover opacity-50 group-hover:opacity-100 transition-opacity"
-                                    aria-label="Minimize input"
-                                    title="Minimize input area"
-                                >
-                                    <svg
-                                        width="14"
-                                        height="14"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                    >
-                                        <path d="M18 15l-6-6-6 6"/>
-                                    </svg>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsInputExpanded(true)}
-                                    className="p-1 theme-text-muted hover:theme-text-primary rounded-lg theme-hover opacity-50 group-hover:opacity-100 transition-opacity"
-                                    aria-label="Expand input"
-                                >
-                                    <Maximize2 size={14} />
-                                </button>
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={handleAttachFileClick}
-                            className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 self-end ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            aria-label="Attach file"
-                            disabled={isStreaming}
-                        >
-                            <Paperclip size={20} />
-                        </button>
-                         {isStreaming ? (
-                            <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 w-[76px] h-[40px] self-end" aria-label="Stop generating" title="Stop generating" >
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
-                            </button>
-                        ) : (
-                            <button type="button" onClick={handleInputSubmit} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
-                                <Send size={16}/>
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                {/* MCP tools dropdown for tool_agent mode */}
-                {executionMode === 'tool_agent' && (
-                    <div className="px-2 pb-1 border-t theme-border">
-                        <div className="relative w-1/2">
-                            <button
-                                type="button"
-                                className="theme-input text-xs w-full text-left px-2 py-1 flex items-center justify-between rounded border"
-                                disabled={isStreaming || availableMcpServers.length === 0}
-                                onClick={() => setShowMcpServersDropdown(prev => !prev)}
-                            >
-                                <span className="truncate">
-                                    {availableMcpServers.find(s => s.serverPath === mcpServerPath)?.serverPath || 'Select MCP server & tools'}
-                                </span>
-                                <ChevronDown size={12} />
-                            </button>
-                            {showMcpServersDropdown && (
-                                <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto">
-                                    {availableMcpServers.length === 0 && (
-                                        <div className="px-2 py-1 text-xs theme-text-muted">No MCP servers in ctx</div>
-                                    )}
-                                    {availableMcpServers.map((srv) => (
-                                        <div key={srv.serverPath} className="border-b theme-border last:border-b-0">
-                                            <div
-                                                className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center justify-between"
-                                                onClick={() => {
-                                                    setMcpServerPath(srv.serverPath);
-                                                    setSelectedMcpTools([]);
-                                                    setMcpToolsLoading(true);
-                                                    window.api.listMcpTools({ serverPath: srv.serverPath, currentPath }).then((res) => {
-                                                        setMcpToolsLoading(false);
-                                                        if (res.error) {
-                                                            setMcpToolsError(res.error);
-                                                            setAvailableMcpTools([]);
-                                                        } else {
-                                                            setMcpToolsError(null);
-                                                            const tools = res.tools || [];
-                                                            setAvailableMcpTools(tools);
-                                                            const names = tools.map(t => t.function?.name).filter(Boolean);
-                                                            setSelectedMcpTools(prev => prev.filter(n => names.includes(n)));
-                                                        }
-                                                    });
-                                                }}
-                                            >
-                                                <span className="truncate">{srv.serverPath}</span>
-                                            </div>
-                                            {srv.serverPath === mcpServerPath && (
-                                                <div className="px-3 py-1 space-y-1">
-                                                    {mcpToolsLoading && <div className="text-xs theme-text-muted">Loading MCP tools…</div>}
-                                                    {mcpToolsError && <div className="text-xs text-red-400">Error: {mcpToolsError}</div>}
-                                                    {!mcpToolsLoading && !mcpToolsError && (
-                                                        <div className="flex flex-col gap-1">
-                                                            {availableMcpTools.length === 0 && (
-                                                                <div className="text-xs theme-text-muted">No tools available.</div>
-                                                            )}
-                                                            {availableMcpTools.map(tool => {
-                                                                const name = tool.function?.name || '';
-                                                                const desc = tool.function?.description || '';
-                                                                if (!name) return null;
-                                                                const checked = selectedMcpTools.includes(name);
-                                                                return (
-                                                                    <details key={name} className="bg-black/30 border theme-border rounded px-2 py-1">
-                                                                        <summary className="flex items-center gap-2 text-xs theme-text-primary cursor-pointer">
-                                                                            <input
-                                                                                type="checkbox"
-                                                                                checked={checked}
-                                                                                disabled={isStreaming}
-                                                                                onChange={() => {
-                                                                                    setSelectedMcpTools(prev => {
-                                                                                        if (prev.includes(name)) {
-                                                                                            return prev.filter(n => n !== name);
-                                                                                        }
-                                                                                        return [...prev, name];
-                                                                                    });
-                                                                                }}
-                                                                            />
-                                                                            <span>{name}</span>
-                                                                        </summary>
-                                                                        <div className="ml-6 text-[11px] theme-text-muted whitespace-pre-wrap">
-                                                                            {desc || 'No description.'}
-                                                                        </div>
-                                                                    </details>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {/* Bottom controls: Jinx/mode selector, model selector, NPC selector */}
-                <div className={`flex items-center gap-2 px-2 pb-2 border-t theme-border ${isStreaming ? 'opacity-50' : ''}`}>
-                    <div className="relative min-w-[180px]">
-                        <button
-                            type="button"
-                            className="theme-input text-xs rounded px-2 py-1 border w-full flex items-center justify-between"
-                            disabled={isStreaming}
-                            onClick={() => setShowJinxDropdown(prev => !prev)}
-                        >
-                            <span className="truncate">
-                                {executionMode === 'chat' && '💬 Chat'}
-                                {executionMode === 'tool_agent' && '🛠 Agent'}
-                                {executionMode !== 'chat' && executionMode !== 'tool_agent' && (selectedJinx?.name || executionMode)}
-                            </span>
-                            <ChevronDown size={12}/>
-                        </button>
-                        {showJinxDropdown && (
-                            <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-72 overflow-y-auto">
-                                <div
-                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
-                                    onClick={() => {
-                                        setExecutionMode('chat');
-                                        setSelectedJinx(null);
-                                        setShowJinxDropdown(false);
-                                    }}
-                                >
-                                    💬 Chat
-                                </div>
-                                <div
-                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
-                                    onClick={() => {
-                                        const selectedModelObj = availableModels.find(m => m.value === currentModel);
-                                        const providerForModel = selectedModelObj?.provider || currentProvider;
-                                        const toolCapable = providerForModel !== 'ollama' || (currentModel && ollamaToolModels.has(currentModel));
-                                        if (!toolCapable) {
-                                            setError('Selected model does not support native tool-calling; using chat or Jinx instead.');
-                                            setShowJinxDropdown(false);
-                                            return;
-                                        }
-                                        setExecutionMode('tool_agent');
-                                        setSelectedJinx(null);
-                                        setShowJinxDropdown(false);
-                                    }}
-                                >
-                                    🛠 Agent
-                                </div>
-                                {['project','global'].map(origin => {
-                                    const originJinxs = jinxsToDisplay.filter(j => (j.origin || 'unknown') === origin);
-                                    if (!originJinxs.length) return null;
-                                    const grouped = originJinxs.reduce((acc, j) => {
-                                        const g = j.group || 'root';
-                                        if (!acc[g]) acc[g] = [];
-                                        acc[g].push(j);
-                                        return acc;
-                                    }, {});
-                                    return (
-                                        <div key={origin} className="border-t theme-border">
-                                            <div className="px-2 py-1 text-[11px] uppercase theme-text-muted">{origin === 'project' ? 'Project Jinxs' : 'Global Jinxs'}</div>
-                                            {Object.entries(grouped)
-                                                .filter(([gName]) => gName.toLowerCase() !== 'modes')
-                                                .sort(([a],[b]) => a.localeCompare(b))
-                                                .map(([gName, jinxs]) => (
-                                                    <details key={`${origin}-${gName}`} className="px-2">
-                                                        <summary className="text-xs theme-text-primary cursor-pointer py-1 flex items-center gap-2">
-                                                            <FolderTree size={12}/> {gName}
-                                                        </summary>
-                                                        <div className="pl-4 pb-1 flex flex-col gap-1">
-                                                            {jinxs.sort((a,b)=>a.name.localeCompare(b.name)).map(jinx => (
-                                                                <div
-                                                                    key={`${origin}-${gName}-${jinx.name}`}
-                                                                    className="flex items-center gap-2 text-xs theme-hover cursor-pointer"
-                                                                    onClick={() => {
-                                                                        setExecutionMode(jinx.name);
-                                                                        setSelectedJinx(jinx);
-                                                                        setShowJinxDropdown(false);
-                                                                    }}
-                                                                >
-                                                                    <span className="truncate">{jinx.name}</span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </details>
-                                                ))}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="flex-grow flex items-center gap-1">
-                        <select
-                            value={currentModel || ''}
-                            onChange={(e) => {
-                                const selectedModel = availableModels.find(m => m.value === e.target.value);
-                                setCurrentModel(e.target.value);
-                                if (selectedModel?.provider) {
-                                    setCurrentProvider(selectedModel.provider);
-                                }
-                            }}
-                            className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                            disabled={modelsLoading || !!modelsError || isStreaming}
-                        >
-                            {modelsLoading && <option value="">Loading...</option>}
-                            {modelsError && <option value="">Error</option>}
-                            {!modelsLoading && !modelsError && modelsToDisplay.length === 0 && (
-                                <option value="">{favoriteModels.size > 0 ? "No Favorite Models" : "No Models"}</option>
-                            )}
-                            {!modelsLoading && !modelsError && modelsToDisplay.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
-                        </select>
-                        <button onClick={() => toggleFavoriteModel(currentModel)} className={`p-1 rounded ${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`} disabled={!currentModel} title="Toggle favorite"><Star size={14}/></button>
-                        <button
-                            onClick={() => setShowAllModels(!showAllModels)}
-                            className="p-1 theme-hover rounded theme-text-muted"
-                            title={showAllModels ? "Show Favorites Only" : "Show All Models"}
-                            disabled={favoriteModels.size === 0}
-                        >
-                            <ListFilter size={14} className={favoriteModels.size === 0 ? 'opacity-30' : ''} />
-                        </button>
-                    </div>
-                     <select
-                        value={currentNPC || ''}
-                        onChange={e => setCurrentNPC(e.target.value)}
-                        className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                        disabled={npcsLoading || !!npcsError || isStreaming}
-                     >
-                         {npcsLoading && <option value="">Loading NPCs...</option>}
-                         {npcsError && <option value="">Error loading NPCs</option>}
-                         {!npcsLoading && !npcsError && availableNPCs.length === 0 && (<option value="">No NPCs available</option>)}
-                         {!npcsLoading && !npcsError && availableNPCs.map(npc => ( <option key={`${npc.source}-${npc.value}`} value={npc.value}> {npc.display_name} </option>))}
-                    </select>
-                </div>
-            </div>
-        </div>
-    );
-};
 
 const renderMainContent = () => {
 
@@ -7464,7 +6516,7 @@ const renderMainContent = () => {
                             else if (extension === 'pptx') contentType = 'pptx';
                             else if (extension === 'tex') contentType = 'latex';
                             else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
-                            else if (extension === 'mindmap') contentType = 'mindmap';
+                            else if (extension === 'mapx') contentType = 'mindmap';
                             else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
                             else contentType = 'editor';
                         } else {
@@ -7767,6 +6819,8 @@ const renderMainContent = () => {
                                     return renderProjectEnvPane({ nodeId: zenModePaneId });
                                 case 'diskusage':
                                     return renderDiskUsagePane({ nodeId: zenModePaneId });
+                                case 'markdown-preview':
+                                    return renderMarkdownPreviewPane({ nodeId: zenModePaneId });
                                 default:
                                     return <div className="flex-1 flex items-center justify-center theme-text-muted">Unknown content type</div>;
                             }

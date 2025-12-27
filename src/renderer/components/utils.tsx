@@ -234,6 +234,12 @@ export const gatherWorkspaceContext = (contentDataRef: React.MutableRefObject<an
                 viewId: paneData.contentId,
                 paneId: paneId
             });
+        } else if (paneData.contentType === 'pdf' && paneData.contentId) {
+            contexts.push({
+                type: 'pdf',
+                path: paneData.contentId,
+                paneId: paneId
+            });
         }
     });
 
