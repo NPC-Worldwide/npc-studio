@@ -286,7 +286,24 @@ const PptxViewer = ({
                 if (isCancelled) return;
 
                 console.log('[PPTX] Buffer loaded, size:', buffer?.length || buffer?.byteLength);
-                
+
+                // Handle empty/new pptx files
+                if (!buffer || buffer.length === 0) {
+                    // Create a blank presentation state with proper structure
+                    setSlides([{
+                        index: 0,
+                        name: 'ppt/slides/slide1.xml',
+                        shapes: [],
+                        background: '#ffffff',
+                        doc: null,
+                        relsDoc: null,
+                        isNew: true
+                    }]);
+                    setIdx(0);
+                    setLoading(false);
+                    return;
+                }
+
                 const z = await JSZip.loadAsync(buffer);
                 if (isCancelled) return;
 
@@ -900,12 +917,19 @@ const PptxViewer = ({
 
           useEffect(() => {
             const handleKeyDown = (e) => {
-              if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+              const isCtrl = e.ctrlKey || e.metaKey;
+              if (isCtrl && e.key === 's') {
                 e.preventDefault();
+                e.stopPropagation();
                 if (hasChanges) saveDeck();
               }
+              // Block browser shortcuts when in presentation
+              if (isCtrl && (e.key === 'b' || e.key === 'i' || e.key === 'u')) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
             };
-            
+
             window.addEventListener('keydown', handleKeyDown);
             return () => window.removeEventListener('keydown', handleKeyDown);
           }, [hasChanges, saveDeck]);

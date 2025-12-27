@@ -459,7 +459,7 @@ const ChatInterface = () => {
     const loadGitStatus = useCallback(async () => {
         if (!currentPath) return;
         try {
-            const status = await (window as any).api.getGitStatus(currentPath);
+            const status = await (window as any).api.gitStatus(currentPath);
             setGitStatus(status);
         } catch (err) {
             console.error('Failed to load git status:', err);

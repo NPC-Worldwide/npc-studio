@@ -4834,8 +4834,12 @@ ipcMain.handle('read-docx-content', async (_, filePath) => {
   try {
     const mammoth = require('mammoth');
     const buffer = await fsPromises.readFile(filePath);
+    // Handle empty/new docx files
+    if (!buffer || buffer.length === 0) {
+      return { content: '', error: null, isNew: true };
+    }
     const result = await mammoth.convertToMarkdown({ buffer });
-    
+
     return { content: result.value, error: null };
   } catch (err) {
     console.error('Error reading DOCX:', err);

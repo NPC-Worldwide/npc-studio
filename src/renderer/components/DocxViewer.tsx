@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
-import { Save, Download, Bold, Italic, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, Undo, Redo, X } from 'lucide-react';
+import { Save, Download, Bold, Italic, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, Undo, Redo, X, Image, Table, Type, Link, Minus } from 'lucide-react';
 
 const DocxViewer = ({ 
     nodeId, 
@@ -23,20 +23,57 @@ const DocxViewer = ({
     const paneData = contentDataRef.current[nodeId];
     const filePath = paneData?.contentId;
 
+    const [isLoaded, setIsLoaded] = useState(false);
+
     useEffect(() => {
         const loadDocx = async () => {
             if (!filePath) return;
             try {
-                const response = await window.api.readDocxContent(filePath);
-                if (response.error) throw new Error(response.error);
-                setContent(response.content);
-                const htmlified = response.content
-                    .replace(/\n\n/g, '</p><p>')
-                    .replace(/\n/g, '<br>');
-                const initialHtml = `<p>${htmlified}</p>`;
+                // First try to read as plain text to check if it's HTML (saved from this editor)
+                const textResponse = await window.api.readFileContent(filePath);
+                const textContent = textResponse?.content || '';
+
+                // Check if it looks like HTML (our saved format)
+                const isHtml = textContent.trim().startsWith('<') &&
+                    (textContent.includes('<p>') || textContent.includes('<div>') || textContent.includes('<br'));
+
+                let initialHtml;
+                if (isHtml) {
+                    // It's HTML from our editor - use directly
+                    initialHtml = textContent;
+                } else if (textContent.length === 0) {
+                    // Empty file - create blank
+                    initialHtml = '<p><br></p>';
+                } else {
+                    // Try mammoth for real docx files
+                    const response = await window.api.readDocxContent(filePath);
+                    if (response.error) {
+                        // Mammoth failed, treat as plain text
+                        const htmlified = textContent
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/\n\n/g, '</p><p>')
+                            .replace(/\n/g, '<br>');
+                        initialHtml = `<p>${htmlified}</p>`;
+                    } else {
+                        // Mammoth succeeded - it's a real docx
+                        const htmlified = (response.content || '')
+                            .replace(/\n\n/g, '</p><p>')
+                            .replace(/\n/g, '<br>');
+                        initialHtml = response.content ? `<p>${htmlified}</p>` : '<p><br></p>';
+                    }
+                }
+
+                setContent(textContent);
                 setHtmlContent(initialHtml);
                 setHistory([initialHtml]);
                 setHistoryIndex(0);
+                // Set content directly to avoid React re-render issues
+                if (editorRef.current) {
+                    editorRef.current.innerHTML = initialHtml;
+                }
+                setIsLoaded(true);
             } catch (err) {
                 setError(err.message);
             }
@@ -101,12 +138,11 @@ const DocxViewer = ({
         if (!hasChanges) return;
         setIsSaving(true);
         try {
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = htmlContent;
-            const plainText = tempDiv.innerText;
-            
-            await window.api.writeFileContent(filePath, plainText);
-            setContent(plainText);
+            // Get current content from editor
+            const currentHtml = editorRef.current?.innerHTML || htmlContent;
+            // Save HTML content to preserve formatting
+            await window.api.writeFileContent(filePath, currentHtml);
+            setHtmlContent(currentHtml);
             setHasChanges(false);
         } catch (err) {
             setError(err.message);
@@ -132,7 +168,7 @@ const DocxViewer = ({
     const execCommand = useCallback((command, value = null) => {
         document.execCommand(command, false, value);
         editorRef.current?.focus();
-        
+
         setTimeout(() => {
             if (editorRef.current) {
                 const newContent = editorRef.current.innerHTML;
@@ -143,36 +179,134 @@ const DocxViewer = ({
         }, 0);
     }, [addToHistory]);
 
+    const insertAtCursor = useCallback((html: string) => {
+        editorRef.current?.focus();
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            range.deleteContents();
+            const fragment = range.createContextualFragment(html);
+            range.insertNode(fragment);
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+        setTimeout(() => {
+            if (editorRef.current) {
+                const newContent = editorRef.current.innerHTML;
+                setHtmlContent(newContent);
+                setHasChanges(true);
+                addToHistory(newContent);
+            }
+        }, 0);
+    }, [addToHistory]);
+
+    const insertImage = useCallback(async () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const dataUrl = ev.target?.result as string;
+                    insertAtCursor(`<img src="${dataUrl}" style="max-width: 100%; height: auto; margin: 8px 0;" />`);
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+        input.click();
+    }, [insertAtCursor]);
+
+    const insertTable = useCallback((rows = 3, cols = 3) => {
+        let tableHtml = '<table style="border-collapse: collapse; width: 100%; margin: 8px 0;">';
+        for (let r = 0; r < rows; r++) {
+            tableHtml += '<tr>';
+            for (let c = 0; c < cols; c++) {
+                tableHtml += `<td style="border: 1px solid #555; padding: 8px; min-width: 50px;">${r === 0 ? `Col ${c + 1}` : ''}</td>`;
+            }
+            tableHtml += '</tr>';
+        }
+        tableHtml += '</table><p><br></p>';
+        insertAtCursor(tableHtml);
+    }, [insertAtCursor]);
+
+    const insertTextBox = useCallback(() => {
+        const textboxHtml = `<div style="border: 2px solid #666; padding: 12px; margin: 8px 0; border-radius: 4px; background: rgba(255,255,255,0.05); min-height: 50px;" contenteditable="true">Text box - click to edit</div><p><br></p>`;
+        insertAtCursor(textboxHtml);
+    }, [insertAtCursor]);
+
+    const insertHorizontalRule = useCallback(() => {
+        insertAtCursor('<hr style="border: none; border-top: 2px solid #555; margin: 16px 0;" /><p><br></p>');
+    }, [insertAtCursor]);
+
+    const insertLink = useCallback(() => {
+        const url = prompt('Enter URL:');
+        if (url) {
+            const text = window.getSelection()?.toString() || url;
+            execCommand('createLink', url);
+        }
+    }, [execCommand]);
+
+    const [showTablePicker, setShowTablePicker] = useState(false);
+    const [tablePickerSize, setTablePickerSize] = useState({ rows: 3, cols: 3 });
+
     const handleKeyDown = useCallback((e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        const isCtrl = e.ctrlKey || e.metaKey;
+
+        if (isCtrl && e.key === 's') {
             e.preventDefault();
+            e.stopPropagation();
             saveDocument();
             return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        if (isCtrl && e.key === 'z' && !e.shiftKey) {
             e.preventDefault();
+            e.stopPropagation();
             undo();
             return;
         }
-        if (((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'Z' || e.key === 'z')) || 
-            ((e.ctrlKey || e.metaKey) && e.key === 'y')) {
+        if ((isCtrl && e.shiftKey && (e.key === 'Z' || e.key === 'z')) || (isCtrl && e.key === 'y')) {
             e.preventDefault();
+            e.stopPropagation();
             redo();
             return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+        if (isCtrl && e.key === 'b') {
             e.preventDefault();
+            e.stopPropagation();
             execCommand('bold');
             return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+        if (isCtrl && e.key === 'i') {
             e.preventDefault();
+            e.stopPropagation();
             execCommand('italic');
             return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
+        if (isCtrl && e.key === 'u') {
             e.preventDefault();
+            e.stopPropagation();
             execCommand('underline');
+            return;
+        }
+        // Strikethrough
+        if (isCtrl && e.shiftKey && e.key === 'x') {
+            e.preventDefault();
+            e.stopPropagation();
+            execCommand('strikeThrough');
+            return;
+        }
+        // Select all
+        if (isCtrl && e.key === 'a') {
+            e.stopPropagation();
+            // Let default select all work
+            return;
+        }
+        // Copy/Cut/Paste - let default work but stop propagation
+        if (isCtrl && (e.key === 'c' || e.key === 'x' || e.key === 'v')) {
+            e.stopPropagation();
             return;
         }
     }, [saveDocument, undo, redo, execCommand]);
@@ -203,16 +337,10 @@ const DocxViewer = ({
         }, 0);
     }, [addToHistory]);
 
-    useEffect(() => {
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [handleKeyDown]);
-
-
     if (error) return (
         <div className="p-4 text-red-500">Error: {error}</div>
     );
-    if (!content && !htmlContent) return <div className="p-4">Loading...</div>;
+    if (!isLoaded) return <div className="p-4">Loading...</div>;
 
     return (
     <div className="h-full flex flex-col theme-bg-secondary overflow-hidden">
@@ -358,17 +486,68 @@ const DocxViewer = ({
                     <option value="blockquote">Quote</option>
                 </select>
                 
-                <input 
-                    type="color" 
+                <input
+                    type="color"
                     onChange={(e) => execCommand('foreColor', e.target.value)}
                     className="w-8 h-8 rounded cursor-pointer"
                     title="Text Color"
                 />
+
+                <div className="w-px h-6 bg-gray-600 mx-1"></div>
+
+                {/* Insert buttons */}
+                <button onClick={insertImage} className="p-2 theme-hover rounded" title="Insert Image">
+                    <Image size={16} />
+                </button>
+                <div className="relative">
+                    <button
+                        onClick={() => setShowTablePicker(!showTablePicker)}
+                        className="p-2 theme-hover rounded"
+                        title="Insert Table"
+                    >
+                        <Table size={16} />
+                    </button>
+                    {showTablePicker && (
+                        <div className="absolute top-full left-0 mt-1 p-2 theme-bg-secondary border theme-border rounded shadow-lg z-50">
+                            <div className="text-xs theme-text-muted mb-2">Select size: {tablePickerSize.rows}x{tablePickerSize.cols}</div>
+                            <div className="grid gap-0.5" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
+                                {Array.from({ length: 36 }).map((_, i) => {
+                                    const row = Math.floor(i / 6) + 1;
+                                    const col = (i % 6) + 1;
+                                    return (
+                                        <div
+                                            key={i}
+                                            className={`w-4 h-4 border cursor-pointer ${
+                                                row <= tablePickerSize.rows && col <= tablePickerSize.cols
+                                                    ? 'bg-blue-500 border-blue-600'
+                                                    : 'theme-bg-tertiary border-gray-600'
+                                            }`}
+                                            onMouseEnter={() => setTablePickerSize({ rows: row, cols: col })}
+                                            onClick={() => {
+                                                insertTable(row, col);
+                                                setShowTablePicker(false);
+                                            }}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
+                <button onClick={insertTextBox} className="p-2 theme-hover rounded" title="Insert Text Box">
+                    <Type size={16} />
+                </button>
+                <button onClick={insertLink} className="p-2 theme-hover rounded" title="Insert Link">
+                    <Link size={16} />
+                </button>
+                <button onClick={insertHorizontalRule} className="p-2 theme-hover rounded" title="Insert Horizontal Line">
+                    <Minus size={16} />
+                </button>
             </div>
 
             <div className="flex-1 overflow-auto p-6 theme-bg-primary">
                 <div className="max-w-4xl mx-auto">
-                    <div 
+                    <div
                         ref={editorRef}
                         contentEditable
                         suppressContentEditableWarning
@@ -376,7 +555,6 @@ const DocxViewer = ({
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
                         onCut={handleCut}
-                        dangerouslySetInnerHTML={{ __html: htmlContent }}
                         className="p-8 theme-bg-secondary rounded-lg shadow-lg outline-none"
                         style={{
                             maxWidth: '8.5in',
@@ -385,7 +563,9 @@ const DocxViewer = ({
                             fontSize: '14px',
                             color: 'var(--theme-text)',
                             fontFamily: 'system-ui, -apple-system, sans-serif',
-                            minHeight: '100vh'
+                            minHeight: '100vh',
+                            direction: 'ltr',
+                            textAlign: 'left'
                         }}
                     />
                 </div>

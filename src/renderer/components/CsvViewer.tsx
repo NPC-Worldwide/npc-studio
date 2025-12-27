@@ -61,10 +61,18 @@ const CsvViewer = ({
         try {
             if (isXlsx) {
                 const buffer = await window.api.readFileBuffer(filePath);
-                const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+                let wb;
+                // Handle empty/new xlsx files
+                if (!buffer || buffer.length === 0) {
+                    // Create a new blank workbook
+                    wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['']]), 'Sheet1');
+                } else {
+                    wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+                }
                 setWorkbook(wb);
                 setSheetNames(wb.SheetNames);
-                
+
                 if (wb.SheetNames.length > 0) {
                     const sheetToLoad = activeSheet || wb.SheetNames[0];
                     setActiveSheet(sheetToLoad);
@@ -526,25 +534,38 @@ const CsvViewer = ({
             case 'c':
                 if (e.ctrlKey || e.metaKey) {
                     e.preventDefault();
+                    e.stopPropagation();
                     copySelection();
                 }
                 break;
             case 'x':
                 if (e.ctrlKey || e.metaKey) {
                     e.preventDefault();
+                    e.stopPropagation();
                     cutSelection();
                 }
                 break;
             case 'v':
                 if (e.ctrlKey || e.metaKey) {
                     e.preventDefault();
+                    e.stopPropagation();
                     pasteSelection();
                 }
                 break;
             case 's':
                 if (e.ctrlKey || e.metaKey) {
                     e.preventDefault();
+                    e.stopPropagation();
                     saveSpreadsheet();
+                }
+                break;
+            case 'b':
+            case 'i':
+            case 'u':
+                // Block browser shortcuts when in spreadsheet
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
                 }
                 break;
         }
