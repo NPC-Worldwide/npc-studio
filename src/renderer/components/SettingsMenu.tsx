@@ -275,6 +275,7 @@ const defaultSettings = {
     predictive_text_model: 'llama3.2',
     predictive_text_provider: 'ollama',
     keyboard_shortcuts: defaultKeyboardShortcuts,
+    backend_python_path: '', // Empty means use bundled backend
     default_new_pane_type: 'chat',
 };
 
@@ -965,6 +966,20 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                 { value: 'code', label: 'Code File' },
                             ]}
                         />
+
+                        <Card title="Backend Python Environment">
+                            <p className="text-xs text-gray-400 mb-2">
+                                Specify a Python executable with npcpy installed to use instead of the bundled backend.
+                                This allows you to use additional packages like torch/diffusers for local image generation.
+                                Leave empty to use the bundled backend. Requires app restart to take effect.
+                            </p>
+                            <Input
+                                label="Python Path (e.g., ~/.pyenv/versions/3.11.0/bin/python)"
+                                value={globalSettings.backend_python_path || ''}
+                                onChange={(e) => setGlobalSettings({...globalSettings, backend_python_path: e.target.value})}
+                                placeholder="Leave empty for bundled backend"
+                            />
+                        </Card>
 
                         <Card title="Custom Global Variables">
                             {customGlobalVars.map((variable, index) => (

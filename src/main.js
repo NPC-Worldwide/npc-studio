@@ -369,20 +369,29 @@ app.whenReady().then(async () => {
 
   try {
     log('Starting backend server...');
-   
-    const executableName = process.platform === 'win32' ? 'npc_studio_serve.exe' : 'npc_studio_serve';
-    const backendPath = app.isPackaged 
-      ? path.join(process.resourcesPath, 'backend', executableName)
-      : path.join(app.getAppPath(), 'dist', 'resources', 'backend', executableName);
-    
-    log(`Using backend path: ${backendPath}`);
-    
-   
-   
-   
-   
-    
-    backendProcess = spawn(backendPath, {
+
+    // Check if user has configured a custom Python path for the backend
+    const customPythonPath = getBackendPythonPath();
+
+    let backendPath;
+    let spawnArgs = [];
+
+    if (customPythonPath) {
+      // Use user's Python with npcpy module
+      log(`Using custom Python for backend: ${customPythonPath}`);
+      backendPath = customPythonPath;
+      spawnArgs = ['-m', 'npcpy.serve'];
+    } else {
+      // Use bundled executable
+      const executableName = process.platform === 'win32' ? 'npc_studio_serve.exe' : 'npc_studio_serve';
+      backendPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'backend', executableName)
+        : path.join(app.getAppPath(), 'dist', 'resources', 'backend', executableName);
+    }
+
+    log(`Using backend path: ${backendPath}${spawnArgs.length ? ' ' + spawnArgs.join(' ') : ''}`);
+
+    backendProcess = spawn(backendPath, spawnArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       env: {
@@ -390,7 +399,7 @@ app.whenReady().then(async () => {
         CORNERIA_DATA_DIR: dataPath,
         NPC_STUDIO_PORT: '5337',
         FLASK_DEBUG: '1',
-        PYTHONUNBUFFERED: '1',  
+        PYTHONUNBUFFERED: '1',
       },
     });
 
@@ -470,6 +479,30 @@ function ensureUserDataDirectory() {
   }
 
   return userDataPath;
+}
+
+function getBackendPythonPath() {
+  // Check .npcshrc for BACKEND_PYTHON_PATH setting
+  const rcPath = path.join(os.homedir(), '.npcshrc');
+  try {
+    if (fs.existsSync(rcPath)) {
+      const rcContent = fs.readFileSync(rcPath, 'utf8');
+      const match = rcContent.match(/BACKEND_PYTHON_PATH=["']?([^"'\n]+)["']?/);
+      if (match && match[1] && match[1].trim()) {
+        const pythonPath = match[1].trim().replace(/^~/, os.homedir());
+        // Verify the path exists
+        if (fs.existsSync(pythonPath)) {
+          log(`Found backend Python path: ${pythonPath}`);
+          return pythonPath;
+        } else {
+          log(`Backend Python path configured but not found: ${pythonPath}`);
+        }
+      }
+    }
+  } catch (err) {
+    log('Error reading backend Python path from .npcshrc:', err);
+  }
+  return null;
 }
 
 
@@ -6219,6 +6252,20 @@ ipcMain.handle('save-global-context', async (event, contextData) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ context: contextData }),
+  });
+});
+
+// Check if ~/.npcsh exists and has a valid npc_team
+ipcMain.handle('npcsh-check', async () => {
+  return await callBackendApi('http://127.0.0.1:5337/api/npcsh/check');
+});
+
+// Initialize ~/.npcsh with default npc_team
+ipcMain.handle('npcsh-init', async () => {
+  return await callBackendApi('http://127.0.0.1:5337/api/npcsh/init', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
   });
 });
 ipcMain.handle('get-last-used-in-directory', async (event, path) => {

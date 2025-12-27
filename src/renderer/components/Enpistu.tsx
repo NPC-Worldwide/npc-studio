@@ -168,6 +168,7 @@ const ChatInterface = () => {
     const [baseDir, setBaseDir] = useState('');
     const [promptModal, setPromptModal] = useState<{ isOpen: boolean; title: string; message: string; defaultValue: string; onConfirm: ((value: string) => void) | null }>({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
     const [promptModalValue, setPromptModalValue] = useState('');
+    const [initModal, setInitModal] = useState<{ isOpen: boolean }>({ isOpen: false });
     const screenshotHandlingRef = useRef(false);
     const fileInputRef = useRef(null);
     const listenersAttached = useRef(false);
@@ -4579,6 +4580,17 @@ ${contextPrompt}`;
                 setPredictiveTextModel(globalSettings.global_settings?.predictive_text_model || 'llama3.2'); // Default to a reasonable model
                 setPredictiveTextProvider(globalSettings.global_settings?.predictive_text_provider || 'ollama'); // Default to a reasonable provider
             }
+
+            // Check if npcsh is initialized
+            try {
+                const npcshStatus = await window.api.npcshCheck();
+                if (npcshStatus && !npcshStatus.error && !npcshStatus.initialized) {
+                    setInitModal({ isOpen: true });
+                }
+            } catch (err) {
+                console.warn('Could not check npcsh status:', err);
+            }
+
             // Only determine initial path on first load (when currentPath is empty)
             if (!currentPath) {
                 let initialPathToLoad = config.baseDir;
@@ -5114,7 +5126,42 @@ ${contextPrompt}`;
             </div>
         </div>
     </div>
-)}        
+)}
+{initModal.isOpen && (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex flex-col items-center text-center mb-4">
+                <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center mb-3">
+                    <Sparkles size={24} className="text-purple-400" />
+                </div>
+                <h3 className="text-lg font-medium theme-text-primary">Welcome to NPC Studio</h3>
+                <p className="theme-text-muted text-sm mt-2">
+                    Set up your global NPC team with the default agents and jinxs?
+                </p>
+            </div>
+            <div className="flex justify-center gap-3">
+                <button
+                    className="px-4 py-2 theme-button theme-hover rounded text-sm"
+                    onClick={() => setInitModal({ isOpen: false })}
+                >
+                    Skip
+                </button>
+                <button
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm"
+                    onClick={async () => {
+                        const result = await window.api.npcshInit();
+                        if (result.error) {
+                            console.error('Init failed:', result.error);
+                        }
+                        setInitModal({ isOpen: false });
+                    }}
+                >
+                    Initialize
+                </button>
+            </div>
+        </div>
+    </div>
+)}
             {aiEditModal.isOpen && aiEditModal.type === 'agentic' && !aiEditModal.isLoading && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                     <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-6xl w-full max-h-[85vh] overflow-hidden flex flex-col">
