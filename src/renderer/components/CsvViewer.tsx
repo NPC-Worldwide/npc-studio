@@ -426,6 +426,39 @@ const CsvViewer = ({
         }
     }, []);
 
+    // Helper to scroll the selected cell into view
+    const scrollCellIntoView = useCallback((newRow: number, newCol: number) => {
+        const container = tableRef.current;
+        if (!container) return;
+
+        // Find the target cell (adjust for header row and row number column)
+        const rows = container.querySelectorAll('tbody tr');
+        const targetRow = rows[newRow];
+        if (!targetRow) return;
+
+        const cells = targetRow.querySelectorAll('td');
+        const targetCell = cells[newCol + 1]; // +1 for row number column
+        if (!targetCell) return;
+
+        // Scroll the cell into view if needed
+        const containerRect = container.getBoundingClientRect();
+        const cellRect = targetCell.getBoundingClientRect();
+
+        // Horizontal scrolling
+        if (cellRect.left < containerRect.left + 50) { // +50 to account for row number column
+            container.scrollLeft -= (containerRect.left + 50 - cellRect.left + 20);
+        } else if (cellRect.right > containerRect.right) {
+            container.scrollLeft += (cellRect.right - containerRect.right + 20);
+        }
+
+        // Vertical scrolling
+        if (cellRect.top < containerRect.top + 40) { // +40 to account for header row
+            container.scrollTop -= (containerRect.top + 40 - cellRect.top + 20);
+        } else if (cellRect.bottom > containerRect.bottom) {
+            container.scrollTop += (cellRect.bottom - containerRect.bottom + 20);
+        }
+    }, []);
+
     const handleKeyDown = useCallback((e) => {
         if (!selectedCell) return;
 
@@ -442,19 +475,31 @@ const CsvViewer = ({
         switch (e.key) {
             case 'ArrowUp':
                 e.preventDefault();
-                if (row > 0) setSelectedCell({ row: row - 1, col });
+                if (row > 0) {
+                    setSelectedCell({ row: row - 1, col });
+                    setTimeout(() => scrollCellIntoView(row - 1, col), 0);
+                }
                 break;
             case 'ArrowDown':
                 e.preventDefault();
-                if (row < data.length - 1) setSelectedCell({ row: row + 1, col });
+                if (row < data.length - 1) {
+                    setSelectedCell({ row: row + 1, col });
+                    setTimeout(() => scrollCellIntoView(row + 1, col), 0);
+                }
                 break;
             case 'ArrowLeft':
                 e.preventDefault();
-                if (col > 0) setSelectedCell({ row, col: col - 1 });
+                if (col > 0) {
+                    setSelectedCell({ row, col: col - 1 });
+                    setTimeout(() => scrollCellIntoView(row, col - 1), 0);
+                }
                 break;
             case 'ArrowRight':
                 e.preventDefault();
-                if (col < headers.length - 1) setSelectedCell({ row, col: col + 1 });
+                if (col < headers.length - 1) {
+                    setSelectedCell({ row, col: col + 1 });
+                    setTimeout(() => scrollCellIntoView(row, col + 1), 0);
+                }
                 break;
             case 'Delete':
             case 'Backspace':
@@ -504,7 +549,7 @@ const CsvViewer = ({
                 break;
         }
     }, [selectedCell, editingCell, data.length, headers.length, selectedRange,
-        copySelection, cutSelection, pasteSelection, updateCell, saveSpreadsheet]);
+        copySelection, cutSelection, pasteSelection, updateCell, saveSpreadsheet, scrollCellIntoView]);
 
     useEffect(() => {
         window.addEventListener('keydown', handleKeyDown);

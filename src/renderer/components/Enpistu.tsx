@@ -353,8 +353,11 @@ const ChatInterface = () => {
 
     const [browserContextMenuPos, setBrowserContextMenuPos] = useState(null);
 
+    // Python environment setup prompt
+    const [pythonEnvPrompt, setPythonEnvPrompt] = useState({ isOpen: false, dismissed: false });
+    const [pythonEnvPromptCheckedPaths, setPythonEnvPromptCheckedPaths] = useState<Set<string>>(new Set());
 
-        
+
     const [workspaceIndicatorExpanded, setWorkspaceIndicatorExpanded] = useState(false);
 
 
@@ -1105,17 +1108,43 @@ const ChatInterface = () => {
     
     
     useEffect(() => {
-        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText }) => {
-            console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText });
-           
-            setBrowserContextMenuPos({ x, y, selectedText });
+        const cleanup = window.api.onBrowserShowContextMenu((data) => {
+            console.log('[REACT BROWSER CONTEXT] Received context menu event', data);
+
+            setBrowserContextMenuPos({
+                x: data.x,
+                y: data.y,
+                selectedText: data.selectedText || '',
+                linkURL: data.linkURL || '',
+                srcURL: data.srcURL || '',
+                pageURL: data.pageURL || '',
+                isEditable: data.isEditable || false,
+                mediaType: data.mediaType || 'none',
+                canCopy: data.canCopy || false,
+                canPaste: data.canPaste || false,
+                canSaveImage: data.canSaveImage || false,
+                canSaveLink: data.canSaveLink || false,
+            });
         });
-    
+
         return () => {
             cleanup();
         };
     }, []);
-    
+
+    // Handle download requests forwarded from main process
+    useEffect(() => {
+        const cleanup = window.api.onBrowserDownloadRequested?.(async (data: { url: string; filename: string; mimeType: string; totalBytes: number }) => {
+            console.log('[DOWNLOAD] Received download request from main:', data);
+            // Call browserSaveLink with currentPath - this follows the IPC pattern
+            await (window as any).api?.browserSaveLink?.(data.url, data.filename, currentPath);
+        });
+
+        return () => {
+            cleanup?.();
+        };
+    }, [currentPath]);
+
     useEffect(() => {
         if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
@@ -1134,10 +1163,41 @@ const ChatInterface = () => {
                 saveWorkspaceToStorage(currentPath, workspaceData);
             }
         }
-        
+
         // Switch to new path
         setCurrentPath(newPath);
+
+        // Update browser download directory
+        if (newPath && window.api?.setDownloadDirectory) {
+            window.api.setDownloadDirectory(newPath);
+        }
     }, [currentPath, rootLayoutNode, serializeWorkspace, saveWorkspaceToStorage]);
+
+    // Check if Python environment is configured when workspace changes
+    useEffect(() => {
+        const checkPythonEnv = async () => {
+            if (!currentPath || pythonEnvPrompt.dismissed) return;
+
+            // Don't check the same path twice in a session
+            if (pythonEnvPromptCheckedPaths.has(currentPath)) return;
+
+            try {
+                const result = await (window as any).api?.pythonEnvCheckConfigured?.(currentPath);
+                setPythonEnvPromptCheckedPaths(prev => new Set([...prev, currentPath]));
+
+                if (!result?.configured) {
+                    // No Python env configured - show prompt
+                    setPythonEnvPrompt({ isOpen: true, dismissed: false });
+                }
+            } catch (err) {
+                console.error('Error checking python env config:', err);
+            }
+        };
+
+        // Small delay to not interrupt initial load
+        const timer = setTimeout(checkPythonEnv, 1500);
+        return () => clearTimeout(timer);
+    }, [currentPath, pythonEnvPrompt.dismissed, pythonEnvPromptCheckedPaths]);
 
 
 const validateWorkspaceData = (workspaceData) => {
@@ -1243,6 +1303,16 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
 
     setRootLayoutNode(oldRoot => syncLayoutWithContentData(oldRoot, contentDataRef.current));
 }, [trackActivity]);
+
+// Helper to find existing pane by content type (for singleton tools)
+const findExistingPaneByContentType = useCallback((targetContentType: string): string | null => {
+    for (const [paneId, paneData] of Object.entries(contentDataRef.current)) {
+        if ((paneData as any)?.contentType === targetContentType) {
+            return paneId;
+        }
+    }
+    return null;
+}, []);
 
 // Perform split on a pane - creates a new pane and splits the layout
 const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
@@ -2055,6 +2125,7 @@ useEffect(() => {
                 setMessageContextMenuPos(null);
                 setEditorContextMenuPos(null);
                 setBrowserContextMenu({ isOpen: false, x: 0, y: 0, selectedText: '' });
+                setBrowserContextMenuPos(null);
                 // Close status bar modals
                 setGitModalOpen(false);
                 setWorkspaceModalOpen(false);
@@ -2401,8 +2472,15 @@ const renderMessageContextMenu = () => (
         setCurrentFile(null);
     }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
 
-    // Create DataLabeler pane
+    // Create DataLabeler pane (singleton - only one per folder)
     const createDataLabelerPane = useCallback(async () => {
+        // Check if DataLabeler pane already exists
+        const existingPaneId = findExistingPaneByContentType('data-labeler');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2455,10 +2533,17 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
-    // Create GraphViewer pane
+    // Create GraphViewer pane (singleton - only one per folder)
     const createGraphViewerPane = useCallback(async () => {
+        // Check if GraphViewer pane already exists
+        const existingPaneId = findExistingPaneByContentType('graph-viewer');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2511,10 +2596,17 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
-    // Create BrowserHistoryWeb pane (browser navigation graph)
+    // Create BrowserHistoryWeb pane (browser navigation graph) (singleton - only one per folder)
     const createBrowserGraphPane = useCallback(async () => {
+        // Check if BrowserGraph pane already exists
+        const existingPaneId = findExistingPaneByContentType('browsergraph');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2567,10 +2659,17 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
-    // Create DataDash pane
+    // Create DataDash pane (singleton - only one per folder)
     const createDataDashPane = useCallback(async () => {
+        // Check if DataDash pane already exists
+        const existingPaneId = findExistingPaneByContentType('datadash');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2623,10 +2722,17 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
-    // Create DBTool pane
+    // Create DBTool pane (singleton - only one per folder)
     const createDBToolPane = useCallback(async () => {
+        // Check if DBTool pane already exists
+        const existingPaneId = findExistingPaneByContentType('dbtool');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2679,10 +2785,17 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
-    // Create PhotoViewer pane
+    // Create PhotoViewer pane (singleton - only one per folder)
     const createPhotoViewerPane = useCallback(async () => {
+        // Check if PhotoViewer pane already exists
+        const existingPaneId = findExistingPaneByContentType('photoviewer');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2735,10 +2848,17 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
-    // Create LibraryViewer pane
+    // Create LibraryViewer pane (singleton - only one per folder)
     const createLibraryViewerPane = useCallback(async () => {
+        // Check if LibraryViewer pane already exists
+        const existingPaneId = findExistingPaneByContentType('library');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2791,10 +2911,17 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
-    // Create ProjectEnv pane
+    // Create ProjectEnv pane (singleton - only one per folder)
     const createProjectEnvPane = useCallback(async () => {
+        // Check if ProjectEnv pane already exists
+        const existingPaneId = findExistingPaneByContentType('projectenv');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2847,10 +2974,17 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
-    // Create DiskUsage pane
+    // Create DiskUsage pane (singleton - only one per folder)
     const createDiskUsagePane = useCallback(async () => {
+        // Check if DiskUsage pane already exists
+        const existingPaneId = findExistingPaneByContentType('diskusage');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -2903,7 +3037,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
     const handleGlobalDragStart = useCallback((e, item) => {
     Object.values(contentDataRef.current).forEach(paneData => {
@@ -3912,8 +4046,15 @@ ${contextPrompt}`;
         );
     }, [currentPath, createNewConversation]);
 
-    // Create NPC Team pane
+    // Create NPC Team pane (singleton - only one per folder)
     const createNPCTeamPane = useCallback(async () => {
+        // Check if NPC Team pane already exists
+        const existingPaneId = findExistingPaneByContentType('npcteam');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -3966,7 +4107,7 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation, findExistingPaneByContentType]);
 
     // Render Jinx Menu pane (embedded version for pane layout)
     const renderJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -3980,8 +4121,15 @@ ${contextPrompt}`;
         );
     }, [currentPath]);
 
-    // Create Jinx pane
+    // Create Jinx pane (singleton - only one per folder)
     const createJinxPane = useCallback(async () => {
+        // Check if Jinx pane already exists
+        const existingPaneId = findExistingPaneByContentType('jinx');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -4034,7 +4182,7 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
     // Render Team Management pane (embedded version for pane layout)
     const renderTeamManagementPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -4052,8 +4200,15 @@ ${contextPrompt}`;
         );
     }, [currentPath, createNewConversation]);
 
-    // Create Team Management pane
+    // Create Team Management pane (singleton - only one per folder)
     const createTeamManagementPane = useCallback(async () => {
+        // Check if Team Management pane already exists
+        const existingPaneId = findExistingPaneByContentType('teammanagement');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
@@ -4106,10 +4261,12 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation, findExistingPaneByContentType]);
 
     // Render Settings pane (embedded version for pane layout)
     const renderSettingsPane = useCallback(({ nodeId }: { nodeId: string }) => {
+        const paneData = contentDataRef.current[nodeId] || {};
+        const initialTab = paneData.settingsInitialTab || 'global';
         return (
             <SettingsMenu
                 isOpen={true}
@@ -4118,16 +4275,29 @@ ${contextPrompt}`;
                 onPathChange={handlePathChange}
                 availableModels={availableModels}
                 embedded={true}
+                initialTab={initialTab}
             />
         );
     }, [currentPath, handlePathChange, availableModels]);
 
-    // Create Settings pane
-    const createSettingsPane = useCallback(async () => {
+    // Create Settings pane (singleton - only one per folder)
+    const createSettingsPane = useCallback(async (initialTab = 'global') => {
+        // Check if Settings pane already exists
+        const existingPaneId = findExistingPaneByContentType('settings');
+        if (existingPaneId) {
+            setActiveContentPaneId(existingPaneId);
+            // Update the initial tab if one was specified
+            if (initialTab !== 'global' && contentDataRef.current[existingPaneId]) {
+                contentDataRef.current[existingPaneId].settingsInitialTab = initialTab;
+                setRootLayoutNode(prev => ({ ...prev })); // Trigger re-render
+            }
+            return;
+        }
+
         const newPaneId = generateId();
 
         setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
+            contentDataRef.current[newPaneId] = { settingsInitialTab: initialTab };
 
             if (!oldRoot) {
                 return { id: newPaneId, type: 'content' };
@@ -4176,7 +4346,7 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findExistingPaneByContentType]);
 
     const createNewTextFile = () => {
         setPromptModalValue('untitled.py');
@@ -4352,6 +4522,21 @@ ${contextPrompt}`;
             setMacroText('');
         });
     }, []);
+
+    // Handle browser download complete - refresh folder listing
+    useEffect(() => {
+        if (!window.api?.onDownloadComplete) return;
+
+        const cleanup = window.api.onDownloadComplete((data) => {
+            console.log('[DOWNLOAD] Completed:', data);
+            if (data.state === 'completed' && data.directory === currentPath) {
+                // Refresh folder listing
+                loadDirectoryStructure(currentPath);
+            }
+        });
+
+        return cleanup;
+    }, [currentPath, loadDirectoryStructure]);
 
     // Screenshot capture handler - creates new conversation with screenshot attachment
     useEffect(() => {
@@ -4530,6 +4715,10 @@ ${contextPrompt}`;
                 }
 
                 setCurrentPath(initialPathToLoad);
+                // Set browser download directory to current path
+                if (window.api?.setDownloadDirectory) {
+                    window.api.setDownloadDirectory(initialPathToLoad);
+                }
                 return;
             }
 
@@ -5048,7 +5237,52 @@ ${contextPrompt}`;
             </div>
         </div>
     </div>
-)}        
+)}
+
+{/* Python Environment Setup Prompt */}
+{pythonEnvPrompt.isOpen && (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex flex-col items-center text-center">
+                <div className="theme-bg-tertiary p-3 rounded-full mb-4">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-400">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                    </svg>
+                </div>
+                <h3 className="text-lg font-medium mb-2 theme-text-primary">Python Environment</h3>
+                <p className="theme-text-muted mb-4 text-sm">
+                    No Python environment is configured for this workspace. Would you like to set one up now?
+                </p>
+                <p className="text-xs text-gray-500 mb-4">
+                    This is useful for managing packages like transformers, diffusers, torch, etc.
+                </p>
+            </div>
+            <div className="flex justify-center gap-3">
+                <button
+                    className="px-4 py-2 theme-button theme-hover rounded text-sm"
+                    onClick={() => {
+                        setPythonEnvPrompt({ isOpen: false, dismissed: true });
+                    }}
+                >
+                    Skip for Now
+                </button>
+                <button
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm"
+                    onClick={() => {
+                        setPythonEnvPrompt({ isOpen: false, dismissed: false });
+                        // Open settings to Python tab
+                        createSettingsPane('python');
+                    }}
+                >
+                    Configure Python
+                </button>
+            </div>
+        </div>
+    </div>
+)}
+
             {aiEditModal.isOpen && aiEditModal.type === 'agentic' && !aiEditModal.isLoading && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                     <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-6xl w-full max-h-[85vh] overflow-hidden flex flex-col">
@@ -6249,7 +6483,297 @@ const renderPdfContextMenu = () => {
 // Render browser context menu
 const renderBrowserContextMenu = () => {
     if (!browserContextMenuPos) return null;
-    return <div>Browser Context Menu</div>;
+
+    const { x, y, selectedText, linkURL, srcURL, pageURL, isEditable, mediaType, canCopy, canSaveImage, canSaveLink } = browserContextMenuPos;
+
+    const closeMenu = () => setBrowserContextMenuPos(null);
+
+    const handleCopy = () => {
+        if (selectedText) {
+            navigator.clipboard.writeText(selectedText);
+        }
+        closeMenu();
+    };
+
+    const handleCopyLink = () => {
+        if (linkURL) {
+            navigator.clipboard.writeText(linkURL);
+        }
+        closeMenu();
+    };
+
+    const handleOpenLinkInNewPane = () => {
+        if (linkURL) {
+            createNewBrowser(linkURL);
+        }
+        closeMenu();
+    };
+
+    const handleOpenLinkExternal = async () => {
+        if (linkURL) {
+            await (window as any).api?.browserOpenExternal?.(linkURL);
+        }
+        closeMenu();
+    };
+
+    const handleSaveImage = async () => {
+        if (srcURL) {
+            await (window as any).api?.browserSaveImage?.(srcURL, currentPath);
+        }
+        closeMenu();
+    };
+
+    const handleSaveLinkAs = async () => {
+        if (linkURL) {
+            await (window as any).api?.browserSaveLink?.(linkURL, undefined, currentPath);
+        }
+        closeMenu();
+    };
+
+    const handleCopyImageAddress = () => {
+        if (srcURL) {
+            navigator.clipboard.writeText(srcURL);
+        }
+        closeMenu();
+    };
+
+    const handleSendToChat = () => {
+        if (selectedText) {
+            const citation = `[From ${pageURL || 'webpage'}]\n\n> ${selectedText}`;
+            setInput(prev => `${prev}${prev ? '\n\n' : ''}${citation}`);
+        }
+        closeMenu();
+    };
+
+    const handleStartNewConvo = async () => {
+        if (selectedText) {
+            // Create a new conversation with the selected text
+            await createNewConversation();
+            // Wait a bit for the conversation to be created, then set the input
+            setTimeout(() => {
+                const citation = `[From ${pageURL || 'webpage'}]\n\n> ${selectedText}`;
+                setInput(citation);
+            }, 200);
+        }
+        closeMenu();
+    };
+
+    const handleSummarize = () => {
+        if (selectedText) {
+            const prompt = `Please summarize the following text:\n\n---\n${selectedText}\n---`;
+            setInput(prompt);
+        }
+        closeMenu();
+    };
+
+    const handleExplain = () => {
+        if (selectedText) {
+            const prompt = `Please explain this text in simple terms:\n\n---\n${selectedText}\n---`;
+            setInput(prompt);
+        }
+        closeMenu();
+    };
+
+    const handleTranslate = () => {
+        if (selectedText) {
+            const prompt = `Please translate this text to English:\n\n---\n${selectedText}\n---`;
+            setInput(prompt);
+        }
+        closeMenu();
+    };
+
+    const handleSelectAll = () => {
+        // This would require sending a command to the webview - for now just close
+        closeMenu();
+    };
+
+    // Calculate position to keep menu within viewport
+    const menuWidth = 220;
+    const menuHeight = 400; // Approximate max height
+    const adjustedX = Math.min(x, window.innerWidth - menuWidth - 10);
+    const adjustedY = Math.min(y, window.innerHeight - menuHeight - 10);
+
+    return (
+        <>
+            {/* Backdrop to close menu */}
+            <div
+                className="fixed inset-0 z-[9998]"
+                onClick={closeMenu}
+                onKeyDown={(e) => e.key === 'Escape' && closeMenu()}
+                tabIndex={-1}
+            />
+
+            {/* Context Menu */}
+            <div
+                className="fixed z-[9999] theme-bg-secondary border theme-border rounded-lg shadow-xl py-1 min-w-[200px]"
+                style={{
+                    left: Math.max(10, adjustedX),
+                    top: Math.max(10, adjustedY),
+                    maxHeight: '80vh',
+                    overflowY: 'auto'
+                }}
+            >
+                {/* Browser Actions Section */}
+                {(canCopy || linkURL) && (
+                    <>
+                        <div className="px-3 py-1 text-xs theme-text-muted font-medium uppercase tracking-wide">
+                            Browser
+                        </div>
+
+                        {canCopy && (
+                            <button
+                                onClick={handleCopy}
+                                className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                </svg>
+                                Copy
+                            </button>
+                        )}
+
+                        {linkURL && (
+                            <>
+                                <button
+                                    onClick={handleCopyLink}
+                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                    </svg>
+                                    Copy Link Address
+                                </button>
+                                <button
+                                    onClick={handleOpenLinkInNewPane}
+                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                    </svg>
+                                    Open Link in New Pane
+                                </button>
+                                <button
+                                    onClick={handleSaveLinkAs}
+                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    Save Link As...
+                                </button>
+                                <button
+                                    onClick={handleOpenLinkExternal}
+                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                    </svg>
+                                    Open in Default Browser
+                                </button>
+                            </>
+                        )}
+
+                        {canSaveImage && srcURL && (
+                            <>
+                                <button
+                                    onClick={handleSaveImage}
+                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    Save Image As...
+                                </button>
+                                <button
+                                    onClick={handleCopyImageAddress}
+                                    className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                    Copy Image Address
+                                </button>
+                            </>
+                        )}
+
+                        <div className="border-t theme-border my-1" />
+                    </>
+                )}
+
+                {/* NPC Studio Actions Section */}
+                {selectedText && (
+                    <>
+                        <div className="px-3 py-1 text-xs theme-text-muted font-medium uppercase tracking-wide">
+                            NPC Studio
+                        </div>
+
+                        <button
+                            onClick={handleSendToChat}
+                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            Send to Chat
+                        </button>
+
+                        <button
+                            onClick={handleStartNewConvo}
+                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                            Start New Conversation
+                        </button>
+
+                        <div className="border-t theme-border my-1" />
+
+                        <div className="px-3 py-1 text-xs theme-text-muted font-medium uppercase tracking-wide">
+                            AI Actions
+                        </div>
+
+                        <button
+                            onClick={handleSummarize}
+                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Summarize
+                        </button>
+
+                        <button
+                            onClick={handleExplain}
+                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                            Explain
+                        </button>
+
+                        <button
+                            onClick={handleTranslate}
+                            className="w-full px-3 py-2 text-left text-sm theme-text-primary theme-hover flex items-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                            </svg>
+                            Translate
+                        </button>
+                    </>
+                )}
+
+                {/* If no text selected and no link, show minimal menu */}
+                {!selectedText && !linkURL && (
+                    <div className="px-3 py-2 text-sm theme-text-muted italic">
+                        Select text for more options
+                    </div>
+                )}
+            </div>
+        </>
+    );
 };
 
 // Sidebar rendering function

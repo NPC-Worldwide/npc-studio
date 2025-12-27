@@ -607,8 +607,31 @@ const ModelManager = () => {
             {/* GGUF/GGML Directory Configuration */}
             {activeProvider === 'gguf' && (
                 <div className="space-y-3">
+                    {/* Browse for individual file */}
                     <div>
-                        <label className="block text-sm text-gray-400 mb-2">Custom Models Directory (optional)</label>
+                        <label className="block text-sm text-gray-400 mb-2">Add Model File</label>
+                        <Button
+                            variant="primary"
+                            onClick={async () => {
+                                const result = await window.api.browseGgufFile?.();
+                                if (result?.success && result.model) {
+                                    setProviderModels(prev => ({
+                                        ...prev,
+                                        gguf: [...(prev.gguf || []).filter(m => m.path !== result.model.path), result.model]
+                                    }));
+                                }
+                            }}
+                            className="w-full"
+                        >
+                            Browse for GGUF/GGML File...
+                        </Button>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Select a specific .gguf, .ggml, or .bin model file from your filesystem.
+                        </p>
+                    </div>
+
+                    <div className="border-t border-gray-700 pt-3">
+                        <label className="block text-sm text-gray-400 mb-2">Scan Directory (optional)</label>
                         <div className="flex gap-2">
                             <Input
                                 value={ggufDirectory}
@@ -758,13 +781,20 @@ const ModelManager = () => {
     );
 };
 
-const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableModels = [], embedded = false }) => {
-    const [activeTab, setActiveTab] = useState('global');
+const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableModels = [], embedded = false, initialTab = 'global' }) => {
+    const [activeTab, setActiveTab] = useState(initialTab);
     const [globalSettings, setGlobalSettings] = useState(defaultSettings);
     const [customGlobalVars, setCustomGlobalVars] = useState([{ key: '', value: '' }]);
     const [customEnvVars, setCustomEnvVars] = useState([{ key: '', value: '' }]);
     const [customProviders, setCustomProviders] = useState([{ name: '', baseUrl: '', apiKeyVar: '', headers: '' }]);
     const [visibleFields, setVisibleFields] = useState({});
+
+    // Update active tab when initialTab prop changes
+    useEffect(() => {
+        if (initialTab && initialTab !== activeTab) {
+            setActiveTab(initialTab);
+        }
+    }, [initialTab]);
 
     const loadGlobalSettings = async () => {
         const data = await window.api.loadGlobalSettings();
