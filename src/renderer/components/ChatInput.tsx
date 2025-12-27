@@ -78,6 +78,8 @@ interface ChatInputProps {
     activeConversationId: string | null;
     // Pane activation
     onFocus?: () => void;
+    // Open file in pane
+    onOpenFile?: (path: string) => void;
 }
 
 const ChatInput: React.FC<ChatInputProps> = (props) => {
@@ -100,7 +102,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
         selectedMcpTools, setSelectedMcpTools, availableMcpTools, setAvailableMcpTools,
         mcpToolsLoading, setMcpToolsLoading, mcpToolsError, setMcpToolsError,
         showMcpServersDropdown, setShowMcpServersDropdown,
-        activeConversationId, onFocus
+        activeConversationId, onFocus, onOpenFile
     } = props;
 
     const [isHovering, setIsHovering] = useState(false);
@@ -167,19 +169,44 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
 
     const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();
+        e.stopPropagation();
         setIsHovering(false);
+
+        // Check for sidebar file drag
+        const jsonData = e.dataTransfer.getData('application/json');
+        if (jsonData) {
+            try {
+                const data = JSON.parse(jsonData);
+                if (data.type === 'sidebar-file' && data.path) {
+                    const fileName = data.path.split('/').pop() || data.path;
+                    const existingNames = new Set(uploadedFiles.map((f: any) => f.name));
+                    if (!existingNames.has(fileName)) {
+                        setUploadedFiles((prev: any[]) => [...prev, {
+                            id: Math.random().toString(36).substr(2, 9),
+                            name: fileName,
+                            path: data.path,
+                            type: 'file',
+                            size: 0,
+                            preview: null
+                        }]);
+                    }
+                    return;
+                }
+            } catch (err) {}
+        }
+
+        // Regular file drops - include path like paperclip does
         const files = Array.from(e.dataTransfer.files);
         const existingNames = new Set(uploadedFiles.map((f: any) => f.name));
         const newFiles = files.filter(f => !existingNames.has(f.name));
 
-        const attachments = await Promise.all(newFiles.map(async (file) => {
-            return {
-                id: Math.random().toString(36).substr(2, 9),
-                name: file.name,
-                type: file.type,
-                size: file.size,
-                preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null
-            };
+        const attachments = newFiles.map((file: any) => ({
+            id: Math.random().toString(36).substr(2, 9),
+            name: file.name,
+            type: file.type,
+            path: file.path,
+            size: file.size,
+            preview: file.type?.startsWith('image/') ? URL.createObjectURL(file) : null
         }));
 
         if (attachments.length > 0) {
@@ -216,24 +243,32 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
         if (uploadedFiles.length === 0) return null;
         return (
             <div className="flex flex-wrap gap-2 p-2 border-b theme-border">
-                {uploadedFiles.map((file: any) => (
-                    <div key={file.id} className="relative group">
-                        {file.preview ? (
-                            <img src={file.preview} alt={file.name} className="w-16 h-16 object-cover rounded border theme-border" />
-                        ) : (
-                            <div className="w-16 h-16 rounded border theme-border bg-gray-700 flex items-center justify-center text-xs text-gray-400 text-center p-1">
-                                {file.name.split('.').pop()?.toUpperCase()}
+                {uploadedFiles.map((file: any) => {
+                    const ext = file.name.split('.').pop()?.toLowerCase();
+                    const isClickable = file.path && ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext);
+                    return (
+                        <div
+                            key={file.id}
+                            className={`relative group ${isClickable ? 'cursor-pointer' : ''}`}
+                            onClick={() => isClickable && onOpenFile?.(file.path)}
+                        >
+                            {file.preview ? (
+                                <img src={file.preview} alt={file.name} className="w-16 h-16 object-cover rounded border theme-border" />
+                            ) : (
+                                <div className="w-16 h-16 rounded border theme-border bg-gray-700 flex items-center justify-center text-xs text-gray-400 text-center p-1">
+                                    {ext?.toUpperCase()}
+                                </div>
+                            )}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setUploadedFiles((prev: any[]) => prev.filter((f: any) => f.id !== file.id)); }}
+                                className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            >×</button>
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] px-1 truncate rounded-b">
+                                {file.name.length > 10 ? file.name.slice(0, 8) + '...' : file.name}
                             </div>
-                        )}
-                        <button
-                            onClick={() => setUploadedFiles((prev: any[]) => prev.filter((f: any) => f.id !== file.id))}
-                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >×</button>
-                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] px-1 truncate rounded-b">
-                            {file.name.length > 10 ? file.name.slice(0, 8) + '...' : file.name}
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         );
     };
@@ -247,7 +282,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     title="Expand input"
                 >
                     <div className="flex items-center gap-1 justify-center">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="rotate-180">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M18 15l-6-6-6 6"/>
                         </svg>
                     </div>
@@ -314,10 +349,10 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
             />
 
             <div
-                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col m-2 overflow-visible"
-                onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
-                onDragEnter={() => setIsHovering(true)}
-                onDragLeave={() => setIsHovering(false)}
+                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col m-2 overflow-visible z-20"
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsHovering(true); }}
+                onDragEnter={(e) => { e.stopPropagation(); setIsHovering(true); }}
+                onDragLeave={(e) => { e.stopPropagation(); setIsHovering(false); }}
                 onDrop={handleDrop}
             >
                 {isHovering && (
@@ -326,7 +361,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     </div>
                 )}
 
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-hidden flex flex-col">
                     <ContextFilesPanel
                         isCollapsed={contextFilesCollapsed}
                         onToggleCollapse={() => setContextFilesCollapsed(!contextFilesCollapsed)}
@@ -336,8 +371,8 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     />
                     {renderAttachmentThumbnails()}
 
-                    <div className="flex items-end p-2 gap-2">
-                        <div className="flex-grow relative">
+                    <div className="flex-1 flex items-stretch p-2 gap-2">
+                        <div className="flex-grow relative h-full">
                             {isJinxMode ? (
                                 <div className="flex flex-col gap-2 w-full">
                                     {selectedJinx.inputs?.map((rawInputDef: any, idx: number) => {
@@ -389,32 +424,32 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                         }
                                     }}
                                     placeholder={isStreaming ? "Streaming..." : "Type a message..."}
-                                    className={`w-full theme-input text-sm rounded-lg pl-3 pr-16 py-2 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70' : ''}`}
-                                    style={{ height: `${Math.max(40, inputHeight - 100)}px` }}
+                                    className={`w-full h-full theme-input text-sm rounded-lg pl-3 pr-16 py-2 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70' : ''}`}
                                     disabled={isStreaming}
                                 />
                             )}
 
                             <div className="absolute top-1 right-1 flex gap-1">
                                 <button onClick={() => setIsInputMinimized(true)} className="p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100" title="Minimize">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 15l-6-6-6 6"/></svg>
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
                                 </button>
                                 <button onClick={() => setIsInputExpanded(true)} className="p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100" title="Expand">
                                     <Maximize2 size={12} />
                                 </button>
                             </div>
+                            <div className="absolute bottom-1 right-1">
+                                <button onClick={handleAttachFileClick} disabled={isStreaming} className={`p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100 ${isStreaming ? 'opacity-30' : ''}`} title="Attach file">
+                                    <Paperclip size={16} />
+                                </button>
+                            </div>
                         </div>
 
-                        <button onClick={handleAttachFileClick} disabled={isStreaming} className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 ${isStreaming ? 'opacity-50' : ''}`}>
-                            <Paperclip size={18} />
-                        </button>
-
                         {isStreaming ? (
-                            <button onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0">
+                            <button onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end">
                                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
                             </button>
                         ) : (
-                            <button onClick={handleInputSubmit} disabled={!canSend} className="theme-button-success text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 disabled:opacity-50">
+                            <button onClick={handleInputSubmit} disabled={!canSend} className="theme-button-success text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end disabled:opacity-50">
                                 <Send size={16}/>
                             </button>
                         )}
@@ -605,8 +640,8 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                         )}
                     </div>
 
-                    {/* Model selector - compact */}
-                    <div className="flex items-center gap-1">
+                    {/* Model selector - center */}
+                    <div className="flex-1 flex items-center justify-center gap-1">
                         <select
                             value={currentModel || ''}
                             onChange={(e) => {
@@ -614,7 +649,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 setCurrentModel(e.target.value);
                                 if (model?.provider) setCurrentProvider(model.provider);
                             }}
-                            className="theme-input text-xs rounded px-1 py-1 border max-w-[120px]"
+                            className="theme-input text-xs rounded px-1 py-1 border max-w-[240px]"
                             disabled={modelsLoading || !!modelsError || isStreaming}
                         >
                             {modelsLoading && <option value="">...</option>}
@@ -631,11 +666,11 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                         </button>
                     </div>
 
-                    {/* NPC selector - compact */}
+                    {/* NPC selector - right */}
                     <select
                         value={currentNPC || ''}
                         onChange={e => setCurrentNPC(e.target.value)}
-                        className="theme-input text-xs rounded px-1 py-1 border max-w-[100px]"
+                        className="theme-input text-xs rounded px-1 py-1 border max-w-[200px] ml-auto"
                         disabled={npcsLoading || !!npcsError || isStreaming}
                     >
                         {npcsLoading && <option value="">...</option>}

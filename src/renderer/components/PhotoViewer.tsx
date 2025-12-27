@@ -2129,9 +2129,17 @@ const handleUseForGeneration = () => {
                     </div>
                     <div>
                         <label className="text-sm font-medium">Provider</label>
-                        <select 
-                            value={selectedProvider} 
-                            onChange={e => setSelectedProvider(e.target.value)} 
+                        <select
+                            value={selectedProvider}
+                            onChange={e => {
+                                const newProvider = e.target.value;
+                                setSelectedProvider(newProvider);
+                                // Update model to first available for this provider
+                                const modelsForProvider = availableModels.filter(m => m.provider === newProvider);
+                                if (modelsForProvider.length > 0) {
+                                    setSelectedModel(modelsForProvider[0].value);
+                                }
+                            }}
                             className="mt-1 w-full theme-input"
                         >
                             {/* <--- CRITICAL FIX: Dynamically list unique providers */}
@@ -2726,9 +2734,17 @@ const renderDarkRoomLegacy = () => {
 
         <div>
             <label className="text-xs">Provider</label>
-            <select 
-                value={selectedProvider} 
-                onChange={e => setSelectedProvider(e.target.value)}
+            <select
+                value={selectedProvider}
+                onChange={e => {
+                    const newProvider = e.target.value;
+                    setSelectedProvider(newProvider);
+                    // Update model to first available for this provider
+                    const modelsForProvider = availableModels.filter(m => m.provider === newProvider);
+                    if (modelsForProvider.length > 0) {
+                        setSelectedModel(modelsForProvider[0].value);
+                    }
+                }}
                 className="w-full theme-input text-xs mt-1"
             >
                 <option value="openai">OpenAI</option>

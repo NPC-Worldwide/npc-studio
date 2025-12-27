@@ -31,7 +31,44 @@ const fetch = require('node-fetch');
 const { dialog } = require('electron');
 const crypto = require('crypto');
 
-const logFilePath = path.join(os.homedir(), '.npc_studio', 'app.log');
+// Centralized logging setup - all logs go to ~/.npcsh/npc-studio/logs/
+const logsDir = path.join(os.homedir(), '.npcsh', 'npc-studio', 'logs');
+try {
+  fs.mkdirSync(logsDir, { recursive: true });
+} catch (err) {
+  console.error('Failed to create logs directory:', err);
+}
+
+// Create timestamped log files for this session
+const sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+const electronLogPath = path.join(logsDir, 'electron.log');
+const backendLogPath = path.join(logsDir, 'backend.log');
+
+// Rotate logs if they get too large (>5MB)
+const rotateLogIfNeeded = (logPath) => {
+  try {
+    if (fs.existsSync(logPath)) {
+      const stats = fs.statSync(logPath);
+      if (stats.size > 5 * 1024 * 1024) {
+        const rotatedPath = logPath.replace('.log', `.${sessionTimestamp}.log`);
+        fs.renameSync(logPath, rotatedPath);
+      }
+    }
+  } catch (err) {
+    console.error('Log rotation failed:', err);
+  }
+};
+
+rotateLogIfNeeded(electronLogPath);
+rotateLogIfNeeded(backendLogPath);
+
+const electronLogStream = fs.createWriteStream(electronLogPath, { flags: 'a' });
+const backendLogStream = fs.createWriteStream(backendLogPath, { flags: 'a' });
+
+// Legacy support - keep old path working too
+const legacyLogDir = path.join(os.homedir(), '.npc_studio');
+try { fs.mkdirSync(legacyLogDir, { recursive: true }); } catch (e) {}
+const logFilePath = path.join(legacyLogDir, 'app.log');
 const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 let mainWindow = null;
 let pdfView = null; 
@@ -150,10 +187,24 @@ const ensureTablesExist = async () => {
 app.setAppUserModelId('com.npc_studio.chat');
 app.name = 'npc-studio';
 app.setName('npc-studio');
+// Unified logging functions
+const formatLogMessage = (prefix, messages) => {
+    const timestamp = new Date().toISOString();
+    return `[${timestamp}] ${prefix} ${messages.join(' ')}`;
+};
+
 const log = (...messages) => {
-    const msg = messages.join(' ');
+    const msg = formatLogMessage('[ELECTRON]', messages);
     console.log(msg);
-    logStream.write(`${msg}\n`);
+    electronLogStream.write(`${msg}\n`);
+    logStream.write(`${msg}\n`); // Legacy support
+};
+
+const logBackend = (...messages) => {
+    const msg = formatLogMessage('[BACKEND]', messages);
+    console.log(msg);
+    backendLogStream.write(`${msg}\n`);
+    logStream.write(`${msg}\n`); // Legacy support
 };
 // Use Option+Space on macOS, Command/Control+Space elsewhere
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
@@ -272,8 +323,80 @@ async function ensureBaseDir() {
 }
 
 
+
+// Track sessions we've set up download handlers for
+const sessionsWithDownloadHandler = new WeakSet();
+
+// Handle web contents created (for webviews and all web contents)
+// This sets up download and context menu handling for all web contents including webviews
+app.on('web-contents-created', (event, contents) => {
+  // Handle context menu for webviews
+  contents.on('context-menu', async (e, params) => {
+    // Only handle for webviews (type 'webview')
+    if (contents.getType() === 'webview') {
+      e.preventDefault();
+
+      // Get selected text
+      const selectedText = params.selectionText || '';
+      const linkURL = params.linkURL || '';
+      const srcURL = params.srcURL || '';
+      const pageURL = params.pageURL || '';
+      const isEditable = params.isEditable || false;
+      const mediaType = params.mediaType || 'none';
+
+      log(`[CONTEXT MENU] Webview context menu: selectedText="${selectedText.substring(0, 50)}...", linkURL="${linkURL}", mediaType="${mediaType}"`);
+
+      // Send context menu event to renderer
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('browser-show-context-menu', {
+          x: params.x,
+          y: params.y,
+          selectedText,
+          linkURL,
+          srcURL,
+          pageURL,
+          isEditable,
+          mediaType,
+          canCopy: selectedText.length > 0,
+          canPaste: isEditable,
+          canSaveImage: mediaType === 'image' && srcURL,
+          canSaveLink: !!linkURL,
+        });
+      }
+    }
+  });
+
+  // Handle downloads from webviews - forward to renderer which has currentPath
+  if (contents.getType() === 'webview') {
+    const session = contents.session;
+    if (session && !sessionsWithDownloadHandler.has(session)) {
+      sessionsWithDownloadHandler.add(session);
+
+      session.on('will-download', (e, item, webContents) => {
+        const url = item.getURL();
+        const filename = item.getFilename();
+
+        log(`[DOWNLOAD] Intercepted download: ${filename} from ${url}`);
+
+        // Cancel the default download - renderer will handle it via IPC
+        item.cancel();
+
+        // Send to renderer to handle with currentPath
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('browser-download-requested', {
+            url,
+            filename,
+            mimeType: item.getMimeType(),
+            totalBytes: item.getTotalBytes()
+          });
+        }
+      });
+    }
+  }
+});
+
 app.whenReady().then(async () => {
- 
+
   const dataPath = ensureUserDataDirectory();
   await ensureTablesExist();
 
@@ -297,20 +420,29 @@ app.whenReady().then(async () => {
 
   try {
     log('Starting backend server...');
-   
-    const executableName = process.platform === 'win32' ? 'npc_studio_serve.exe' : 'npc_studio_serve';
-    const backendPath = app.isPackaged 
-      ? path.join(process.resourcesPath, 'backend', executableName)
-      : path.join(app.getAppPath(), 'dist', 'resources', 'backend', executableName);
-    
-    log(`Using backend path: ${backendPath}`);
-    
-   
-   
-   
-   
-    
-    backendProcess = spawn(backendPath, {
+
+    // Check if user has configured a custom Python path for the backend
+    const customPythonPath = getBackendPythonPath();
+
+    let backendPath;
+    let spawnArgs = [];
+
+    if (customPythonPath) {
+      // Use user's Python with npcpy module
+      log(`Using custom Python for backend: ${customPythonPath}`);
+      backendPath = customPythonPath;
+      spawnArgs = ['-m', 'npcpy.serve'];
+    } else {
+      // Use bundled executable
+      const executableName = process.platform === 'win32' ? 'npc_studio_serve.exe' : 'npc_studio_serve';
+      backendPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'backend', executableName)
+        : path.join(app.getAppPath(), 'dist', 'resources', 'backend', executableName);
+    }
+
+    log(`Using backend path: ${backendPath}${spawnArgs.length ? ' ' + spawnArgs.join(' ') : ''}`);
+
+    backendProcess = spawn(backendPath, spawnArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       env: {
@@ -318,20 +450,20 @@ app.whenReady().then(async () => {
         CORNERIA_DATA_DIR: dataPath,
         NPC_STUDIO_PORT: '5337',
         FLASK_DEBUG: '1',
-        PYTHONUNBUFFERED: '1',  
+        PYTHONUNBUFFERED: '1',
       },
     });
 
     backendProcess.stdout.on("data", (data) => {
-      log(`[Backend stdout]: ${data.toString()}`);
+      logBackend(`stdout: ${data.toString().trim()}`);
     });
 
     backendProcess.stderr.on("data", (data) => {
-      log(`[Backend stderr]: ${data.toString()}`);
+      logBackend(`stderr: ${data.toString().trim()}`);
     });
     backendProcess.on('close', (code) => {
       if (code !== 0) {
-        console.error('Backend server exited with code:', code);
+        logBackend(`Backend server exited with code: ${code}`);
       }
     });
 
@@ -348,7 +480,28 @@ app.whenReady().then(async () => {
 
  
   await ensureBaseDir();
-  createWindow();
+
+  // Parse CLI arguments for workspace mode
+  const cliArgs = {
+    folder: null,
+    bookmarks: []
+  };
+
+  const folderArg = process.argv.find(arg => arg.startsWith('--folder='));
+  const bookmarksArg = process.argv.find(arg => arg.startsWith('--bookmarks='));
+
+  if (folderArg) {
+    cliArgs.folder = folderArg.split('=')[1].replace(/^"|"$/g, '');
+    log(`[CLI] Workspace folder: ${cliArgs.folder}`);
+  }
+
+  if (bookmarksArg) {
+    const urls = bookmarksArg.split('=')[1].replace(/^"|"$/g, '');
+    cliArgs.bookmarks = urls.split(',').filter(u => u.trim());
+    log(`[CLI] Workspace bookmarks: ${cliArgs.bookmarks.join(', ')}`);
+  }
+
+  createWindow(cliArgs);
 });
 
 async function callBackendApi(url, options = {}) {
@@ -377,6 +530,30 @@ function ensureUserDataDirectory() {
   }
 
   return userDataPath;
+}
+
+function getBackendPythonPath() {
+  // Check .npcshrc for BACKEND_PYTHON_PATH setting
+  const rcPath = path.join(os.homedir(), '.npcshrc');
+  try {
+    if (fs.existsSync(rcPath)) {
+      const rcContent = fs.readFileSync(rcPath, 'utf8');
+      const match = rcContent.match(/BACKEND_PYTHON_PATH=["']?([^"'\n]+)["']?/);
+      if (match && match[1] && match[1].trim()) {
+        const pythonPath = match[1].trim().replace(/^~/, os.homedir());
+        // Verify the path exists
+        if (fs.existsSync(pythonPath)) {
+          log(`Found backend Python path: ${pythonPath}`);
+          return pythonPath;
+        } else {
+          log(`Backend Python path configured but not found: ${pythonPath}`);
+        }
+      }
+    }
+  } catch (err) {
+    log('Error reading backend Python path from .npcshrc:', err);
+  }
+  return null;
 }
 
 
@@ -748,11 +925,8 @@ if (!gotTheLock) {
 
 const browserViews = new Map();
 
- 
-
-  
-
-function createWindow() {
+function createWindow(cliArgs = {}) {
+    const { folder, bookmarks } = cliArgs;
 
     const iconPath = path.resolve(__dirname, '..', 'build', 'icons', '512x512.png');
     console.log(`[ICON DEBUG] Using direct path: ${iconPath}`);
@@ -830,6 +1004,35 @@ function createWindow() {
   
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
       console.error('Failed to load:', errorCode, errorDescription);
+    });
+
+    // Send CLI arguments to renderer when ready
+    mainWindow.webContents.on('did-finish-load', async () => {
+      if (folder || (bookmarks && bookmarks.length > 0)) {
+        log(`[CLI] Sending workspace args to renderer: folder=${folder}, bookmarks=${bookmarks?.length || 0}`);
+
+        // If folder is specified, set it as the current working directory for the workspace
+        if (folder) {
+          mainWindow.webContents.send('cli-open-workspace', { folder });
+        }
+
+        // Add bookmarks to the workspace
+        if (bookmarks && bookmarks.length > 0 && folder) {
+          for (const url of bookmarks) {
+            try {
+              // Use the existing bookmark handler
+              await dbQuery(
+                'INSERT OR IGNORE INTO bookmarks (url, title, folder_path, is_global) VALUES (?, ?, ?, ?)',
+                [url, url, folder, 0]
+              );
+              log(`[CLI] Added bookmark: ${url}`);
+            } catch (err) {
+              log(`[CLI] Error adding bookmark ${url}: ${err.message}`);
+            }
+          }
+          mainWindow.webContents.send('cli-bookmarks-added', { bookmarks, folder });
+        }
+      }
     });
 }
   
@@ -1800,13 +2003,92 @@ ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
         mainWindow.webContents.send('browser-navigation-state-updated', { viewId, canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward() });
     });
 
+    // Downloads handled by app.on('web-contents-created') handler
+
     const finalURL = url.startsWith('http') ? url : `https://${url}`;
     wc.loadURL(finalURL).catch(err => log(`[BROWSER VIEW ${viewId}] loadURL promise rejected: ${err.message}`));
-    
+
     return { success: true, viewId };
 });
 
+// Browser context menu actions
+ipcMain.handle('browser-save-image', async (event, { imageUrl, currentPath }) => {
+    try {
+        if (!currentPath) {
+            return { success: false, error: 'No workspace directory provided' };
+        }
+        const url = new URL(imageUrl);
+        const filename = path.basename(url.pathname) || 'image.png';
+        const defaultPath = path.join(currentPath, filename);
 
+        const result = await dialog.showSaveDialog(mainWindow, {
+            title: 'Save Image',
+            defaultPath: defaultPath,
+            filters: [
+                { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+
+        if (result.canceled || !result.filePath) {
+            return { success: false, canceled: true };
+        }
+
+        // Download the image
+        const response = await fetch(imageUrl);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const buffer = await response.buffer();
+        await fsPromises.writeFile(result.filePath, buffer);
+
+        log(`[BROWSER] Image saved to: ${result.filePath}`);
+        return { success: true, path: result.filePath };
+    } catch (err) {
+        log(`[BROWSER] Error saving image: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, currentPath }) => {
+    try {
+        if (!currentPath) {
+            return { success: false, error: 'No workspace directory provided' };
+        }
+        const filename = suggestedFilename || path.basename(new URL(url).pathname) || 'download';
+        const defaultPath = path.join(currentPath, filename);
+
+        const result = await dialog.showSaveDialog(mainWindow, {
+            title: 'Save Link As',
+            defaultPath: defaultPath,
+            filters: [{ name: 'All Files', extensions: ['*'] }]
+        });
+
+        if (result.canceled || !result.filePath) {
+            return { success: false, canceled: true };
+        }
+
+        // Download the file
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const buffer = await response.buffer();
+        await fsPromises.writeFile(result.filePath, buffer);
+
+        log(`[BROWSER] Link saved to: ${result.filePath}`);
+        return { success: true, path: result.filePath };
+    } catch (err) {
+        log(`[BROWSER] Error saving link: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('browser-open-external', async (event, { url }) => {
+    try {
+        await shell.openExternal(url);
+        return { success: true };
+    } catch (err) {
+        log(`[BROWSER] Error opening external URL: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+});
 
 
 
@@ -2746,6 +3028,92 @@ ipcMain.handle('python-env-resolve', async (event, { workspacePath }) => {
   }
 });
 
+// Create a new virtual environment in the workspace
+ipcMain.handle('python-env-create', async (event, { workspacePath, venvName = '.venv', pythonPath = null }) => {
+  const { spawn } = require('child_process');
+
+  try {
+    const venvDir = path.join(workspacePath, venvName);
+
+    // Check if venv already exists
+    try {
+      await fsPromises.access(venvDir);
+      return { success: false, error: `Virtual environment '${venvName}' already exists` };
+    } catch {
+      // Good - venv doesn't exist
+    }
+
+    // Determine which python to use for creating the venv
+    const isWindows = process.platform === 'win32';
+    let pythonCmd = pythonPath || (isWindows ? 'python' : 'python3');
+
+    return new Promise((resolve) => {
+      // Create venv using python -m venv
+      const args = ['-m', 'venv', venvDir];
+      console.log(`[VENV] Creating venv with: ${pythonCmd} ${args.join(' ')}`);
+
+      const proc = spawn(pythonCmd, args, {
+        cwd: workspacePath,
+        shell: isWindows
+      });
+
+      let stderr = '';
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', async (code) => {
+        if (code === 0) {
+          // Venv created successfully - auto-configure it
+          try {
+            const config = await readPythonEnvConfig();
+            config.workspaces[workspacePath] = {
+              type: 'venv',
+              venvPath: venvName
+            };
+            await writePythonEnvConfig(config);
+
+            resolve({
+              success: true,
+              venvPath: venvDir,
+              message: `Virtual environment '${venvName}' created successfully`
+            });
+          } catch (configErr) {
+            resolve({
+              success: true,
+              venvPath: venvDir,
+              warning: 'Venv created but failed to auto-configure: ' + configErr.message
+            });
+          }
+        } else {
+          resolve({
+            success: false,
+            error: `Failed to create venv (exit code ${code}): ${stderr}`
+          });
+        }
+      });
+
+      proc.on('error', (err) => {
+        resolve({ success: false, error: `Failed to spawn python: ${err.message}` });
+      });
+    });
+  } catch (err) {
+    console.error('Error creating venv:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Check if Python environment is configured for a workspace
+ipcMain.handle('python-env-check-configured', async (event, { workspacePath }) => {
+  try {
+    const config = await readPythonEnvConfig();
+    const envConfig = config.workspaces[workspacePath];
+    return { configured: !!envConfig, config: envConfig };
+  } catch (err) {
+    return { configured: false, error: err.message };
+  }
+});
+
 // ==================== END PYTHON ENVIRONMENT ====================
 
 ipcMain.handle('loadProjectSettings', async (event, currentPath) => {
@@ -3138,7 +3506,42 @@ app.on('will-quit', () => {
       log('Killing backend process');
       killBackendProcess();
     }
-  
+    // Close log streams
+    electronLogStream.end();
+    backendLogStream.end();
+    logStream.end();
+  });
+
+  // Logs directory handler
+  ipcMain.handle('getLogsDir', async () => {
+    return {
+      logsDir,
+      electronLog: electronLogPath,
+      backendLog: backendLogPath,
+      legacyLog: logFilePath
+    };
+  });
+
+  ipcMain.handle('readLogFile', async (event, logType) => {
+    try {
+      let logPath;
+      switch (logType) {
+        case 'electron': logPath = electronLogPath; break;
+        case 'backend': logPath = backendLogPath; break;
+        case 'legacy': logPath = logFilePath; break;
+        default: throw new Error(`Unknown log type: ${logType}`);
+      }
+      if (fs.existsSync(logPath)) {
+        // Read last 1000 lines
+        const content = fs.readFileSync(logPath, 'utf8');
+        const lines = content.split('\n');
+        return lines.slice(-1000).join('\n');
+      }
+      return '';
+    } catch (error) {
+      console.error('Error reading log file:', error);
+      return '';
+    }
   });
 
   ipcMain.handle('getNPCTeamGlobal', async () => {
@@ -4342,6 +4745,43 @@ ipcMain.handle('scan-gguf-models', async (event, directory) => {
     }
 });
 
+// Browse and select individual GGUF/GGML files
+ipcMain.handle('browse-gguf-file', async (event) => {
+    try {
+        const result = await dialog.showOpenDialog(mainWindow, {
+            title: 'Select GGUF/GGML Model File',
+            filters: [
+                { name: 'GGUF/GGML Models', extensions: ['gguf', 'ggml', 'bin'] },
+                { name: 'All Files', extensions: ['*'] }
+            ],
+            properties: ['openFile']
+        });
+
+        if (result.canceled || !result.filePaths[0]) {
+            return { canceled: true };
+        }
+
+        const filePath = result.filePaths[0];
+        const stats = await require('fs').promises.stat(filePath);
+        const filename = path.basename(filePath);
+
+        return {
+            success: true,
+            model: {
+                name: filename,
+                filename: filename,
+                path: filePath,
+                size: stats.size,
+                modified_at: stats.mtime.toISOString(),
+                source: 'Manual'
+            }
+        };
+    } catch (err) {
+        console.error('Error browsing for GGUF file:', err);
+        return { error: err.message };
+    }
+});
+
 ipcMain.handle('download-hf-model', async (event, { url, targetDir }) => {
     try {
         const response = await fetch('http://127.0.0.1:5337/api/models/hf/download', {
@@ -4513,8 +4953,12 @@ ipcMain.handle('read-docx-content', async (_, filePath) => {
   try {
     const mammoth = require('mammoth');
     const buffer = await fsPromises.readFile(filePath);
+    // Handle empty/new docx files
+    if (!buffer || buffer.length === 0) {
+      return { content: '', error: null, isNew: true };
+    }
     const result = await mammoth.convertToMarkdown({ buffer });
-    
+
     return { content: result.value, error: null };
   } catch (err) {
     console.error('Error reading DOCX:', err);
@@ -5894,6 +6338,20 @@ ipcMain.handle('save-global-context', async (event, contextData) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ context: contextData }),
+  });
+});
+
+// Check if ~/.npcsh exists and has a valid npc_team
+ipcMain.handle('npcsh-check', async () => {
+  return await callBackendApi('http://127.0.0.1:5337/api/npcsh/check');
+});
+
+// Initialize ~/.npcsh with default npc_team
+ipcMain.handle('npcsh-init', async () => {
+  return await callBackendApi('http://127.0.0.1:5337/api/npcsh/init', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
   });
 });
 ipcMain.handle('get-last-used-in-directory', async (event, path) => {

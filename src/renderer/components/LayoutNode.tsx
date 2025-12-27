@@ -4,7 +4,8 @@ import {
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
-    Image as ImageIcon, Tag, Folder
+    Image as ImageIcon, Tag, Folder, Users, Settings, Images, BookOpen,
+    FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
@@ -429,7 +430,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
-            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -697,16 +698,16 @@ export const LayoutNode = memo(({ node, path, component }) => {
         let headerTitle = 'Empty Pane';
 
         if (contentType === 'chat') {
-            headerIcon = <MessageSquare size={14} />;
+            headerIcon = <MessageSquare size={14} className="text-blue-400" />;
             headerTitle = `Conversation: ${contentId?.slice(-8) || 'None'}`;
         } else if (contentType === 'editor' && contentId) {
-            headerIcon = getFileIcon(contentId); 
+            headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();
         } else if (contentType === 'browser') {
             headerIcon = <Globe size={14} className="text-blue-400" />;
             headerTitle = paneData.browserTitle || paneData.browserUrl || 'Web Browser';
         } else if (contentType === 'terminal') {
-            headerIcon = <Terminal size={14} />;
+            headerIcon = <Terminal size={14} className="text-green-400" />;
             headerTitle = 'Terminal';
         } else if (contentType === 'image') {
             headerIcon = <ImageIcon size={14} className="text-purple-400" />;
@@ -714,6 +715,69 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'folder') {
             headerIcon = <Folder size={14} className="text-yellow-400" />;
             headerTitle = contentId?.split('/').pop() || 'Folder';
+        } else if (contentType === 'dbtool') {
+            headerIcon = <Database size={14} className="text-cyan-400" />;
+            headerTitle = 'Database Tool';
+        } else if (contentType === 'jinx') {
+            headerIcon = <Zap size={14} className="text-yellow-400" />;
+            headerTitle = 'Jinx Manager';
+        } else if (contentType === 'npcteam') {
+            headerIcon = <Bot size={14} className="text-purple-400" />;
+            headerTitle = 'NPC Team';
+        } else if (contentType === 'teammanagement') {
+            headerIcon = <Users size={14} className="text-indigo-400" />;
+            headerTitle = 'Team Management';
+        } else if (contentType === 'settings') {
+            headerIcon = <Settings size={14} className="text-gray-400" />;
+            headerTitle = 'Settings';
+        } else if (contentType === 'photoviewer') {
+            headerIcon = <Images size={14} className="text-pink-400" />;
+            headerTitle = 'Photo Gallery';
+        } else if (contentType === 'library') {
+            headerIcon = <BookOpen size={14} className="text-amber-400" />;
+            headerTitle = 'Library';
+        } else if (contentType === 'projectenv') {
+            headerIcon = <FolderCog size={14} className="text-orange-400" />;
+            headerTitle = 'Project Environment';
+        } else if (contentType === 'diskusage') {
+            headerIcon = <HardDrive size={14} className="text-slate-400" />;
+            headerTitle = 'Disk Usage';
+        } else if (contentType === 'data-labeler') {
+            headerIcon = <Tags size={14} className="text-teal-400" />;
+            headerTitle = 'Data Labeler';
+        } else if (contentType === 'graph-viewer') {
+            headerIcon = <Network size={14} className="text-violet-400" />;
+            headerTitle = 'Graph Viewer';
+        } else if (contentType === 'browsergraph') {
+            headerIcon = <Share2 size={14} className="text-sky-400" />;
+            headerTitle = 'Browser Graph';
+        } else if (contentType === 'datadash') {
+            headerIcon = <LayoutDashboard size={14} className="text-emerald-400" />;
+            headerTitle = 'Data Dashboard';
+        } else if (contentType === 'mindmap') {
+            headerIcon = <Brain size={14} className="text-rose-400" />;
+            headerTitle = 'Mind Map';
+        } else if (contentType === 'markdown-preview') {
+            headerIcon = <FileIcon size={14} className="text-blue-400" />;
+            headerTitle = `Preview: ${contentId?.split('/').pop() || 'Markdown'}`;
+        } else if (contentType === 'pdf') {
+            headerIcon = <FileIcon size={14} className="text-red-400" />;
+            headerTitle = contentId?.split('/').pop() || 'PDF Viewer';
+        } else if (contentType === 'csv') {
+            headerIcon = <Table size={14} className="text-green-400" />;
+            headerTitle = contentId?.split('/').pop() || 'CSV Viewer';
+        } else if (contentType === 'latex') {
+            headerIcon = <FileIcon size={14} className="text-teal-400" />;
+            headerTitle = contentId?.split('/').pop() || 'LaTeX Editor';
+        } else if (contentType === 'docx') {
+            headerIcon = <FileIcon size={14} className="text-blue-500" />;
+            headerTitle = contentId?.split('/').pop() || 'Document';
+        } else if (contentType === 'pptx') {
+            headerIcon = <FileIcon size={14} className="text-orange-500" />;
+            headerTitle = contentId?.split('/').pop() || 'Presentation';
+        } else if (contentType === 'zip') {
+            headerIcon = <FileIcon size={14} className="text-yellow-500" />;
+            headerTitle = contentId?.split('/').pop() || 'Archive';
         } else if (contentId) {
             headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();
@@ -724,6 +788,28 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         // Conditionally construct children for PaneHeader (chat-specific buttons)
         let paneHeaderChildren = null;
+
+        // Markdown preview button for .md files
+        const isMarkdownFile = contentType === 'editor' && contentId?.toLowerCase().endsWith('.md');
+        if (isMarkdownFile) {
+            paneHeaderChildren = (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        const nodePath = findNodePath(rootLayoutNode, node.id);
+                        if (nodePath) {
+                            performSplit(nodePath, 'right', 'markdown-preview', contentId);
+                        }
+                    }}
+                    className="px-3 py-1 rounded text-xs transition-all flex items-center gap-1 theme-button theme-hover"
+                    title="Preview Markdown (Ctrl+Shift+V)"
+                >
+                    <Play size={14} />
+                    Preview
+                </button>
+            );
+        }
+
         if (contentType === 'chat') {
             const chatStats = paneData?.chatStats || { messageCount: 0, tokenCount: 0, models: new Set(), agents: new Set(), providers: new Set() };
             const tokenCost = calculateTokenCost(chatStats.tokenCount, chatStats.models);
@@ -882,6 +968,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderZipViewer({ nodeId: node.id });
                 case 'folder':
                     return renderFolderViewerPane({ nodeId: node.id });
+                case 'markdown-preview':
+                    return renderMarkdownPreviewPane({ nodeId: node.id });
                 default:
                     // This is the content for an empty pane
                     return (

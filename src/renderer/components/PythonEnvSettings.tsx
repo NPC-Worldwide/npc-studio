@@ -33,9 +33,13 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
     const [currentConfig, setCurrentConfig] = useState<PythonEnvConfig | null>(null);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [creating, setCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState<string | null>(null);
     const [showCustomInput, setShowCustomInput] = useState(false);
+    const [showCreateVenv, setShowCreateVenv] = useState(false);
     const [customPath, setCustomPath] = useState('');
+    const [newVenvName, setNewVenvName] = useState('.venv');
 
     const loadConfig = useCallback(async () => {
         if (!currentPath) return;
@@ -128,6 +132,30 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
         }
     };
 
+    const createVenv = async () => {
+        if (!currentPath || !newVenvName.trim()) return;
+        setCreating(true);
+        setError(null);
+        setSuccess(null);
+        try {
+            const result = await (window as any).api?.pythonEnvCreate?.(currentPath, newVenvName.trim());
+            if (result?.success) {
+                setSuccess(result.message || 'Virtual environment created successfully!');
+                setShowCreateVenv(false);
+                // Refresh detected envs and config
+                await detectEnvs();
+                await loadConfig();
+            } else {
+                setError(result?.error || 'Failed to create virtual environment');
+            }
+        } catch (err) {
+            console.error('Error creating venv:', err);
+            setError('Failed to create virtual environment');
+        } finally {
+            setCreating(false);
+        }
+    };
+
     const getEnvIcon = (type: string) => {
         switch (type) {
             case 'venv': return <span className="text-green-400">venv</span>;
@@ -208,6 +236,13 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
                 </div>
             )}
 
+            {success && (
+                <div className="flex items-center gap-2 text-green-400 text-xs">
+                    <Check size={12} />
+                    {success}
+                </div>
+            )}
+
             <div className="text-xs text-gray-500 mb-2">
                 Workspace: {currentPath || 'None'}
             </div>
@@ -274,6 +309,47 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
                         >
                             Save
                         </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Create New Venv */}
+            <div className="pt-2 border-t theme-border">
+                <button
+                    onClick={() => setShowCreateVenv(!showCreateVenv)}
+                    className="flex items-center gap-2 text-xs text-green-400 hover:text-green-300"
+                >
+                    <ChevronDown size={12} className={showCreateVenv ? 'rotate-180' : ''} />
+                    Create New Virtual Environment
+                </button>
+                {showCreateVenv && (
+                    <div className="mt-2 space-y-2">
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={newVenvName}
+                                onChange={(e) => setNewVenvName(e.target.value)}
+                                placeholder=".venv"
+                                className="flex-1 px-2 py-1 text-xs theme-bg-tertiary theme-border border rounded outline-none focus:ring-1 focus:ring-green-500"
+                            />
+                            <button
+                                onClick={createVenv}
+                                disabled={!newVenvName.trim() || creating}
+                                className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
+                            >
+                                {creating ? (
+                                    <>
+                                        <RefreshCw size={12} className="animate-spin" />
+                                        Creating...
+                                    </>
+                                ) : (
+                                    'Create'
+                                )}
+                            </button>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                            Creates a new Python virtual environment in the workspace using <code className="bg-black/30 px-1 rounded">python -m venv</code>
+                        </div>
                     </div>
                 )}
             </div>

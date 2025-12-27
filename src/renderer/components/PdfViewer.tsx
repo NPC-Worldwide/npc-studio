@@ -438,6 +438,39 @@ const PdfViewer = ({
     // Create zoom plugin to track scale
     const zoomPluginInstance = zoomPlugin();
 
+    // Inject global style for --scale-factor to prevent pdfjs warnings
+    useEffect(() => {
+        const styleId = 'pdf-scale-factor-style';
+        let style = document.getElementById(styleId) as HTMLStyleElement;
+        if (!style) {
+            style = document.createElement('style');
+            style.id = styleId;
+            document.head.appendChild(style);
+        }
+        const scale = currentScale || 1;
+        style.textContent = `
+            :root, html, body,
+            .pdf-viewer-container,
+            .pdf-viewer-container *,
+            .rpv-core__viewer,
+            .rpv-core__inner-pages,
+            .rpv-core__inner-page,
+            .rpv-core__page-layer,
+            .rpv-core__text-layer {
+                --scale-factor: ${scale} !important;
+            }
+            .rpv-core__text-layer,
+            .rpv-core__text-layer span {
+                color: transparent !important;
+                -webkit-text-fill-color: transparent !important;
+                fill: transparent !important;
+            }
+        `;
+        return () => {
+            // Don't remove - other PDF viewers may need it
+        };
+    }, [currentScale]);
+
     // Set scale factor on document load
     const handleDocumentLoad = useCallback((e: any) => {
         // Set initial scale factor on wrapper
@@ -583,19 +616,92 @@ const PdfViewer = ({
         loadHighlights();
     }, [nodeId, pdfHighlightsTrigger, loadHighlights]);
 
-    // Update scale factor when it changes
+    // Aggressively enforce text layer invisibility and scale factor
     useEffect(() => {
         const wrapper = viewerWrapperRef.current;
-        if (!wrapper || !currentScale) return;
+        if (!wrapper) return;
 
-        // Set scale factor on wrapper
-        wrapper.style.setProperty('--scale-factor', String(currentScale));
+        const scale = currentScale || 1;
 
-        // Set on all text layers
-        const textLayers = wrapper.querySelectorAll('.rpv-core__text-layer');
-        textLayers.forEach((el: HTMLElement) => {
-            el.style.setProperty('--scale-factor', String(currentScale));
+        // Function to make text spans invisible - apply all possible style overrides
+        const makeTextLayerInvisible = (textLayer: HTMLElement) => {
+            textLayer.style.setProperty('--scale-factor', String(scale));
+            textLayer.style.color = 'transparent';
+            textLayer.style.setProperty('color', 'transparent', 'important');
+            textLayer.style.setProperty('-webkit-text-fill-color', 'transparent', 'important');
+            textLayer.style.setProperty('fill', 'transparent', 'important');
+
+            // Apply to all span children
+            const spans = textLayer.querySelectorAll('span');
+            spans.forEach((span: HTMLElement) => {
+                span.style.color = 'transparent';
+                span.style.setProperty('color', 'transparent', 'important');
+                span.style.setProperty('-webkit-text-fill-color', 'transparent', 'important');
+                span.style.setProperty('text-shadow', 'none', 'important');
+                span.style.setProperty('fill', 'transparent', 'important');
+                span.style.setProperty('stroke', 'transparent', 'important');
+            });
+        };
+
+        // Function to set scale factor on all relevant elements
+        const applyAllStyles = () => {
+            wrapper.style.setProperty('--scale-factor', String(scale));
+
+            // Apply to all text layers
+            const textLayers = wrapper.querySelectorAll('.rpv-core__text-layer');
+            textLayers.forEach((el: HTMLElement) => {
+                makeTextLayerInvisible(el);
+            });
+
+            // Set scale factor on all page-related elements
+            const pageElements = wrapper.querySelectorAll('.rpv-core__inner-page, .rpv-core__page-layer, .rpv-core__inner-pages');
+            pageElements.forEach((el: HTMLElement) => {
+                el.style.setProperty('--scale-factor', String(scale));
+            });
+        };
+
+        // Apply immediately
+        applyAllStyles();
+
+        // Also apply on a short interval for the first few seconds to catch late-rendered text
+        let intervalCount = 0;
+        const interval = setInterval(() => {
+            applyAllStyles();
+            intervalCount++;
+            if (intervalCount > 20) { // Stop after ~2 seconds
+                clearInterval(interval);
+            }
+        }, 100);
+
+        // Watch for new text layers being added
+        const observer = new MutationObserver((mutations) => {
+            let needsUpdate = false;
+            for (const mutation of mutations) {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node instanceof HTMLElement) {
+                            if (node.classList?.contains('rpv-core__text-layer') ||
+                                node.querySelector?.('.rpv-core__text-layer')) {
+                                needsUpdate = true;
+                            }
+                        }
+                    });
+                }
+            }
+            if (needsUpdate) {
+                applyAllStyles();
+            }
         });
+
+        observer.observe(wrapper, {
+            childList: true,
+            subtree: true,
+        });
+
+        return () => {
+            observer.disconnect();
+            clearInterval(interval);
+        };
     }, [currentScale]);
 
     const handleActualTextSelect = useMemo(

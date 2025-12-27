@@ -70,92 +70,41 @@ export const ContextFilesPanel: React.FC<ContextFilesPanelProps> = ({
         setIsDragOver(false);
     }, []);
 
-    const handleDrop = useCallback(async (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragOver(false);
-
-        // Check for internal sidebar drag (file paths as text)
-        const textData = e.dataTransfer.getData('text/plain');
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        // Let sidebar-file drops bubble up to ChatInput
         const jsonData = e.dataTransfer.getData('application/json');
-
         if (jsonData) {
             try {
                 const data = JSON.parse(jsonData);
-                if (data.type === 'sidebar-file' && data.path) {
-                    await addFileFromPath(data.path, 'sidebar');
-                    return;
+                if (data.type === 'sidebar-file') {
+                    return; // Don't handle, let it bubble
                 }
-            } catch (err) {
-                console.error('Failed to parse drag data:', err);
-            }
+            } catch (err) {}
         }
 
-        // Check for file paths from sidebar (plain text)
-        if (textData && textData.startsWith('/')) {
-            await addFileFromPath(textData, 'sidebar');
-            return;
-        }
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(false);
+    }, []);
 
-        // Handle external file drops
-        const files = Array.from(e.dataTransfer.files);
-        for (const file of files) {
-            // @ts-ignore - webkitRelativePath exists in electron context
-            const filePath = file.path || file.webkitRelativePath || file.name;
+    const addFileFromPath = (filePath: string, source: 'sidebar' | 'external') => {
+        const name = filePath.split('/').pop() || filePath;
+        const newFile: ContextFile = {
+            id: crypto.randomUUID(),
+            path: filePath,
+            name: name,
+            content: '',
+            size: 0,
+            addedAt: new Date().toISOString(),
+            source: source
+        };
 
-            if (filePath) {
-                await addFileFromPath(filePath, 'external');
-            } else {
-                // Read file content directly for external files without paths
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const content = reader.result as string;
-                    const newFile: ContextFile = {
-                        id: crypto.randomUUID(),
-                        path: `external:${file.name}`,
-                        name: file.name,
-                        content: content,
-                        size: file.size,
-                        addedAt: new Date().toISOString(),
-                        source: 'external'
-                    };
-                    setContextFiles(prev => {
-                        if (prev.find(f => f.path === newFile.path)) return prev;
-                        const updated = [...prev, newFile];
-                        ContextFileStorage.add(newFile);
-                        return updated;
-                    });
-                };
-                reader.readAsText(file);
-            }
-        }
-    }, [setContextFiles]);
-
-    const addFileFromPath = async (filePath: string, source: 'sidebar' | 'external') => {
-        try {
-            // Try to read file content via API
-            const response = await window.api?.readFileContent?.(filePath);
-            const content = response?.content || '';
-            const name = filePath.split('/').pop() || filePath;
-
-            const newFile: ContextFile = {
-                id: crypto.randomUUID(),
-                path: filePath,
-                name: name,
-                content: content,
-                size: content.length,
-                addedAt: new Date().toISOString(),
-                source: source
-            };
-
-            setContextFiles(prev => {
-                if (prev.find(f => f.path === filePath)) return prev;
-                const updated = [...prev, newFile];
-                ContextFileStorage.add(newFile);
-                return updated;
-            });
-        } catch (err) {
-            console.error('Failed to add file:', err);
-        }
+        setContextFiles(prev => {
+            if (prev.find(f => f.path === filePath)) return prev;
+            const updated = [...prev, newFile];
+            ContextFileStorage.add(newFile);
+            return updated;
+        });
     };
 
     const removeFile = (fileId: string) => {

@@ -1285,6 +1285,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     const [isGlobal, setIsGlobal] = useState(false);
     const [hasProjectTeam, setHasProjectTeam] = useState<boolean | null>(null);
     const [initializingTeam, setInitializingTeam] = useState(false);
+    const [resyncModal, setResyncModal] = useState(false);
+    const [resyncing, setResyncing] = useState(false);
 
     // Check if project has npc_team folder
     useEffect(() => {
@@ -1383,6 +1385,16 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                             Global
                         </button>
                     </div>
+                    {isGlobal && (
+                        <button
+                            onClick={() => setResyncModal(true)}
+                            className="px-3 py-1.5 rounded text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-300 transition flex items-center gap-1"
+                            title="Re-sync global team from package defaults"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
+                            Re-sync
+                        </button>
+                    )}
                     {!embedded && (
                         <button
                             onClick={onClose}
@@ -1472,21 +1484,505 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
         </div>
     );
 
+    // Re-sync/Setup modal (shared between embedded and modal modes)
+    const [setupNpcs, setSetupNpcs] = useState<any[]>([]);
+    const [setupJinxs, setSetupJinxs] = useState<any[]>([]);
+    const [loadingSetup, setLoadingSetup] = useState(false);
+    const [setupTab, setSetupTab] = useState<'npcs' | 'jinxs' | 'settings'>('npcs');
+    const [editingNpc, setEditingNpc] = useState<number | null>(null);
+    const [newNpcName, setNewNpcName] = useState('');
+    const [newNpcDirective, setNewNpcDirective] = useState('');
+    const [newJinxName, setNewJinxName] = useState('');
+
+    // Load available NPCs and jinxs when modal opens
+    useEffect(() => {
+        if (resyncModal) {
+            setLoadingSetup(true);
+            setSetupTab('npcs');
+            setEditingNpc(null);
+            Promise.all([
+                (window as any).api.getNPCTeamGlobal?.(),
+                (window as any).api.getJinxsGlobal?.()
+            ]).then(([npcRes, jinxRes]) => {
+                // Add enabled flag to each for toggling
+                setSetupNpcs((npcRes?.npcs || []).map((npc: any) => ({ ...npc, enabled: true })));
+                setSetupJinxs((jinxRes?.jinxs || []).map((jinx: any) => ({ ...jinx, enabled: true })));
+                setLoadingSetup(false);
+            }).catch(() => setLoadingSetup(false));
+        }
+    }, [resyncModal]);
+
+    const handleToggleNpc = (index: number) => {
+        setSetupNpcs(prev => prev.map((npc, i) => i === index ? { ...npc, enabled: !npc.enabled } : npc));
+    };
+
+    const handleToggleJinx = (index: number) => {
+        setSetupJinxs(prev => prev.map((jinx, i) => i === index ? { ...jinx, enabled: !jinx.enabled } : jinx));
+    };
+
+    const handleUpdateNpc = (index: number, field: string, value: string) => {
+        setSetupNpcs(prev => prev.map((npc, i) => i === index ? { ...npc, [field]: value } : npc));
+    };
+
+    const handleAddNpc = () => {
+        if (!newNpcName.trim()) return;
+        setSetupNpcs(prev => [...prev, {
+            name: newNpcName.trim().toLowerCase().replace(/\s+/g, '_'),
+            primary_directive: newNpcDirective || 'A helpful assistant',
+            enabled: true,
+            isNew: true
+        }]);
+        setNewNpcName('');
+        setNewNpcDirective('');
+    };
+
+    const handleRemoveNpc = (index: number) => {
+        setSetupNpcs(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleAddJinx = () => {
+        if (!newJinxName.trim()) return;
+        setSetupJinxs(prev => [...prev, {
+            name: newJinxName.trim().toLowerCase().replace(/\s+/g, '_'),
+            enabled: true,
+            isNew: true
+        }]);
+        setNewJinxName('');
+    };
+
+    const handleRemoveJinx = (index: number) => {
+        setSetupJinxs(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const resyncModalElement = resyncModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+            <div className="theme-bg-primary border theme-border rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+                {/* Header */}
+                <div className="px-6 py-4 border-b theme-border flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
+                        <Users size={20} className="text-purple-400" />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-semibold theme-text-primary">Global Team Setup</h2>
+                        <p className="text-xs theme-text-muted">Configure your NPCs, jinxs, and settings</p>
+                    </div>
+                    <button onClick={() => setResyncModal(false)} className="ml-auto p-2 theme-hover rounded-lg">
+                        <X size={18} />
+                    </button>
+                </div>
+
+                {/* Tab Navigation */}
+                <div className="flex border-b theme-border px-4">
+                    <button
+                        onClick={() => setSetupTab('npcs')}
+                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                            setupTab === 'npcs' ? 'border-purple-500 text-purple-400' : 'border-transparent theme-text-muted hover:theme-text-primary'
+                        }`}
+                    >
+                        <Users size={16} /> NPCs ({setupNpcs.filter(n => n.enabled).length})
+                    </button>
+                    <button
+                        onClick={() => setSetupTab('jinxs')}
+                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                            setupTab === 'jinxs' ? 'border-yellow-500 text-yellow-400' : 'border-transparent theme-text-muted hover:theme-text-primary'
+                        }`}
+                    >
+                        <Wrench size={16} /> Jinxs ({setupJinxs.filter(j => j.enabled).length})
+                    </button>
+                    <button
+                        onClick={() => setSetupTab('settings')}
+                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                            setupTab === 'settings' ? 'border-blue-500 text-blue-400' : 'border-transparent theme-text-muted hover:theme-text-primary'
+                        }`}
+                    >
+                        <FileJson size={16} /> Info
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                    {loadingSetup ? (
+                        <div className="flex items-center justify-center py-12">
+                            <svg className="animate-spin h-8 w-8 text-purple-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </div>
+                    ) : (
+                        <>
+                            {/* NPCs Tab */}
+                            {setupTab === 'npcs' && (
+                                <div className="space-y-4">
+                                    <p className="text-sm theme-text-muted">
+                                        Toggle NPCs on/off, edit their directives, or add new ones. Changes apply when you sync.
+                                    </p>
+
+                                    {/* NPC List */}
+                                    <div className="space-y-2">
+                                        {setupNpcs.map((npc, i) => (
+                                            <div
+                                                key={i}
+                                                className={`rounded-lg border transition-all ${
+                                                    npc.enabled
+                                                        ? 'theme-bg-secondary theme-border'
+                                                        : 'bg-gray-800/30 border-gray-700/50 opacity-60'
+                                                }`}
+                                            >
+                                                <div className="p-3 flex items-start gap-3">
+                                                    {/* Toggle */}
+                                                    <button
+                                                        onClick={() => handleToggleNpc(i)}
+                                                        className={`mt-1 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                                                            npc.enabled
+                                                                ? 'bg-purple-600 border-purple-600'
+                                                                : 'border-gray-500 hover:border-gray-400'
+                                                        }`}
+                                                    >
+                                                        {npc.enabled && (
+                                                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                                            </svg>
+                                                        )}
+                                                    </button>
+
+                                                    {/* NPC Info */}
+                                                    <div className="flex-1 min-w-0">
+                                                        {editingNpc === i ? (
+                                                            <div className="space-y-2">
+                                                                <input
+                                                                    type="text"
+                                                                    value={npc.name}
+                                                                    onChange={(e) => handleUpdateNpc(i, 'name', e.target.value)}
+                                                                    className="w-full theme-input text-sm font-mono"
+                                                                    placeholder="npc_name"
+                                                                />
+                                                                <textarea
+                                                                    value={npc.primary_directive || ''}
+                                                                    onChange={(e) => handleUpdateNpc(i, 'primary_directive', e.target.value)}
+                                                                    className="w-full theme-input text-sm resize-none"
+                                                                    rows={3}
+                                                                    placeholder="Primary directive..."
+                                                                />
+                                                                <div className="flex gap-2">
+                                                                    <button
+                                                                        onClick={() => setEditingNpc(null)}
+                                                                        className="px-3 py-1 text-xs bg-purple-600 hover:bg-purple-700 rounded"
+                                                                    >
+                                                                        Done
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-medium text-sm">{npc.name}</span>
+                                                                    {npc.isNew && (
+                                                                        <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">new</span>
+                                                                    )}
+                                                                </div>
+                                                                <p className="text-xs theme-text-muted mt-1 line-clamp-2">
+                                                                    {npc.primary_directive || 'No directive set'}
+                                                                </p>
+                                                            </>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Actions */}
+                                                    {editingNpc !== i && (
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                onClick={() => setEditingNpc(i)}
+                                                                className="p-1.5 theme-hover rounded text-gray-400 hover:text-white"
+                                                                title="Edit"
+                                                            >
+                                                                <Wrench size={14} />
+                                                            </button>
+                                                            {npc.isNew && (
+                                                                <button
+                                                                    onClick={() => handleRemoveNpc(i)}
+                                                                    className="p-1.5 hover:bg-red-900/30 rounded text-red-400"
+                                                                    title="Remove"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Add New NPC */}
+                                    <div className="theme-bg-tertiary rounded-lg p-4 space-y-3">
+                                        <h4 className="text-sm font-medium flex items-center gap-2">
+                                            <Plus size={16} className="text-green-400" /> Add Custom NPC
+                                        </h4>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <input
+                                                type="text"
+                                                value={newNpcName}
+                                                onChange={(e) => setNewNpcName(e.target.value)}
+                                                placeholder="npc_name"
+                                                className="theme-input text-sm font-mono"
+                                            />
+                                            <button
+                                                onClick={handleAddNpc}
+                                                disabled={!newNpcName.trim()}
+                                                className="theme-button-primary rounded text-sm disabled:opacity-50"
+                                            >
+                                                Add NPC
+                                            </button>
+                                        </div>
+                                        <textarea
+                                            value={newNpcDirective}
+                                            onChange={(e) => setNewNpcDirective(e.target.value)}
+                                            placeholder="Primary directive (optional)..."
+                                            className="w-full theme-input text-sm resize-none"
+                                            rows={2}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Jinxs Tab */}
+                            {setupTab === 'jinxs' && (
+                                <div className="space-y-4">
+                                    <p className="text-sm theme-text-muted">
+                                        Toggle jinxs on/off or add custom ones. Jinxs are command shortcuts you can invoke with /.
+                                    </p>
+
+                                    {/* Jinx Grid */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {setupJinxs.map((jinx, i) => (
+                                            <div
+                                                key={i}
+                                                className={`rounded-lg border p-2 flex items-center gap-2 transition-all ${
+                                                    jinx.enabled
+                                                        ? 'theme-bg-secondary theme-border'
+                                                        : 'bg-gray-800/30 border-gray-700/50 opacity-60'
+                                                }`}
+                                            >
+                                                <button
+                                                    onClick={() => handleToggleJinx(i)}
+                                                    className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+                                                        jinx.enabled
+                                                            ? 'bg-yellow-600 border-yellow-600'
+                                                            : 'border-gray-500 hover:border-gray-400'
+                                                    }`}
+                                                >
+                                                    {jinx.enabled && (
+                                                        <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                    )}
+                                                </button>
+                                                <span className="text-sm truncate flex-1">/{jinx.name || jinx.jinx_name}</span>
+                                                {jinx.isNew && (
+                                                    <button
+                                                        onClick={() => handleRemoveJinx(i)}
+                                                        className="p-0.5 hover:bg-red-900/30 rounded text-red-400"
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {setupJinxs.length === 0 && (
+                                        <div className="text-center py-8 theme-text-muted">
+                                            No jinxs configured. Sync will add package defaults.
+                                        </div>
+                                    )}
+
+                                    {/* Add New Jinx */}
+                                    <div className="theme-bg-tertiary rounded-lg p-4">
+                                        <h4 className="text-sm font-medium flex items-center gap-2 mb-3">
+                                            <Plus size={16} className="text-green-400" /> Add Custom Jinx
+                                        </h4>
+                                        <div className="flex gap-2">
+                                            <div className="flex-1 relative">
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">/</span>
+                                                <input
+                                                    type="text"
+                                                    value={newJinxName}
+                                                    onChange={(e) => setNewJinxName(e.target.value)}
+                                                    placeholder="jinx_name"
+                                                    className="w-full theme-input text-sm pl-6 font-mono"
+                                                    onKeyDown={(e) => e.key === 'Enter' && handleAddJinx()}
+                                                />
+                                            </div>
+                                            <button
+                                                onClick={handleAddJinx}
+                                                disabled={!newJinxName.trim()}
+                                                className="theme-button-primary px-4 rounded text-sm disabled:opacity-50"
+                                            >
+                                                Add
+                                            </button>
+                                        </div>
+                                        <p className="text-xs theme-text-muted mt-2">
+                                            Custom jinxs will be created as stubs. Edit them later in the Jinxs tab.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Settings/Info Tab */}
+                            {setupTab === 'settings' && (
+                                <div className="space-y-6">
+                                    {/* What sync does */}
+                                    <div className="theme-bg-secondary rounded-lg p-4 border theme-border">
+                                        <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                                            What happens when you sync?
+                                        </h4>
+                                        <ul className="text-sm theme-text-muted space-y-2">
+                                            <li className="flex items-start gap-2">
+                                                <span className="text-purple-400 mt-1">•</span>
+                                                <span>Core NPCs (sibiji, corca, guac, alicanto) are synced from the npcpy package</span>
+                                            </li>
+                                            <li className="flex items-start gap-2">
+                                                <span className="text-yellow-400 mt-1">•</span>
+                                                <span>Default jinxs are added while preserving your custom ones</span>
+                                            </li>
+                                            <li className="flex items-start gap-2">
+                                                <span className="text-green-400 mt-1">•</span>
+                                                <span>Folder structure is created: images/, models/, attachments/, mcp_servers/</span>
+                                            </li>
+                                            <li className="flex items-start gap-2">
+                                                <span className="text-blue-400 mt-1">•</span>
+                                                <span>~/.npcshrc config is created if missing</span>
+                                            </li>
+                                        </ul>
+                                    </div>
+
+                                    {/* Location */}
+                                    <div className="theme-bg-tertiary rounded-lg p-4">
+                                        <h4 className="text-sm font-medium mb-2">Configuration Location</h4>
+                                        <code className="text-xs theme-text-muted font-mono">~/.npcsh/</code>
+                                        <div className="mt-2 text-xs theme-text-muted grid grid-cols-2 gap-1">
+                                            <span>├── npc_team/</span>
+                                            <span className="text-purple-400">NPCs</span>
+                                            <span>├── jinxs/</span>
+                                            <span className="text-yellow-400">Jinxs</span>
+                                            <span>├── images/</span>
+                                            <span className="text-gray-500">Generated images</span>
+                                            <span>├── models/</span>
+                                            <span className="text-gray-500">Local models</span>
+                                            <span>├── attachments/</span>
+                                            <span className="text-gray-500">File attachments</span>
+                                            <span>└── mcp_servers/</span>
+                                            <span className="text-gray-500">MCP integrations</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Summary */}
+                                    <div className="theme-bg-secondary rounded-lg p-4 border theme-border">
+                                        <h4 className="text-sm font-medium mb-3">Current Selection Summary</h4>
+                                        <div className="flex gap-6 text-sm">
+                                            <div>
+                                                <span className="text-2xl font-bold text-purple-400">{setupNpcs.filter(n => n.enabled).length}</span>
+                                                <span className="theme-text-muted ml-2">NPCs enabled</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-2xl font-bold text-yellow-400">{setupJinxs.filter(j => j.enabled).length}</span>
+                                                <span className="theme-text-muted ml-2">Jinxs enabled</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 border-t theme-border flex justify-between items-center">
+                    <div className="text-xs theme-text-muted">
+                        {setupNpcs.filter(n => n.enabled).length} NPCs, {setupJinxs.filter(j => j.enabled).length} jinxs selected
+                    </div>
+                    <div className="flex gap-3">
+                        <button
+                            className="px-4 py-2 theme-button theme-hover rounded-lg text-sm"
+                            onClick={() => setResyncModal(false)}
+                            disabled={resyncing}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+                            disabled={resyncing}
+                            onClick={async () => {
+                                setResyncing(true);
+                                // First sync from package to get base setup
+                                const result = await (window as any).api.npcshInit();
+                                if (result?.error) {
+                                    console.error('Re-sync failed:', result.error);
+                                    setResyncing(false);
+                                    return;
+                                }
+
+                                // Then save any custom NPCs that were added
+                                for (const npc of setupNpcs.filter(n => n.isNew && n.enabled)) {
+                                    await (window as any).api.saveNPCGlobal?.({
+                                        name: npc.name,
+                                        primary_directive: npc.primary_directive,
+                                    });
+                                }
+
+                                // Save any custom jinxs that were added
+                                for (const jinx of setupJinxs.filter(j => j.isNew && j.enabled)) {
+                                    await (window as any).api.saveJinxGlobal?.({
+                                        jinx_name: jinx.name,
+                                        steps: [{ prompt: 'TODO: Configure this jinx' }],
+                                    });
+                                }
+
+                                setResyncing(false);
+                                setResyncModal(false);
+                                window.location.reload();
+                            }}
+                        >
+                            {resyncing ? (
+                                <>
+                                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Syncing...
+                                </>
+                            ) : (
+                                <>
+                                    <Save size={16} />
+                                    Apply & Sync
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
     // Embedded mode - return just the content
     if (embedded) {
-        return content;
+        return <>{content}{resyncModalElement}</>;
     }
 
     // Modal mode - wrap in modal container
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-            {/* Backdrop */}
-            <div
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                onClick={onClose}
-            />
-            {content}
-        </div>
+        <>
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+                {/* Backdrop */}
+                <div
+                    className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                    onClick={onClose}
+                />
+                {content}
+            </div>
+            {resyncModalElement}
+        </>
     );
 };
 

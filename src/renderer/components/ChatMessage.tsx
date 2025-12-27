@@ -31,7 +31,23 @@ export const ChatMessage = memo(({
     messageIndex,
     onLabelMessage,
     messageLabel,
-    conversationId
+    conversationId,
+    onOpenFile
+}: {
+    message: any;
+    isSelected?: boolean;
+    messageSelectionMode?: boolean;
+    toggleMessageSelection?: (id: string) => void;
+    handleMessageContextMenu?: (e: React.MouseEvent, msg: any, idx: number) => void;
+    searchTerm?: string;
+    isCurrentSearchResult?: boolean;
+    onResendMessage?: (msg: any) => void;
+    onCreateBranch?: (msg: any, idx: number) => void;
+    messageIndex?: number;
+    onLabelMessage?: (msg: any) => void;
+    messageLabel?: string;
+    conversationId?: string;
+    onOpenFile?: (path: string) => void;
 }) => {
     const showStreamingIndicators = !!message.isStreaming;
     const messageId = message.id || message.timestamp;
@@ -295,13 +311,23 @@ export const ChatMessage = memo(({
                     <div className="mt-2 flex flex-wrap gap-2 border-t theme-border pt-2">
                         {message.attachments.map((attachment, idx) => {
                             const isImage = attachment.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-                            const imageSrc = attachment.preview || (attachment.path ? `media://${attachment.path}` : attachment.data); 
+                            const isPdf = attachment.name?.match(/\.pdf$/i);
+                            const isClickable = attachment.path && (isImage || isPdf);
+                            const imageSrc = attachment.preview || (attachment.path ? `media://${attachment.path}` : attachment.data);
                             return (
-                                <div key={idx} className="text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1">
+                                <div
+                                    key={idx}
+                                    className={`text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1 ${isClickable ? 'cursor-pointer hover:bg-blue-500/20' : ''}`}
+                                    onClick={() => isClickable && onOpenFile?.(attachment.path)}
+                                    title={isClickable ? `Click to open ${attachment.name}` : attachment.name}
+                                >
                                     <Paperclip size={12} className="flex-shrink-0" />
-                                    <span className="truncate" title={attachment.name}>{attachment.name}</span>
+                                    <span className="truncate">{attachment.name}</span>
                                     {isImage && imageSrc && (
                                         <img src={imageSrc} alt={attachment.name} className="mt-1 max-w-[100px] max-h-[100px] rounded-md object-cover"/>
+                                    )}
+                                    {isPdf && (
+                                        <span className="ml-1 text-red-400 text-[10px]">PDF</span>
                                     )}
                                 </div>
                             );

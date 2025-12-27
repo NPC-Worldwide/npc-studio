@@ -43,7 +43,7 @@ const StatusBar: React.FC<StatusBarProps> = ({
     setIsPredictiveTextEnabled,
 }) => {
     return (
-        <div className="h-6 theme-bg-tertiary border-t theme-border flex items-center px-2 text-[10px] theme-text-muted gap-2">
+        <div className="h-6 flex-shrink-0 theme-bg-tertiary border-t theme-border flex items-center px-2 text-[10px] theme-text-muted gap-2">
             {/* Git button */}
             <button
                 onClick={() => setGitModalOpen(true)}

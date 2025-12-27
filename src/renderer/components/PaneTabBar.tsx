@@ -1,5 +1,9 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { X, Plus, MessageSquare, Terminal, Globe, FileText, Image, Book, File, GripVertical, Folder } from 'lucide-react';
+import {
+    X, Plus, MessageSquare, Terminal, Globe, FileText, Image, Book, File, GripVertical, Folder,
+    Database, Zap, Users, Settings, Images, BookOpen, FolderCog, HardDrive, Tags, Network,
+    LayoutDashboard, Share2, Brain, Table, Bot
+} from 'lucide-react';
 
 interface Tab {
     id: string;
@@ -26,7 +30,7 @@ const getTabIcon = (contentType: string) => {
         case 'terminal':
             return <Terminal size={12} className="text-green-400" />;
         case 'browser':
-            return <Globe size={12} className="text-cyan-400" />;
+            return <Globe size={12} className="text-blue-400" />;
         case 'pdf':
             return <FileText size={12} className="text-red-400" />;
         case 'epub':
@@ -37,6 +41,46 @@ const getTabIcon = (contentType: string) => {
             return <FileText size={12} className="text-gray-400" />;
         case 'folder':
             return <Folder size={12} className="text-yellow-400" />;
+        case 'dbtool':
+            return <Database size={12} className="text-cyan-400" />;
+        case 'jinx':
+            return <Zap size={12} className="text-yellow-400" />;
+        case 'npcteam':
+            return <Bot size={12} className="text-purple-400" />;
+        case 'teammanagement':
+            return <Users size={12} className="text-indigo-400" />;
+        case 'settings':
+            return <Settings size={12} className="text-gray-400" />;
+        case 'photoviewer':
+            return <Images size={12} className="text-pink-400" />;
+        case 'library':
+            return <BookOpen size={12} className="text-amber-400" />;
+        case 'projectenv':
+            return <FolderCog size={12} className="text-orange-400" />;
+        case 'diskusage':
+            return <HardDrive size={12} className="text-slate-400" />;
+        case 'data-labeler':
+            return <Tags size={12} className="text-teal-400" />;
+        case 'graph-viewer':
+            return <Network size={12} className="text-violet-400" />;
+        case 'browsergraph':
+            return <Share2 size={12} className="text-sky-400" />;
+        case 'datadash':
+            return <LayoutDashboard size={12} className="text-emerald-400" />;
+        case 'mindmap':
+            return <Brain size={12} className="text-rose-400" />;
+        case 'markdown-preview':
+            return <FileText size={12} className="text-blue-400" />;
+        case 'csv':
+            return <Table size={12} className="text-green-400" />;
+        case 'latex':
+            return <FileText size={12} className="text-teal-400" />;
+        case 'docx':
+            return <FileText size={12} className="text-blue-500" />;
+        case 'pptx':
+            return <FileText size={12} className="text-orange-500" />;
+        case 'zip':
+            return <File size={12} className="text-yellow-500" />;
         default:
             return <File size={12} className="text-gray-400" />;
     }
@@ -52,10 +96,52 @@ const getTabTitle = (tab: Tab): string => {
             return 'Terminal';
         case 'browser':
             return 'Browser';
+        case 'dbtool':
+            return 'Database Tool';
+        case 'jinx':
+            return 'Jinx Manager';
+        case 'npcteam':
+            return 'NPC Team';
+        case 'teammanagement':
+            return 'Team Management';
+        case 'settings':
+            return 'Settings';
+        case 'photoviewer':
+            return 'Photo Gallery';
         case 'library':
             return 'Library';
-        case 'photoviewer':
-            return 'Photos';
+        case 'projectenv':
+            return 'Project Environment';
+        case 'diskusage':
+            return 'Disk Usage';
+        case 'data-labeler':
+            return 'Data Labeler';
+        case 'graph-viewer':
+            return 'Graph Viewer';
+        case 'browsergraph':
+            return 'Browser Graph';
+        case 'datadash':
+            return 'Data Dashboard';
+        case 'mindmap':
+            return 'Mind Map';
+        case 'markdown-preview':
+            return `Preview: ${tab.contentId?.split('/').pop() || 'Markdown'}`;
+        case 'pdf':
+            return tab.contentId?.split('/').pop() || 'PDF';
+        case 'csv':
+            return tab.contentId?.split('/').pop() || 'CSV';
+        case 'latex':
+            return tab.contentId?.split('/').pop() || 'LaTeX';
+        case 'docx':
+            return tab.contentId?.split('/').pop() || 'Document';
+        case 'pptx':
+            return tab.contentId?.split('/').pop() || 'Presentation';
+        case 'zip':
+            return tab.contentId?.split('/').pop() || 'Archive';
+        case 'image':
+            return tab.contentId?.split('/').pop() || 'Image';
+        case 'folder':
+            return tab.contentId?.split('/').pop() || 'Folder';
         default:
             return tab.contentId?.split('/').pop() || 'Tab';
     }

@@ -16,7 +16,7 @@ const LabeledDataManager: React.FC<LabeledDataManagerProps> = ({
     isOpen,
     onClose,
     isEmbedded = false,
-    messageLabels,
+    messageLabels = {},
     setMessageLabels,
     conversationLabels = {},
     setConversationLabels
