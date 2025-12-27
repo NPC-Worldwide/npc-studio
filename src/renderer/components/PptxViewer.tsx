@@ -3,7 +3,8 @@ import React, { useEffect, useMemo, useRef, useState, useCallback, memo } from '
 import JSZip from 'jszip';
 import {
   Save, X, ChevronLeft, ChevronRight, Plus, Copy, Trash2, Image as ImageIcon,
-  AlignLeft, AlignCenter, AlignRight, List, IndentIncrease, IndentDecrease, Type
+  AlignLeft, AlignCenter, AlignRight, List, IndentIncrease, IndentDecrease, Type,
+  Square, Circle
 } from 'lucide-react';
 
 const NS = {
@@ -162,18 +163,20 @@ function htmlForRuns(runs, doc) {
   
   return htmlParts.join('');
 }
-// Force PPTX text rendering to respect inline styles
+// Force PPTX text rendering styles
 const style = document.createElement('style');
 style.textContent = `
-  .pptx-text-content * {
-    color: inherit !important;
-    font-weight: inherit !important;
-    font-family: inherit !important;
-    font-size: inherit !important;
+  .pptx-slide-content {
+    color: #000000 !important;
   }
-  
-  .pptx-text-content span[style] {
-    all: revert !important;
+  .pptx-slide-content * {
+    color: inherit;
+    font-weight: inherit;
+    font-family: inherit;
+    font-size: inherit;
+  }
+  .pptx-slide-content [contenteditable] {
+    color: #000000 !important;
   }
 `;
 document.head.appendChild(style);
@@ -692,79 +695,83 @@ const PptxViewer = ({
           }, [idx, activeSlide, markDirty]);
 
           const addTextBox = useCallback(() => {
-            if (!activeSlide || !activeSlide.doc) return;
-            
+            if (!activeSlide) return;
+
             try {
-              const doc = activeSlide.doc;
-              const cSld = qNS(doc, NS.p, 'cSld');
-              const spTree = cSld ? qNS(cSld, NS.p, 'spTree') : null;
-              
-              if (!spTree) {
-                console.error('[PPTX] Cannot add text box: p:spTree not found');
-                return;
+              // For slides with XML doc, add to XML
+              if (activeSlide.doc) {
+                const doc = activeSlide.doc;
+                const cSld = qNS(doc, NS.p, 'cSld');
+                const spTree = cSld ? qNS(cSld, NS.p, 'spTree') : null;
+
+                if (!spTree) {
+                  console.error('[PPTX] Cannot add text box: p:spTree not found');
+                  return;
+                }
+
+                const shapeId = nextShapeId(doc);
+
+                const sp = doc.createElementNS(NS.p, 'p:sp');
+
+                const nvSpPr = doc.createElementNS(NS.p, 'p:nvSpPr');
+                const cNvPr = doc.createElementNS(NS.p, 'p:cNvPr');
+                cNvPr.setAttribute('id', String(shapeId));
+                cNvPr.setAttribute('name', `TextBox ${shapeId}`);
+                const cNvSpPr = doc.createElementNS(NS.p, 'p:cNvSpPr');
+                const nvPr = doc.createElementNS(NS.p, 'p:nvPr');
+                nvSpPr.appendChild(cNvPr);
+                nvSpPr.appendChild(cNvSpPr);
+                nvSpPr.appendChild(nvPr);
+
+                const spPr = doc.createElementNS(NS.p, 'p:spPr');
+                const xfrm = doc.createElementNS(NS.a, 'a:xfrm');
+                const off = doc.createElementNS(NS.a, 'a:off');
+                off.setAttribute('x','1524000');
+                off.setAttribute('y','1524000');
+                const ext = doc.createElementNS(NS.a, 'a:ext');
+                ext.setAttribute('cx','4000000');
+                ext.setAttribute('cy','1000000');
+                xfrm.appendChild(off);
+                xfrm.appendChild(ext);
+
+                const prstGeom = doc.createElementNS(NS.a, 'a:prstGeom');
+                prstGeom.setAttribute('prst','rect');
+                prstGeom.appendChild(doc.createElementNS(NS.a,'a:avLst'));
+
+                spPr.appendChild(xfrm);
+                spPr.appendChild(prstGeom);
+
+                const txBody = doc.createElementNS(NS.p, 'p:txBody');
+                const bodyPr = doc.createElementNS(NS.a, 'a:bodyPr');
+                const lstStyle = doc.createElementNS(NS.a, 'a:lstStyle');
+                const p = doc.createElementNS(NS.a, 'a:p');
+                const r = doc.createElementNS(NS.a, 'a:r');
+                const rPr = doc.createElementNS(NS.a, 'a:rPr');
+                const t = doc.createElementNS(NS.a, 'a:t');
+                t.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
+                t.textContent = 'New text';
+
+                r.appendChild(rPr);
+                r.appendChild(t);
+                p.appendChild(r);
+                txBody.appendChild(bodyPr);
+                txBody.appendChild(lstStyle);
+                txBody.appendChild(p);
+
+                sp.appendChild(nvSpPr);
+                sp.appendChild(spPr);
+                sp.appendChild(txBody);
+                spTree.appendChild(sp);
               }
 
-              const shapeId = nextShapeId(doc);
-
-              const sp = doc.createElementNS(NS.p, 'p:sp');
-              
-              const nvSpPr = doc.createElementNS(NS.p, 'p:nvSpPr');
-              const cNvPr = doc.createElementNS(NS.p, 'p:cNvPr');
-              cNvPr.setAttribute('id', String(shapeId));
-              cNvPr.setAttribute('name', `TextBox ${shapeId}`);
-              const cNvSpPr = doc.createElementNS(NS.p, 'p:cNvSpPr');
-              const nvPr = doc.createElementNS(NS.p, 'p:nvPr');
-              nvSpPr.appendChild(cNvPr);
-              nvSpPr.appendChild(cNvSpPr);
-              nvSpPr.appendChild(nvPr);
-
-              const spPr = doc.createElementNS(NS.p, 'p:spPr');
-              const xfrm = doc.createElementNS(NS.a, 'a:xfrm');
-              const off = doc.createElementNS(NS.a, 'a:off');
-              off.setAttribute('x','1524000');
-              off.setAttribute('y','1524000');
-              const ext = doc.createElementNS(NS.a, 'a:ext');
-              ext.setAttribute('cx','4000000');
-              ext.setAttribute('cy','1000000');
-              xfrm.appendChild(off);
-              xfrm.appendChild(ext);
-              
-              const prstGeom = doc.createElementNS(NS.a, 'a:prstGeom');
-              prstGeom.setAttribute('prst','rect');
-              prstGeom.appendChild(doc.createElementNS(NS.a,'a:avLst'));
-              
-              spPr.appendChild(xfrm);
-              spPr.appendChild(prstGeom);
-
-              const txBody = doc.createElementNS(NS.p, 'p:txBody');
-              const bodyPr = doc.createElementNS(NS.a, 'a:bodyPr');
-              const lstStyle = doc.createElementNS(NS.a, 'a:lstStyle');
-              const p = doc.createElementNS(NS.a, 'a:p');
-              const r = doc.createElementNS(NS.a, 'a:r');
-              const rPr = doc.createElementNS(NS.a, 'a:rPr');
-              const t = doc.createElementNS(NS.a, 'a:t');
-              t.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
-              t.textContent = 'New text';
-              
-              r.appendChild(rPr);
-              r.appendChild(t);
-              p.appendChild(r);
-              txBody.appendChild(bodyPr);
-              txBody.appendChild(lstStyle);
-              txBody.appendChild(p);
-
-              sp.appendChild(nvSpPr);
-              sp.appendChild(spPr);
-              sp.appendChild(txBody);
-              spTree.appendChild(sp);
-
+              // Add to shapes for display
               setSlides(prev => {
                 const next = [...prev];
                 const s = { ...next[idx] };
-                const shapes = [...s.shapes];
+                const shapes = [...(s.shapes || [])];
                 shapes.push({
-                  spNode: sp,
-                  paras: [{ level: 0, align: 'l', bullet: false, html: 'New text' }],
+                  spNode: null,
+                  paras: [{ level: 0, align: 'l', bullet: false, html: 'Click to edit text' }],
                   xfrm: { x: 1524000, y: 1524000, cx: 4000000, cy: 1000000 },
                   type: 'text'
                 });
@@ -772,12 +779,64 @@ const PptxViewer = ({
                 next[idx] = s;
                 return next;
               });
-              
+
               markDirty();
             } catch (e) {
               console.error('[PPTX] Error adding text box:', e);
             }
           }, [activeSlide, idx, markDirty]);
+
+          const addImage = useCallback(() => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.onchange = async (e) => {
+              const file = (e.target as HTMLInputElement).files?.[0];
+              if (!file) return;
+
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                const dataUrl = ev.target?.result as string;
+
+                setSlides(prev => {
+                  const next = [...prev];
+                  const s = { ...next[idx] };
+                  const shapes = [...(s.shapes || [])];
+                  shapes.push({
+                    type: 'image',
+                    imgDataUrl: dataUrl,
+                    name: file.name,
+                    xfrm: { x: 1000000, y: 1000000, cx: 3000000, cy: 2000000 }
+                  });
+                  s.shapes = shapes;
+                  next[idx] = s;
+                  return next;
+                });
+
+                markDirty();
+              };
+              reader.readAsDataURL(file);
+            };
+            input.click();
+          }, [idx, markDirty]);
+
+          const addShape = useCallback((shapeType: 'rect' | 'ellipse') => {
+            setSlides(prev => {
+              const next = [...prev];
+              const s = { ...next[idx] };
+              const shapes = [...(s.shapes || [])];
+              shapes.push({
+                type: 'shape',
+                shapeType,
+                fillColor: shapeType === 'rect' ? '#3b82f6' : '#10b981',
+                xfrm: { x: 2000000, y: 2000000, cx: 2000000, cy: 1500000 }
+              });
+              s.shapes = shapes;
+              next[idx] = s;
+              return next;
+            });
+            markDirty();
+          }, [idx, markDirty]);
 
           const applyToolbar = useCallback((cmd) => {
             try {
@@ -1083,12 +1142,33 @@ const PptxViewer = ({
                   <u>U</u>
                 </button>
                 <div className="w-px h-6 bg-gray-600 mx-1"/>
-                <button 
-                  onClick={addTextBox} 
+                <button
+                  onClick={addTextBox}
                   className="p-1 theme-hover rounded"
                   title="Add text box"
                 >
-                  <Plus size={16}/>
+                  <Type size={16}/>
+                </button>
+                <button
+                  onClick={addImage}
+                  className="p-1 theme-hover rounded"
+                  title="Add image"
+                >
+                  <ImageIcon size={16}/>
+                </button>
+                <button
+                  onClick={() => addShape('rect')}
+                  className="p-1 theme-hover rounded"
+                  title="Add rectangle"
+                >
+                  <Square size={16}/>
+                </button>
+                <button
+                  onClick={() => addShape('ellipse')}
+                  className="p-1 theme-hover rounded"
+                  title="Add circle"
+                >
+                  <Circle size={16}/>
                 </button>
               </div>
 
@@ -1135,15 +1215,25 @@ const PptxViewer = ({
 
 
 {shape.type === 'text' && (
-  <div 
-    className="w-full h-full pptx-slide-content" 
+  <div
+    className="w-full h-full pptx-slide-content"
     style={{ overflow: 'visible' }}
   >
     {shape.paras?.map((p, pIndex) => (
       <div
         key={pIndex}
+        contentEditable
+        suppressContentEditableWarning
         style={{
           textAlign: p.align === 'ctr' ? 'center' : p.align === 'r' ? 'right' : 'left',
+          color: '#000000',
+          outline: 'none',
+          minHeight: '1em',
+          cursor: 'text',
+        }}
+        onBlur={(e) => {
+          const newText = e.currentTarget.innerHTML;
+          updateParaHTML(si, pIndex, newText);
         }}
         dangerouslySetInnerHTML={{ __html: p.html }}
       />
@@ -1152,14 +1242,24 @@ const PptxViewer = ({
 )}
 
              {shape.type === 'image' && shape.imgDataUrl && (
-                    <img 
-                      src={shape.imgDataUrl} 
+                    <img
+                      src={shape.imgDataUrl}
                       alt={shape.name || 'Image'}
-                      style={{ 
-                        width: '100%', 
-                        height: '100%', 
+                      style={{
+                        width: '100%',
+                        height: '100%',
                         objectFit: 'contain'
-                      }} 
+                      }}
+                    />
+                  )}
+                  {shape.type === 'shape' && (
+                    <div
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        backgroundColor: shape.fillColor || '#3b82f6',
+                        borderRadius: shape.shapeType === 'ellipse' ? '50%' : '0',
+                      }}
                     />
                   )}
                 </div>
