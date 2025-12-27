@@ -31,7 +31,44 @@ const fetch = require('node-fetch');
 const { dialog } = require('electron');
 const crypto = require('crypto');
 
-const logFilePath = path.join(os.homedir(), '.npc_studio', 'app.log');
+// Centralized logging setup - all logs go to ~/.npcsh/npc-studio/logs/
+const logsDir = path.join(os.homedir(), '.npcsh', 'npc-studio', 'logs');
+try {
+  fs.mkdirSync(logsDir, { recursive: true });
+} catch (err) {
+  console.error('Failed to create logs directory:', err);
+}
+
+// Create timestamped log files for this session
+const sessionTimestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+const electronLogPath = path.join(logsDir, 'electron.log');
+const backendLogPath = path.join(logsDir, 'backend.log');
+
+// Rotate logs if they get too large (>5MB)
+const rotateLogIfNeeded = (logPath) => {
+  try {
+    if (fs.existsSync(logPath)) {
+      const stats = fs.statSync(logPath);
+      if (stats.size > 5 * 1024 * 1024) {
+        const rotatedPath = logPath.replace('.log', `.${sessionTimestamp}.log`);
+        fs.renameSync(logPath, rotatedPath);
+      }
+    }
+  } catch (err) {
+    console.error('Log rotation failed:', err);
+  }
+};
+
+rotateLogIfNeeded(electronLogPath);
+rotateLogIfNeeded(backendLogPath);
+
+const electronLogStream = fs.createWriteStream(electronLogPath, { flags: 'a' });
+const backendLogStream = fs.createWriteStream(backendLogPath, { flags: 'a' });
+
+// Legacy support - keep old path working too
+const legacyLogDir = path.join(os.homedir(), '.npc_studio');
+try { fs.mkdirSync(legacyLogDir, { recursive: true }); } catch (e) {}
+const logFilePath = path.join(legacyLogDir, 'app.log');
 const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 let mainWindow = null;
 let pdfView = null; 
@@ -150,10 +187,24 @@ const ensureTablesExist = async () => {
 app.setAppUserModelId('com.npc_studio.chat');
 app.name = 'npc-studio';
 app.setName('npc-studio');
+// Unified logging functions
+const formatLogMessage = (prefix, messages) => {
+    const timestamp = new Date().toISOString();
+    return `[${timestamp}] ${prefix} ${messages.join(' ')}`;
+};
+
 const log = (...messages) => {
-    const msg = messages.join(' ');
+    const msg = formatLogMessage('[ELECTRON]', messages);
     console.log(msg);
-    logStream.write(`${msg}\n`);
+    electronLogStream.write(`${msg}\n`);
+    logStream.write(`${msg}\n`); // Legacy support
+};
+
+const logBackend = (...messages) => {
+    const msg = formatLogMessage('[BACKEND]', messages);
+    console.log(msg);
+    backendLogStream.write(`${msg}\n`);
+    logStream.write(`${msg}\n`); // Legacy support
 };
 // Use Option+Space on macOS, Command/Control+Space elsewhere
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
@@ -404,15 +455,15 @@ app.whenReady().then(async () => {
     });
 
     backendProcess.stdout.on("data", (data) => {
-      log(`[Backend stdout]: ${data.toString()}`);
+      logBackend(`stdout: ${data.toString().trim()}`);
     });
 
     backendProcess.stderr.on("data", (data) => {
-      log(`[Backend stderr]: ${data.toString()}`);
+      logBackend(`stderr: ${data.toString().trim()}`);
     });
     backendProcess.on('close', (code) => {
       if (code !== 0) {
-        console.error('Backend server exited with code:', code);
+        logBackend(`Backend server exited with code: ${code}`);
       }
     });
 
@@ -3455,7 +3506,42 @@ app.on('will-quit', () => {
       log('Killing backend process');
       killBackendProcess();
     }
-  
+    // Close log streams
+    electronLogStream.end();
+    backendLogStream.end();
+    logStream.end();
+  });
+
+  // Logs directory handler
+  ipcMain.handle('getLogsDir', async () => {
+    return {
+      logsDir,
+      electronLog: electronLogPath,
+      backendLog: backendLogPath,
+      legacyLog: logFilePath
+    };
+  });
+
+  ipcMain.handle('readLogFile', async (event, logType) => {
+    try {
+      let logPath;
+      switch (logType) {
+        case 'electron': logPath = electronLogPath; break;
+        case 'backend': logPath = backendLogPath; break;
+        case 'legacy': logPath = logFilePath; break;
+        default: throw new Error(`Unknown log type: ${logType}`);
+      }
+      if (fs.existsSync(logPath)) {
+        // Read last 1000 lines
+        const content = fs.readFileSync(logPath, 'utf8');
+        const lines = content.split('\n');
+        return lines.slice(-1000).join('\n');
+      }
+      return '';
+    } catch (error) {
+      console.error('Error reading log file:', error);
+      return '';
+    }
   });
 
   ipcMain.handle('getNPCTeamGlobal', async () => {

@@ -413,6 +413,10 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     // Initialize ~/.npcsh with default npc_team
     npcshInit: () => ipcRenderer.invoke('npcsh-init'),
 
+    // Logging - centralized in ~/.npcsh/npc-studio/logs/
+    getLogsDir: () => ipcRenderer.invoke('getLogsDir'),
+    readLogFile: (logType) => ipcRenderer.invoke('readLogFile', logType),
+
     getAvailableModels: (currentPath) => ipcRenderer.invoke('getAvailableModels', currentPath),
     updateShortcut: (shortcut) => ipcRenderer.invoke('update-shortcut', shortcut),
 
