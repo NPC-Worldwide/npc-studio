@@ -6115,23 +6115,37 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
   
   const ignorePatterns = ['node_modules', '.git', '.DS_Store'];
 
-  async function readDirRecursive(currentPath) {
+  // Determine max depth based on path - limit to 2 levels for home directory
+  const homeDir = os.homedir();
+  const isHomeDir = dirPath === homeDir || dirPath === '~' || dirPath === homeDir + '/';
+  const maxDepth = isHomeDir ? 2 : Infinity;
+
+  async function readDirRecursive(currentPath, depth = 0) {
     const result = {};
     const items = await fsPromises.readdir(currentPath, { withFileTypes: true });
     for (const item of items) {
       if (item.isDirectory() && ignorePatterns.includes(item.name)) {
         console.log(`[Main Process] Ignoring directory: ${path.join(currentPath, item.name)}`);
-        continue; 
+        continue;
       }
 
       const itemPath = path.join(currentPath, item.name);
       if (item.isDirectory()) {
-        // Recursively read children
-        result[item.name] = {
-          type: 'directory',
-          path: itemPath,
-          children: await readDirRecursive(itemPath)
-        };
+        // Only recurse if we haven't hit max depth
+        if (depth < maxDepth) {
+          result[item.name] = {
+            type: 'directory',
+            path: itemPath,
+            children: await readDirRecursive(itemPath, depth + 1)
+          };
+        } else {
+          // At max depth, just show directory without children
+          result[item.name] = {
+            type: 'directory',
+            path: itemPath,
+            children: {} // Empty children - will be loaded on expand
+          };
+        }
       } else if (item.isFile()) {
         const ext = path.extname(item.name).toLowerCase();
         if (allowedExtensions.includes(ext)) {
@@ -6147,7 +6161,7 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
 
   try {
     await fsPromises.access(dirPath, fs.constants.R_OK);
-    return await readDirRecursive(dirPath);
+    return await readDirRecursive(dirPath, 0);
   } catch (err) {
     console.error(`[Main Process] Error in readDirectoryStructure for ${dirPath}:`, err);
     if (err.code === 'ENOENT') return { error: 'Directory not found' };
@@ -6344,6 +6358,11 @@ ipcMain.handle('save-global-context', async (event, contextData) => {
 // Check if ~/.npcsh exists and has a valid npc_team
 ipcMain.handle('npcsh-check', async () => {
   return await callBackendApi('http://127.0.0.1:5337/api/npcsh/check');
+});
+
+// Get NPCs and jinxs available in the npcsh package
+ipcMain.handle('npcsh-package-contents', async () => {
+  return await callBackendApi('http://127.0.0.1:5337/api/npcsh/package-contents');
 });
 
 // Initialize ~/.npcsh with default npc_team

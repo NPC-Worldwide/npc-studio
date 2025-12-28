@@ -410,6 +410,8 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
 
     // Check if ~/.npcsh exists and has a valid npc_team
     npcshCheck: () => ipcRenderer.invoke('npcsh-check'),
+    // Get NPCs and jinxs available in the npcsh package
+    npcshPackageContents: () => ipcRenderer.invoke('npcsh-package-contents'),
     // Initialize ~/.npcsh with default npc_team
     npcshInit: () => ipcRenderer.invoke('npcsh-init'),
 

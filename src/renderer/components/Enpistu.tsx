@@ -169,7 +169,9 @@ const ChatInterface = () => {
     const [baseDir, setBaseDir] = useState('');
     const [promptModal, setPromptModal] = useState<{ isOpen: boolean; title: string; message: string; defaultValue: string; onConfirm: ((value: string) => void) | null }>({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
     const [promptModalValue, setPromptModalValue] = useState('');
-    const [initModal, setInitModal] = useState<{ isOpen: boolean }>({ isOpen: false });
+    const [initModal, setInitModal] = useState<{ isOpen: boolean; loading: boolean; npcs: any[]; jinxs: any[]; tab: 'npcs' | 'jinxs'; initializing: boolean }>({
+        isOpen: false, loading: false, npcs: [], jinxs: [], tab: 'npcs', initializing: false
+    });
     const screenshotHandlingRef = useRef(false);
     const fileInputRef = useRef(null);
     const listenersAttached = useRef(false);
@@ -4593,7 +4595,25 @@ ${contextPrompt}`;
             try {
                 const npcshStatus = await window.api.npcshCheck();
                 if (npcshStatus && !npcshStatus.error && !npcshStatus.initialized) {
-                    setInitModal({ isOpen: true });
+                    // Open init modal and fetch package contents
+                    setInitModal({ isOpen: true, loading: true, npcs: [], jinxs: [], tab: 'npcs', initializing: false });
+                    try {
+                        const packageContents = await window.api.npcshPackageContents();
+                        if (packageContents && !packageContents.error) {
+                            setInitModal(prev => ({
+                                ...prev,
+                                loading: false,
+                                npcs: (packageContents.npcs || []).map((n: any) => ({ ...n, enabled: true })),
+                                jinxs: (packageContents.jinxs || []).map((j: any) => ({ ...j, enabled: true }))
+                            }));
+                        } else {
+                            console.error('Failed to get package contents:', packageContents?.error);
+                            setInitModal(prev => ({ ...prev, loading: false }));
+                        }
+                    } catch (e) {
+                        console.error('Error fetching package contents:', e);
+                        setInitModal(prev => ({ ...prev, loading: false }));
+                    }
                 }
             } catch (err) {
                 console.warn('Could not check npcsh status:', err);
@@ -5136,36 +5156,139 @@ ${contextPrompt}`;
     </div>
 )}
 {initModal.isOpen && (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-md w-full">
-            <div className="flex flex-col items-center text-center mb-4">
-                <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center mb-3">
-                    <Sparkles size={24} className="text-purple-400" />
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+        <div className="theme-bg-primary border theme-border rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-4 border-b theme-border flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
+                    <Sparkles size={20} className="text-purple-400" />
                 </div>
-                <h3 className="text-lg font-medium theme-text-primary">Welcome to NPC Studio</h3>
-                <p className="theme-text-muted text-sm mt-2">
-                    Set up your global NPC team with the default agents and jinxs?
-                </p>
+                <div>
+                    <h2 className="text-lg font-semibold theme-text-primary">Welcome to NPC Studio</h2>
+                    <p className="text-xs theme-text-muted">Set up your global NPC team with agents and jinxs</p>
+                </div>
+                <button
+                    onClick={() => setInitModal({ isOpen: false, loading: false, npcs: [], jinxs: [], tab: 'npcs', initializing: false })}
+                    className="ml-auto p-2 theme-hover rounded-lg"
+                >
+                    <X size={18} />
+                </button>
             </div>
-            <div className="flex justify-center gap-3">
+
+            {/* Tab Navigation */}
+            <div className="flex border-b theme-border px-4">
                 <button
-                    className="px-4 py-2 theme-button theme-hover rounded text-sm"
-                    onClick={() => setInitModal({ isOpen: false })}
+                    onClick={() => setInitModal(prev => ({ ...prev, tab: 'npcs' }))}
+                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                        initModal.tab === 'npcs' ? 'border-purple-500 text-purple-400' : 'border-transparent theme-text-muted hover:theme-text-primary'
+                    }`}
                 >
-                    Skip
+                    <Users size={16} /> NPCs ({initModal.npcs.filter(n => n.enabled).length})
                 </button>
                 <button
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm"
-                    onClick={async () => {
-                        const result = await window.api.npcshInit();
-                        if (result.error) {
-                            console.error('Init failed:', result.error);
-                        }
-                        setInitModal({ isOpen: false });
-                    }}
+                    onClick={() => setInitModal(prev => ({ ...prev, tab: 'jinxs' }))}
+                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                        initModal.tab === 'jinxs' ? 'border-yellow-500 text-yellow-400' : 'border-transparent theme-text-muted hover:theme-text-primary'
+                    }`}
                 >
-                    Initialize
+                    <Wrench size={16} /> Jinxs ({initModal.jinxs.filter(j => j.enabled).length})
                 </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4">
+                {initModal.loading ? (
+                    <div className="flex items-center justify-center h-48">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+                        <span className="ml-3 theme-text-muted">Loading package contents...</span>
+                    </div>
+                ) : initModal.tab === 'npcs' ? (
+                    <div className="space-y-2">
+                        {initModal.npcs.length === 0 ? (
+                            <p className="text-center theme-text-muted py-8">No NPCs found in package</p>
+                        ) : initModal.npcs.map((npc, i) => (
+                            <div key={i} className={`p-3 rounded-lg border theme-border flex items-center gap-3 ${npc.enabled ? 'bg-purple-500/10' : 'opacity-50'}`}>
+                                <input
+                                    type="checkbox"
+                                    checked={npc.enabled}
+                                    onChange={() => setInitModal(prev => ({
+                                        ...prev,
+                                        npcs: prev.npcs.map((n, idx) => idx === i ? { ...n, enabled: !n.enabled } : n)
+                                    }))}
+                                    className="w-4 h-4 accent-purple-500"
+                                />
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-medium theme-text-primary text-sm">{npc.name}</div>
+                                    <div className="text-xs theme-text-muted truncate">{npc.primary_directive}</div>
+                                </div>
+                                {npc.model && (
+                                    <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300">{npc.model}</span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {initModal.jinxs.length === 0 ? (
+                            <p className="text-center theme-text-muted py-8">No jinxs found in package</p>
+                        ) : initModal.jinxs.map((jinx, i) => (
+                            <div key={i} className={`p-3 rounded-lg border theme-border flex items-center gap-3 ${jinx.enabled ? 'bg-yellow-500/10' : 'opacity-50'}`}>
+                                <input
+                                    type="checkbox"
+                                    checked={jinx.enabled}
+                                    onChange={() => setInitModal(prev => ({
+                                        ...prev,
+                                        jinxs: prev.jinxs.map((j, idx) => idx === i ? { ...j, enabled: !j.enabled } : j)
+                                    }))}
+                                    className="w-4 h-4 accent-yellow-500"
+                                />
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-medium theme-text-primary text-sm">{jinx.name}</div>
+                                    <div className="text-xs theme-text-muted truncate">{jinx.description || jinx.path}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t theme-border flex justify-between items-center">
+                <div className="text-xs theme-text-muted">
+                    {initModal.npcs.filter(n => n.enabled).length} NPCs, {initModal.jinxs.filter(j => j.enabled).length} jinxs selected
+                </div>
+                <div className="flex gap-3">
+                    <button
+                        className="px-4 py-2 theme-button theme-hover rounded text-sm"
+                        onClick={() => setInitModal({ isOpen: false, loading: false, npcs: [], jinxs: [], tab: 'npcs', initializing: false })}
+                    >
+                        Skip
+                    </button>
+                    <button
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm flex items-center gap-2"
+                        disabled={initModal.initializing || initModal.loading}
+                        onClick={async () => {
+                            setInitModal(prev => ({ ...prev, initializing: true }));
+                            const result = await window.api.npcshInit();
+                            if (result.error) {
+                                console.error('Init failed:', result.error);
+                            }
+                            setInitModal({ isOpen: false, loading: false, npcs: [], jinxs: [], tab: 'npcs', initializing: false });
+                        }}
+                    >
+                        {initModal.initializing ? (
+                            <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                Initializing...
+                            </>
+                        ) : (
+                            <>
+                                <Sparkles size={16} />
+                                Initialize
+                            </>
+                        )}
+                    </button>
+                </div>
             </div>
         </div>
     </div>
