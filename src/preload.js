@@ -114,9 +114,31 @@ readDocxContent: (filePath) =>
         ipcRenderer.on('browser-navigation-state-updated', handler);
         return () => ipcRenderer.removeListener('browser-navigation-state-updated', handler);
     },
-    
 
-    
+    // Browser context menu actions - pass currentPath for correct default directory
+    browserSaveImage: (imageUrl, currentPath) => ipcRenderer.invoke('browser-save-image', { imageUrl, currentPath }),
+    browserSaveLink: (url, suggestedFilename, currentPath) => ipcRenderer.invoke('browser-save-link', { url, suggestedFilename, currentPath }),
+    browserOpenExternal: (url) => ipcRenderer.invoke('browser-open-external', { url }),
+
+    // Listen for download requests from main process (for automatic downloads)
+    onBrowserDownloadRequested: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-download-requested', handler);
+        return () => ipcRenderer.removeListener('browser-download-requested', handler);
+    },
+
+    onDownloadProgress: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('download-progress', handler);
+        return () => ipcRenderer.removeListener('download-progress', handler);
+    },
+    onDownloadComplete: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('download-complete', handler);
+        return () => ipcRenderer.removeListener('download-complete', handler);
+    },
+
+
     onThumbnailCreated: (callback) => {
         const handler = (_, data) => callback(data);
         ipcRenderer.on('thumbnail-created', handler);
@@ -316,6 +338,7 @@ onTerminalClosed: (callback) => {
     scanLocalModels: (provider) => ipcRenderer.invoke('scan-local-models', provider),
     getLocalModelStatus: (provider) => ipcRenderer.invoke('get-local-model-status', provider),
     scanGgufModels: (directory) => ipcRenderer.invoke('scan-gguf-models', directory),
+    browseGgufFile: () => ipcRenderer.invoke('browse-gguf-file'),
     downloadHfModel: (params) => ipcRenderer.invoke('download-hf-model', params),
 
     // Activity Tracking for RNN predictor
@@ -338,6 +361,8 @@ onTerminalClosed: (callback) => {
     pythonEnvList: () => ipcRenderer.invoke('python-env-list'),
     pythonEnvDetect: (workspacePath) => ipcRenderer.invoke('python-env-detect', { workspacePath }),
     pythonEnvResolve: (workspacePath) => ipcRenderer.invoke('python-env-resolve', { workspacePath }),
+    pythonEnvCreate: (workspacePath, venvName, pythonPath) => ipcRenderer.invoke('python-env-create', { workspacePath, venvName, pythonPath }),
+    pythonEnvCheckConfigured: (workspacePath) => ipcRenderer.invoke('python-env-check-configured', { workspacePath }),
 
     generativeFill: async (params) => {
     return ipcRenderer.invoke('generative-fill', params);
@@ -382,6 +407,15 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     saveGlobalSettings: (args) => ipcRenderer.invoke('saveGlobalSettings', args),
     loadProjectSettings: (path) => ipcRenderer.invoke('loadProjectSettings', path),
     saveProjectSettings: (args) => ipcRenderer.invoke('saveProjectSettings', args),
+
+    // Check if ~/.npcsh exists and has a valid npc_team
+    npcshCheck: () => ipcRenderer.invoke('npcsh-check'),
+    // Initialize ~/.npcsh with default npc_team
+    npcshInit: () => ipcRenderer.invoke('npcsh-init'),
+
+    // Logging - centralized in ~/.npcsh/npc-studio/logs/
+    getLogsDir: () => ipcRenderer.invoke('getLogsDir'),
+    readLogFile: (logType) => ipcRenderer.invoke('readLogFile', logType),
 
     getAvailableModels: (currentPath) => ipcRenderer.invoke('getAvailableModels', currentPath),
     updateShortcut: (shortcut) => ipcRenderer.invoke('update-shortcut', shortcut),

@@ -38,6 +38,7 @@ import ProjectEnvEditor from './ProjectEnvEditor';
 import DBTool from './DBTool';
 import LibraryViewer from './LibraryViewer';
 import FolderViewer from './FolderViewer';
+import PathSwitcher from './PathSwitcher';
 import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
@@ -168,6 +169,7 @@ const ChatInterface = () => {
     const [baseDir, setBaseDir] = useState('');
     const [promptModal, setPromptModal] = useState<{ isOpen: boolean; title: string; message: string; defaultValue: string; onConfirm: ((value: string) => void) | null }>({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
     const [promptModalValue, setPromptModalValue] = useState('');
+    const [initModal, setInitModal] = useState<{ isOpen: boolean }>({ isOpen: false });
     const screenshotHandlingRef = useRef(false);
     const fileInputRef = useRef(null);
     const listenersAttached = useRef(false);
@@ -459,7 +461,7 @@ const ChatInterface = () => {
     const loadGitStatus = useCallback(async () => {
         if (!currentPath) return;
         try {
-            const status = await (window as any).api.getGitStatus(currentPath);
+            const status = await (window as any).api.gitStatus(currentPath);
             setGitStatus(status);
         } catch (err) {
             console.error('Failed to load git status:', err);
@@ -1565,11 +1567,25 @@ const renderChatView = useCallback(({ nodeId }) => {
                     onLabelMessage={handleLabelMessage}
                     messageLabel={messageLabels[msg.id || msg.timestamp]}
                     conversationId={paneData.contentId}
+                    onOpenFile={(path: string) => {
+                        const ext = path.split('.').pop()?.toLowerCase();
+                        let contentType = 'editor';
+                        if (ext === 'pdf') contentType = 'pdf';
+                        else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext || '')) contentType = 'image';
+                        else if (['csv', 'xlsx', 'xls'].includes(ext || '')) contentType = 'csv';
+                        else if (['docx', 'doc'].includes(ext || '')) contentType = 'docx';
+                        else if (ext === 'pptx') contentType = 'pptx';
+                        // Open in new tile to the right
+                        const nodePath = findNodePath(rootLayoutNodeRef.current, nodeId);
+                        if (nodePath) {
+                            performSplit(nodePath, 'right', contentType, path);
+                        }
+                    }}
                 />
             ))}
         </div>
     );
-}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleCreateBranch]);
+}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleCreateBranch, findNodePath, performSplit]);
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -2023,6 +2039,57 @@ const renderDiskUsagePane = useCallback(({ nodeId }: { nodeId: string }) => {
         />
     );
 }, [currentPath, isDarkMode]);
+
+// Markdown Preview Component (needs to be a proper component for hooks)
+const MarkdownPreviewContent: React.FC<{ filePath: string }> = ({ filePath }) => {
+    const [content, setContent] = useState<string>('');
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (filePath) {
+            setLoading(true);
+            window.api.readFileContent(filePath).then((result: any) => {
+                setContent(result.content || '');
+                setLoading(false);
+            }).catch(() => {
+                setContent('Error loading file');
+                setLoading(false);
+            });
+        }
+    }, [filePath]);
+
+    if (loading) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-text-muted">
+                Loading...
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex-1 overflow-auto p-4 theme-bg-primary">
+            <div className="prose prose-invert max-w-none">
+                <MarkdownRenderer content={content} />
+            </div>
+        </div>
+    );
+};
+
+// Render Markdown Preview pane
+const renderMarkdownPreviewPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const filePath = paneData?.contentId;
+
+    if (!filePath) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-text-muted">
+                No file selected
+            </div>
+        );
+    }
+
+    return <MarkdownPreviewContent filePath={filePath} />;
+}, []);
 
 // Render DBTool pane (for pane-based viewing)
 const renderDBToolPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -3391,12 +3458,19 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
                     if (contextPrompt) contextPrompt += '\n\n';
 
                     const browserContentPromises = browserContexts.map(async (ctx: any) => {
-                        const result = await window.api.browserGetPageContent({
-                            viewId: ctx.viewId
-                        });
-                        if (result.success && result.content) {
-                            return `Webpage: ${result.title} (${result.url})\n\`\`\`\n${result.content}\n\`\`\``;
+                        // Try to get content directly from the webview via contentDataRef
+                        const browserPaneData = contentDataRef.current[ctx.paneId];
+                        if (browserPaneData?.getPageContent) {
+                            try {
+                                const result = await browserPaneData.getPageContent();
+                                if (result.success && result.content) {
+                                    return `Webpage: ${result.title} (${result.url})\n\`\`\`\n${result.content}\n\`\`\``;
+                                }
+                            } catch (err) {
+                                console.error('[Context] Failed to get browser content:', err);
+                            }
                         }
+                        // Fallback to just showing URL
                         return `Currently viewing: ${ctx.url}`;
                     });
 
@@ -4200,13 +4274,14 @@ ${contextPrompt}`;
         });
     };
 
-    const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx' | 'mindmap') => {
+    const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx' | 'mapx') => {
         try {
-            const filename = `untitled-${Date.now()}.${docType}`;
+            const ext = docType === 'mapx' ? 'mapx' : docType;
+            const filename = `untitled-${Date.now()}.${ext}`;
             const filepath = normalizePath(`${currentPath}/${filename}`);
             // Create empty document - the viewer components will handle creating proper structure
-            // For mindmap, create initial JSON structure
-            if (docType === 'mindmap') {
+            // For mindmap (.mapx), create initial JSON structure
+            if (docType === 'mapx') {
                 const initialMindMap = {
                     nodes: [{ id: 'root', label: 'Central Idea', x: 400, y: 300, color: '#3b82f6' }],
                     links: []
@@ -4513,6 +4588,17 @@ ${contextPrompt}`;
                 setPredictiveTextModel(globalSettings.global_settings?.predictive_text_model || 'llama3.2'); // Default to a reasonable model
                 setPredictiveTextProvider(globalSettings.global_settings?.predictive_text_provider || 'ollama'); // Default to a reasonable provider
             }
+
+            // Check if npcsh is initialized
+            try {
+                const npcshStatus = await window.api.npcshCheck();
+                if (npcshStatus && !npcshStatus.error && !npcshStatus.initialized) {
+                    setInitModal({ isOpen: true });
+                }
+            } catch (err) {
+                console.warn('Could not check npcsh status:', err);
+            }
+
             // Only determine initial path on first load (when currentPath is empty)
             if (!currentPath) {
                 let initialPathToLoad = config.baseDir;
@@ -5048,7 +5134,42 @@ ${contextPrompt}`;
             </div>
         </div>
     </div>
-)}        
+)}
+{initModal.isOpen && (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex flex-col items-center text-center mb-4">
+                <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center mb-3">
+                    <Sparkles size={24} className="text-purple-400" />
+                </div>
+                <h3 className="text-lg font-medium theme-text-primary">Welcome to NPC Studio</h3>
+                <p className="theme-text-muted text-sm mt-2">
+                    Set up your global NPC team with the default agents and jinxs?
+                </p>
+            </div>
+            <div className="flex justify-center gap-3">
+                <button
+                    className="px-4 py-2 theme-button theme-hover rounded text-sm"
+                    onClick={() => setInitModal({ isOpen: false })}
+                >
+                    Skip
+                </button>
+                <button
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm"
+                    onClick={async () => {
+                        const result = await window.api.npcshInit();
+                        if (result.error) {
+                            console.error('Init failed:', result.error);
+                        }
+                        setInitModal({ isOpen: false });
+                    }}
+                >
+                    Initialize
+                </button>
+            </div>
+        </div>
+    </div>
+)}
             {aiEditModal.isOpen && aiEditModal.type === 'agentic' && !aiEditModal.isLoading && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                     <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-6xl w-full max-h-[85vh] overflow-hidden flex flex-col">
@@ -5855,6 +5976,20 @@ const getChatInputProps = useCallback((paneId: string) => ({
     mcpToolsLoading, setMcpToolsLoading, mcpToolsError, setMcpToolsError,
     showMcpServersDropdown, setShowMcpServersDropdown,
     activeConversationId,
+    onOpenFile: (path: string) => {
+        const ext = path.split('.').pop()?.toLowerCase();
+        let contentType = 'editor';
+        if (ext === 'pdf') contentType = 'pdf';
+        else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext || '')) contentType = 'image';
+        else if (['csv', 'xlsx', 'xls'].includes(ext || '')) contentType = 'csv';
+        else if (['docx', 'doc'].includes(ext || '')) contentType = 'docx';
+        else if (ext === 'pptx') contentType = 'pptx';
+        // Open in new tile to the right
+        const nodePath = findNodePath(rootLayoutNodeRef.current, paneId);
+        if (nodePath) {
+            performSplit(nodePath, 'right', contentType, path);
+        }
+    },
 }), [
     input, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
@@ -5866,7 +6001,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
     favoriteModels, showAllModels, modelsToDisplay, ollamaToolModels,
     availableNPCs, npcsLoading, npcsError, currentNPC,
     availableMcpServers, mcpServerPath, selectedMcpTools, availableMcpTools,
-    mcpToolsLoading, mcpToolsError, showMcpServersDropdown, activeConversationId,
+    mcpToolsLoading, mcpToolsError, showMcpServersDropdown, activeConversationId, findNodePath, performSplit,
 ]);
 
 const layoutComponentApi = useMemo(() => ({
@@ -5906,6 +6041,7 @@ const layoutComponentApi = useMemo(() => ({
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
+    renderMarkdownPreviewPane,
     setPaneContextMenu,
     // Chat-specific props:
     autoScrollEnabled, setAutoScrollEnabled,
@@ -5952,6 +6088,7 @@ const layoutComponentApi = useMemo(() => ({
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
+    renderMarkdownPreviewPane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
     autoScrollEnabled, setAutoScrollEnabled,
@@ -6036,7 +6173,7 @@ const handleFileClick = useCallback(async (filePath: string) => {
     else if (extension === 'pptx') contentType = 'pptx';
     else if (extension === 'tex') contentType = 'latex';
     else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
-    else if (extension === 'mindmap') contentType = 'mindmap';
+    else if (extension === 'mapx') contentType = 'mindmap';
     else if (extension === 'zip') contentType = 'zip';
     else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
 
@@ -6289,556 +6426,20 @@ const renderAttachmentThumbnails = () => {
 };
 
 // Input area rendering function
-const renderInputArea = () => {
-    const isJinxMode = executionMode !== 'chat' && selectedJinx;
-    const jinxInputsForSelected = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
-    const hasJinxContent = isJinxMode && Object.values(jinxInputsForSelected).some(val => val !== null && String(val).trim());
-    const inputStr = typeof input === 'string' ? input : '';
-    const hasContextFiles = contextFiles.length > 0;
-    const hasInputContent = inputStr.trim() || uploadedFiles.length > 0 || hasJinxContent || hasContextFiles;
-    const canSend = !isStreaming && hasInputContent && (activeConversationId || isJinxMode);
 
-    if (isInputMinimized) {
-        return (
-            <div className="px-4 py-1 border-t theme-border theme-bg-secondary flex-shrink-0">
-                <div className="flex justify-center">
-                    <button
-                        onClick={() => setIsInputMinimized(false)}
-                        className="p-2 w-full theme-button theme-hover rounded-full transition-all group"
-                        title="Expand input area"
-                    >
-                        <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                            <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                className="transform rotate-180 group-hover:scale-75 transition-all duration-200"
-                            >
-                                <path d="M18 15l-6-6-6 6"/>
-                            </svg>
-                            <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                        </div>
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    if (isInputExpanded) {
-        return (
-            <div className="fixed inset-0 bg-black/80 z-50 flex flex-col p-4">
-                <div className="flex-1 flex flex-col theme-bg-primary theme-border border rounded-lg">
-                    <div className="p-2 border-b theme-border flex-shrink-0 flex justify-end">
-                        <button
-                            type="button"
-                            onClick={() => setIsInputExpanded(false)}
-                            className="p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover"
-                            aria-label="Minimize input"
-                        >
-                            <Minimize2 size={20} />
-                        </button>
-                    </div>
-                    <div className="flex-1 p-2 flex">
-                         <textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (!isStreaming && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                    e.preventDefault();
-                                    handleInputSubmit(e);
-                                    setIsInputExpanded(false);
-                                }
-                            }}
-                            placeholder={isStreaming ? "Streaming response..." : "Type a message... (Ctrl+Enter to send)"}
-                            className="w-full h-full theme-input text-base rounded-lg p-4 focus:outline-none border-0 resize-none bg-transparent"
-                            disabled={isStreaming}
-                            autoFocus
-                        />
-                    </div>
-                    <div className="p-2 border-t theme-border flex-shrink-0 flex items-center justify-end gap-2">
-                        {isStreaming ? (
-                            <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1" aria-label="Stop generating">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
-                                Stop
-                            </button>
-                        ) : (
-                            <button type="button" onClick={(e) => { handleInputSubmit(e); setIsInputExpanded(false); }} disabled={(!(input || '').trim() && uploadedFiles.length === 0) || !activeConversationId} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
-                                <Send size={16}/>
-                                Send (Ctrl+Enter)
-                            </button>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div
-            className="px-4 pt-2 pb-3 border-t theme-border theme-bg-secondary flex-shrink-0 relative"
-            style={{ height: `${inputHeight}px` }}
-        >
-            <div
-                className="absolute top-0 left-0 right-0 h-1 cursor-row-resize hover:bg-blue-500 transition-colors z-50"
-                onMouseDown={(e) => {
-                    e.preventDefault();
-                    setIsResizingInput(true);
-                }}
-                style={{
-                    backgroundColor: isResizingInput ? '#3b82f6' : 'transparent'
-                }}
-            />
-
-            <div
-                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col"
-                onDragOver={(e) => { e.preventDefault(); setIsHovering(true); }}
-                onDragEnter={() => setIsHovering(true)}
-                onDragLeave={() => setIsHovering(false)}
-                onDrop={handleDrop}
-            >
-                {isHovering && (
-                    <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center z-10 pointer-events-none">
-                        <span className="text-blue-300 font-semibold">Drop files here</span>
-                    </div>
-                )}
-
-                <div className="flex-1 overflow-y-auto">
-                    {/* Context Files Panel */}
-                    <ContextFilesPanel
-                        isCollapsed={contextFilesCollapsed}
-                        onToggleCollapse={() => setContextFilesCollapsed(!contextFilesCollapsed)}
-                        contextFiles={contextFiles}
-                        setContextFiles={setContextFiles}
-                        currentPath={currentPath}
-                    />
-
-                    {renderAttachmentThumbnails()}
-
-                    <div className="flex items-end p-2 gap-2 relative z-0">
-                        <div className="flex-grow relative">
-                            {isJinxMode ? (
-                                <div className="flex flex-col gap-2 w-full">
-                                    {selectedJinx.inputs && selectedJinx.inputs.length > 0 && (
-                                        <div className="space-y-2">
-                                            {selectedJinx.inputs.map((rawInputDef, idx) => {
-                                                const inputDef = (typeof rawInputDef === 'string')
-                                                                 ? { [rawInputDef]: "" }
-                                                                 : rawInputDef;
-
-                                                const inputName = (inputDef && typeof inputDef === 'object' && Object.keys(inputDef).length > 0)
-                                                                  ? Object.keys(inputDef)[0]
-                                                                  : `__unnamed_input_${idx}__`;
-
-                                                if (!inputName || inputName.startsWith('__unnamed_input_')) {
-                                                    return (
-                                                        <div key={`malformed-${selectedJinx.name}-${idx}`} className="text-red-400 text-xs">
-                                                            Error: Malformed input definition for "{selectedJinx.name}" at index {idx}.
-                                                        </div>
-                                                    );
-                                                }
-
-                                                            const inputPlaceholder = inputDef[inputName] || '';
-                                                            const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command'].includes(inputName.toLowerCase());
-
-                                                            return (
-                                                                <div key={`${selectedJinx.name}-${inputName}`} className="flex flex-col">
-                                                        <label htmlFor={`jinx-input-${selectedJinx.name}-${inputName}`} className="text-xs theme-text-muted mb-1 capitalize">
-                                                            {inputName}:
-                                                        </label>
-                                                            {isTextArea ? (
-                                                                <textarea
-                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
-                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                                    onChange={(e) => setJinxInputValues(prev => ({
-                                                                        ...prev,
-                                                                    [selectedJinx.name]: {
-                                                                        ...prev[selectedJinx.name],
-                                                                        [inputName]: e.target.value
-                                                                    }
-                                                                }))}
-                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                                    className="theme-input text-sm rounded px-2 py-1 border min-h-[60px] resize-vertical"
-                                                                    rows={3}
-                                                                    onKeyDown={(e) => {
-                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
-                                                                            e.preventDefault();
-                                                                            handleInputSubmit(e);
-                                                                        }
-                                                                    }}
-                                                                    disabled={isStreaming}
-                                                                />
-                                                            ) : (
-                                                                <input
-                                                                    id={`jinx-input-${selectedJinx.name}-${inputName}`}
-                                                                    type="text"
-                                                                    value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                                    onChange={(e) => setJinxInputValues(prev => ({
-                                                                        ...prev,
-                                                                        [selectedJinx.name]: {
-                                                                            ...prev[selectedJinx.name],
-                                                                            [inputName]: e.target.value
-                                                                        }
-                                                                    }))}
-                                                                    placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                                    className="theme-input text-sm rounded px-2 py-1 border"
-                                                                    onKeyDown={(e) => {
-                                                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
-                                                                            e.preventDefault();
-                                                                            handleInputSubmit(e);
-                                                                        }
-                                                                    }}
-                                                                    disabled={isStreaming}
-                                                                />
-                                                            )}
-                                                        </div>
-                                                    );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                <textarea
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    onKeyDown={(e) => { if (!isStreaming && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInputSubmit(e); } }}
-                                    placeholder={isStreaming ? "Streaming response..." : "Type a message or drop files..."}
-                                    className={`w-full theme-input text-sm rounded-lg pl-4 pr-20 py-3 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70 cursor-not-allowed' : ''}`}
-                                    style={{
-                                        height: `${Math.max(56, inputHeight - 120)}px`,
-                                        maxHeight: `${inputHeight - 120}px`
-                                    }}
-                                    disabled={isStreaming}
-                                />
-                            )}
-
-                            <div className="absolute top-2 right-2 flex gap-1">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsInputMinimized(true)}
-                                    className="p-1 theme-text-muted hover:theme-text-primary rounded-lg theme-hover opacity-50 group-hover:opacity-100 transition-opacity"
-                                    aria-label="Minimize input"
-                                    title="Minimize input area"
-                                >
-                                    <svg
-                                        width="14"
-                                        height="14"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                    >
-                                        <path d="M18 15l-6-6-6 6"/>
-                                    </svg>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsInputExpanded(true)}
-                                    className="p-1 theme-text-muted hover:theme-text-primary rounded-lg theme-hover opacity-50 group-hover:opacity-100 transition-opacity"
-                                    aria-label="Expand input"
-                                >
-                                    <Maximize2 size={14} />
-                                </button>
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={handleAttachFileClick}
-                            className={`p-2 theme-text-muted hover:theme-text-primary rounded-lg theme-hover flex-shrink-0 self-end ${isStreaming ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            aria-label="Attach file"
-                            disabled={isStreaming}
-                        >
-                            <Paperclip size={20} />
-                        </button>
-                         {isStreaming ? (
-                            <button type="button" onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 w-[76px] h-[40px] self-end" aria-label="Stop generating" title="Stop generating" >
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
-                            </button>
-                        ) : (
-                            <button type="button" onClick={handleInputSubmit} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center justify-center gap-1 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed w-[76px] h-[40px] self-end" >
-                                <Send size={16}/>
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                {/* MCP tools dropdown for tool_agent mode */}
-                {executionMode === 'tool_agent' && (
-                    <div className="px-2 pb-1 border-t theme-border">
-                        <div className="relative w-1/2">
-                            <button
-                                type="button"
-                                className="theme-input text-xs w-full text-left px-2 py-1 flex items-center justify-between rounded border"
-                                disabled={isStreaming || availableMcpServers.length === 0}
-                                onClick={() => setShowMcpServersDropdown(prev => !prev)}
-                            >
-                                <span className="truncate">
-                                    {availableMcpServers.find(s => s.serverPath === mcpServerPath)?.serverPath || 'Select MCP server & tools'}
-                                </span>
-                                <ChevronDown size={12} />
-                            </button>
-                            {showMcpServersDropdown && (
-                                <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto">
-                                    {availableMcpServers.length === 0 && (
-                                        <div className="px-2 py-1 text-xs theme-text-muted">No MCP servers in ctx</div>
-                                    )}
-                                    {availableMcpServers.map((srv) => (
-                                        <div key={srv.serverPath} className="border-b theme-border last:border-b-0">
-                                            <div
-                                                className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center justify-between"
-                                                onClick={() => {
-                                                    setMcpServerPath(srv.serverPath);
-                                                    setSelectedMcpTools([]);
-                                                    setMcpToolsLoading(true);
-                                                    window.api.listMcpTools({ serverPath: srv.serverPath, currentPath }).then((res) => {
-                                                        setMcpToolsLoading(false);
-                                                        if (res.error) {
-                                                            setMcpToolsError(res.error);
-                                                            setAvailableMcpTools([]);
-                                                        } else {
-                                                            setMcpToolsError(null);
-                                                            const tools = res.tools || [];
-                                                            setAvailableMcpTools(tools);
-                                                            const names = tools.map(t => t.function?.name).filter(Boolean);
-                                                            setSelectedMcpTools(prev => prev.filter(n => names.includes(n)));
-                                                        }
-                                                    });
-                                                }}
-                                            >
-                                                <span className="truncate">{srv.serverPath}</span>
-                                            </div>
-                                            {srv.serverPath === mcpServerPath && (
-                                                <div className="px-3 py-1 space-y-1">
-                                                    {mcpToolsLoading && <div className="text-xs theme-text-muted">Loading MCP tools…</div>}
-                                                    {mcpToolsError && <div className="text-xs text-red-400">Error: {mcpToolsError}</div>}
-                                                    {!mcpToolsLoading && !mcpToolsError && (
-                                                        <div className="flex flex-col gap-1">
-                                                            {availableMcpTools.length === 0 && (
-                                                                <div className="text-xs theme-text-muted">No tools available.</div>
-                                                            )}
-                                                            {availableMcpTools.map(tool => {
-                                                                const name = tool.function?.name || '';
-                                                                const desc = tool.function?.description || '';
-                                                                if (!name) return null;
-                                                                const checked = selectedMcpTools.includes(name);
-                                                                return (
-                                                                    <details key={name} className="bg-black/30 border theme-border rounded px-2 py-1">
-                                                                        <summary className="flex items-center gap-2 text-xs theme-text-primary cursor-pointer">
-                                                                            <input
-                                                                                type="checkbox"
-                                                                                checked={checked}
-                                                                                disabled={isStreaming}
-                                                                                onChange={() => {
-                                                                                    setSelectedMcpTools(prev => {
-                                                                                        if (prev.includes(name)) {
-                                                                                            return prev.filter(n => n !== name);
-                                                                                        }
-                                                                                        return [...prev, name];
-                                                                                    });
-                                                                                }}
-                                                                            />
-                                                                            <span>{name}</span>
-                                                                        </summary>
-                                                                        <div className="ml-6 text-[11px] theme-text-muted whitespace-pre-wrap">
-                                                                            {desc || 'No description.'}
-                                                                        </div>
-                                                                    </details>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {/* Bottom controls: Jinx/mode selector, model selector, NPC selector */}
-                <div className={`flex items-center gap-2 px-2 pb-2 border-t theme-border ${isStreaming ? 'opacity-50' : ''}`}>
-                    <div className="relative min-w-[180px]">
-                        <button
-                            type="button"
-                            className="theme-input text-xs rounded px-2 py-1 border w-full flex items-center justify-between"
-                            disabled={isStreaming}
-                            onClick={() => setShowJinxDropdown(prev => !prev)}
-                        >
-                            <span className="truncate">
-                                {executionMode === 'chat' && '💬 Chat'}
-                                {executionMode === 'tool_agent' && '🛠 Agent'}
-                                {executionMode !== 'chat' && executionMode !== 'tool_agent' && (selectedJinx?.name || executionMode)}
-                            </span>
-                            <ChevronDown size={12}/>
-                        </button>
-                        {showJinxDropdown && (
-                            <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-72 overflow-y-auto">
-                                <div
-                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
-                                    onClick={() => {
-                                        setExecutionMode('chat');
-                                        setSelectedJinx(null);
-                                        setShowJinxDropdown(false);
-                                    }}
-                                >
-                                    💬 Chat
-                                </div>
-                                <div
-                                    className="px-2 py-1 text-xs theme-hover cursor-pointer flex items-center gap-2"
-                                    onClick={() => {
-                                        const selectedModelObj = availableModels.find(m => m.value === currentModel);
-                                        const providerForModel = selectedModelObj?.provider || currentProvider;
-                                        const toolCapable = providerForModel !== 'ollama' || (currentModel && ollamaToolModels.has(currentModel));
-                                        if (!toolCapable) {
-                                            setError('Selected model does not support native tool-calling; using chat or Jinx instead.');
-                                            setShowJinxDropdown(false);
-                                            return;
-                                        }
-                                        setExecutionMode('tool_agent');
-                                        setSelectedJinx(null);
-                                        setShowJinxDropdown(false);
-                                    }}
-                                >
-                                    🛠 Agent
-                                </div>
-                                {['project','global'].map(origin => {
-                                    const originJinxs = jinxsToDisplay.filter(j => (j.origin || 'unknown') === origin);
-                                    if (!originJinxs.length) return null;
-                                    const grouped = originJinxs.reduce((acc, j) => {
-                                        const g = j.group || 'root';
-                                        if (!acc[g]) acc[g] = [];
-                                        acc[g].push(j);
-                                        return acc;
-                                    }, {});
-                                    return (
-                                        <div key={origin} className="border-t theme-border">
-                                            <div className="px-2 py-1 text-[11px] uppercase theme-text-muted">{origin === 'project' ? 'Project Jinxs' : 'Global Jinxs'}</div>
-                                            {Object.entries(grouped)
-                                                .filter(([gName]) => gName.toLowerCase() !== 'modes')
-                                                .sort(([a],[b]) => a.localeCompare(b))
-                                                .map(([gName, jinxs]) => (
-                                                    <details key={`${origin}-${gName}`} className="px-2">
-                                                        <summary className="text-xs theme-text-primary cursor-pointer py-1 flex items-center gap-2">
-                                                            <FolderTree size={12}/> {gName}
-                                                        </summary>
-                                                        <div className="pl-4 pb-1 flex flex-col gap-1">
-                                                            {jinxs.sort((a,b)=>a.name.localeCompare(b.name)).map(jinx => (
-                                                                <div
-                                                                    key={`${origin}-${gName}-${jinx.name}`}
-                                                                    className="flex items-center gap-2 text-xs theme-hover cursor-pointer"
-                                                                    onClick={() => {
-                                                                        setExecutionMode(jinx.name);
-                                                                        setSelectedJinx(jinx);
-                                                                        setShowJinxDropdown(false);
-                                                                    }}
-                                                                >
-                                                                    <span className="truncate">{jinx.name}</span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </details>
-                                                ))}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="flex-grow flex items-center gap-1">
-                        <select
-                            value={currentModel || ''}
-                            onChange={(e) => {
-                                const selectedModel = availableModels.find(m => m.value === e.target.value);
-                                setCurrentModel(e.target.value);
-                                if (selectedModel?.provider) {
-                                    setCurrentProvider(selectedModel.provider);
-                                }
-                            }}
-                            className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                            disabled={modelsLoading || !!modelsError || isStreaming}
-                        >
-                            {modelsLoading && <option value="">Loading...</option>}
-                            {modelsError && <option value="">Error</option>}
-                            {!modelsLoading && !modelsError && modelsToDisplay.length === 0 && (
-                                <option value="">{favoriteModels.size > 0 ? "No Favorite Models" : "No Models"}</option>
-                            )}
-                            {!modelsLoading && !modelsError && modelsToDisplay.map(model => (<option key={model.value} value={model.value}>{model.display_name}</option>))}
-                        </select>
-                        <button onClick={() => toggleFavoriteModel(currentModel)} className={`p-1 rounded ${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`} disabled={!currentModel} title="Toggle favorite"><Star size={14}/></button>
-                        <button
-                            onClick={() => setShowAllModels(!showAllModels)}
-                            className="p-1 theme-hover rounded theme-text-muted"
-                            title={showAllModels ? "Show Favorites Only" : "Show All Models"}
-                            disabled={favoriteModels.size === 0}
-                        >
-                            <ListFilter size={14} className={favoriteModels.size === 0 ? 'opacity-30' : ''} />
-                        </button>
-                    </div>
-                     <select
-                        value={currentNPC || ''}
-                        onChange={e => setCurrentNPC(e.target.value)}
-                        className="theme-input text-xs rounded px-2 py-1 border flex-grow disabled:cursor-not-allowed"
-                        disabled={npcsLoading || !!npcsError || isStreaming}
-                     >
-                         {npcsLoading && <option value="">Loading NPCs...</option>}
-                         {npcsError && <option value="">Error loading NPCs</option>}
-                         {!npcsLoading && !npcsError && availableNPCs.length === 0 && (<option value="">No NPCs available</option>)}
-                         {!npcsLoading && !npcsError && availableNPCs.map(npc => ( <option key={`${npc.source}-${npc.value}`} value={npc.value}> {npc.display_name} </option>))}
-                    </select>
-                </div>
-            </div>
-        </div>
-    );
-};
 
 const renderMainContent = () => {
 
     // Top bar component - always visible
     const topBar = (
         <div className="flex-shrink-0 h-8 px-2 flex items-center gap-3 text-[11px] theme-bg-secondary border-b theme-border">
-            {/* Full Path selector - left */}
-            <div className="flex items-center gap-1 min-w-[200px] max-w-[300px]">
-                <button
-                    onClick={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
-                    className="p-1 theme-hover rounded transition-all flex-shrink-0"
-                    title="Go Up"
-                    aria-label="Go Up Directory"
-                >
-                    <ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/>
-                </button>
-                {isEditingPath ? (
-                    <input
-                        type="text"
-                        value={editedPath}
-                        onChange={(e) => setEditedPath(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                setIsEditingPath(false);
-                                switchToPath(editedPath);
-                            } else if (e.key === 'Escape') {
-                                setIsEditingPath(false);
-                            }
-                        }}
-                        onBlur={() => setIsEditingPath(false)}
-                        autoFocus
-                        className="text-xs theme-text-muted theme-input border rounded px-2 py-0.5 flex-1 min-w-0"
-                    />
-                ) : (
-                    <div
-                        onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }}
-                        className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-0.5 rounded flex-1 min-w-0"
-                        title={currentPath}
-                    >
-                        {currentPath || '...'}
-                    </div>
-                )}
-            </div>
+            {/* Path Switcher - left */}
+            <PathSwitcher
+                currentPath={currentPath}
+                baseDir={baseDir}
+                onPathChange={switchToPath}
+                onGoUp={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
+            />
 
             <div className="flex-1" />
 
@@ -6940,7 +6541,7 @@ const renderMainContent = () => {
                             else if (extension === 'pptx') contentType = 'pptx';
                             else if (extension === 'tex') contentType = 'latex';
                             else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
-                            else if (extension === 'mindmap') contentType = 'mindmap';
+                            else if (extension === 'mapx') contentType = 'mindmap';
                             else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
                             else contentType = 'editor';
                         } else {
@@ -7243,6 +6844,8 @@ const renderMainContent = () => {
                                     return renderProjectEnvPane({ nodeId: zenModePaneId });
                                 case 'diskusage':
                                     return renderDiskUsagePane({ nodeId: zenModePaneId });
+                                case 'markdown-preview':
+                                    return renderMarkdownPreviewPane({ nodeId: zenModePaneId });
                                 default:
                                     return <div className="flex-1 flex items-center justify-center theme-text-muted">Unknown content type</div>;
                             }

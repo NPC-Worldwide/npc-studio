@@ -77,6 +77,8 @@ const Sidebar = (props: any) => {
     const [isZipping, setIsZipping] = useState(false);
     // Bookmarks state (from database, path-specific)
     const [bookmarks, setBookmarks] = useState<Array<{ id: number; url: string; title: string; folder_path: string; is_global: number }>>([]);
+    // Default new pane type from global settings
+    const [defaultNewPaneType, setDefaultNewPaneType] = useState<string>('chat');
 
     // Load bookmarks from database
     const loadBookmarks = useCallback(async () => {
@@ -106,6 +108,47 @@ const Sidebar = (props: any) => {
     useEffect(() => { localStorage.setItem('sidebar_openBrowsersCollapsed', String(openBrowsersCollapsed)); }, [openBrowsersCollapsed]);
     useEffect(() => { localStorage.setItem('sidebar_commonSitesCollapsed', String(commonSitesCollapsed)); }, [commonSitesCollapsed]);
     useEffect(() => { localStorage.setItem('sidebar_recentHistoryCollapsed', String(recentHistoryCollapsed)); }, [recentHistoryCollapsed]);
+
+    // Load default new pane type from global settings
+    useEffect(() => {
+        const loadDefaultPaneType = async () => {
+            // First check localStorage for immediate value
+            const cached = localStorage.getItem('npcStudio_defaultNewPaneType');
+            if (cached) {
+                setDefaultNewPaneType(cached);
+            }
+            // Then load from settings file
+            try {
+                const data = await (window as any).api.loadGlobalSettings();
+                if (data?.global_settings?.default_new_pane_type) {
+                    setDefaultNewPaneType(data.global_settings.default_new_pane_type);
+                    localStorage.setItem('npcStudio_defaultNewPaneType', data.global_settings.default_new_pane_type);
+                }
+            } catch (err) {
+                console.error('Failed to load default pane type:', err);
+            }
+        };
+        loadDefaultPaneType();
+
+        // Listen for storage changes (when settings are saved from other tabs)
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === 'npcStudio_defaultNewPaneType' && e.newValue) {
+                setDefaultNewPaneType(e.newValue);
+            }
+        };
+        // Listen for custom event (same window updates)
+        const handleCustomEvent = (e: CustomEvent) => {
+            if (e.detail) {
+                setDefaultNewPaneType(e.detail);
+            }
+        };
+        window.addEventListener('storage', handleStorageChange);
+        window.addEventListener('defaultPaneTypeChanged', handleCustomEvent as EventListener);
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            window.removeEventListener('defaultPaneTypeChanged', handleCustomEvent as EventListener);
+        };
+    }, []);
 
     // Limit input dialog state
     const [limitDialog, setLimitDialog] = useState<{ domain: string; hourlyTime: string; dailyTime: string; hourlyVisits: string; dailyVisits: string } | null>(null);
@@ -2168,39 +2211,37 @@ return (
                 <button onClick={toggleTheme} className="action-grid-button-wide" aria-label="Toggle Theme" title="Toggle Theme">
                     {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}<span className="text-[10px] ml-1.5">Theme</span>
                 </button>
-                <div className="relative group">
-                    <button onClick={createNewConversation} className="action-grid-button-wide w-full h-full" aria-label="New Chat" title="New Chat (Ctrl+Shift+C)">
+                {headerActionsExpanded ? (
+                    <button onClick={createNewConversation} className="action-grid-button-wide" aria-label="New Chat" title="New Chat (Ctrl+Shift+C)">
                         <Plus size={16} /><span className="text-[10px] ml-1.5">Chat</span>
                     </button>
-                    <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible hover:opacity-100 hover:visible transition-all duration-150 min-w-[140px]">
-                        <button onClick={handleCreateNewFolder} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
-                            <Folder size={14} /><span>New Folder</span>
+                ) : (
+                    <div className="flex w-full h-full">
+                        <button
+                            onClick={() => {
+                                switch (defaultNewPaneType) {
+                                    case 'browser': createNewBrowser?.(); break;
+                                    case 'terminal': createNewTerminal?.(); break;
+                                    case 'folder': handleCreateNewFolder?.(); break;
+                                    case 'code': createNewTextFile?.(); break;
+                                    default: createNewConversation?.();
+                                }
+                            }}
+                            className="flex-1 flex items-center justify-center gap-1 theme-hover"
+                            aria-label={`New ${defaultNewPaneType}`}
+                            title={`New ${defaultNewPaneType.charAt(0).toUpperCase() + defaultNewPaneType.slice(1)}`}
+                        >
+                            {defaultNewPaneType === 'browser' && <><Globe size={14} className="text-cyan-400" /><span className="text-[10px]">Browser</span></>}
+                            {defaultNewPaneType === 'terminal' && <><Terminal size={14} className="text-green-400" /><span className="text-[10px]">Terminal</span></>}
+                            {defaultNewPaneType === 'folder' && <><Folder size={14} className="text-yellow-400" /><span className="text-[10px]">Folder</span></>}
+                            {defaultNewPaneType === 'code' && <><Code2 size={14} className="text-purple-400" /><span className="text-[10px]">Code</span></>}
+                            {defaultNewPaneType === 'chat' && <><Plus size={14} /><span className="text-[10px]">Chat</span></>}
                         </button>
-                        <button onClick={() => createNewBrowser?.()} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
-                            <Globe size={14} /><span>New Browser</span>
-                        </button>
-                        <button onClick={createNewTerminal} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
-                            <Terminal size={14} /><span>New Terminal</span>
-                        </button>
-                        <button onClick={createNewTextFile} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
-                            <Code2 size={14} /><span>New Code File</span>
-                        </button>
-                        <div className="border-t theme-border my-1"></div>
-                        <button onClick={() => createNewDocument?.('docx')} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
-                            <FileText size={14} /><span>Word (.docx)</span>
-                        </button>
-                        <button onClick={() => createNewDocument?.('xlsx')} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
-                            <FileJson size={14} /><span>Excel (.xlsx)</span>
-                        </button>
-                        <button onClick={() => createNewDocument?.('pptx')} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
-                            <BarChart3 size={14} /><span>PowerPoint (.pptx)</span>
-                        </button>
-                        <div className="border-t theme-border my-1"></div>
-                        <button onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs">
-                            <img src={npcLogo} alt="NPC" style={{ width: 14, height: 14 }} className="rounded-full" /><span>New Workspace</span>
+                        <button onClick={() => setChatPlusDropdownOpen(!chatPlusDropdownOpen)} className="px-1.5 border-l theme-border theme-hover flex items-center" aria-label="More options" title="More options">
+                            <ChevronDown size={10} />
                         </button>
                     </div>
-                </div>
+                )}
                 {/* Expanded rows (extensions of top two) */}
                 {headerActionsExpanded && (
                     <>
@@ -2479,8 +2520,8 @@ return (
                 <button onClick={() => { createNewDocument?.('pptx'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                     <BarChart3 size={16} className="text-orange-300" /><span>PowerPoint (.pptx)</span>
                 </button>
-                <button onClick={() => { createNewDocument?.('mindmap'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mindmap)</span>
+                <button onClick={() => { createNewDocument?.('mapx'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                    <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
                 </button>
             </div>
         </>
@@ -2501,8 +2542,8 @@ return (
                 <button onClick={() => { createNewDocument?.('pptx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
                     <BarChart3 size={16} className="text-orange-300" /><span>PowerPoint (.pptx)</span>
                 </button>
-                <button onClick={() => { createNewDocument?.('mindmap'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <Share2 size={16} className="text-pink-300" /><span>Mind Map</span>
+                <button onClick={() => { createNewDocument?.('mapx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
+                    <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
                 </button>
             </div>
         </>

@@ -4,7 +4,8 @@
    FORCE NATIVE TEXT SELECTION TO SHOW BLUE
    ============================================ */
 
-.pdf-viewer-container .rpv-core__text-layer {
+.pdf-viewer-container .rpv-core__text-layer,
+.rpv-core__text-layer {
     user-select: text !important;
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
@@ -12,6 +13,13 @@
     pointer-events: auto !important;
     cursor: text !important;
     z-index: 2 !important;
+    /* Critical positioning - overlay on canvas */
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    overflow: hidden !important;
 }
 
 .pdf-viewer-container .rpv-core__text-layer * {
@@ -78,12 +86,18 @@
    CANVAS BEHIND TEXT
    ============================================ */
 
-.pdf-viewer-container .rpv-core__canvas-layer {
+.pdf-viewer-container .rpv-core__canvas-layer,
+.rpv-core__canvas-layer {
     pointer-events: none !important;
     z-index: 1 !important;
+    /* Position absolutely in page container */
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
 }
 
-.pdf-viewer-container .rpv-core__canvas-layer canvas {
+.pdf-viewer-container .rpv-core__canvas-layer canvas,
+.rpv-core__canvas-layer canvas {
     pointer-events: none !important;
 }
 
@@ -129,15 +143,21 @@
    PAGE LAYERS
    ============================================ */
 
-.pdf-viewer-container .rpv-core__page-layer {
+.pdf-viewer-container .rpv-core__page-layer,
+.rpv-core__page-layer {
     user-select: text !important;
     -webkit-user-select: text !important;
+    /* Must be relative for absolute children */
+    position: relative !important;
 }
 
-.pdf-viewer-container .rpv-core__inner-page {
+.pdf-viewer-container .rpv-core__inner-page,
+.rpv-core__inner-page {
     user-select: text !important;
     -webkit-user-select: text !important;
     pointer-events: auto !important;
+    /* Must be relative for absolute children */
+    position: relative !important;
 }
 
 /* ============================================
@@ -275,11 +295,21 @@
     position: absolute !important;
     white-space: pre !important;
     transform-origin: 0% 0% !important;
+    /* Make text completely invisible */
     color: transparent !important;
     -webkit-text-fill-color: transparent !important;
+    -webkit-text-stroke: 0 !important;
+    text-shadow: none !important;
     opacity: 1 !important;
     background: transparent !important;
+    background-color: transparent !important;
     fill: transparent !important;
+    stroke: transparent !important;
+    /* Prevent any border/outline showing text */
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    text-decoration: none !important;
 }
 
 /* Hide the text visually but keep it selectable */
@@ -288,7 +318,17 @@
     opacity: 1 !important;
     color: transparent !important;
     -webkit-text-fill-color: transparent !important;
+    -webkit-text-stroke: 0 !important;
+    text-shadow: none !important;
     fill: transparent !important;
+    stroke: transparent !important;
+}
+
+/* Override any inline styles that pdfjs might set */
+[style*="color"] .rpv-core__text-layer span,
+.rpv-core__text-layer span[style*="color"] {
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
 }
 
 /* Target any br elements that might show */

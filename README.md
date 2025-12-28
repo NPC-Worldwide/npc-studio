@@ -2,11 +2,33 @@
   <img src="https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/levi.PNG" alt="npc studio logo with Levi the dog howling at the moon" width="400" height="400">
 </p>
 
-# NPC Studio
+<h1 align="center">NPC Studio</h1>
 
-NPC Studio is an AI-powered IDE that lets users have conversations with LLMs and Agents, edit files, explore data, execute code, and much more.
+<p align="center">
+  <strong>Explore the unknown and build the future.</strong>
+</p>
 
-**Download executables for Linux, MacOS, and Windows at [enpisi.com/npc-studio](https://enpisi.com/npc-studio)**
+<p align="center">
+  <a href="https://github.com/npc-worldwide/npc-studio/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPLv3%20%2B%20restrictions-blue.svg" alt="License"></a>
+  <a href="https://enpisi.com/npc-studio"><img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg" alt="Platforms"></a>
+  <a href="https://github.com/npc-worldwide/npc-studio/releases"><img src="https://img.shields.io/github/v/release/npc-worldwide/npc-studio?include_prereleases" alt="Release"></a>
+</p>
+
+<p align="center">
+  <a href="https://enpisi.com/npc-studio"><strong>Download for Linux, macOS, and Windows</strong></a>
+</p>
+
+---
+
+NPC Studio combines chat, code, documents, web browsing, multi-media management, and much more into a  tiled workspace desktop environment with smart context and composable automations.
+
+### Highlights
+
+- Write and run code, use terminals, build reusable workflows and tools that chain together natural language and templateable code through jinja execution templates.
+- Browse the web, read and annotate PDFs, analyze data and create dashboards, compile LaTeX.
+- Edit DOCX, XLSX, PPTX, MAPX.
+- Arrange chats, editors, PDFs, browsers, terminals as your work evolves.
+- Manage agents, team context, MCP Server integrations, memory, and knowledge graphs.
 
 ## Demo Video
 
@@ -14,21 +36,33 @@ NPC Studio is an AI-powered IDE that lets users have conversations with LLMs and
   <img src="https://img.youtube.com/vi/rXkc2CrLNb4/0.jpg" alt="Watch the video" />
 </a>
 
+## Quick Start
+
+1. **Download** the installer for your platform from [enpisi.com/npc-studio](https://enpisi.com/npc-studio)
+2. **Run** the installer and launch NPC Studio
+3. **Configure** your models:
+   - **Local models**: Install [Ollama](https://ollama.ai), [LM Studio](https://lmstudio.ai), or run a [llama.cpp server](https://github.com/ggerganov/llama.cpp)
+   - **Cloud providers**: Add API keys in Settings (gear icon) for OpenAI, Anthropic, Gemini, etc.
+4. **Start chatting** - select a model and begin a conversation
+
 ---
 
 ## Table of Contents
 
+- [Quick Start](#quick-start)
 - [Features](#features)
   - [AI Chat & Conversations](#ai-chat--conversations)
   - [File Editing](#file-editing)
   - [Document Viewers](#document-viewers)
   - [Web Browsing](#web-browsing)
-  - [Image Tools (Vixynt)](#image-tools-vixynt)
+  - [Vixynt (Image Tools)](#vixynt-your-visual-assistant)
   - [Data Dashboard](#data-dashboard)
   - [Agent Management](#agent-management)
-- [Themes](#themes)
+- [Themes & Settings](#themes)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Installation](#installation)
-- [Getting Started with Development](#getting-started-with-development)
+- [Development](#development)
+- [Community](#community)
 - [License](#license)
 
 ---
@@ -102,11 +136,9 @@ Browse the web with AI assistance at your fingertips.
 
 ![Tiled PDF Browser](https://raw.githubusercontent.com/npc-worldwide/npc-studio/main/gh_images/tiled_pdf_browser.png)
 
-
-
 ---
 
-### Vixynt: your visual assistant
+### Vixynt: Your Visual Assistant
 
 **Photo Editor**: Browse photos
 
@@ -194,62 +226,81 @@ Composable widgets for analytics, querying, and visualization.
 
 ---
 
-## Installation
+## Keyboard Shortcuts
 
-Executables are available for Linux, MacOS, and Windows at [enpisi.com/npc-studio](https://enpisi.com/npc-studio).
-
-### Requirements
-
-- Node.js 16 or higher
-- Python 3.8 or higher (for the backend)
-- Ollama (optional, for local models)
-
-> **Note**: NPC Studio currently includes a way to install ollama and to manage ollama models, but this feature has had issues on different operating systems, so if you run into it, please report here and we can do our best to fix it.
-
+| Action | Shortcut |
+|--------|----------|
+| New conversation | `Ctrl/Cmd + N` |
+| Send message | `Enter` (or `Ctrl/Cmd + Enter` for multiline) |
+| Toggle sidebar | `Ctrl/Cmd + B` |
+| Open settings | `Ctrl/Cmd + ,` |
+| Close current pane | `Ctrl/Cmd + W` |
+| Split pane horizontal | `Ctrl/Cmd + \` |
+| Focus chat input | `Ctrl/Cmd + L` |
 
 ---
 
-## Getting Started with Development
+## Installation
 
-NPC Studio is an Electron-based frontend with a Python Flask backend.
+Pre-built executables are available for **Linux**, **macOS**, and **Windows** at [enpisi.com/npc-studio](https://enpisi.com/npc-studio).
+
+### System Requirements
+
+| Component | Requirement |
+|-----------|-------------|
+| Python | 3.8 or higher |
+| Node.js | 16 or higher (for development) |
+| Ollama | Optional, for local models |
+
+> **Note**: NPC Studio includes built-in Ollama management, but this feature may have issues on some systems. Please [report issues](https://github.com/npc-worldwide/npc-studio/issues) if you encounter problems.
+
+---
+
+## Development
+
+NPC Studio is an Electron + React frontend with a Python Flask backend powered by [npcpy](https://github.com/npc-worldwide/npcpy).
 
 ### Prerequisites
 
-- [npcpy](https://github.com/npc-worldwide/npcpy)
-- [npcsh](https://github.com/npc-worldwide/npcsh)
-- Node.js + npm
-- Ollama (if using local models)
+- [npcpy](https://github.com/npc-worldwide/npcpy) - Core Python library
+- [npcsh](https://github.com/npc-worldwide/npcsh) - Shell interface (starts the backend)
+- Node.js 16+ and npm
+- Ollama (optional, for local models)
 
 ### Setup
-Users can set up NPC studio manually:
+
+**Option 1: Manual setup**
 ```bash
 git clone https://github.com/npc-worldwide/npc-studio.git
 cd npc-studio
 npm install
 ```
-or you can use `npcsh` to set it up, which will install the git folder in `~/.npcsh/npc_studio`
 
-```
+**Option 2: Via npcsh** (installs to `~/.npcsh/npc_studio`)
+```bash
 npcsh> /npc-studio
 ```
 
-### Running in Development
+### Running
 
-Start the Flask backend:
 ```bash
-python npc_studio_serve.py
-```
-
-Start the Electron frontend:
-```bash
-npm run dev
-```
-
-Or start both together:
-```bash
+# Start both frontend and backend
 npm start
+
+# Or run separately:
+python npc_studio_serve.py   # Backend
+npm run dev                   # Frontend
 ```
 
+---
+
+## Community
+
+- **Issues & Bugs**: [GitHub Issues](https://github.com/npc-worldwide/npc-studio/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/npc-worldwide/npc-studio/discussions)
+- **NPC Ecosystem**: [npcpy](https://github.com/npc-worldwide/npcpy) | [npcsh](https://github.com/npc-worldwide/npcsh)
+
+---
 
 ## License
 
