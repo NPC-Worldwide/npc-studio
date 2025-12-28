@@ -24,13 +24,11 @@ NPC Studio combines chat, code, documents, web browsing, multi-media management,
 
 ### Highlights
 
-- **Tiled workspace** - Arrange chats, editors, PDFs, browsers, terminals,  side-by-side
-- **Multi-provider support** - Use Ollama, LM Studio, Llama CPP Server, OpenAI, Anthropic, Gemini, Deepseek, Mistral, custom providers, and more, and custom providers
-- **Agent personas (NPCs)** - Create specialized personas and use them as agents.
-- **Jinxs** - Build reusable AI workflows and tools
-- **Document tools** - Edit DOCX/XLSX, annotate PDFs, browse photos
-- **Data dashboard** - Query databases, explore knowledge graphs, manage memories
-- **MCP integration** - Connect to Model Context Protocol servers for extended capabilities
+- Write and run code, use terminals, build reusable workflows and tools that chain together natural language and templateable code through jinja execution templates.
+- Browse the web, read and annotate PDFs, analyze data and create dashboards, compile LaTeX.
+- Edit DOCX, XLSX, PPTX, MAPX.
+- Arrange chats, editors, PDFs, browsers, terminals as your work evolves.
+- Manage agents, team context, MCP Server integrations, memory, and knowledge graphs.
 
 ## Demo Video
 

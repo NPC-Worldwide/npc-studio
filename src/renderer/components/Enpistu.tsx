@@ -3458,12 +3458,19 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
                     if (contextPrompt) contextPrompt += '\n\n';
 
                     const browserContentPromises = browserContexts.map(async (ctx: any) => {
-                        const result = await window.api.browserGetPageContent({
-                            viewId: ctx.viewId
-                        });
-                        if (result.success && result.content) {
-                            return `Webpage: ${result.title} (${result.url})\n\`\`\`\n${result.content}\n\`\`\``;
+                        // Try to get content directly from the webview via contentDataRef
+                        const browserPaneData = contentDataRef.current[ctx.paneId];
+                        if (browserPaneData?.getPageContent) {
+                            try {
+                                const result = await browserPaneData.getPageContent();
+                                if (result.success && result.content) {
+                                    return `Webpage: ${result.title} (${result.url})\n\`\`\`\n${result.content}\n\`\`\``;
+                                }
+                            } catch (err) {
+                                console.error('[Context] Failed to get browser content:', err);
+                            }
                         }
+                        // Fallback to just showing URL
                         return `Currently viewing: ${ctx.url}`;
                     });
 

@@ -42,6 +42,38 @@ const WebBrowserViewer = memo(({
     // This ensures users stay logged into sites when opening new browser tabs
     const viewId = 'default-browser-session';
 
+    // Expose getPageContent method through contentDataRef for context gathering
+    useEffect(() => {
+        if (contentDataRef.current[nodeId]) {
+            contentDataRef.current[nodeId].getPageContent = async () => {
+                const webview = webviewRef.current;
+                if (!webview) return { success: false, content: '', url: '', title: '' };
+
+                try {
+                    const content = await webview.executeJavaScript(`
+                        (function() {
+                            const main = document.querySelector('main, article, .content, #content') || document.body;
+                            const clone = main.cloneNode(true);
+                            clone.querySelectorAll('script, style, nav, footer, aside, .nav, .footer, .ads').forEach(el => el.remove());
+                            let text = clone.innerText || clone.textContent;
+                            text = text.replace(/\\s+/g, ' ').trim();
+                            return text.substring(0, 8000);
+                        })();
+                    `);
+                    return {
+                        success: true,
+                        content: content,
+                        url: webview.getURL(),
+                        title: webview.getTitle()
+                    };
+                } catch (err) {
+                    console.error('[WebBrowser] Failed to get page content:', err);
+                    return { success: false, content: '', url: currentUrl, title: title };
+                }
+            };
+        }
+    }, [nodeId, currentUrl, title]);
+
     useEffect(() => {
         const webview = webviewRef.current;
         if (!webview) return;
