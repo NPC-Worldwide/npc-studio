@@ -38,6 +38,7 @@ import ProjectEnvEditor from './ProjectEnvEditor';
 import DBTool from './DBTool';
 import LibraryViewer from './LibraryViewer';
 import FolderViewer from './FolderViewer';
+import PathSwitcher from './PathSwitcher';
 import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
@@ -6425,43 +6426,13 @@ const renderMainContent = () => {
     // Top bar component - always visible
     const topBar = (
         <div className="flex-shrink-0 h-8 px-2 flex items-center gap-3 text-[11px] theme-bg-secondary border-b theme-border">
-            {/* Full Path selector - left */}
-            <div className="flex items-center gap-1 min-w-[200px] max-w-[300px]">
-                <button
-                    onClick={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
-                    className="p-1 theme-hover rounded transition-all flex-shrink-0"
-                    title="Go Up"
-                    aria-label="Go Up Directory"
-                >
-                    <ArrowUp size={14} className={(!currentPath || currentPath === baseDir) ? "text-gray-600" : "theme-text-secondary"}/>
-                </button>
-                {isEditingPath ? (
-                    <input
-                        type="text"
-                        value={editedPath}
-                        onChange={(e) => setEditedPath(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                setIsEditingPath(false);
-                                switchToPath(editedPath);
-                            } else if (e.key === 'Escape') {
-                                setIsEditingPath(false);
-                            }
-                        }}
-                        onBlur={() => setIsEditingPath(false)}
-                        autoFocus
-                        className="text-xs theme-text-muted theme-input border rounded px-2 py-0.5 flex-1 min-w-0"
-                    />
-                ) : (
-                    <div
-                        onClick={() => { setIsEditingPath(true); setEditedPath(currentPath); }}
-                        className="text-xs theme-text-muted overflow-hidden overflow-ellipsis whitespace-nowrap cursor-pointer theme-hover px-2 py-0.5 rounded flex-1 min-w-0"
-                        title={currentPath}
-                    >
-                        {currentPath || '...'}
-                    </div>
-                )}
-            </div>
+            {/* Path Switcher - left */}
+            <PathSwitcher
+                currentPath={currentPath}
+                baseDir={baseDir}
+                onPathChange={switchToPath}
+                onGoUp={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
+            />
 
             <div className="flex-1" />
 

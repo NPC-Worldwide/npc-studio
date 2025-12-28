@@ -5,7 +5,7 @@
 <h1 align="center">NPC Studio</h1>
 
 <p align="center">
-  <strong>Your AI-native workspace for conversations, code, and data.</strong>
+  <strong>Explore the unknown and build the future.</strong>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 
 ---
 
-NPC Studio is an AI-powered IDE that combines chat, code editing, document viewing, web browsing, and data exploration into a single tiled workspace. Work with multiple AI models, manage agent personas, and build custom workflows with Jinxs.
+NPC Studio combines chat, code, documents, web browsing, multi-media management, and much more into a  tiled workspace desktop environment with smart context and composable automations.
 
 ### Highlights
 
