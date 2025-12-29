@@ -1,8 +1,8 @@
-NPC Studio License (Based on AGPL-3.0)
+Incognide License (Based on AGPL-3.0)
 
 Overview
 
-  This license for 'NPC Studio' software is based on the GNU Affero General Public License v3.0 (AGPL-3.0, added below) with additional restrictions on commercial hosting and resale. NPC Studio is an open-source software that has been developed in order to facilitate the management of NPC Teams as defined within the npcsh agent framework. NPC teams consist of AI Agents, tools, and context elements and NPC Studio makes it straightforward to interact with a global NPC team or a specific project's NPC team.
+  This license for 'Incognide' software is based on the GNU Affero General Public License v3.0 (AGPL-3.0, added below) with additional restrictions on commercial hosting and resale. Incognide is an open-source software that has been developed in order to facilitate the management of NPC Teams as defined within the npcsh agent framework. NPC teams consist of AI Agents, tools, and context elements and Incognide makes it straightforward to interact with a global NPC team or a specific project's NPC team.
 
 License Terms
   ---
@@ -20,7 +20,7 @@ License Terms
   Additional Restrictions
     In addition to the terms of the AGPL-3.0, the following restrictions apply:
 
-    -Commercial Hosting Restriction: This NPC Studio software (principally the Graphical User Interface) may not be offered as a Software-as-a-Service (SaaS) by any entity other than the original licensor or those with express permission granted by the original licensor. No other third party may host, operate, or provide network access to this software as a service for others.
+    -Commercial Hosting Restriction: This Incognide software (principally the Graphical User Interface) may not be offered as a Software-as-a-Service (SaaS) by any entity other than the original licensor or those with express permission granted by the original licensor. No other third party may host, operate, or provide network access to this software as a service for others.
 
     -Resale Prohibition: This software may not be sold, relicensed, or commercially distributed as a standalone product by any entity other than the original licensor or those with express permission granted by the original licensor.
 
@@ -30,7 +30,7 @@ License Terms
     2. Integration into commercial workflows
     3. Use within commercial organizations as an internal tool
     4. Supporting commercial activities
-    5. NPC Teams that have been built or developed within the NPC Studio can be deployed and used as part of a Software-as-a-Service offering or in packaged software made for sale and distribution. In such cases, it is NOT required that the entities share any of the developed source materials that are specific to the NPC Team, but it is required that any modifications made to this NPC Studio software itself in the course of that NPC Team development are shared under the AGPL-3.0.
+    5. NPC Teams that have been built or developed within the Incognide can be deployed and used as part of a Software-as-a-Service offering or in packaged software made for sale and distribution. In such cases, it is NOT required that the entities share any of the developed source materials that are specific to the NPC Team, but it is required that any modifications made to this Incognide software itself in the course of that NPC Team development are shared under the AGPL-3.0.
 
   ---
   Enforcement

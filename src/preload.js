@@ -417,14 +417,10 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     loadProjectSettings: (path) => ipcRenderer.invoke('loadProjectSettings', path),
     saveProjectSettings: (args) => ipcRenderer.invoke('saveProjectSettings', args),
 
-    // Check if ~/.npcsh exists and has a valid npc_team
     npcshCheck: () => ipcRenderer.invoke('npcsh-check'),
-    // Get NPCs and jinxs available in the npcsh package
     npcshPackageContents: () => ipcRenderer.invoke('npcsh-package-contents'),
-    // Initialize ~/.npcsh with default npc_team
     npcshInit: () => ipcRenderer.invoke('npcsh-init'),
 
-    // Logging - centralized in ~/.npcsh/npc-studio/logs/
     getLogsDir: () => ipcRenderer.invoke('getLogsDir'),
     readLogFile: (logType) => ipcRenderer.invoke('readLogFile', logType),
 

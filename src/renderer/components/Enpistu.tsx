@@ -5194,7 +5194,7 @@ ${contextPrompt}`;
                     <Sparkles size={20} className="text-purple-400" />
                 </div>
                 <div>
-                    <h2 className="text-lg font-semibold theme-text-primary">Welcome to NPC Studio</h2>
+                    <h2 className="text-lg font-semibold theme-text-primary">Welcome to Incognide</h2>
                     <p className="text-xs theme-text-muted">Set up your global NPC team with agents and jinxs</p>
                 </div>
                 <button

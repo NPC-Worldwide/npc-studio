@@ -31,8 +31,8 @@ const fetch = require('node-fetch');
 const { dialog } = require('electron');
 const crypto = require('crypto');
 
-// Centralized logging setup - all logs go to ~/.npcsh/npc-studio/logs/
-const logsDir = path.join(os.homedir(), '.npcsh', 'npc-studio', 'logs');
+// Centralized logging setup - all logs go to ~/.npcsh/incognide/logs/
+const logsDir = path.join(os.homedir(), '.npcsh', 'incognide', 'logs');
 try {
   fs.mkdirSync(logsDir, { recursive: true });
 } catch (err) {
@@ -185,8 +185,8 @@ const ensureTablesExist = async () => {
 };
 
 app.setAppUserModelId('com.npc_studio.chat');
-app.name = 'npc-studio';
-app.setName('npc-studio');
+app.name = 'incognide';
+app.setName('incognide');
 // Unified logging functions
 const formatLogMessage = (prefix, messages) => {
     const timestamp = new Date().toISOString();
@@ -936,8 +936,8 @@ function createWindow(cliArgs = {}) {
       width: 1200,
       height: 800,
       icon: iconPath,
-      title: 'NPC Studio',
-      name: 'npc-studio',
+      title: 'Incognide',
+      name: 'incognide',
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: true,
@@ -2524,8 +2524,8 @@ ipcMain.handle('browser-get-selected-text', (event, { viewId }) => {
 });
 
 // ==================== BROWSER EXTENSIONS ====================
-const extensionsDir = path.join(os.homedir(), '.npcsh', 'npc-studio', 'extensions');
-const extensionsConfigPath = path.join(os.homedir(), '.npcsh', 'npc-studio', 'extensions.json');
+const extensionsDir = path.join(os.homedir(), '.npcsh', 'incognide', 'extensions');
+const extensionsConfigPath = path.join(os.homedir(), '.npcsh', 'incognide', 'extensions.json');
 const loadedExtensions = new Map(); // extensionId => extension object
 
 // Ensure extensions directory exists
