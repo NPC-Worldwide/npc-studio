@@ -1,7 +1,7 @@
 /**
  * Studio Actions Registry
  *
- * Enables agents to control NPC Studio UI via tool calls.
+ * Enables agents to control Incognide UI via tool calls.
  * Actions with the `studio.*` prefix are intercepted by the frontend
  * and executed directly (no backend round-trip needed).
  */

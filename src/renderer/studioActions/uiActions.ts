@@ -29,7 +29,7 @@ async function notify(
     // Could also use browser notification API as fallback
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'granted') {
-        new Notification('NPC Studio', { body: message });
+        new Notification('Incognide', { body: message });
       }
     }
 

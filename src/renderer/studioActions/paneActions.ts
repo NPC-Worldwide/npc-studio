@@ -1,7 +1,7 @@
 /**
  * Pane Actions
  *
- * Actions for managing panes in NPC Studio:
+ * Actions for managing panes in Incognide:
  * - open_pane, close_pane, focus_pane, split_pane, list_panes, zen_mode
  */
 
