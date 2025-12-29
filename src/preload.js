@@ -88,7 +88,16 @@ readDocxContent: (filePath) =>
     browserGetHistoryGraph: (args) => ipcRenderer.invoke('browser:getHistoryGraph', args),
     browserSetVisibility: (args) => ipcRenderer.invoke('browser:set-visibility', args),
 
-   
+    // Browser extensions
+    browserLoadExtension: (extensionPath) => ipcRenderer.invoke('browser:loadExtension', extensionPath),
+    browserRemoveExtension: (extensionId) => ipcRenderer.invoke('browser:removeExtension', extensionId),
+    browserGetExtensions: () => ipcRenderer.invoke('browser:getExtensions'),
+    browserToggleExtension: (args) => ipcRenderer.invoke('browser:toggleExtension', args),
+    browserSelectExtensionFolder: () => ipcRenderer.invoke('browser:selectExtensionFolder'),
+    browserGetInstalledBrowsers: () => ipcRenderer.invoke('browser:getInstalledBrowsers'),
+    browserImportExtensionsFrom: (args) => ipcRenderer.invoke('browser:importExtensionsFrom', args),
+
+
     onBrowserLoaded: (callback) => {
         const handler = (_, data) => callback(data);
         ipcRenderer.on('browser-loaded', handler);

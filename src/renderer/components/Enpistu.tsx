@@ -96,6 +96,7 @@ import GraphViewer from './GraphViewer';
 import BrowserHistoryWeb from './BrowserHistoryWeb';
 import DataLabeler from './DataLabeler';
 import ChatInput from './ChatInput';
+import { StudioContext } from '../studioActions';
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
@@ -1717,23 +1718,6 @@ const renderDocxViewer = useCallback(({ nodeId }) => {
     );
 }, [rootLayoutNode, closeContentPane]);
 
-const renderBrowserViewer = useCallback(({ nodeId }) => {
-    return (
-        <WebBrowserViewer
-            nodeId={nodeId}
-            contentDataRef={contentDataRef}
-            currentPath={currentPath}
-            setBrowserContextMenuPos={setBrowserContextMenuPos}
-            setRootLayoutNode={setRootLayoutNode}
-            findNodePath={findNodePath}
-            rootLayoutNode={rootLayoutNode}
-            setDraggedItem={setDraggedItem}
-            setPaneContextMenu={setPaneContextMenu}
-            closeContentPane={closeContentPane}
-        />
-    );
-}, [currentPath, rootLayoutNode, closeContentPane]);
-
 const renderPptxViewer = useCallback(({ nodeId }) => {
     return (
         <PptxViewer
@@ -3093,6 +3077,31 @@ const handleGlobalDragEnd = () => {
     setActiveConversationId(null);
     setCurrentFile(null);
 }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+
+// Handle opening a new browser tab/pane with a URL
+const handleNewBrowserTab = useCallback((url: string) => {
+    createNewBrowser(url || 'https://google.com');
+}, [createNewBrowser]);
+
+const renderBrowserViewer = useCallback(({ nodeId }) => {
+    return (
+        <WebBrowserViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            currentPath={currentPath}
+            browserContextMenuPos={browserContextMenuPos}
+            setBrowserContextMenuPos={setBrowserContextMenuPos}
+            handleNewBrowserTab={handleNewBrowserTab}
+            setRootLayoutNode={setRootLayoutNode}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+        />
+    );
+}, [currentPath, rootLayoutNode, closeContentPane, browserContextMenuPos, handleNewBrowserTab, createNewBrowser]);
+
 const handleBrowserDialogNavigate = (url) => {
         createNewBrowser(url);
         setBrowserUrlDialogOpen(false);
@@ -3378,8 +3387,9 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
     };
 
     // Main input submit handler
-    const handleInputSubmit = async (e: React.FormEvent) => {
+    const handleInputSubmit = async (e: React.FormEvent, options?: { voiceInput?: boolean }) => {
         e.preventDefault();
+        const wasVoiceInput = options?.voiceInput || false;
 
         // Get pane-specific execution mode and selectedJinx
         const paneExecMode = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.executionMode || 'chat') : 'chat';
@@ -3507,7 +3517,8 @@ ${contextPrompt}`;
             executionMode: paneExecMode,
             isJinxCall: isJinxMode,
             jinxName: isJinxMode ? jinxName : null,
-            jinxInputs: isJinxMode ? jinxArgsForApi : null
+            jinxInputs: isJinxMode ? jinxArgsForApi : null,
+            wasVoiceInput: wasVoiceInput
         };
 
         const assistantPlaceholder = {
@@ -4368,6 +4379,24 @@ ${contextPrompt}`;
 
     // Set up streaming listeners
     console.log('[DEBUG] Setting up stream listeners. Config:', config, 'config.stream:', config?.stream);
+
+    // Build studioContext for agent-controlled UI actions
+    const studioContext: StudioContext = useMemo(() => ({
+        rootLayoutNode,
+        contentDataRef,
+        activeContentPaneId: activeContentPaneId || '',
+        setActiveContentPaneId,
+        setRootLayoutNode,
+        performSplit,
+        closeContentPane,
+        updateContentPane,
+        toggleZenMode: (paneId: string) => {
+            setZenModePaneId(prev => prev === paneId ? null : paneId);
+        },
+        generateId,
+        findPanePath: findNodePath
+    }), [rootLayoutNode, contentDataRef, activeContentPaneId, setActiveContentPaneId, performSplit, closeContentPane, updateContentPane]);
+
     usePaneAwareStreamListeners(
         config,
         listenersAttached,
@@ -4378,7 +4407,8 @@ ${contextPrompt}`;
         setAiEditModal,
         parseAgenticResponse,
         getConversationStats,
-        refreshConversations
+        refreshConversations,
+        studioContext
     );
 
 
@@ -6509,7 +6539,57 @@ const renderPdfContextMenu = () => {
 // Render browser context menu
 const renderBrowserContextMenu = () => {
     if (!browserContextMenuPos) return null;
-    return <div>Browser Context Menu</div>;
+
+    const closeMenu = () => setBrowserContextMenuPos(null);
+
+    // Find the pane to get webview reference
+    const paneData = browserContextMenuPos.viewId ? contentDataRef.current[browserContextMenuPos.viewId] : null;
+
+    return (
+        <>
+            <div className="fixed inset-0 z-40" onClick={closeMenu} />
+            <div
+                className="fixed z-50 min-w-[180px] theme-bg-secondary border theme-border rounded-lg shadow-xl py-1"
+                style={{ left: browserContextMenuPos.x, top: browserContextMenuPos.y }}
+            >
+                {browserContextMenuPos.selectedText && (
+                    <>
+                        <button
+                            onClick={() => {
+                                navigator.clipboard.writeText(browserContextMenuPos.selectedText);
+                                closeMenu();
+                            }}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
+                        >
+                            Copy Selected Text
+                        </button>
+                        <div className="border-t theme-border my-1" />
+                    </>
+                )}
+                <button
+                    onClick={() => {
+                        handleNewBrowserTab(paneData?.browserUrl || 'https://google.com');
+                        closeMenu();
+                    }}
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
+                >
+                    Open in New Pane
+                </button>
+                <div className="border-t theme-border my-1" />
+                <button
+                    onClick={() => {
+                        if (paneData?.browserUrl) {
+                            navigator.clipboard.writeText(paneData.browserUrl);
+                        }
+                        closeMenu();
+                    }}
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
+                >
+                    Copy Page URL
+                </button>
+            </div>
+        </>
+    );
 };
 
 // Sidebar rendering function

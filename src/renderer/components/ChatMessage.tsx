@@ -1,6 +1,6 @@
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useRef } from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
-import { Paperclip, Tag, Star, ChevronDown, ChevronUp } from 'lucide-react';
+import { Paperclip, Tag, Star, ChevronDown, ChevronUp, Volume2, VolumeX, Loader } from 'lucide-react';
 
 const highlightSearchTerm = (content: string, searchTerm: string): string => {
     if (!searchTerm || !content) return content;
@@ -55,6 +55,89 @@ export const ChatMessage = memo(({
     // Collapsible state for long user messages
     const isLongMessage = message.role === 'user' && countLines(message.content) > MAX_COLLAPSED_LINES;
     const [isExpanded, setIsExpanded] = useState(false);
+
+    // TTS state
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [isLoadingTTS, setIsLoadingTTS] = useState(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Get saved TTS settings
+    const getTTSSettings = () => {
+        try {
+            const stored = localStorage.getItem('npcStudio_ttsSettings');
+            if (stored) {
+                return JSON.parse(stored);
+            }
+        } catch (err) {}
+        return { engine: 'kokoro', voice: 'af_heart' };
+    };
+
+    // Play TTS for this message
+    const playTTS = async () => {
+        if (isSpeaking && audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+            setIsSpeaking(false);
+            return;
+        }
+
+        // Extract text content from message
+        let textContent = message.content || '';
+        if (message.contentParts) {
+            textContent = message.contentParts
+                .filter((p: any) => p.type === 'text')
+                .map((p: any) => p.content)
+                .join('\n');
+        }
+
+        if (!textContent.trim()) return;
+
+        setIsLoadingTTS(true);
+        try {
+            const settings = getTTSSettings();
+            const response = await fetch('http://localhost:5337/api/audio/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: textContent,
+                    engine: settings.engine,
+                    voice: settings.voice
+                })
+            });
+
+            if (!response.ok) {
+                console.error('TTS failed:', await response.text());
+                setIsLoadingTTS(false);
+                return;
+            }
+
+            const result = await response.json();
+            if (result.audio) {
+                const format = result.format || 'mp3';
+                const mimeType = format === 'wav' ? 'audio/wav' : 'audio/mp3';
+                const audioSrc = `data:${mimeType};base64,${result.audio}`;
+                const audio = new Audio(audioSrc);
+                audioRef.current = audio;
+
+                audio.onended = () => {
+                    setIsSpeaking(false);
+                    audioRef.current = null;
+                };
+
+                audio.onerror = () => {
+                    setIsSpeaking(false);
+                    audioRef.current = null;
+                };
+
+                await audio.play();
+                setIsSpeaking(true);
+            }
+        } catch (err) {
+            console.error('TTS error:', err);
+        } finally {
+            setIsLoadingTTS(false);
+        }
+    };
 
     return (
         <div
@@ -143,6 +226,29 @@ export const ChatMessage = memo(({
                         title={messageLabel ? "Edit labels" : "Add labels"}
                     >
                         <Tag size={14} />
+                    </button>
+                </div>
+            )}
+
+            {/* TTS button - shown for assistant messages */}
+            {message.role === 'assistant' && !messageSelectionMode && !showStreamingIndicators && message.content && (
+                <div className="absolute top-2 right-8 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            playTTS();
+                        }}
+                        className={`p-1 theme-hover rounded-full transition-all ${isSpeaking ? 'text-blue-400' : ''}`}
+                        title={isSpeaking ? "Stop speaking" : "Read aloud"}
+                        disabled={isLoadingTTS}
+                    >
+                        {isLoadingTTS ? (
+                            <Loader size={14} className="animate-spin" />
+                        ) : isSpeaking ? (
+                            <VolumeX size={14} />
+                        ) : (
+                            <Volume2 size={14} />
+                        )}
                     </button>
                 </div>
             )}
