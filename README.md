@@ -20,7 +20,7 @@
 
 ---
 
-Incognide combines chat, code, documents, web browsing, multi-media management, and much more into a  tiled workspace desktop environment with smart context and composable automations.
+Incognide combines chat, code, documents, web browsing, multi-media management, and much more into a tiled workspace desktop environment with smart context and composable automations.
 
 ### Highlights
 
