@@ -253,7 +253,7 @@ const handleStartFineTune = async () => {
     // We'll use a consistent path for fine-tuned models.
     const modelsOutputPath = `${currentPath}/models`; // Or a fixed global path like '~/.npcsh/models'
     // For now, let's use a project-relative models folder for better organization.
-    // If currentPath is /Users/caug/.npcsh/npc-studio, this will be /Users/caug/.npcsh/npc-studio/models
+    // If currentPath is /Users/caug/.npcsh/incognide, this will be /Users/caug/.npcsh/incognide/models
     // If you prefer a single global models folder, you can hardcode it:
     // const modelsOutputPath = '~/.npcsh/models'; 
     // Just ensure your backend's get_finetuned_models scans the same path.

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-    Send, Paperclip, Maximize2, ChevronDown, Star, ListFilter, FolderTree, Minimize2
+    Send, Paperclip, Maximize2, ChevronDown, Star, ListFilter, FolderTree, Minimize2, Mic, MicOff, Volume2
 } from 'lucide-react';
 import ContextFilesPanel from './ContextFilesPanel';
 
@@ -19,7 +19,7 @@ interface ChatInputProps {
     setIsResizingInput: (val: boolean) => void;
     // Streaming
     isStreaming: boolean;
-    handleInputSubmit: (e: any) => void;
+    handleInputSubmit: (e: any, options?: { voiceInput?: boolean }) => void;
     handleInterruptStream: () => void;
     // Files
     uploadedFiles: any[];
@@ -106,6 +106,11 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
     } = props;
 
     const [isHovering, setIsHovering] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordingError, setRecordingError] = useState<string | null>(null);
+    const [usedVoiceInput, setUsedVoiceInput] = useState(false);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
     const containerRef = useRef<HTMLDivElement>(null);
     const mcpDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -140,6 +145,95 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
     const hasContextFiles = contextFiles.length > 0;
     const hasInputContent = inputStr.trim() || uploadedFiles.length > 0 || hasJinxContent || hasContextFiles;
     const canSend = !isStreaming && hasInputContent && (activeConversationId || isJinxMode);
+
+    // Auto-clear recording error after 3 seconds
+    useEffect(() => {
+        if (recordingError) {
+            const timer = setTimeout(() => setRecordingError(null), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [recordingError]);
+
+    // Start voice recording
+    const startRecording = async () => {
+        try {
+            setRecordingError(null);
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = async () => {
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+
+                if (audioChunksRef.current.length === 0) return;
+
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+
+                // Convert to base64
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64Audio = (reader.result as string).split(',')[1];
+
+                    try {
+                        // Send to STT API
+                        const response = await fetch('http://localhost:5337/api/audio/stt', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ audio: base64Audio, format: 'webm' })
+                        });
+
+                        if (!response.ok) {
+                            const err = await response.json();
+                            setRecordingError(err.error || 'STT failed');
+                            return;
+                        }
+
+                        const result = await response.json();
+                        if (result.text) {
+                            // Append transcribed text to input
+                            const newText = input ? `${input} ${result.text}` : result.text;
+                            setInput(newText);
+                            // Mark that voice input was used
+                            setUsedVoiceInput(true);
+                        }
+                    } catch (err: any) {
+                        setRecordingError(err.message || 'STT request failed');
+                    }
+                };
+                reader.readAsDataURL(audioBlob);
+            };
+
+            mediaRecorder.start(100); // Collect data every 100ms
+            setIsRecording(true);
+        } catch (err: any) {
+            setRecordingError(err.message || 'Microphone access denied');
+        }
+    };
+
+    // Stop voice recording
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+        }
+    };
+
+    // Toggle recording
+    const toggleRecording = () => {
+        if (isRecording) {
+            stopRecording();
+        } else {
+            startRecording();
+        }
+    };
 
     // Resizing handler for input height within pane
     useEffect(() => {
@@ -307,7 +401,8 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             onKeyDown={(e) => {
                                 if (!isStreaming && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                                     e.preventDefault();
-                                    handleInputSubmit(e);
+                                    handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                    setUsedVoiceInput(false);
                                     setIsInputExpanded(false);
                                 }
                             }}
@@ -324,7 +419,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 Stop
                             </button>
                         ) : (
-                            <button onClick={(e) => { handleInputSubmit(e); setIsInputExpanded(false); }} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center gap-1 disabled:opacity-50">
+                            <button onClick={(e) => { handleInputSubmit(e, { voiceInput: usedVoiceInput }); setUsedVoiceInput(false); setIsInputExpanded(false); }} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center gap-1 disabled:opacity-50">
                                 <Send size={16}/> Send
                             </button>
                         )}
@@ -420,7 +515,8 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     onKeyDown={(e) => {
                                         if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
                                             e.preventDefault();
-                                            handleInputSubmit(e);
+                                            handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                            setUsedVoiceInput(false);
                                         }
                                     }}
                                     placeholder={isStreaming ? "Streaming..." : "Type a message..."}
@@ -437,11 +533,24 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     <Maximize2 size={12} />
                                 </button>
                             </div>
-                            <div className="absolute bottom-1 right-1">
+                            <div className="absolute bottom-1 right-1 flex gap-1">
+                                <button
+                                    onClick={toggleRecording}
+                                    disabled={isStreaming}
+                                    className={`p-1 rounded theme-hover opacity-50 group-hover:opacity-100 ${isStreaming ? 'opacity-30' : ''} ${isRecording ? 'text-red-500 animate-pulse' : usedVoiceInput ? 'text-green-400' : 'theme-text-muted hover:theme-text-primary'}`}
+                                    title={isRecording ? "Stop recording" : usedVoiceInput ? "Voice mode - response will be spoken" : "Start voice input"}
+                                >
+                                    {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+                                </button>
                                 <button onClick={handleAttachFileClick} disabled={isStreaming} className={`p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100 ${isStreaming ? 'opacity-30' : ''}`} title="Attach file">
                                     <Paperclip size={16} />
                                 </button>
                             </div>
+                            {recordingError && (
+                                <div className="absolute bottom-8 right-1 bg-red-500/90 text-white text-xs px-2 py-1 rounded">
+                                    {recordingError}
+                                </div>
+                            )}
                         </div>
 
                         {isStreaming ? (
@@ -449,7 +558,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
                             </button>
                         ) : (
-                            <button onClick={handleInputSubmit} disabled={!canSend} className="theme-button-success text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end disabled:opacity-50">
+                            <button onClick={(e) => { handleInputSubmit(e, { voiceInput: usedVoiceInput }); setUsedVoiceInput(false); }} disabled={!canSend} className="theme-button-success text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end disabled:opacity-50">
                                 <Send size={16}/>
                             </button>
                         )}
@@ -619,13 +728,16 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     return (
                                         <div key={origin} className="border-t theme-border">
                                             <div className="px-2 py-1 text-[10px] uppercase theme-text-muted">{origin === 'project' ? 'Project' : 'Global'}</div>
-                                            {Object.entries(grouped).filter(([g]) => g.toLowerCase() !== 'modes').map(([gName, jinxs]: [string, any]) => (
+                                            {Object.entries(grouped)
+                                                .filter(([g]) => g.toLowerCase() !== 'modes')
+                                                .sort(([a], [b]) => a.localeCompare(b))
+                                                .map(([gName, jinxs]: [string, any]) => (
                                                 <details key={`${origin}-${gName}`} className="px-2">
                                                     <summary className="text-xs theme-text-primary cursor-pointer py-1 flex items-center gap-1">
                                                         <FolderTree size={10}/> {gName}
                                                     </summary>
                                                     <div className="pl-3 pb-1 flex flex-col gap-1">
-                                                        {jinxs.map((jinx: any) => (
+                                                        {jinxs.sort((a: any, b: any) => a.name.localeCompare(b.name)).map((jinx: any) => (
                                                             <div key={jinx.name} className="text-xs theme-hover cursor-pointer" onClick={() => { setExecutionMode(jinx.name); setSelectedJinx(jinx); setShowJinxDropdown(false); }}>
                                                                 {jinx.name}
                                                             </div>

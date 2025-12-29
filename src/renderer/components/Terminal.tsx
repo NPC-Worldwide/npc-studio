@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal as TerminalIcon, Code, Sparkles } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 
-const SHELL_PROMPT_KEY = 'npc-studio-shell-profile-prompted';
+const SHELL_PROMPT_KEY = 'incognide-shell-profile-prompted';
 
 const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId }) => {
     const terminalRef = useRef(null);

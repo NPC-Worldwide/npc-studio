@@ -1,5 +1,5 @@
 /**
- * PostureGuardian - NPC Studio Integration
+ * PostureGuardian - Incognide Integration
  *
  * Screen-based posture estimation that uses active pane position
  * to estimate user posture strain without a webcam.

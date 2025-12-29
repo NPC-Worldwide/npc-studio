@@ -1,5 +1,48 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { Code2, FileText, FileJson, BarChart3, File } from 'lucide-react';
+import { executeStudioAction, StudioContext } from '../studioActions';
+
+// Auto TTS trigger for voice input responses
+export const triggerAutoTTS = async (text: string) => {
+    if (!text?.trim()) return;
+
+    try {
+        // Get saved TTS settings
+        let engine = 'kokoro';
+        let voice = 'af_heart';
+        try {
+            const stored = localStorage.getItem('npcStudio_ttsSettings');
+            if (stored) {
+                const settings = JSON.parse(stored);
+                if (settings.engine) engine = settings.engine;
+                if (settings.voice) voice = settings.voice;
+            }
+        } catch (err) {}
+
+        console.log(`[Voice] Triggering auto-TTS with ${engine}/${voice}`);
+
+        const response = await fetch('http://localhost:5337/api/audio/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, engine, voice })
+        });
+
+        if (!response.ok) {
+            console.error('[Voice] TTS request failed:', await response.text());
+            return;
+        }
+
+        const result = await response.json();
+        if (result.audio) {
+            const format = result.format || 'mp3';
+            const mimeType = format === 'wav' ? 'audio/wav' : 'audio/mp3';
+            const audio = new Audio(`data:${mimeType};base64,${result.audio}`);
+            await audio.play();
+        }
+    } catch (err) {
+        console.error('[Voice] Auto-TTS error:', err);
+    }
+};
 
 export const convertFileToBase64 = (file: File) => {
     return new Promise((resolve, reject) => {
@@ -628,7 +671,8 @@ export const usePaneAwareStreamListeners = (
     setAiEditModal: (modal: any) => void,
     parseAgenticResponse: (content: string, contexts: any[]) => any[],
     getConversationStats: (messages: any[]) => any,
-    refreshConversations: () => Promise<void>
+    refreshConversations: () => Promise<void>,
+    studioContext?: StudioContext | null
 ) => {
     return useEffect(() => {
         console.log('[DEBUG] Stream listener effect running. config?.stream:', config?.stream, 'listenersAttached.current:', listenersAttached.current);
@@ -779,6 +823,61 @@ export const usePaneAwareStreamListeners = (
                             result_preview: tc.result_preview || ''
                         }));
                         console.log('[STREAM][TOOLCALLS]', normalizedCalls);
+
+                        // Intercept and execute studio.* actions
+                        if (studioContext) {
+                            for (const tc of normalizedCalls) {
+                                const funcName = tc.function?.name || '';
+                                if (funcName.startsWith('studio.')) {
+                                    const actionName = funcName.slice(7); // remove "studio."
+                                    let args = {};
+                                    try {
+                                        args = JSON.parse(tc.function?.arguments || '{}');
+                                    } catch (e) {
+                                        console.warn('[STUDIO] Failed to parse arguments:', tc.function?.arguments);
+                                    }
+
+                                    // Execute the studio action asynchronously
+                                    (async () => {
+                                        try {
+                                            console.log(`[STUDIO] Executing action: ${actionName}`, args);
+                                            const result = await executeStudioAction(actionName, args, studioContext);
+                                            console.log(`[STUDIO] Action result:`, result);
+
+                                            // Update the tool call with the result
+                                            tc.status = result.success ? 'complete' : 'error';
+                                            tc.result_preview = JSON.stringify(result, null, 2);
+
+                                            // Also send result back to backend for agent continuation
+                                            if (incomingStreamId) {
+                                                try {
+                                                    await fetch('http://localhost:5337/api/studio/action_result', {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({
+                                                            streamId: incomingStreamId,
+                                                            toolId: tc.id,
+                                                            result: result
+                                                        })
+                                                    });
+                                                } catch (fetchErr) {
+                                                    console.warn('[STUDIO] Failed to send result to backend:', fetchErr);
+                                                }
+                                            }
+
+                                            // Force re-render to show updated status
+                                            setRootLayoutNode(prev => ({ ...prev }));
+                                        } catch (err) {
+                                            console.error(`[STUDIO] Action ${actionName} failed:`, err);
+                                            tc.status = 'error';
+                                            tc.result_preview = `Error: ${err}`;
+                                            setRootLayoutNode(prev => ({ ...prev }));
+                                        }
+                                    })();
+                                }
+                            }
+                        }
+
                         const existing = message.toolCalls || [];
                         const merged = [...existing];
                         normalizedCalls.forEach((tc: any) => {
@@ -859,6 +958,13 @@ export const usePaneAwareStreamListeners = (
                                 console.warn('Agent mode but no changes detected. Response format may be wrong.');
                             }
                         }
+
+                        // Auto-TTS if user used voice input
+                        const wasVoiceInput = recentUserMsgs.length > 0 && recentUserMsgs[recentUserMsgs.length - 1]?.wasVoiceInput;
+                        if (wasVoiceInput && msg.content) {
+                            console.log('[Voice] Auto-playing TTS for voice input response');
+                            triggerAutoTTS(msg.content);
+                        }
                     }
                     paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
                 }
@@ -912,7 +1018,7 @@ export const usePaneAwareStreamListeners = (
             cleanupStreamError();
             listenersAttached.current = false;
         };
-    }, [config, listenersAttached, streamToPaneRef, contentDataRef, setRootLayoutNode, setIsStreaming, setAiEditModal, parseAgenticResponse, getConversationStats, refreshConversations]);
+    }, [config, listenersAttached, streamToPaneRef, contentDataRef, setRootLayoutNode, setIsStreaming, setAiEditModal, parseAgenticResponse, getConversationStats, refreshConversations, studioContext]);
 };
 
 

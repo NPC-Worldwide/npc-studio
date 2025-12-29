@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session } = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -31,8 +31,8 @@ const fetch = require('node-fetch');
 const { dialog } = require('electron');
 const crypto = require('crypto');
 
-// Centralized logging setup - all logs go to ~/.npcsh/npc-studio/logs/
-const logsDir = path.join(os.homedir(), '.npcsh', 'npc-studio', 'logs');
+// Centralized logging setup - all logs go to ~/.npcsh/incognide/logs/
+const logsDir = path.join(os.homedir(), '.npcsh', 'incognide', 'logs');
 try {
   fs.mkdirSync(logsDir, { recursive: true });
 } catch (err) {
@@ -185,8 +185,8 @@ const ensureTablesExist = async () => {
 };
 
 app.setAppUserModelId('com.npc_studio.chat');
-app.name = 'npc-studio';
-app.setName('npc-studio');
+app.name = 'incognide';
+app.setName('incognide');
 // Unified logging functions
 const formatLogMessage = (prefix, messages) => {
     const timestamp = new Date().toISOString();
@@ -936,8 +936,8 @@ function createWindow(cliArgs = {}) {
       width: 1200,
       height: 800,
       icon: iconPath,
-      title: 'NPC Studio',
-      name: 'npc-studio',
+      title: 'Incognide',
+      name: 'incognide',
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: true,
@@ -2521,6 +2521,336 @@ ipcMain.handle('browser-get-selected-text', (event, { viewId }) => {
     });
   }
   return { success: false, error: 'Browser view not found' };
+});
+
+// ==================== BROWSER EXTENSIONS ====================
+const extensionsDir = path.join(os.homedir(), '.npcsh', 'incognide', 'extensions');
+const extensionsConfigPath = path.join(os.homedir(), '.npcsh', 'incognide', 'extensions.json');
+const loadedExtensions = new Map(); // extensionId => extension object
+
+// Ensure extensions directory exists
+const ensureExtensionsDir = async () => {
+  await fsPromises.mkdir(extensionsDir, { recursive: true });
+};
+
+// Load extensions config
+const loadExtensionsConfig = async () => {
+  try {
+    await ensureExtensionsDir();
+    const data = await fsPromises.readFile(extensionsConfigPath, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return { extensions: [], enabled: {} };
+  }
+};
+
+// Save extensions config
+const saveExtensionsConfig = async (config) => {
+  await ensureExtensionsDir();
+  await fsPromises.writeFile(extensionsConfigPath, JSON.stringify(config, null, 2));
+};
+
+// Load a Chrome extension into the browser session
+ipcMain.handle('browser:loadExtension', async (event, extensionPath) => {
+  try {
+    const browserSession = session.fromPartition('persist:default-browser-session');
+    const extension = await browserSession.loadExtension(extensionPath, { allowFileAccess: true });
+    loadedExtensions.set(extension.id, extension);
+
+    // Save to config
+    const config = await loadExtensionsConfig();
+    if (!config.extensions.find(e => e.path === extensionPath)) {
+      config.extensions.push({
+        id: extension.id,
+        name: extension.name,
+        path: extensionPath,
+        version: extension.version
+      });
+      config.enabled[extension.id] = true;
+      await saveExtensionsConfig(config);
+    }
+
+    return { success: true, extension: { id: extension.id, name: extension.name, version: extension.version } };
+  } catch (error) {
+    console.error('[Extensions] Failed to load extension:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Unload/remove an extension
+ipcMain.handle('browser:removeExtension', async (event, extensionId) => {
+  try {
+    const browserSession = session.fromPartition('persist:default-browser-session');
+    await browserSession.removeExtension(extensionId);
+    loadedExtensions.delete(extensionId);
+
+    // Remove from config
+    const config = await loadExtensionsConfig();
+    config.extensions = config.extensions.filter(e => e.id !== extensionId);
+    delete config.enabled[extensionId];
+    await saveExtensionsConfig(config);
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get all loaded extensions
+ipcMain.handle('browser:getExtensions', async () => {
+  try {
+    const browserSession = session.fromPartition('persist:default-browser-session');
+    const extensions = browserSession.getAllExtensions();
+    const config = await loadExtensionsConfig();
+
+    return {
+      success: true,
+      extensions: extensions.map(ext => ({
+        id: ext.id,
+        name: ext.name,
+        version: ext.version,
+        enabled: config.enabled[ext.id] !== false
+      }))
+    };
+  } catch (error) {
+    return { success: false, error: error.message, extensions: [] };
+  }
+});
+
+// Toggle extension enabled state
+ipcMain.handle('browser:toggleExtension', async (event, { extensionId, enabled }) => {
+  try {
+    const config = await loadExtensionsConfig();
+    config.enabled[extensionId] = enabled;
+    await saveExtensionsConfig(config);
+
+    // Reload the browser session to apply changes
+    // Note: Electron doesn't have a direct enable/disable, so we'd need to reload
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Open file dialog to select extension folder
+ipcMain.handle('browser:selectExtensionFolder', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory'],
+    title: 'Select Chrome Extension Folder',
+    message: 'Select the folder containing the extension manifest.json'
+  });
+
+  if (result.canceled || !result.filePaths[0]) {
+    return { success: false, canceled: true };
+  }
+
+  const extensionPath = result.filePaths[0];
+
+  // Verify it's a valid extension (has manifest.json)
+  const manifestPath = path.join(extensionPath, 'manifest.json');
+  try {
+    await fsPromises.access(manifestPath);
+    return { success: true, path: extensionPath };
+  } catch {
+    return { success: false, error: 'Selected folder does not contain a manifest.json file' };
+  }
+});
+
+// Get browser profiles from installed browsers
+ipcMain.handle('browser:getInstalledBrowsers', async () => {
+  const browsers = [];
+  const homeDir = os.homedir();
+
+  // Common browser profile paths
+  const browserPaths = {
+    chrome: {
+      linux: path.join(homeDir, '.config', 'google-chrome'),
+      darwin: path.join(homeDir, 'Library', 'Application Support', 'Google', 'Chrome'),
+      win32: path.join(homeDir, 'AppData', 'Local', 'Google', 'Chrome', 'User Data')
+    },
+    chromium: {
+      linux: path.join(homeDir, '.config', 'chromium'),
+      darwin: path.join(homeDir, 'Library', 'Application Support', 'Chromium'),
+      win32: path.join(homeDir, 'AppData', 'Local', 'Chromium', 'User Data')
+    },
+    firefox: {
+      linux: path.join(homeDir, '.mozilla', 'firefox'),
+      darwin: path.join(homeDir, 'Library', 'Application Support', 'Firefox', 'Profiles'),
+      win32: path.join(homeDir, 'AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles')
+    },
+    brave: {
+      linux: path.join(homeDir, '.config', 'BraveSoftware', 'Brave-Browser'),
+      darwin: path.join(homeDir, 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser'),
+      win32: path.join(homeDir, 'AppData', 'Local', 'BraveSoftware', 'Brave-Browser', 'User Data')
+    },
+    vivaldi: {
+      linux: path.join(homeDir, '.config', 'vivaldi'),
+      darwin: path.join(homeDir, 'Library', 'Application Support', 'Vivaldi'),
+      win32: path.join(homeDir, 'AppData', 'Local', 'Vivaldi', 'User Data')
+    },
+    edge: {
+      linux: path.join(homeDir, '.config', 'microsoft-edge'),
+      darwin: path.join(homeDir, 'Library', 'Application Support', 'Microsoft Edge'),
+      win32: path.join(homeDir, 'AppData', 'Local', 'Microsoft', 'Edge', 'User Data')
+    }
+  };
+
+  const platform = process.platform;
+
+  for (const [browserName, paths] of Object.entries(browserPaths)) {
+    const browserPath = paths[platform];
+    if (browserPath) {
+      try {
+        await fsPromises.access(browserPath);
+        browsers.push({
+          name: browserName.charAt(0).toUpperCase() + browserName.slice(1),
+          path: browserPath,
+          key: browserName
+        });
+      } catch {
+        // Browser not installed
+      }
+    }
+  }
+
+  return { success: true, browsers };
+});
+
+// Import extensions from another browser
+ipcMain.handle('browser:importExtensionsFrom', async (event, { browserKey }) => {
+  try {
+    const homeDir = os.homedir();
+    const platform = process.platform;
+    let extensionsPath;
+
+    // Chrome-based browsers store extensions in a similar structure
+    const chromiumPaths = {
+      chrome: {
+        linux: path.join(homeDir, '.config', 'google-chrome', 'Default', 'Extensions'),
+        darwin: path.join(homeDir, 'Library', 'Application Support', 'Google', 'Chrome', 'Default', 'Extensions'),
+        win32: path.join(homeDir, 'AppData', 'Local', 'Google', 'Chrome', 'User Data', 'Default', 'Extensions')
+      },
+      brave: {
+        linux: path.join(homeDir, '.config', 'BraveSoftware', 'Brave-Browser', 'Default', 'Extensions'),
+        darwin: path.join(homeDir, 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser', 'Default', 'Extensions'),
+        win32: path.join(homeDir, 'AppData', 'Local', 'BraveSoftware', 'Brave-Browser', 'User Data', 'Default', 'Extensions')
+      },
+      vivaldi: {
+        linux: path.join(homeDir, '.config', 'vivaldi', 'Default', 'Extensions'),
+        darwin: path.join(homeDir, 'Library', 'Application Support', 'Vivaldi', 'Default', 'Extensions'),
+        win32: path.join(homeDir, 'AppData', 'Local', 'Vivaldi', 'User Data', 'Default', 'Extensions')
+      },
+      edge: {
+        linux: path.join(homeDir, '.config', 'microsoft-edge', 'Default', 'Extensions'),
+        darwin: path.join(homeDir, 'Library', 'Application Support', 'Microsoft Edge', 'Default', 'Extensions'),
+        win32: path.join(homeDir, 'AppData', 'Local', 'Microsoft', 'Edge', 'User Data', 'Default', 'Extensions')
+      },
+      chromium: {
+        linux: path.join(homeDir, '.config', 'chromium', 'Default', 'Extensions'),
+        darwin: path.join(homeDir, 'Library', 'Application Support', 'Chromium', 'Default', 'Extensions'),
+        win32: path.join(homeDir, 'AppData', 'Local', 'Chromium', 'User Data', 'Default', 'Extensions')
+      }
+    };
+
+    if (!chromiumPaths[browserKey]) {
+      return { success: false, error: 'Firefox extensions are not compatible. Only Chromium-based browsers are supported.' };
+    }
+
+    extensionsPath = chromiumPaths[browserKey][platform];
+
+    try {
+      await fsPromises.access(extensionsPath);
+    } catch {
+      return { success: false, error: `No extensions found at ${extensionsPath}` };
+    }
+
+    const extensionDirs = await fsPromises.readdir(extensionsPath);
+    const imported = [];
+    const skipped = [];
+    const browserSession = session.fromPartition('persist:default-browser-session');
+
+    for (const extId of extensionDirs) {
+      const extPath = path.join(extensionsPath, extId);
+      const stat = await fsPromises.stat(extPath);
+      if (!stat.isDirectory()) continue;
+
+      // Extensions have version subfolders
+      const versions = await fsPromises.readdir(extPath);
+      if (versions.length === 0) continue;
+
+      // Get the latest version
+      const latestVersion = versions.sort().pop();
+      const fullExtPath = path.join(extPath, latestVersion);
+      const manifestPath = path.join(fullExtPath, 'manifest.json');
+
+      // Check for manifest.json and read it
+      try {
+        await fsPromises.access(manifestPath);
+        const manifestData = JSON.parse(await fsPromises.readFile(manifestPath, 'utf-8'));
+        const manifestVersion = manifestData.manifest_version || 2;
+        const extName = manifestData.name || extId;
+
+        // Skip MV3 extensions with service workers (limited support in Electron)
+        if (manifestVersion === 3 && manifestData.background?.service_worker) {
+          console.log(`[Extensions] Skipping MV3 service worker extension: ${extName}`);
+          skipped.push({ name: extName, reason: 'MV3 service worker not fully supported' });
+          continue;
+        }
+
+        const extension = await browserSession.loadExtension(fullExtPath, { allowFileAccess: true });
+        loadedExtensions.set(extension.id, extension);
+        imported.push({ id: extension.id, name: extension.name, version: extension.version, path: fullExtPath });
+      } catch (err) {
+        console.log(`[Extensions] Skipping ${extId}: ${err.message}`);
+      }
+    }
+
+    // Save imported extensions to config
+    if (imported.length > 0) {
+      const config = await loadExtensionsConfig();
+      for (const ext of imported) {
+        if (!config.extensions.find(e => e.id === ext.id)) {
+          config.extensions.push(ext);
+          config.enabled[ext.id] = true;
+        }
+      }
+      await saveExtensionsConfig(config);
+    }
+
+    return { success: true, imported, skipped };
+  } catch (error) {
+    console.error('[Extensions] Import error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Load previously saved extensions on startup
+const loadSavedExtensions = async () => {
+  try {
+    const config = await loadExtensionsConfig();
+    const browserSession = session.fromPartition('persist:default-browser-session');
+
+    for (const ext of config.extensions) {
+      if (config.enabled[ext.id] !== false && ext.path) {
+        try {
+          const extension = await browserSession.loadExtension(ext.path, { allowFileAccess: true });
+          loadedExtensions.set(extension.id, extension);
+          console.log(`[Extensions] Loaded: ${extension.name}`);
+        } catch (err) {
+          console.log(`[Extensions] Failed to load ${ext.name}: ${err.message}`);
+        }
+      }
+    }
+  } catch (error) {
+    console.log('[Extensions] No saved extensions to load');
+  }
+};
+
+// Load extensions after app is ready
+app.whenReady().then(() => {
+  loadSavedExtensions().catch(err => {
+    console.log('[Extensions] Startup load error:', err.message);
+  });
 });
 
 // ==================== PASSWORD MANAGER ====================
@@ -6115,23 +6445,37 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
   
   const ignorePatterns = ['node_modules', '.git', '.DS_Store'];
 
-  async function readDirRecursive(currentPath) {
+  // Determine max depth based on path - limit to 2 levels for home directory
+  const homeDir = os.homedir();
+  const isHomeDir = dirPath === homeDir || dirPath === '~' || dirPath === homeDir + '/';
+  const maxDepth = isHomeDir ? 2 : Infinity;
+
+  async function readDirRecursive(currentPath, depth = 0) {
     const result = {};
     const items = await fsPromises.readdir(currentPath, { withFileTypes: true });
     for (const item of items) {
       if (item.isDirectory() && ignorePatterns.includes(item.name)) {
         console.log(`[Main Process] Ignoring directory: ${path.join(currentPath, item.name)}`);
-        continue; 
+        continue;
       }
 
       const itemPath = path.join(currentPath, item.name);
       if (item.isDirectory()) {
-        // Recursively read children
-        result[item.name] = {
-          type: 'directory',
-          path: itemPath,
-          children: await readDirRecursive(itemPath)
-        };
+        // Only recurse if we haven't hit max depth
+        if (depth < maxDepth) {
+          result[item.name] = {
+            type: 'directory',
+            path: itemPath,
+            children: await readDirRecursive(itemPath, depth + 1)
+          };
+        } else {
+          // At max depth, just show directory without children
+          result[item.name] = {
+            type: 'directory',
+            path: itemPath,
+            children: {} // Empty children - will be loaded on expand
+          };
+        }
       } else if (item.isFile()) {
         const ext = path.extname(item.name).toLowerCase();
         if (allowedExtensions.includes(ext)) {
@@ -6147,7 +6491,7 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
 
   try {
     await fsPromises.access(dirPath, fs.constants.R_OK);
-    return await readDirRecursive(dirPath);
+    return await readDirRecursive(dirPath, 0);
   } catch (err) {
     console.error(`[Main Process] Error in readDirectoryStructure for ${dirPath}:`, err);
     if (err.code === 'ENOENT') return { error: 'Directory not found' };
@@ -6344,6 +6688,11 @@ ipcMain.handle('save-global-context', async (event, contextData) => {
 // Check if ~/.npcsh exists and has a valid npc_team
 ipcMain.handle('npcsh-check', async () => {
   return await callBackendApi('http://127.0.0.1:5337/api/npcsh/check');
+});
+
+// Get NPCs and jinxs available in the npcsh package
+ipcMain.handle('npcsh-package-contents', async () => {
+  return await callBackendApi('http://127.0.0.1:5337/api/npcsh/package-contents');
 });
 
 // Initialize ~/.npcsh with default npc_team

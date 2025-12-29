@@ -380,6 +380,30 @@ export const LayoutNode = memo(({ node, path, component }) => {
             const startPos = isHorizontal ? e.clientX : e.clientY;
             const containerSize = isHorizontal ? e.currentTarget.parentElement.offsetWidth : e.currentTarget.parentElement.offsetHeight;
 
+            let rafId: number | null = null;
+            let pendingSizes: number[] | null = null;
+
+            const cleanup = () => {
+                if (rafId) cancelAnimationFrame(rafId);
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                document.removeEventListener('keydown', onKeyDown);
+            };
+
+            const applyResize = () => {
+                if (pendingSizes) {
+                    const sizesToApply = pendingSizes;
+                    pendingSizes = null;
+                    component.setRootLayoutNode(currentRoot => {
+                        const newRoot = JSON.parse(JSON.stringify(currentRoot));
+                        const target = component.findNodeByPath(newRoot, path);
+                        if (target) target.sizes = sizesToApply;
+                        return newRoot;
+                    });
+                }
+                rafId = null;
+            };
+
             const onMouseMove = (moveEvent) => {
                 const currentPos = isHorizontal ? moveEvent.clientX : moveEvent.clientY;
                 const deltaPercent = ((currentPos - startPos) / containerSize) * 100;
@@ -388,19 +412,43 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 newSizes[index] += amount;
                 newSizes[index + 1] -= amount;
 
-                component.setRootLayoutNode(currentRoot => {
-                    const newRoot = JSON.parse(JSON.stringify(currentRoot));
-                    const target = component.findNodeByPath(newRoot, path);
-                    if (target) target.sizes = newSizes;
-                    return newRoot;
-                });
+                pendingSizes = newSizes;
+                if (!rafId) {
+                    rafId = requestAnimationFrame(applyResize);
+                }
             };
+
+            const onKeyDown = (keyEvent) => {
+                if (keyEvent.key === 'Escape') {
+                    keyEvent.preventDefault();
+                    // Restore original sizes
+                    component.setRootLayoutNode(currentRoot => {
+                        const newRoot = JSON.parse(JSON.stringify(currentRoot));
+                        const target = component.findNodeByPath(newRoot, path);
+                        if (target) target.sizes = startSizes;
+                        return newRoot;
+                    });
+                    cleanup();
+                }
+            };
+
             const onMouseUp = () => {
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
+                // Apply any pending resize before cleanup
+                if (pendingSizes) {
+                    const sizesToApply = pendingSizes;
+                    component.setRootLayoutNode(currentRoot => {
+                        const newRoot = JSON.parse(JSON.stringify(currentRoot));
+                        const target = component.findNodeByPath(newRoot, path);
+                        if (target) target.sizes = sizesToApply;
+                        return newRoot;
+                    });
+                }
+                cleanup();
             };
+
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp, { once: true });
+            document.addEventListener('keydown', onKeyDown);
         };
 
         return (
@@ -469,11 +517,15 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     if (sourcePaneData?.contentType && targetPaneData) {
                         // Initialize target tabs if needed
                         if (!targetPaneData.tabs || targetPaneData.tabs.length === 0) {
+                            const targetTitle = targetPaneData.contentType === 'browser'
+                                ? (targetPaneData.browserUrl || 'Browser')
+                                : (targetPaneData.contentId?.split('/').pop() || targetPaneData.contentType);
                             targetPaneData.tabs = [{
                                 id: `tab_${Date.now()}_0`,
                                 contentType: targetPaneData.contentType,
                                 contentId: targetPaneData.contentId,
-                                title: targetPaneData.contentId?.split('/').pop() || targetPaneData.contentType
+                                browserUrl: targetPaneData.browserUrl, // Preserve browser URL
+                                title: targetTitle
                             }];
                             targetPaneData.activeTabIndex = 0;
                         }
@@ -488,11 +540,15 @@ export const LayoutNode = memo(({ node, path, component }) => {
                             });
                         } else {
                             // Add source content as a single new tab
+                            const sourceTitle = sourcePaneData.contentType === 'browser'
+                                ? (sourcePaneData.browserUrl || 'Browser')
+                                : (sourcePaneData.contentId?.split('/').pop() || sourcePaneData.contentType);
                             targetPaneData.tabs.push({
                                 id: `tab_${Date.now()}_${targetPaneData.tabs.length}`,
                                 contentType: sourcePaneData.contentType,
                                 contentId: sourcePaneData.contentId,
-                                title: sourcePaneData.contentId?.split('/').pop() || sourcePaneData.contentType
+                                browserUrl: sourcePaneData.browserUrl, // Preserve browser URL
+                                title: sourceTitle
                             });
                         }
 
@@ -501,6 +557,10 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         const activeTab = targetPaneData.tabs[targetPaneData.activeTabIndex];
                         targetPaneData.contentType = activeTab.contentType;
                         targetPaneData.contentId = activeTab.contentId;
+                        // Preserve browserUrl for browser tabs
+                        if (activeTab.contentType === 'browser' && activeTab.browserUrl) {
+                            targetPaneData.browserUrl = activeTab.browserUrl;
+                        }
 
                         // Close the source pane
                         closeContentPane(component.draggedItem.id, component.draggedItem.nodePath);
@@ -549,26 +609,37 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     // Initialize tabs if this pane doesn't have them yet
                     if (!paneData.tabs || paneData.tabs.length === 0) {
                         // Convert current content to first tab
+                        const currentTitle = paneData.contentType === 'browser'
+                            ? (paneData.browserUrl || 'Browser')
+                            : (paneData.contentId?.split('/').pop() || paneData.contentType);
                         paneData.tabs = [{
                             id: `tab_${Date.now()}_0`,
                             contentType: paneData.contentType,
                             contentId: paneData.contentId,
-                            title: paneData.contentId?.split('/').pop() || paneData.contentType
+                            browserUrl: paneData.browserUrl, // Preserve browser URL
+                            title: currentTitle
                         }];
                         paneData.activeTabIndex = 0;
                     }
                     // Add new content as new tab
+                    const newTabTitle = contentType === 'browser'
+                        ? (draggedItem.browserUrl || draggedItem.id || 'Browser')
+                        : (draggedItem.id?.split('/').pop() || contentType);
                     const newTab = {
                         id: `tab_${Date.now()}_${paneData.tabs.length}`,
                         contentType,
                         contentId: draggedItem.id,
-                        title: draggedItem.id?.split('/').pop() || contentType
+                        browserUrl: draggedItem.browserUrl, // Preserve browser URL from dragged item
+                        title: newTabTitle
                     };
                     paneData.tabs.push(newTab);
                     paneData.activeTabIndex = paneData.tabs.length - 1;
                     // Update main paneData to reflect the new active tab
                     paneData.contentType = contentType;
                     paneData.contentId = draggedItem.id;
+                    if (contentType === 'browser' && draggedItem.browserUrl) {
+                        paneData.browserUrl = draggedItem.browserUrl;
+                    }
                     setRootLayoutNode?.(prev => ({ ...prev }));
                 } else {
                     // Empty pane - just set content directly
@@ -595,8 +666,16 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         // Tab management handlers
         const handleTabSelect = (index: number) => {
-            if (paneData) {
+            if (paneData && tabs[index]) {
                 paneData.activeTabIndex = index;
+                // Update paneData with the selected tab's content
+                const selectedTab = tabs[index];
+                paneData.contentType = selectedTab.contentType;
+                paneData.contentId = selectedTab.contentId;
+                // Preserve browserUrl for browser tabs
+                if (selectedTab.contentType === 'browser' && selectedTab.browserUrl) {
+                    paneData.browserUrl = selectedTab.browserUrl;
+                }
                 // Force re-render
                 setRootLayoutNode?.(prev => ({ ...prev }));
             }
@@ -1014,36 +1093,39 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     />
                 )}
 
-                <PaneHeader
-                    nodeId={node.id}
-                    icon={headerIcon}
-                    title={headerTitle}
-                    findNodePath={findNodePath}
-                    rootLayoutNode={rootLayoutNode}
-                    setDraggedItem={setDraggedItem}
-                    setPaneContextMenu={setPaneContextMenu}
-                    closeContentPane={closeContentPane}
-                    fileChanged={paneData?.fileChanged || activeTab?.fileChanged}
-                    onSave={() => { /* No-op, actual save logic is in renderFileEditor */ }}
-                    onStartRename={() => {
-                        if (contentId && (contentType === 'editor' || contentType === 'latex' || contentType === 'csv' || contentType === 'docx' || contentType === 'pptx')) {
-                            setRenamingPaneId(node.id);
-                            setEditedFileName(contentId.split('/').pop() || '');
-                        }
-                    }}
-                    isZenMode={zenModePaneId === node.id}
-                    onToggleZenMode={toggleZenMode}
-                    // Renaming props
-                    isRenaming={renamingPaneId === node.id}
-                    editedFileName={editedFileName}
-                    setEditedFileName={setEditedFileName}
-                    onConfirmRename={() => handleConfirmRename?.(node.id, contentId)}
-                    onCancelRename={() => setRenamingPaneId(null)}
-                    filePath={contentId}
-                    onRunScript={onRunScript}
-                >
-                    {paneHeaderChildren} {/* Pass the conditional children here */}
-                </PaneHeader>
+                {/* Skip PaneHeader for browser - it has its own integrated toolbar */}
+                {contentType !== 'browser' && (
+                    <PaneHeader
+                        nodeId={node.id}
+                        icon={headerIcon}
+                        title={headerTitle}
+                        findNodePath={findNodePath}
+                        rootLayoutNode={rootLayoutNode}
+                        setDraggedItem={setDraggedItem}
+                        setPaneContextMenu={setPaneContextMenu}
+                        closeContentPane={closeContentPane}
+                        fileChanged={paneData?.fileChanged || activeTab?.fileChanged}
+                        onSave={() => { /* No-op, actual save logic is in renderFileEditor */ }}
+                        onStartRename={() => {
+                            if (contentId && (contentType === 'editor' || contentType === 'latex' || contentType === 'csv' || contentType === 'docx' || contentType === 'pptx')) {
+                                setRenamingPaneId(node.id);
+                                setEditedFileName(contentId.split('/').pop() || '');
+                            }
+                        }}
+                        isZenMode={zenModePaneId === node.id}
+                        onToggleZenMode={toggleZenMode}
+                        // Renaming props
+                        isRenaming={renamingPaneId === node.id}
+                        editedFileName={editedFileName}
+                        setEditedFileName={setEditedFileName}
+                        onConfirmRename={() => handleConfirmRename?.(node.id, contentId)}
+                        onCancelRename={() => setRenamingPaneId(null)}
+                        filePath={contentId}
+                        onRunScript={onRunScript}
+                    >
+                        {paneHeaderChildren} {/* Pass the conditional children here */}
+                    </PaneHeader>
+                )}
 
                 {draggedItem && (
                     <>

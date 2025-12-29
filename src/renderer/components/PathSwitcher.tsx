@@ -11,7 +11,7 @@ interface PathSwitcherProps {
     onGoUp: () => void;
 }
 
-const RECENT_PATHS_KEY = 'npc-studio-recent-paths';
+const RECENT_PATHS_KEY = 'incognide-recent-paths';
 const MAX_RECENT_PATHS = 10;
 
 export const PathSwitcher: React.FC<PathSwitcherProps> = ({
