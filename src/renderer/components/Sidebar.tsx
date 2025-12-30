@@ -4,7 +4,7 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
     Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
-    Star, Clock, Activity, Lock, Archive, BookOpen
+    Star, Clock, Activity, Lock, Archive, BookOpen, Sparkles
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import npcLogo from '../../assets/icon.png';
@@ -67,6 +67,8 @@ const Sidebar = (props: any) => {
 
     // Doc dropdown state (click-based instead of hover)
     const [docDropdownOpen, setDocDropdownOpen] = useState(false);
+    // Terminal dropdown state (click-based)
+    const [terminalDropdownOpen, setTerminalDropdownOpen] = useState(false);
     // Chat+ dropdown state (click-based)
     const [chatPlusDropdownOpen, setChatPlusDropdownOpen] = useState(false);
     // Website context menu state
@@ -2251,9 +2253,27 @@ return (
                         <button onClick={() => createNewBrowser?.()} className="action-grid-button-wide" aria-label="New Browser" title="New Browser (Ctrl+Shift+B)">
                             <Globe size={16} /><span className="text-[10px] ml-1.5">Browser</span>
                         </button>
-                        <button onClick={createNewTerminal} className="action-grid-button-wide" aria-label="New Terminal" title="New Terminal (Ctrl+Shift+T)">
-                            <Terminal size={16} /><span className="text-[10px] ml-1.5">Terminal</span>
-                        </button>
+                        <div className="relative flex">
+                            <button onClick={() => createNewTerminal?.('system')} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Terminal" title="New Bash Terminal (Ctrl+Shift+T)">
+                                <Terminal size={16} /><span className="text-[10px] ml-1.5">Terminal</span>
+                            </button>
+                            <button onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Terminal options">
+                                <ChevronDown size={10} />
+                            </button>
+                            {terminalDropdownOpen && (
+                                <div className="absolute left-0 top-full mt-1 w-36 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1">
+                                    <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                        <Terminal size={14} className="text-green-400" /><span>Bash</span>
+                                    </button>
+                                    <button onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                        <Sparkles size={14} className="text-purple-400" /><span>npcsh</span>
+                                    </button>
+                                    <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                        <Code2 size={14} className="text-yellow-400" /><span>guac</span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                         <button onClick={createNewTextFile} className="action-grid-button-wide" aria-label="New Code File" title="New Code File (Ctrl+Shift+F)">
                             <Code2 size={16} /><span className="text-[10px] ml-1.5">Code</span>
                         </button>
@@ -2261,8 +2281,8 @@ return (
                             <FileStack size={16} /><span className="text-[10px] ml-1.5">Doc</span>
                         </button>
                         <button onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="action-grid-button-wide" aria-label="New Workspace" title="New Workspace (Ctrl+Shift+N)">
-                            <img src={npcLogo} alt="NPC" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
-                            <span className="text-[10px] ml-1.5">NPC</span>
+                            <img src={npcLogo} alt="Incognide" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
+                            <span className="text-[10px] ml-1.5">Incognide</span>
                         </button>
                     </>
                 )}
@@ -2503,8 +2523,16 @@ return (
                 <button onClick={() => { createNewBrowser?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                     <Globe size={16} className="text-cyan-400" /><span>Browser</span>
                 </button>
-                <button onClick={() => { createNewTerminal?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Terminal size={16} className="text-green-400" /><span>Terminal</span>
+                <div className="border-t border-gray-700 my-1"></div>
+                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Terminal</div>
+                <button onClick={() => { createNewTerminal?.('system'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                    <Terminal size={16} className="text-green-400" /><span>Bash</span>
+                </button>
+                <button onClick={() => { createNewTerminal?.('npcsh'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                    <Sparkles size={16} className="text-purple-400" /><span>npcsh</span>
+                </button>
+                <button onClick={() => { createNewTerminal?.('guac'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                    <Code2 size={16} className="text-yellow-400" /><span>guac</span>
                 </button>
                 <button onClick={() => { createNewTextFile?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                     <Code2 size={16} className="text-purple-400" /><span>Code File</span>

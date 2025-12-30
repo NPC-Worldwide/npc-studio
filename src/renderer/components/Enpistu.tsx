@@ -30,6 +30,7 @@ import WebBrowserViewer from './WebBrowserViewer';
 import BrowserUrlDialog from './BrowserUrlDialog';
 import PptxViewer from './PptxViewer';
 import LatexViewer from './LatexViewer';
+import NotebookViewer from './NotebookViewer';
 import PicViewer from './PicViewer';
 import MindMapViewer from './MindMapViewer';
 import ZipViewer from './ZipViewer';
@@ -1251,6 +1252,16 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
 
 // Perform split on a pane - creates a new pane and splits the layout
 const performSplit = useCallback((targetNodePath, side, newContentType, newContentId) => {
+    // Generate the new pane ID first so we can use it outside the state updater
+    const newPaneId = generateId();
+
+    // Set content data synchronously BEFORE layout updates to avoid race condition
+    // This ensures the content is available when LayoutNode first renders
+    contentDataRef.current[newPaneId] = {
+        contentType: newContentType,
+        contentId: newContentId
+    };
+
     setRootLayoutNode(oldRoot => {
         if (!oldRoot) return oldRoot;
 
@@ -1261,11 +1272,7 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
             targetNode = targetNode.children[targetNodePath[i]];
         }
 
-        const newPaneId = generateId();
         const newPaneNode = { id: newPaneId, type: 'content' };
-
-        contentDataRef.current[newPaneId] = {};
-        updateContentPane(newPaneId, newContentType, newContentId);
 
         const isHorizontalSplit = side === 'left' || side === 'right';
         const newSplitNode = {
@@ -1286,9 +1293,18 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
         }
         parentNode.children[targetNodePath[targetNodePath.length - 1]] = newSplitNode;
 
-        setActiveContentPaneId(newPaneId);
         return newRoot;
     });
+
+    // Set active pane and do any additional async setup AFTER layout state update
+    setActiveContentPaneId(newPaneId);
+
+    // Call updateContentPane for content types that need additional async setup
+    // (e.g., loading file content for editors, initializing chat messages)
+    // Skip for simple viewers like PDF that just need contentId
+    if (newContentType === 'editor' || newContentType === 'chat') {
+        updateContentPane(newPaneId, newContentType, newContentId);
+    }
 }, [updateContentPane]);
 
 const closeContentPane = useCallback((paneId, nodePath) => {
@@ -1735,6 +1751,21 @@ const renderPptxViewer = useCallback(({ nodeId }) => {
 const renderLatexViewer = useCallback(({ nodeId }) => {
     return (
         <LatexViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+            findNodePath={findNodePath}
+            rootLayoutNode={rootLayoutNode}
+            setDraggedItem={setDraggedItem}
+            setPaneContextMenu={setPaneContextMenu}
+            closeContentPane={closeContentPane}
+            performSplit={performSplit}
+        />
+    );
+}, [rootLayoutNode, closeContentPane, performSplit]);
+
+const renderNotebookViewer = useCallback(({ nodeId }) => {
+    return (
+        <NotebookViewer
             nodeId={nodeId}
             contentDataRef={contentDataRef}
             findNodePath={findNodePath}
@@ -6177,6 +6208,7 @@ const layoutComponentApi = useMemo(() => ({
     renderBrowserViewer,
     renderPptxViewer,
     renderLatexViewer,
+    renderNotebookViewer,
     renderPicViewer,
     renderMindMapViewer,
     renderZipViewer,
@@ -6224,6 +6256,7 @@ const layoutComponentApi = useMemo(() => ({
     renderCsvViewer, renderDocxViewer, renderBrowserViewer,
     renderPptxViewer,
     renderLatexViewer,
+    renderNotebookViewer,
     renderPicViewer,
     renderMindMapViewer,
     renderZipViewer,
@@ -6325,6 +6358,7 @@ const handleFileClick = useCallback(async (filePath: string) => {
     else if (['csv', 'xlsx', 'xls'].includes(extension)) contentType = 'csv';
     else if (extension === 'pptx') contentType = 'pptx';
     else if (extension === 'tex') contentType = 'latex';
+    else if (extension === 'ipynb') contentType = 'notebook';
     else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
     else if (extension === 'mapx') contentType = 'mindmap';
     else if (extension === 'zip') contentType = 'zip';
@@ -6743,6 +6777,7 @@ const renderMainContent = () => {
                             else if (['csv', 'xlsx', 'xls'].includes(extension)) contentType = 'csv';
                             else if (extension === 'pptx') contentType = 'pptx';
                             else if (extension === 'tex') contentType = 'latex';
+                            else if (extension === 'ipynb') contentType = 'notebook';
                             else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
                             else if (extension === 'mapx') contentType = 'mindmap';
                             else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
@@ -7033,6 +7068,8 @@ const renderMainContent = () => {
                                     return renderPicViewer({ nodeId: zenModePaneId });
                                 case 'mindmap':
                                     return renderMindMapViewer({ nodeId: zenModePaneId });
+                                case 'notebook':
+                                    return renderNotebookViewer({ nodeId: zenModePaneId });
                                 case 'data-labeler':
                                     return renderDataLabelerPane({ nodeId: zenModePaneId });
                                 case 'graph-viewer':

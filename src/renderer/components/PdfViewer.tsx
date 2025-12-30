@@ -584,7 +584,10 @@ const PdfViewer = ({
     useEffect(() => {
         let currentBlobUrl = null;
 
+        console.log('[PdfViewer] useEffect triggered, nodeId:', nodeId, 'paneData:', paneData, 'filePath:', filePath);
+
         if (!filePath) {
+            console.log('[PdfViewer] No filePath, clearing pdfData');
             setPdfData(null);
             setError(null);
             return;
@@ -593,14 +596,18 @@ const PdfViewer = ({
         const loadFile = async () => {
             setError(null);
             try {
+                console.log('[PdfViewer] Loading file:', filePath);
                 const buffer = await (window as any).api.readFile(filePath);
+                console.log('[PdfViewer] Buffer received, byteLength:', buffer?.byteLength);
                 if (!buffer || buffer.byteLength === 0) {
                     setError('Empty file');
                     return;
                 }
                 currentBlobUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
+                console.log('[PdfViewer] Created blob URL:', currentBlobUrl);
                 setPdfData(currentBlobUrl);
             } catch (err) {
+                console.error('[PdfViewer] Error loading PDF:', err);
                 setError(err.message);
             }
         };
@@ -810,8 +817,8 @@ const PdfViewer = ({
         }
     }, [selectionPopup, handleHighlightPdfSelection]);
 
-    if (error) return <div className="p-4 text-red-500">Error: {error}</div>;
-    if (!pdfData) return <div className="p-4">Loading PDF...</div>;
+    if (error) return <div className="p-4 text-red-500">Error loading PDF: {error}</div>;
+    if (!pdfData) return <div className="p-4 text-yellow-500">Loading PDF... (filePath: {filePath || 'undefined'}, nodeId: {nodeId})</div>;
 
     return (
         <div className="flex h-full w-full">

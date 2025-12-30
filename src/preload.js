@@ -349,6 +349,9 @@ onTerminalClosed: (callback) => {
     scanGgufModels: (directory) => ipcRenderer.invoke('scan-gguf-models', directory),
     browseGgufFile: () => ipcRenderer.invoke('browse-gguf-file'),
     downloadHfModel: (params) => ipcRenderer.invoke('download-hf-model', params),
+    searchHfModels: (params) => ipcRenderer.invoke('search-hf-models', params),
+    listHfFiles: (params) => ipcRenderer.invoke('list-hf-files', params),
+    downloadHfFile: (params) => ipcRenderer.invoke('download-hf-file', params),
 
     // Activity Tracking for RNN predictor
     trackActivity: (activity) => ipcRenderer.invoke('track-activity', activity),
@@ -464,4 +467,25 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     showPromptDialog: (options) => ipcRenderer.invoke('showPromptDialog', options),
     checkServerConnection: () => ipcRenderer.invoke('checkServerConnection'),
     openExternal: (url) => ipcRenderer.invoke('openExternal', url),
+
+    // Jupyter Kernel APIs
+    jupyterListKernels: (args) => ipcRenderer.invoke('jupyter:listKernels', args),
+    jupyterStartKernel: (args) => ipcRenderer.invoke('jupyter:startKernel', args),
+    jupyterExecuteCode: (args) => ipcRenderer.invoke('jupyter:executeCode', args),
+    jupyterInterruptKernel: (args) => ipcRenderer.invoke('jupyter:interruptKernel', args),
+    jupyterStopKernel: (args) => ipcRenderer.invoke('jupyter:stopKernel', args),
+    jupyterGetRunningKernels: () => ipcRenderer.invoke('jupyter:getRunningKernels'),
+    jupyterCheckInstalled: (args) => ipcRenderer.invoke('jupyter:checkInstalled', args),
+    jupyterInstall: (args) => ipcRenderer.invoke('jupyter:install', args),
+    jupyterRegisterKernel: (args) => ipcRenderer.invoke('jupyter:registerKernel', args),
+    onJupyterKernelStopped: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('jupyter:kernelStopped', handler);
+        return () => ipcRenderer.removeListener('jupyter:kernelStopped', handler);
+    },
+    onJupyterInstallProgress: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('jupyter:installProgress', handler);
+        return () => ipcRenderer.removeListener('jupyter:installProgress', handler);
+    },
 });

@@ -79,7 +79,7 @@
         "deb"
       ],
       "category": "Utility",
-      "icon": "build/icons",
+      "icon": "assets/icon.png",
       "extraResources": [
         {
           "from": "resources/backend/npc_studio_serve",
