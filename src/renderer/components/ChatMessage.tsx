@@ -164,16 +164,16 @@ export const ChatMessage = memo(({
             
             {/* Branch button */}
             {message.role === 'user' && !messageSelectionMode && onCreateBranch && (
-                <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div className="absolute -top-2 -left-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             onCreateBranch(messageIndex);
                         }}
-                        className="p-1 theme-hover rounded-full transition-all"
-                        title="Create branch from here"
+                        className="p-1.5 bg-purple-600 hover:bg-purple-500 rounded-full transition-all shadow-lg text-white"
+                        title="Create conversation branch from here"
                     >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <line x1="6" y1="3" x2="6" y2="15"></line>
                             <circle cx="18" cy="6" r="3"></circle>
                             <circle cx="6" cy="18" r="3"></circle>

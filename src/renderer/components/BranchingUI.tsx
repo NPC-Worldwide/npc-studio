@@ -32,11 +32,27 @@ export const BranchingUI: React.FC<BranchingUIProps> = ({
         if (!activePaneData || !activePaneData.chatMessages) return;
 
         const branch = conversationBranches.get(branchId);
-        if (!branch) return;
+        if (!branch && branchId !== 'main') return;
+
+        // If switching to main, use mainBranchMessages if available
+        if (branchId === 'main') {
+            const mainBranch = conversationBranches.get('main');
+            if (mainBranch) {
+                setCurrentBranchId('main');
+                activePaneData.chatMessages.allMessages = [...mainBranch.messages];
+                activePaneData.chatMessages.messages = mainBranch.messages.slice(-(activePaneData.chatMessages.displayedMessageCount || 50));
+                setRootLayoutNode(prev => ({ ...prev }));
+            } else {
+                // Main not stored yet - just switch the branch ID
+                setCurrentBranchId('main');
+                setRootLayoutNode(prev => ({ ...prev }));
+            }
+            return;
+        }
 
         setCurrentBranchId(branchId);
         activePaneData.chatMessages.allMessages = [...branch.messages];
-        activePaneData.chatMessages.messages = branch.messages.slice(-activePaneData.chatMessages.displayedMessageCount);
+        activePaneData.chatMessages.messages = branch.messages.slice(-(activePaneData.chatMessages.displayedMessageCount || 50));
         setRootLayoutNode(prev => ({ ...prev }));
     }, [activeContentPaneId, conversationBranches, contentDataRef, setCurrentBranchId, setRootLayoutNode]);
 
@@ -72,8 +88,8 @@ export const BranchingUI: React.FC<BranchingUIProps> = ({
                     </div>
                 </button>
 
-                {/* Other branches */}
-                {branches.map(branch => (
+                {/* Other branches (filter out 'main' since it's shown above) */}
+                {branches.filter(b => b.id !== 'main').map(branch => (
                     <button
                         key={branch.id}
                         onClick={() => switchToBranch(branch.id)}
@@ -118,16 +134,38 @@ export const createBranchPoint = (
     if (!activePaneData || !activePaneData.chatMessages) return;
 
     const branchId = generateId();
+
+    // First, save the current branch state (especially important for main branch)
+    // This ensures we can switch back and see all messages
+    const currentMessages = [...activePaneData.chatMessages.allMessages];
+
     const branchPoint = {
         id: branchId,
         parentBranch: currentBranchId,
         branchFromIndex: fromMessageIndex,
-        messages: [...activePaneData.chatMessages.allMessages.slice(0, fromMessageIndex + 1)],
+        messages: [...currentMessages.slice(0, fromMessageIndex + 1)],
         createdAt: Date.now(),
         name: `Branch ${conversationBranches.size + 1}`
     };
 
-    setConversationBranches(prev => new Map(prev).set(branchId, branchPoint));
+    setConversationBranches(prev => {
+        const newMap = new Map(prev);
+        // Save the current branch state before switching (preserve full conversation)
+        if (currentBranchId === 'main' && !newMap.has('main')) {
+            newMap.set('main', {
+                id: 'main',
+                messages: currentMessages,
+                createdAt: Date.now(),
+                name: 'Main Branch'
+            });
+        } else if (currentBranchId !== 'main' && newMap.has(currentBranchId)) {
+            // Update existing branch with current messages
+            const existing = newMap.get(currentBranchId);
+            newMap.set(currentBranchId, { ...existing, messages: currentMessages });
+        }
+        newMap.set(branchId, branchPoint);
+        return newMap;
+    });
     setCurrentBranchId(branchId);
 
     activePaneData.chatMessages.allMessages = branchPoint.messages;
