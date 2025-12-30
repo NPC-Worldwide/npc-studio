@@ -1,5 +1,5 @@
 # Build artifacts
-build/npc_studio_serve/
+build/incognide_serve/
 build/icons/mac/
 build/icons/win/
 build/icons/png/
@@ -13,7 +13,7 @@ resources/backend/
 __pycache__/
 *.spec
 *_serve.py
-npc_studio_serve*
+incognide_serve*
 venv/
 
 # Only include necessary dist files

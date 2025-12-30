@@ -65,8 +65,6 @@ rotateLogIfNeeded(backendLogPath);
 const electronLogStream = fs.createWriteStream(electronLogPath, { flags: 'a' });
 const backendLogStream = fs.createWriteStream(backendLogPath, { flags: 'a' });
 
-// Legacy support - keep old path working too
-const legacyLogDir = path.join(os.homedir(), '.npc_studio');
 try { fs.mkdirSync(legacyLogDir, { recursive: true }); } catch (e) {}
 const logFilePath = path.join(legacyLogDir, 'app.log');
 const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
@@ -184,7 +182,7 @@ const ensureTablesExist = async () => {
   }
 };
 
-app.setAppUserModelId('com.npc_studio.chat');
+app.setAppUserModelId('com.incognide.chat');
 app.name = 'incognide';
 app.setName('incognide');
 // Unified logging functions
@@ -434,7 +432,7 @@ app.whenReady().then(async () => {
       spawnArgs = ['-m', 'npcpy.serve'];
     } else {
       // Use bundled executable
-      const executableName = process.platform === 'win32' ? 'npc_studio_serve.exe' : 'npc_studio_serve';
+      const executableName = process.platform === 'win32' ? 'incognide_serve.exe' : 'incognide_serve';
       backendPath = app.isPackaged
         ? path.join(process.resourcesPath, 'backend', executableName)
         : path.join(app.getAppPath(), 'dist', 'resources', 'backend', executableName);
@@ -448,7 +446,7 @@ app.whenReady().then(async () => {
       env: {
         ...process.env,
         CORNERIA_DATA_DIR: dataPath,
-        NPC_STUDIO_PORT: '5337',
+        INCOGNIDE_PORT: '5337',
         FLASK_DEBUG: '1',
         PYTHONUNBUFFERED: '1',
       },
@@ -519,7 +517,7 @@ async function callBackendApi(url, options = {}) {
   }
 }
 function ensureUserDataDirectory() {
-  const userDataPath = path.join(os.homedir(), '.npc_studio', 'data');
+  const userDataPath = path.join(os.homedir(), '.npcsh', 'incognide', 'data');
   log('Creating user data directory:', userDataPath);
 
   try {
@@ -2871,7 +2869,7 @@ app.whenReady().then(() => {
 });
 
 // ==================== PASSWORD MANAGER ====================
-const passwordsFilePath = path.join(os.homedir(), '.npc_studio', 'credentials.enc');
+const passwordsFilePath = path.join(os.homedir(), '.npcsh', 'incognide', 'credentials.enc');
 
 // Ensure the credentials file exists
 const ensurePasswordsFile = async () => {
@@ -3044,7 +3042,7 @@ ipcMain.handle('password-encryption-status', async () => {
 // ==================== END PASSWORD MANAGER ====================
 
 // ==================== PYTHON ENVIRONMENT CONFIGURATION ====================
-const pythonEnvConfigPath = path.join(os.homedir(), '.npc_studio', 'python_envs.json');
+const pythonEnvConfigPath = path.join(os.homedir(), '.npcsh', 'incognide', 'python_envs.json');
 
 // Ensure python env config file exists
 const ensurePythonEnvConfig = async () => {

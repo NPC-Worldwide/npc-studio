@@ -433,7 +433,7 @@ npcsh> /incognide
 ### Running
 
 ```bash
-python npc_studio_serve.py   # Backend
+python incognide_serve.py   # Backend
 npm run dev                   # Frontend (Vite)
 npm start                     # Electron
 ```
