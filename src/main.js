@@ -3461,6 +3461,122 @@ ipcMain.handle('python-env-check-configured', async (event, { workspacePath }) =
 
 // ==================== END PYTHON ENVIRONMENT ====================
 
+// ==================== TILE CONFIGURATION ====================
+const tilesConfigPath = path.join(os.homedir(), '.npcsh', 'incognide', 'tiles.json');
+
+// Default tiles configuration
+const defaultTilesConfig = {
+  tiles: [
+    { id: 'theme', label: 'Theme', icon: 'theme', enabled: true, order: 0 },
+    { id: 'chat', label: 'Chat', icon: 'plus', enabled: true, order: 1 },
+    { id: 'folder', label: 'Folder', icon: 'folder', enabled: true, order: 2 },
+    { id: 'browser', label: 'Browser', icon: 'globe', enabled: true, order: 3 },
+    { id: 'terminal', label: 'Terminal', icon: 'terminal', enabled: true, order: 4, subTypes: ['system', 'npcsh', 'guac'] },
+    { id: 'code', label: 'Code', icon: 'code', enabled: true, order: 5 },
+    { id: 'document', label: 'Doc', icon: 'file-text', enabled: true, order: 6, subTypes: ['docx', 'xlsx', 'pptx', 'mapx'] },
+    { id: 'workspace', label: 'Incognide', icon: 'incognide', enabled: true, order: 7 }
+  ],
+  customTiles: []
+};
+
+// Ensure tiles config file exists
+const ensureTilesConfig = async () => {
+  const dir = path.dirname(tilesConfigPath);
+  await fsPromises.mkdir(dir, { recursive: true });
+  try {
+    await fsPromises.access(tilesConfigPath);
+  } catch {
+    await fsPromises.writeFile(tilesConfigPath, JSON.stringify(defaultTilesConfig, null, 2));
+  }
+};
+
+// Read tiles config
+const readTilesConfig = async () => {
+  await ensureTilesConfig();
+  const content = await fsPromises.readFile(tilesConfigPath, 'utf8');
+  const config = JSON.parse(content);
+  // Merge with defaults to ensure all default tiles exist
+  const defaultIds = defaultTilesConfig.tiles.map(t => t.id);
+  const existingIds = (config.tiles || []).map(t => t.id);
+  // Add any missing default tiles
+  for (const defaultTile of defaultTilesConfig.tiles) {
+    if (!existingIds.includes(defaultTile.id)) {
+      config.tiles = config.tiles || [];
+      config.tiles.push(defaultTile);
+    }
+  }
+  return config;
+};
+
+// Write tiles config
+const writeTilesConfig = async (data) => {
+  await ensureTilesConfig();
+  await fsPromises.writeFile(tilesConfigPath, JSON.stringify(data, null, 2));
+};
+
+// Get tiles configuration
+ipcMain.handle('tiles-config-get', async () => {
+  try {
+    return await readTilesConfig();
+  } catch (err) {
+    console.error('Error getting tiles config:', err);
+    return defaultTilesConfig;
+  }
+});
+
+// Save tiles configuration
+ipcMain.handle('tiles-config-save', async (event, config) => {
+  try {
+    await writeTilesConfig(config);
+    return { success: true };
+  } catch (err) {
+    console.error('Error saving tiles config:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Reset tiles to defaults
+ipcMain.handle('tiles-config-reset', async () => {
+  try {
+    await writeTilesConfig(defaultTilesConfig);
+    return { success: true, config: defaultTilesConfig };
+  } catch (err) {
+    console.error('Error resetting tiles config:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Add a custom tile
+ipcMain.handle('tiles-config-add-custom', async (event, customTile) => {
+  try {
+    const config = await readTilesConfig();
+    config.customTiles = config.customTiles || [];
+    customTile.id = `custom_${Date.now()}`;
+    customTile.order = config.tiles.length + config.customTiles.length;
+    config.customTiles.push(customTile);
+    await writeTilesConfig(config);
+    return { success: true, tile: customTile };
+  } catch (err) {
+    console.error('Error adding custom tile:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Remove a custom tile
+ipcMain.handle('tiles-config-remove-custom', async (event, tileId) => {
+  try {
+    const config = await readTilesConfig();
+    config.customTiles = (config.customTiles || []).filter(t => t.id !== tileId);
+    await writeTilesConfig(config);
+    return { success: true };
+  } catch (err) {
+    console.error('Error removing custom tile:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// ==================== END TILE CONFIGURATION ====================
+
 ipcMain.handle('loadProjectSettings', async (event, currentPath) => {
     try {
         const url = `http://127.0.0.1:5337/api/settings/project?path=${encodeURIComponent(currentPath)}`;

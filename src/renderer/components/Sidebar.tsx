@@ -199,6 +199,104 @@ const Sidebar = (props: any) => {
     // Permission dialog state (chmod/chown)
     const [permissionDialog, setPermissionDialog] = useState<{ path: string; type: 'chmod' | 'chown'; mode?: string; owner?: string; group?: string; recursive?: boolean; useSudo?: boolean } | null>(null);
 
+    // Tile configuration state
+    interface TileConfig {
+        id: string;
+        label: string;
+        icon: string;
+        enabled: boolean;
+        order: number;
+        subTypes?: string[];
+    }
+    const [tilesConfig, setTilesConfig] = useState<{ tiles: TileConfig[]; customTiles: TileConfig[] }>({
+        tiles: [
+            { id: 'theme', label: 'Theme', icon: 'theme', enabled: true, order: 0 },
+            { id: 'chat', label: 'Chat', icon: 'plus', enabled: true, order: 1 },
+            { id: 'folder', label: 'Folder', icon: 'folder', enabled: true, order: 2 },
+            { id: 'browser', label: 'Browser', icon: 'globe', enabled: true, order: 3 },
+            { id: 'terminal', label: 'Terminal', icon: 'terminal', enabled: true, order: 4, subTypes: ['system', 'npcsh', 'guac'] },
+            { id: 'code', label: 'Code', icon: 'code', enabled: true, order: 5 },
+            { id: 'document', label: 'Doc', icon: 'file-text', enabled: true, order: 6, subTypes: ['docx', 'xlsx', 'pptx', 'mapx'] },
+            { id: 'workspace', label: 'Incognide', icon: 'incognide', enabled: true, order: 7 }
+        ],
+        customTiles: []
+    });
+    const [tileEditMode, setTileEditMode] = useState(false);
+    const [draggedTileId, setDraggedTileId] = useState<string | null>(null);
+
+    // Load tile configuration on mount
+    useEffect(() => {
+        const loadTilesConfig = async () => {
+            try {
+                const config = await (window as any).api?.tilesConfigGet?.();
+                if (config) {
+                    setTilesConfig(config);
+                }
+            } catch (err) {
+                console.error('Failed to load tiles config:', err);
+            }
+        };
+        loadTilesConfig();
+    }, []);
+
+    // Save tile configuration
+    const saveTilesConfig = useCallback(async (newConfig: typeof tilesConfig) => {
+        try {
+            await (window as any).api?.tilesConfigSave?.(newConfig);
+            setTilesConfig(newConfig);
+        } catch (err) {
+            console.error('Failed to save tiles config:', err);
+        }
+    }, []);
+
+    // Toggle tile enabled/disabled
+    const toggleTileEnabled = useCallback((tileId: string) => {
+        const newConfig = { ...tilesConfig };
+        const tile = newConfig.tiles.find(t => t.id === tileId);
+        if (tile) {
+            tile.enabled = !tile.enabled;
+            saveTilesConfig(newConfig);
+        }
+    }, [tilesConfig, saveTilesConfig]);
+
+    // Reorder tiles via drag and drop
+    const handleTileDragStart = useCallback((e: React.DragEvent, tileId: string) => {
+        setDraggedTileId(tileId);
+        e.dataTransfer.effectAllowed = 'move';
+    }, []);
+
+    const handleTileDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    }, []);
+
+    const handleTileDrop = useCallback((e: React.DragEvent, targetTileId: string) => {
+        e.preventDefault();
+        if (!draggedTileId || draggedTileId === targetTileId) return;
+
+        const newConfig = { ...tilesConfig };
+        const allTiles = [...newConfig.tiles];
+        const draggedIndex = allTiles.findIndex(t => t.id === draggedTileId);
+        const targetIndex = allTiles.findIndex(t => t.id === targetTileId);
+
+        if (draggedIndex !== -1 && targetIndex !== -1) {
+            const [draggedTile] = allTiles.splice(draggedIndex, 1);
+            allTiles.splice(targetIndex, 0, draggedTile);
+            // Update order values
+            allTiles.forEach((tile, idx) => { tile.order = idx; });
+            newConfig.tiles = allTiles;
+            saveTilesConfig(newConfig);
+        }
+        setDraggedTileId(null);
+    }, [draggedTileId, tilesConfig, saveTilesConfig]);
+
+    // Get sorted enabled tiles
+    const enabledTiles = useMemo(() => {
+        return [...tilesConfig.tiles, ...tilesConfig.customTiles]
+            .filter(t => t.enabled)
+            .sort((a, b) => a.order - b.order);
+    }, [tilesConfig]);
+
 // ===== ALL THE SIDEBAR FUNCTIONS BELOW =====
 
 const handleSidebarResize = useCallback((e) => {
@@ -2324,65 +2422,139 @@ return (
                         </button>
                     </div>
                 )}
-                {/* Expanded rows (extensions of top two) */}
+                {/* Expanded rows - rendered based on tile config order */}
                 {headerActionsExpanded && (
                     <>
-                        <button onClick={handleCreateNewFolder} className="action-grid-button-wide" aria-label="New Folder" title="New Folder (Ctrl+N)">
-                            <Folder size={16} /><span className="text-[10px] ml-1.5">Folder</span>
-                        </button>
-                        <button onClick={() => createNewBrowser?.()} className="action-grid-button-wide" aria-label="New Browser" title="New Browser (Ctrl+Shift+B)">
-                            <Globe size={16} /><span className="text-[10px] ml-1.5">Browser</span>
-                        </button>
-                        <div className="relative flex">
-                            <button onClick={() => createNewTerminal?.(defaultNewTerminalType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Terminal" title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal (Ctrl+Shift+T)`}>
-                                {defaultNewTerminalType === 'system' && <Terminal size={16} className="text-green-400" />}
-                                {defaultNewTerminalType === 'npcsh' && <Sparkles size={16} className="text-purple-400" />}
-                                {defaultNewTerminalType === 'guac' && <Code2 size={16} className="text-yellow-400" />}
-                                <span className="text-[10px] ml-1.5">{defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType}</span>
-                            </button>
-                            <button onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Terminal options">
-                                <ChevronDown size={10} />
-                            </button>
-                            {terminalDropdownOpen && (
-                                <div className="absolute left-0 top-full mt-1 w-36 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1">
-                                    <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                        <Terminal size={14} className="text-green-400" /><span>Bash</span>
-                                    </button>
-                                    <button onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                        <Sparkles size={14} className="text-purple-400" /><span>npcsh</span>
-                                    </button>
-                                    <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                        <Code2 size={14} className="text-yellow-400" /><span>guac</span>
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                        <button onClick={createNewTextFile} className="action-grid-button-wide" aria-label="New Code File" title="New Code File (Ctrl+Shift+F)">
-                            <Code2 size={16} /><span className="text-[10px] ml-1.5">Code</span>
-                        </button>
-                        <div className="relative flex">
-                            <button onClick={() => createNewDocument?.(defaultNewDocumentType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Document" title={`New ${defaultNewDocumentType.toUpperCase()} Document`}>
-                                {defaultNewDocumentType === 'docx' && <FileText size={16} className="text-blue-300" />}
-                                {defaultNewDocumentType === 'xlsx' && <FileJson size={16} className="text-green-300" />}
-                                {defaultNewDocumentType === 'pptx' && <BarChart3 size={16} className="text-orange-300" />}
-                                {defaultNewDocumentType === 'mapx' && <Share2 size={16} className="text-pink-300" />}
-                                <span className="text-[10px] ml-1.5">{defaultNewDocumentType === 'mapx' ? 'Map' : defaultNewDocumentType.slice(0, -1).toUpperCase()}</span>
-                            </button>
-                            <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
-                                <ChevronDown size={10} />
-                            </button>
-                        </div>
-                        <button onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="action-grid-button-wide" aria-label="New Workspace" title="New Workspace (Ctrl+Shift+N)">
-                            <img src={npcLogo} alt="Incognide" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
-                            <span className="text-[10px] ml-1.5">Incognide</span>
-                        </button>
+                        {enabledTiles.filter(t => !['theme', 'chat'].includes(t.id)).map((tile) => {
+                            switch (tile.id) {
+                                case 'folder':
+                                    return (
+                                        <button key={tile.id} onClick={handleCreateNewFolder} className="action-grid-button-wide" aria-label="New Folder" title="New Folder (Ctrl+N)">
+                                            <Folder size={16} /><span className="text-[10px] ml-1.5">Folder</span>
+                                        </button>
+                                    );
+                                case 'browser':
+                                    return (
+                                        <button key={tile.id} onClick={() => createNewBrowser?.()} className="action-grid-button-wide" aria-label="New Browser" title="New Browser (Ctrl+Shift+B)">
+                                            <Globe size={16} /><span className="text-[10px] ml-1.5">Browser</span>
+                                        </button>
+                                    );
+                                case 'terminal':
+                                    return (
+                                        <div key={tile.id} className="relative flex">
+                                            <button onClick={() => createNewTerminal?.(defaultNewTerminalType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Terminal" title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal (Ctrl+Shift+T)`}>
+                                                {defaultNewTerminalType === 'system' && <Terminal size={16} className="text-green-400" />}
+                                                {defaultNewTerminalType === 'npcsh' && <Sparkles size={16} className="text-purple-400" />}
+                                                {defaultNewTerminalType === 'guac' && <Code2 size={16} className="text-yellow-400" />}
+                                                <span className="text-[10px] ml-1.5">{defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType}</span>
+                                            </button>
+                                            <button onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Terminal options">
+                                                <ChevronDown size={10} />
+                                            </button>
+                                            {terminalDropdownOpen && (
+                                                <div className="absolute left-0 top-full mt-1 w-36 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1">
+                                                    <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Terminal size={14} className="text-green-400" /><span>Bash</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Sparkles size={14} className="text-purple-400" /><span>npcsh</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Code2 size={14} className="text-yellow-400" /><span>guac</span>
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                case 'code':
+                                    return (
+                                        <button key={tile.id} onClick={createNewTextFile} className="action-grid-button-wide" aria-label="New Code File" title="New Code File (Ctrl+Shift+F)">
+                                            <Code2 size={16} /><span className="text-[10px] ml-1.5">Code</span>
+                                        </button>
+                                    );
+                                case 'document':
+                                    return (
+                                        <div key={tile.id} className="relative flex">
+                                            <button onClick={() => createNewDocument?.(defaultNewDocumentType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Document" title={`New ${defaultNewDocumentType.toUpperCase()} Document`}>
+                                                {defaultNewDocumentType === 'docx' && <FileText size={16} className="text-blue-300" />}
+                                                {defaultNewDocumentType === 'xlsx' && <FileJson size={16} className="text-green-300" />}
+                                                {defaultNewDocumentType === 'pptx' && <BarChart3 size={16} className="text-orange-300" />}
+                                                {defaultNewDocumentType === 'mapx' && <Share2 size={16} className="text-pink-300" />}
+                                                <span className="text-[10px] ml-1.5">{defaultNewDocumentType === 'mapx' ? 'Map' : defaultNewDocumentType.slice(0, -1).toUpperCase()}</span>
+                                            </button>
+                                            <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
+                                                <ChevronDown size={10} />
+                                            </button>
+                                        </div>
+                                    );
+                                case 'workspace':
+                                    return (
+                                        <button key={tile.id} onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="action-grid-button-wide" aria-label="New Workspace" title="New Workspace (Ctrl+Shift+N)">
+                                            <img src={npcLogo} alt="Incognide" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
+                                            <span className="text-[10px] ml-1.5">Incognide</span>
+                                        </button>
+                                    );
+                                default:
+                                    return null;
+                            }
+                        })}
                     </>
                 )}
             </div>
-            {/* Expand/collapse toggle */}
-            <button onClick={() => setHeaderActionsExpanded(!headerActionsExpanded)} className="w-full mt-1 py-1 text-[10px] text-gray-500 hover:text-gray-300 flex items-center justify-center gap-1">
-                {headerActionsExpanded ? <><ChevronUp size={10} /> Less</> : <><ChevronDown size={10} /> More actions</>}
-            </button>
+            {/* Expand/collapse toggle and edit mode */}
+            <div className="flex items-center mt-1">
+                <button onClick={() => setHeaderActionsExpanded(!headerActionsExpanded)} className="flex-1 py-1 text-[10px] text-gray-500 hover:text-gray-300 flex items-center justify-center gap-1">
+                    {headerActionsExpanded ? <><ChevronUp size={10} /> Less</> : <><ChevronDown size={10} /> More actions</>}
+                </button>
+                {headerActionsExpanded && (
+                    <button
+                        onClick={() => setTileEditMode(!tileEditMode)}
+                        className={`px-2 py-1 text-[10px] rounded ${tileEditMode ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                        title="Edit tile layout"
+                    >
+                        <Settings size={10} />
+                    </button>
+                )}
+            </div>
+            {/* Tile edit mode panel */}
+            {tileEditMode && headerActionsExpanded && (
+                <div className="mt-2 p-2 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <div className="text-[10px] text-gray-400 mb-2">Drag to reorder • Click eye to toggle</div>
+                    <div className="space-y-1">
+                        {[...tilesConfig.tiles].sort((a, b) => a.order - b.order).map((tile) => (
+                            <div
+                                key={tile.id}
+                                draggable
+                                onDragStart={(e) => handleTileDragStart(e, tile.id)}
+                                onDragOver={handleTileDragOver}
+                                onDrop={(e) => handleTileDrop(e, tile.id)}
+                                className={`flex items-center gap-2 px-2 py-1 rounded text-xs cursor-move ${
+                                    draggedTileId === tile.id ? 'bg-blue-600/30 border border-blue-500' : 'bg-gray-700/50 hover:bg-gray-700'
+                                }`}
+                            >
+                                <span className="text-gray-500">⋮⋮</span>
+                                <span className="flex-1">{tile.label}</span>
+                                <button
+                                    onClick={() => toggleTileEnabled(tile.id)}
+                                    className={`p-0.5 rounded ${tile.enabled ? 'text-green-400' : 'text-gray-600'}`}
+                                    title={tile.enabled ? 'Visible' : 'Hidden'}
+                                >
+                                    {tile.enabled ? '👁' : '👁‍🗨'}
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                    <button
+                        onClick={async () => {
+                            const result = await (window as any).api?.tilesConfigReset?.();
+                            if (result?.config) setTilesConfig(result.config);
+                        }}
+                        className="w-full mt-2 py-1 text-[10px] text-gray-500 hover:text-red-400"
+                    >
+                        Reset to defaults
+                    </button>
+                </div>
+            )}
         </div>
 
         <div className={`flex-1 overflow-y-auto px-2 py-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
