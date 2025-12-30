@@ -80,6 +80,8 @@ import {
     findNodePath
 } from './utils';
 import { BranchingUI, createBranchPoint } from './BranchingUI';
+import BranchOptionsModal, { BranchOptions } from './BranchOptionsModal';
+import BranchVisualizer from './BranchVisualizer';
 import { syncLayoutWithContentData } from './LayoutNode';
 // Note: Sidebar.tsx, ChatViewer.tsx are code fragments, not proper modules yet
 import PaneHeader from './PaneHeader';
@@ -106,6 +108,12 @@ const ChatInterface = () => {
     const [conversationBranches, setConversationBranches] = useState(new Map());
     const [currentBranchId, setCurrentBranchId] = useState('main');
     const [showBranchingUI, setShowBranchingUI] = useState(false);
+    const [showBranchVisualizer, setShowBranchVisualizer] = useState(false);
+    const [branchOptionsModal, setBranchOptionsModal] = useState<{
+        isOpen: boolean;
+        messageIndex: number;
+        messageContent: string;
+    }>({ isOpen: false, messageIndex: -1, messageContent: '' });
     const [isPredictiveTextEnabled, setIsPredictiveTextEnabled] = useState(false);
     const [predictiveTextModel, setPredictiveTextModel] = useState<string | null>(null);
     const [predictiveTextProvider, setPredictiveTextProvider] = useState<string | null>(null);
@@ -693,6 +701,31 @@ const ChatInterface = () => {
             return matchesStatus && matchesSearch;
         });
     }, [memories, memoryFilter, memorySearchTerm]);
+
+    // Load theme colors from localStorage on startup
+    useEffect(() => {
+        const darkPrimary = localStorage.getItem('npcStudio_themeDarkPrimary');
+        const darkBg = localStorage.getItem('npcStudio_themeDarkBg');
+        const lightPrimary = localStorage.getItem('npcStudio_themeLightPrimary');
+        const lightBg = localStorage.getItem('npcStudio_themeLightBg');
+        const darkMode = localStorage.getItem('npcStudio_darkMode');
+
+        if (darkPrimary) document.documentElement.style.setProperty('--theme-primary-dark', darkPrimary);
+        if (darkBg) document.documentElement.style.setProperty('--theme-bg-dark', darkBg);
+        if (lightPrimary) document.documentElement.style.setProperty('--theme-primary-light', lightPrimary);
+        if (lightBg) document.documentElement.style.setProperty('--theme-bg-light', lightBg);
+
+        // Apply dark/light mode class
+        if (darkMode === 'false') {
+            document.body.classList.remove('dark-mode');
+            document.body.classList.add('light-mode');
+            setIsDarkMode(false);
+        } else {
+            document.body.classList.add('dark-mode');
+            document.body.classList.remove('light-mode');
+            setIsDarkMode(true);
+        }
+    }, []);
 
     // Save showDateTime preference
     useEffect(() => {
@@ -1458,6 +1491,82 @@ const handleResendMessage = useCallback((messageToResend: any) => {
 
 // Handle creating a conversation branch from a specific message
 const handleCreateBranch = useCallback((messageIndex: number) => {
+    // Get the message content to show in the modal
+    const activePaneData = contentDataRef.current[activeContentPaneId!];
+    if (!activePaneData || !activePaneData.chatMessages) return;
+
+    const message = activePaneData.chatMessages.allMessages[messageIndex];
+    const messageContent = typeof message?.content === 'string'
+        ? message.content
+        : message?.content?.[0]?.text || '';
+
+    // Show the branch options modal instead of immediately creating a branch
+    setBranchOptionsModal({
+        isOpen: true,
+        messageIndex,
+        messageContent
+    });
+}, [activeContentPaneId, contentDataRef]);
+
+// Handle branch options modal confirmation
+const handleBranchOptionsConfirm = useCallback(async (options: BranchOptions) => {
+    const { messageIndex, messageContent } = branchOptionsModal;
+    const activePaneData = contentDataRef.current[activeContentPaneId!];
+    if (!activePaneData || !activePaneData.chatMessages) return;
+
+    // Get the user message to resend
+    const userMessage = activePaneData.chatMessages.allMessages[messageIndex];
+
+    // Helper function to send message to a model
+    const sendToModel = async (modelToUse: string) => {
+        const conversationId = activePaneData.contentId;
+        const newStreamId = generateId();
+        streamToPaneRef.current[newStreamId] = activeContentPaneId;
+
+        const selectedModelObj = availableModels.find((m: any) => m.value === modelToUse);
+        const providerToUse = selectedModelObj ? selectedModelObj.provider : currentProvider;
+        const selectedNpc = availableNPCs.find((npc: any) => npc.value === currentNPC);
+
+        // Create assistant placeholder message
+        const assistantPlaceholderMessage = {
+            id: newStreamId,
+            role: 'assistant',
+            content: '',
+            isStreaming: true,
+            timestamp: new Date().toISOString(),
+            streamId: newStreamId,
+            model: modelToUse,
+            npc: currentNPC,
+        };
+
+        activePaneData.chatMessages.allMessages.push(assistantPlaceholderMessage);
+        activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
+            -(activePaneData.chatMessages.displayedMessageCount || 20)
+        );
+        setRootLayoutNode(prev => ({ ...prev }));
+
+        try {
+            await (window as any).api.executeCommandStream({
+                commandstr: messageContent,
+                currentPath,
+                conversationId,
+                model: modelToUse,
+                provider: providerToUse,
+                npc: selectedNpc ? selectedNpc.name : currentNPC,
+                npcSource: selectedNpc ? selectedNpc.source : 'global',
+                attachments: userMessage?.attachments?.map((att: any) => ({
+                    name: att.name, path: att.path, size: att.size, type: att.type
+                })) || [],
+                streamId: newStreamId,
+                isResend: true
+            });
+        } catch (err: any) {
+            console.error('[BRANCH RESEND] Error:', err);
+            setError(err.message);
+        }
+    };
+
+    // Create the branch first
     createBranchPoint(
         messageIndex,
         activeContentPaneId,
@@ -1468,9 +1577,32 @@ const handleCreateBranch = useCallback((messageIndex: number) => {
         setCurrentBranchId,
         setRootLayoutNode
     );
-    // Show the branching UI after creating a branch
-    setShowBranchingUI(true);
-}, [activeContentPaneId, currentBranchId, conversationBranches, contentDataRef, setConversationBranches, setCurrentBranchId, setRootLayoutNode]);
+
+    setBranchOptionsModal({ isOpen: false, messageIndex: -1, messageContent: '' });
+
+    // Determine which model(s) to use
+    let modelToUse = currentModel;
+    if (options.mode === 'different' && options.models[0]) {
+        modelToUse = options.models[0];
+        setCurrentModel(modelToUse);
+    }
+
+    if (options.mode === 'broadcast' && options.models.length > 1) {
+        // TODO: For broadcast, we'd need to create multiple branches
+        // For now, just send to first model
+        setIsStreaming(true);
+        await sendToModel(options.models[0]);
+    } else if (options.mode === 'jinx' && options.jinxName) {
+        // TODO: Execute the jinx with the message
+        console.log('Applying jinx:', options.jinxName);
+    } else {
+        // Same model or different model - just resend
+        setIsStreaming(true);
+        await sendToModel(modelToUse);
+    }
+}, [branchOptionsModal, activeContentPaneId, currentBranchId, conversationBranches, contentDataRef,
+    setConversationBranches, setCurrentBranchId, setRootLayoutNode, setCurrentModel, currentModel,
+    currentProvider, currentNPC, availableModels, availableNPCs, currentPath, setError, setIsStreaming]);
 
 // Handle running a Python script in a new terminal
 const handleRunScript = useCallback(async (scriptPath: string) => {
@@ -2246,12 +2378,29 @@ const renderMessageContextMenu = () => (
 );
 
 
+  // Helper to find an empty pane that can be reused
+  const findEmptyPaneId = useCallback(() => {
+    for (const [paneId, data] of Object.entries(contentDataRef.current)) {
+      if (!data || !data.contentType || data.contentType === 'empty') {
+        return paneId;
+      }
+    }
+    return null;
+  }, []);
+
   const createAndAddPaneNodeToLayout = useCallback(() => {
+  // First check if there's an empty pane to reuse
+  const emptyPaneId = findEmptyPaneId();
+  if (emptyPaneId) {
+    setActiveContentPaneId(emptyPaneId);
+    return emptyPaneId;
+  }
+
   const newPaneId = generateId();
-  
+
   // Create the contentData entry ONLY AFTER we know where it goes
   let finalPaneId = newPaneId;
-  
+
   setRootLayoutNode(oldRoot => {
     // Initialize contentData entry NOW, inside the state update
     contentDataRef.current[newPaneId] = {};
@@ -2307,7 +2456,7 @@ const renderMessageContextMenu = () => (
 
   setActiveContentPaneId(newPaneId);
   return newPaneId;
-}, [activeContentPaneId, findNodePath, findNodeByPath]);
+}, [activeContentPaneId, findNodePath, findNodeByPath, findEmptyPaneId]);
   
   
    
@@ -2427,6 +2576,17 @@ const renderMessageContextMenu = () => (
 
     const createNewTerminal = useCallback(async (shellType: 'system' | 'npcsh' | 'guac' = 'system') => {
         const newTerminalId = `term_${generateId()}`;
+
+        // Check for empty pane to reuse first
+        const emptyPaneId = findEmptyPaneId();
+        if (emptyPaneId) {
+            contentDataRef.current[emptyPaneId] = { shellType };
+            await updateContentPane(emptyPaneId, 'terminal', newTerminalId);
+            setActiveContentPaneId(emptyPaneId);
+            setRootLayoutNode(prev => ({ ...prev }));
+            return;
+        }
+
         const newPaneId = generateId();
 
         // Create layout first
@@ -2483,7 +2643,7 @@ const renderMessageContextMenu = () => (
         setActiveContentPaneId(newPaneId);
         setActiveConversationId(null);
         setCurrentFile(null);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create DataLabeler pane
     const createDataLabelerPane = useCallback(async () => {
@@ -2539,7 +2699,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create GraphViewer pane
     const createGraphViewerPane = useCallback(async () => {
@@ -2595,7 +2755,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create BrowserHistoryWeb pane (browser navigation graph)
     const createBrowserGraphPane = useCallback(async () => {
@@ -2651,7 +2811,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create DataDash pane
     const createDataDashPane = useCallback(async () => {
@@ -2707,7 +2867,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create DBTool pane
     const createDBToolPane = useCallback(async () => {
@@ -2763,7 +2923,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create PhotoViewer pane
     const createPhotoViewerPane = useCallback(async () => {
@@ -2819,7 +2979,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create LibraryViewer pane
     const createLibraryViewerPane = useCallback(async () => {
@@ -2875,7 +3035,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create ProjectEnv pane
     const createProjectEnvPane = useCallback(async () => {
@@ -2931,7 +3091,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create DiskUsage pane
     const createDiskUsagePane = useCallback(async () => {
@@ -2987,7 +3147,7 @@ const renderMessageContextMenu = () => (
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     const handleGlobalDragStart = useCallback((e, item) => {
     Object.values(contentDataRef.current).forEach(paneData => {
@@ -3048,24 +3208,39 @@ const handleGlobalDragEnd = () => {
     const targetUrl = url || defaultHomepage;
 
     const newBrowserId = `browser_${generateId()}`;
+
+    // Check for empty pane to reuse first
+    const emptyPaneId = findEmptyPaneId();
+    if (emptyPaneId) {
+        await updateContentPane(emptyPaneId, 'browser', newBrowserId);
+        if (contentDataRef.current[emptyPaneId]) {
+            contentDataRef.current[emptyPaneId].browserUrl = targetUrl;
+        }
+        setActiveContentPaneId(emptyPaneId);
+        setActiveConversationId(null);
+        setCurrentFile(null);
+        setRootLayoutNode(prev => ({ ...prev }));
+        return;
+    }
+
     const newPaneId = generateId();
-    
+
     // Create layout first
     setRootLayoutNode(oldRoot => {
         contentDataRef.current[newPaneId] = {};
-        
+
         if (!oldRoot) {
             return { id: newPaneId, type: 'content' };
         }
 
         let newRoot = JSON.parse(JSON.stringify(oldRoot));
-        
+
         if (activeContentPaneId) {
             const pathToActive = findNodePath(newRoot, activeContentPaneId);
             if (pathToActive && pathToActive.length > 0) {
                 const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
                 const targetIndex = pathToActive[pathToActive.length - 1];
-                
+
                 if (targetParent && targetParent.type === 'split') {
                     const newChildren = [...targetParent.children];
                     newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
@@ -3076,7 +3251,7 @@ const handleGlobalDragEnd = () => {
                 }
             }
         }
-        
+
         if (newRoot.type === 'content') {
             return {
                 id: generateId(),
@@ -3091,10 +3266,10 @@ const handleGlobalDragEnd = () => {
             newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
             return newRoot;
         }
-        
+
         return { id: newPaneId, type: 'content' };
     });
-    
+
     // Then update content
     setTimeout(async () => {
         await updateContentPane(newPaneId, 'browser', newBrowserId);
@@ -3103,11 +3278,11 @@ const handleGlobalDragEnd = () => {
         }
         setRootLayoutNode(prev => ({ ...prev }));
     }, 0);
-    
+
     setActiveContentPaneId(newPaneId);
     setActiveConversationId(null);
     setCurrentFile(null);
-}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
 // Handle opening a new browser tab/pane with a URL
 const handleNewBrowserTab = useCallback((url: string) => {
@@ -4152,7 +4327,7 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Render Team Management pane (embedded version for pane layout)
     const renderTeamManagementPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -4294,7 +4469,7 @@ ${contextPrompt}`;
         }, 0);
 
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     const createNewTextFile = () => {
         setPromptModalValue('untitled.py');
@@ -6366,6 +6541,15 @@ const handleFileClick = useCallback(async (filePath: string) => {
 
     console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
 
+    // Check for empty pane to reuse first
+    const emptyPaneId = findEmptyPaneId();
+    if (emptyPaneId) {
+        await updateContentPane(emptyPaneId, contentType, filePath);
+        setActiveContentPaneId(emptyPaneId);
+        setRootLayoutNode(prev => ({ ...prev }));
+        return;
+    }
+
     const newPaneId = generateId();
 
     setRootLayoutNode(oldRoot => {
@@ -6424,7 +6608,7 @@ const handleFileClick = useCallback(async (filePath: string) => {
     }, 0);
 
     setActiveContentPaneId(newPaneId);
-}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
 // Update ref for keyboard handler access
 handleFileClickRef.current = handleFileClick;
@@ -6798,6 +6982,19 @@ const renderMainContent = () => {
                         <div>Drag a conversation or file here to create a new pane</div>
                     </div>
                 </div>
+                <StatusBar
+                    gitBranch={gitStatus?.branch || null}
+                    gitStatus={gitStatus}
+                    setGitModalOpen={setGitModalOpen}
+                    directoryConversations={directoryConversations}
+                    setWorkspaceModalOpen={setWorkspaceModalOpen}
+                    paneItems={[]}
+                    setActiveContentPaneId={setActiveContentPaneId}
+                    autoScrollEnabled={autoScrollEnabled}
+                    setAutoScrollEnabled={setAutoScrollEnabled}
+                    isPredictiveTextEnabled={isPredictiveTextEnabled}
+                    setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
+                />
             </main>
         );
     }
@@ -7104,6 +7301,37 @@ const renderMainContent = () => {
             activeContentPaneId={activeContentPaneId}
             contentDataRef={contentDataRef}
             setRootLayoutNode={setRootLayoutNode}
+            onOpenVisualizer={() => setShowBranchVisualizer(true)}
+        />
+
+        <BranchOptionsModal
+            isOpen={branchOptionsModal.isOpen}
+            onClose={() => setBranchOptionsModal({ isOpen: false, messageIndex: -1, messageContent: '' })}
+            onConfirm={handleBranchOptionsConfirm}
+            messageContent={branchOptionsModal.messageContent}
+            currentModel={currentModel}
+            availableModels={availableModels}
+        />
+
+        <BranchVisualizer
+            isOpen={showBranchVisualizer}
+            onClose={() => setShowBranchVisualizer(false)}
+            conversationBranches={conversationBranches}
+            currentBranchId={currentBranchId}
+            onSwitchBranch={(branchId) => {
+                const activePaneData = contentDataRef.current[activeContentPaneId!];
+                if (!activePaneData || !activePaneData.chatMessages) return;
+                const branch = conversationBranches.get(branchId);
+                if (branch) {
+                    setCurrentBranchId(branchId);
+                    activePaneData.chatMessages.allMessages = [...branch.messages];
+                    activePaneData.chatMessages.messages = branch.messages.slice(-(activePaneData.chatMessages.displayedMessageCount || 50));
+                    setRootLayoutNode(prev => ({ ...prev }));
+                } else if (branchId === 'main') {
+                    setCurrentBranchId('main');
+                    setRootLayoutNode(prev => ({ ...prev }));
+                }
+            }}
         />
 
         </div>

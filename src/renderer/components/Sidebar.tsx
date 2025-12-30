@@ -81,6 +81,47 @@ const Sidebar = (props: any) => {
     const [bookmarks, setBookmarks] = useState<Array<{ id: number; url: string; title: string; folder_path: string; is_global: number }>>([]);
     // Default new pane type from global settings
     const [defaultNewPaneType, setDefaultNewPaneType] = useState<string>('chat');
+    // Default new terminal type (system/bash, npcsh, guac)
+    const [defaultNewTerminalType, setDefaultNewTerminalType] = useState<string>(() =>
+        localStorage.getItem('npcStudio_defaultNewTerminalType') || 'system'
+    );
+    // Default new document type (docx, xlsx, pptx, mapx)
+    const [defaultNewDocumentType, setDefaultNewDocumentType] = useState<string>(() =>
+        localStorage.getItem('npcStudio_defaultNewDocumentType') || 'docx'
+    );
+
+    // Load default terminal/document types from global settings and listen for changes
+    useEffect(() => {
+        const loadDefaults = async () => {
+            try {
+                const data = await (window as any).api.loadGlobalSettings();
+                if (data?.global_settings?.default_new_terminal_type) {
+                    setDefaultNewTerminalType(data.global_settings.default_new_terminal_type);
+                    localStorage.setItem('npcStudio_defaultNewTerminalType', data.global_settings.default_new_terminal_type);
+                }
+                if (data?.global_settings?.default_new_document_type) {
+                    setDefaultNewDocumentType(data.global_settings.default_new_document_type);
+                    localStorage.setItem('npcStudio_defaultNewDocumentType', data.global_settings.default_new_document_type);
+                }
+            } catch (err) {
+                console.error('Failed to load default types:', err);
+            }
+        };
+        loadDefaults();
+
+        const handleTerminalTypeChanged = (e: CustomEvent) => {
+            if (e.detail) setDefaultNewTerminalType(e.detail);
+        };
+        const handleDocumentTypeChanged = (e: CustomEvent) => {
+            if (e.detail) setDefaultNewDocumentType(e.detail);
+        };
+        window.addEventListener('defaultTerminalTypeChanged', handleTerminalTypeChanged as EventListener);
+        window.addEventListener('defaultDocumentTypeChanged', handleDocumentTypeChanged as EventListener);
+        return () => {
+            window.removeEventListener('defaultTerminalTypeChanged', handleTerminalTypeChanged as EventListener);
+            window.removeEventListener('defaultDocumentTypeChanged', handleDocumentTypeChanged as EventListener);
+        };
+    }, []);
 
     // Load bookmarks from database
     const loadBookmarks = useCallback(async () => {
@@ -2254,8 +2295,11 @@ return (
                             <Globe size={16} /><span className="text-[10px] ml-1.5">Browser</span>
                         </button>
                         <div className="relative flex">
-                            <button onClick={() => createNewTerminal?.('system')} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Terminal" title="New Bash Terminal (Ctrl+Shift+T)">
-                                <Terminal size={16} /><span className="text-[10px] ml-1.5">Terminal</span>
+                            <button onClick={() => createNewTerminal?.(defaultNewTerminalType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Terminal" title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal (Ctrl+Shift+T)`}>
+                                {defaultNewTerminalType === 'system' && <Terminal size={16} className="text-green-400" />}
+                                {defaultNewTerminalType === 'npcsh' && <Sparkles size={16} className="text-purple-400" />}
+                                {defaultNewTerminalType === 'guac' && <Code2 size={16} className="text-yellow-400" />}
+                                <span className="text-[10px] ml-1.5">{defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType}</span>
                             </button>
                             <button onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Terminal options">
                                 <ChevronDown size={10} />
@@ -2277,9 +2321,18 @@ return (
                         <button onClick={createNewTextFile} className="action-grid-button-wide" aria-label="New Code File" title="New Code File (Ctrl+Shift+F)">
                             <Code2 size={16} /><span className="text-[10px] ml-1.5">Code</span>
                         </button>
-                        <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="action-grid-button-wide" aria-label="New Document" title="New Document">
-                            <FileStack size={16} /><span className="text-[10px] ml-1.5">Doc</span>
-                        </button>
+                        <div className="relative flex">
+                            <button onClick={() => createNewDocument?.(defaultNewDocumentType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Document" title={`New ${defaultNewDocumentType.toUpperCase()} Document`}>
+                                {defaultNewDocumentType === 'docx' && <FileText size={16} className="text-blue-300" />}
+                                {defaultNewDocumentType === 'xlsx' && <FileJson size={16} className="text-green-300" />}
+                                {defaultNewDocumentType === 'pptx' && <BarChart3 size={16} className="text-orange-300" />}
+                                {defaultNewDocumentType === 'mapx' && <Share2 size={16} className="text-pink-300" />}
+                                <span className="text-[10px] ml-1.5">{defaultNewDocumentType === 'mapx' ? 'Map' : defaultNewDocumentType.slice(0, -1).toUpperCase()}</span>
+                            </button>
+                            <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
+                                <ChevronDown size={10} />
+                            </button>
+                        </div>
                         <button onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="action-grid-button-wide" aria-label="New Workspace" title="New Workspace (Ctrl+Shift+N)">
                             <img src={npcLogo} alt="Incognide" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
                             <span className="text-[10px] ml-1.5">Incognide</span>

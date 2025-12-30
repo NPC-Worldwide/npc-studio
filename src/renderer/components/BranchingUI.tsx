@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { X } from 'lucide-react';
+import { X, Network } from 'lucide-react';
 import { generateId } from './utils';
 
 interface BranchingUIProps {
@@ -12,6 +12,7 @@ interface BranchingUIProps {
     activeContentPaneId: string | null;
     contentDataRef: React.MutableRefObject<any>;
     setRootLayoutNode: (fn: (prev: any) => any) => void;
+    onOpenVisualizer?: () => void;
 }
 
 // Add UI component for branching visualization
@@ -24,7 +25,8 @@ export const BranchingUI: React.FC<BranchingUIProps> = ({
     setConversationBranches,
     activeContentPaneId,
     contentDataRef,
-    setRootLayoutNode
+    setRootLayoutNode,
+    onOpenVisualizer
 }) => {
     // Add function to switch branches
     const switchToBranch = useCallback((branchId: string) => {
@@ -112,8 +114,22 @@ export const BranchingUI: React.FC<BranchingUIProps> = ({
                 ))}
             </div>
 
-            <div className="mt-3 pt-3 border-t theme-border text-xs theme-text-muted">
-                Current: {currentBranchId === 'main' ? 'Main Branch' : conversationBranches.get(currentBranchId)?.name}
+            <div className="mt-3 pt-3 border-t theme-border flex items-center justify-between">
+                <div className="text-xs theme-text-muted">
+                    Current: {currentBranchId === 'main' ? 'Main Branch' : conversationBranches.get(currentBranchId)?.name}
+                </div>
+                {onOpenVisualizer && (
+                    <button
+                        onClick={() => {
+                            onOpenVisualizer();
+                            setShowBranchingUI(false);
+                        }}
+                        className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300"
+                    >
+                        <Network size={12} />
+                        View Map
+                    </button>
+                )}
             </div>
         </div>
     );

@@ -577,6 +577,12 @@ const defaultSettings = {
     keyboard_shortcuts: defaultKeyboardShortcuts,
     backend_python_path: '', // Empty means use bundled backend
     default_new_pane_type: 'chat',
+    default_new_terminal_type: 'system',
+    default_new_document_type: 'docx',
+    theme_dark_primary: '#3b82f6',
+    theme_dark_bg: '#0f172a',
+    theme_light_primary: '#ec4899',
+    theme_light_bg: '#ffffff',
 };
 
 // Local provider configuration
@@ -1327,6 +1333,32 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
             // Dispatch custom event for same-window updates
             window.dispatchEvent(new CustomEvent('defaultPaneTypeChanged', { detail: globalSettings.default_new_pane_type }));
         }
+        if (globalSettings.default_new_terminal_type) {
+            localStorage.setItem('npcStudio_defaultNewTerminalType', globalSettings.default_new_terminal_type);
+            window.dispatchEvent(new CustomEvent('defaultTerminalTypeChanged', { detail: globalSettings.default_new_terminal_type }));
+        }
+        if (globalSettings.default_new_document_type) {
+            localStorage.setItem('npcStudio_defaultNewDocumentType', globalSettings.default_new_document_type);
+            window.dispatchEvent(new CustomEvent('defaultDocumentTypeChanged', { detail: globalSettings.default_new_document_type }));
+        }
+
+        // Save theme colors to localStorage and apply them
+        if (globalSettings.theme_dark_primary) {
+            localStorage.setItem('npcStudio_themeDarkPrimary', globalSettings.theme_dark_primary);
+            document.documentElement.style.setProperty('--theme-primary-dark', globalSettings.theme_dark_primary);
+        }
+        if (globalSettings.theme_dark_bg) {
+            localStorage.setItem('npcStudio_themeDarkBg', globalSettings.theme_dark_bg);
+            document.documentElement.style.setProperty('--theme-bg-dark', globalSettings.theme_dark_bg);
+        }
+        if (globalSettings.theme_light_primary) {
+            localStorage.setItem('npcStudio_themeLightPrimary', globalSettings.theme_light_primary);
+            document.documentElement.style.setProperty('--theme-primary-light', globalSettings.theme_light_primary);
+        }
+        if (globalSettings.theme_light_bg) {
+            localStorage.setItem('npcStudio_themeLightBg', globalSettings.theme_light_bg);
+            document.documentElement.style.setProperty('--theme-bg-light', globalSettings.theme_light_bg);
+        }
 
         const envVars = customEnvVars.reduce((acc, { key, value }) => {
             if (key && value) acc[key] = value;
@@ -1359,10 +1391,10 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
     };
 
     const content = (
-        <div className={`flex flex-col ${embedded ? 'h-full' : ''}`}>
+        <div className={`flex flex-col ${embedded ? 'h-full' : 'max-h-[80vh]'}`}>
             <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
 
-            <div className={`${embedded ? 'flex-1 overflow-y-auto' : ''} p-6 space-y-4`}>
+            <div className={`${embedded ? 'flex-1' : ''} overflow-y-auto p-6 space-y-4`}>
                 {activeTab === 'global' && (
                     <>
                         <Input
@@ -1415,6 +1447,118 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                 { value: 'code', label: 'Code File' },
                             ]}
                         />
+
+                        <Select
+                            label="Default New Terminal Type"
+                            value={globalSettings.default_new_terminal_type || 'system'}
+                            onChange={(e) => setGlobalSettings({...globalSettings, default_new_terminal_type: e.target.value})}
+                            options={[
+                                { value: 'system', label: 'Bash' },
+                                { value: 'npcsh', label: 'npcsh' },
+                                { value: 'guac', label: 'guac' },
+                            ]}
+                        />
+
+                        <Select
+                            label="Default New Document Type"
+                            value={globalSettings.default_new_document_type || 'docx'}
+                            onChange={(e) => setGlobalSettings({...globalSettings, default_new_document_type: e.target.value})}
+                            options={[
+                                { value: 'docx', label: 'Word (.docx)' },
+                                { value: 'xlsx', label: 'Excel (.xlsx)' },
+                                { value: 'pptx', label: 'PowerPoint (.pptx)' },
+                                { value: 'mapx', label: 'Mind Map (.mapx)' },
+                            ]}
+                        />
+
+                        <Card title="Theme Settings">
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm">Dark Mode</span>
+                                    <button
+                                        onClick={() => {
+                                            const isDark = document.body.classList.contains('dark-mode');
+                                            document.body.classList.toggle('dark-mode', !isDark);
+                                            document.body.classList.toggle('light-mode', isDark);
+                                            localStorage.setItem('npcStudio_darkMode', (!isDark).toString());
+                                        }}
+                                        className={`w-12 h-6 rounded-full transition-colors ${document.body.classList.contains('dark-mode') ? 'bg-blue-500' : 'bg-gray-400'}`}
+                                    >
+                                        <div className={`w-5 h-5 bg-white rounded-full shadow transform transition-transform ${document.body.classList.contains('dark-mode') ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Dark Mode Primary Color</label>
+                                        <input
+                                            type="color"
+                                            value={globalSettings.theme_dark_primary || '#3b82f6'}
+                                            onChange={(e) => {
+                                                setGlobalSettings({...globalSettings, theme_dark_primary: e.target.value});
+                                                document.documentElement.style.setProperty('--theme-primary-dark', e.target.value);
+                                            }}
+                                            className="w-full h-8 rounded cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Dark Mode Background</label>
+                                        <input
+                                            type="color"
+                                            value={globalSettings.theme_dark_bg || '#0f172a'}
+                                            onChange={(e) => {
+                                                setGlobalSettings({...globalSettings, theme_dark_bg: e.target.value});
+                                                document.documentElement.style.setProperty('--theme-bg-dark', e.target.value);
+                                            }}
+                                            className="w-full h-8 rounded cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Light Mode Primary Color</label>
+                                        <input
+                                            type="color"
+                                            value={globalSettings.theme_light_primary || '#ec4899'}
+                                            onChange={(e) => {
+                                                setGlobalSettings({...globalSettings, theme_light_primary: e.target.value});
+                                                document.documentElement.style.setProperty('--theme-primary-light', e.target.value);
+                                            }}
+                                            className="w-full h-8 rounded cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Light Mode Background</label>
+                                        <input
+                                            type="color"
+                                            value={globalSettings.theme_light_bg || '#ffffff'}
+                                            onChange={(e) => {
+                                                setGlobalSettings({...globalSettings, theme_light_bg: e.target.value});
+                                                document.documentElement.style.setProperty('--theme-bg-light', e.target.value);
+                                            }}
+                                            className="w-full h-8 rounded cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={() => {
+                                        setGlobalSettings({
+                                            ...globalSettings,
+                                            theme_dark_primary: '#3b82f6',
+                                            theme_dark_bg: '#0f172a',
+                                            theme_light_primary: '#ec4899',
+                                            theme_light_bg: '#ffffff'
+                                        });
+                                        document.documentElement.style.setProperty('--theme-primary-dark', '#3b82f6');
+                                        document.documentElement.style.setProperty('--theme-bg-dark', '#0f172a');
+                                        document.documentElement.style.setProperty('--theme-primary-light', '#ec4899');
+                                        document.documentElement.style.setProperty('--theme-bg-light', '#ffffff');
+                                    }}
+                                    className="text-xs text-gray-400 hover:text-white"
+                                >
+                                    Reset to defaults
+                                </button>
+                            </div>
+                        </Card>
 
                         <div className="theme-bg-tertiary p-4 rounded-lg">
                             <h4 className="font-semibold theme-text-secondary mb-2">Backend Python Environment</h4>
