@@ -1399,6 +1399,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
 
     const tabs = [
         { id: 'global', name: 'Global Settings' },
+        { id: 'theme', name: 'Theme' },
         { id: 'shortcuts', name: 'Keyboard Shortcuts' },
         { id: 'models', name: 'Model Management' },
         { id: 'voice', name: 'Voice / TTS' },
@@ -1493,193 +1494,6 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                             ]}
                         />
 
-                        <Card title="Theme Settings">
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm">Dark Mode</span>
-                                    <button
-                                        onClick={() => {
-                                            const isDark = document.body.classList.contains('dark-mode');
-                                            document.body.classList.toggle('dark-mode', !isDark);
-                                            document.body.classList.toggle('light-mode', isDark);
-                                            localStorage.setItem('npcStudio_darkMode', (!isDark).toString());
-                                        }}
-                                        className={`w-12 h-6 rounded-full transition-colors ${document.body.classList.contains('dark-mode') ? 'bg-blue-500' : 'bg-gray-400'}`}
-                                    >
-                                        <div className={`w-5 h-5 bg-white rounded-full shadow transform transition-transform ${document.body.classList.contains('dark-mode') ? 'translate-x-6' : 'translate-x-0.5'}`} />
-                                    </button>
-                                </div>
-
-                                <div className="text-xs text-gray-400 font-medium mb-2 mt-4">Global Adjustments</div>
-                                <div className="space-y-3">
-                                    <div>
-                                        <div className="flex justify-between text-xs text-gray-400 mb-1">
-                                            <label>Hue Shift</label>
-                                            <span>{globalSettings.theme_hue_shift || 0}°</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="-180"
-                                            max="180"
-                                            value={globalSettings.theme_hue_shift || 0}
-                                            onChange={(e) => {
-                                                const val = parseInt(e.target.value);
-                                                setGlobalSettings({...globalSettings, theme_hue_shift: val});
-                                                document.documentElement.style.setProperty('--theme-hue-shift', `${val}deg`);
-                                            }}
-                                            className="w-full h-2 rounded-lg appearance-none cursor-pointer"
-                                            style={{background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)'}}
-                                        />
-                                    </div>
-                                    <div>
-                                        <div className="flex justify-between text-xs text-gray-400 mb-1">
-                                            <label>Saturation</label>
-                                            <span>{globalSettings.theme_saturation || 100}%</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="0"
-                                            max="200"
-                                            value={globalSettings.theme_saturation || 100}
-                                            onChange={(e) => {
-                                                const val = parseInt(e.target.value);
-                                                setGlobalSettings({...globalSettings, theme_saturation: val});
-                                                document.documentElement.style.setProperty('--theme-saturation', `${val}%`);
-                                            }}
-                                            className="w-full h-2 bg-gradient-to-r from-gray-500 to-blue-500 rounded-lg appearance-none cursor-pointer"
-                                        />
-                                    </div>
-                                    <div>
-                                        <div className="flex justify-between text-xs text-gray-400 mb-1">
-                                            <label>Brightness</label>
-                                            <span>{globalSettings.theme_brightness || 100}%</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="50"
-                                            max="150"
-                                            value={globalSettings.theme_brightness || 100}
-                                            onChange={(e) => {
-                                                const val = parseInt(e.target.value);
-                                                setGlobalSettings({...globalSettings, theme_brightness: val});
-                                                document.documentElement.style.setProperty('--theme-brightness', `${val}%`);
-                                            }}
-                                            className="w-full h-2 bg-gradient-to-r from-gray-900 via-gray-500 to-white rounded-lg appearance-none cursor-pointer"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="text-xs text-gray-400 font-medium mb-2 mt-4">Dark Mode Colors</div>
-                                <div className="grid grid-cols-3 gap-3">
-                                    <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Primary</label>
-                                        <input
-                                            type="color"
-                                            value={globalSettings.theme_dark_primary || '#3b82f6'}
-                                            onChange={(e) => {
-                                                setGlobalSettings({...globalSettings, theme_dark_primary: e.target.value});
-                                                document.documentElement.style.setProperty('--theme-primary-dark', e.target.value);
-                                            }}
-                                            className="w-full h-8 rounded cursor-pointer"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Background</label>
-                                        <input
-                                            type="color"
-                                            value={globalSettings.theme_dark_bg || '#0f172a'}
-                                            onChange={(e) => {
-                                                setGlobalSettings({...globalSettings, theme_dark_bg: e.target.value});
-                                                document.documentElement.style.setProperty('--theme-bg-dark', e.target.value);
-                                            }}
-                                            className="w-full h-8 rounded cursor-pointer"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Text</label>
-                                        <input
-                                            type="color"
-                                            value={globalSettings.theme_dark_text || '#f1f5f9'}
-                                            onChange={(e) => {
-                                                setGlobalSettings({...globalSettings, theme_dark_text: e.target.value});
-                                                document.documentElement.style.setProperty('--theme-text-dark', e.target.value);
-                                            }}
-                                            className="w-full h-8 rounded cursor-pointer"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="text-xs text-gray-400 font-medium mb-2 mt-4">Light Mode Colors</div>
-                                <div className="grid grid-cols-3 gap-3">
-                                    <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Primary</label>
-                                        <input
-                                            type="color"
-                                            value={globalSettings.theme_light_primary || '#ec4899'}
-                                            onChange={(e) => {
-                                                setGlobalSettings({...globalSettings, theme_light_primary: e.target.value});
-                                                document.documentElement.style.setProperty('--theme-primary-light', e.target.value);
-                                            }}
-                                            className="w-full h-8 rounded cursor-pointer"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Background</label>
-                                        <input
-                                            type="color"
-                                            value={globalSettings.theme_light_bg || '#ffffff'}
-                                            onChange={(e) => {
-                                                setGlobalSettings({...globalSettings, theme_light_bg: e.target.value});
-                                                document.documentElement.style.setProperty('--theme-bg-light', e.target.value);
-                                            }}
-                                            className="w-full h-8 rounded cursor-pointer"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Text</label>
-                                        <input
-                                            type="color"
-                                            value={globalSettings.theme_light_text || '#1e293b'}
-                                            onChange={(e) => {
-                                                setGlobalSettings({...globalSettings, theme_light_text: e.target.value});
-                                                document.documentElement.style.setProperty('--theme-text-light', e.target.value);
-                                            }}
-                                            className="w-full h-8 rounded cursor-pointer"
-                                        />
-                                    </div>
-                                </div>
-
-                                <button
-                                    onClick={() => {
-                                        setGlobalSettings({
-                                            ...globalSettings,
-                                            theme_dark_primary: '#3b82f6',
-                                            theme_dark_bg: '#0f172a',
-                                            theme_dark_text: '#f1f5f9',
-                                            theme_light_primary: '#ec4899',
-                                            theme_light_bg: '#ffffff',
-                                            theme_light_text: '#1e293b',
-                                            theme_hue_shift: 0,
-                                            theme_saturation: 100,
-                                            theme_brightness: 100
-                                        });
-                                        document.documentElement.style.setProperty('--theme-primary-dark', '#3b82f6');
-                                        document.documentElement.style.setProperty('--theme-bg-dark', '#0f172a');
-                                        document.documentElement.style.setProperty('--theme-text-dark', '#f1f5f9');
-                                        document.documentElement.style.setProperty('--theme-primary-light', '#ec4899');
-                                        document.documentElement.style.setProperty('--theme-bg-light', '#ffffff');
-                                        document.documentElement.style.setProperty('--theme-text-light', '#1e293b');
-                                        document.documentElement.style.setProperty('--theme-hue-shift', '0deg');
-                                        document.documentElement.style.setProperty('--theme-saturation', '100%');
-                                        document.documentElement.style.setProperty('--theme-brightness', '100%');
-                                    }}
-                                    className="text-xs text-gray-400 hover:text-white"
-                                >
-                                    Reset to defaults
-                                </button>
-                            </div>
-                        </Card>
-
                         <div className="theme-bg-tertiary p-4 rounded-lg">
                             <h4 className="font-semibold theme-text-secondary mb-2">Backend Python Environment</h4>
                             <p className="text-xs text-gray-400 mb-2">
@@ -1749,6 +1563,85 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                             </Button>
                         </Card>
                     </>
+                )}
+
+                {activeTab === 'theme' && (
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between p-2 theme-bg-tertiary rounded">
+                            <span className="text-sm">Dark Mode</span>
+                            <button
+                                onClick={() => {
+                                    const isDark = document.body.classList.contains('dark-mode');
+                                    document.body.classList.toggle('dark-mode', !isDark);
+                                    document.body.classList.toggle('light-mode', isDark);
+                                    localStorage.setItem('npcStudio_darkMode', (!isDark).toString());
+                                }}
+                                className={`w-10 h-5 rounded-full transition-colors ${document.body.classList.contains('dark-mode') ? 'bg-blue-500' : 'bg-gray-400'}`}
+                            >
+                                <div className={`w-4 h-4 bg-white rounded-full shadow transform transition-transform ${document.body.classList.contains('dark-mode') ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Hue</span><span>{globalSettings.theme_hue_shift || 0}°</span></div>
+                                <input type="range" min="-180" max="180" value={globalSettings.theme_hue_shift || 0}
+                                    onChange={(e) => { const val = parseInt(e.target.value); setGlobalSettings({...globalSettings, theme_hue_shift: val}); document.documentElement.style.setProperty('--theme-hue-shift', `${val}deg`); }}
+                                    className="w-full h-2 rounded-lg appearance-none cursor-pointer" style={{background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)'}} />
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Saturation</span><span>{globalSettings.theme_saturation || 100}%</span></div>
+                                <input type="range" min="0" max="200" value={globalSettings.theme_saturation || 100}
+                                    onChange={(e) => { const val = parseInt(e.target.value); setGlobalSettings({...globalSettings, theme_saturation: val}); document.documentElement.style.setProperty('--theme-saturation', `${val}%`); }}
+                                    className="w-full h-2 bg-gradient-to-r from-gray-500 to-blue-500 rounded-lg appearance-none cursor-pointer" />
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Brightness</span><span>{globalSettings.theme_brightness || 100}%</span></div>
+                                <input type="range" min="50" max="150" value={globalSettings.theme_brightness || 100}
+                                    onChange={(e) => { const val = parseInt(e.target.value); setGlobalSettings({...globalSettings, theme_brightness: val}); document.documentElement.style.setProperty('--theme-brightness', `${val}%`); }}
+                                    className="w-full h-2 bg-gradient-to-r from-gray-900 via-gray-500 to-white rounded-lg appearance-none cursor-pointer" />
+                            </div>
+                        </div>
+
+                        <div className="text-xs text-gray-400 font-medium">Dark Mode</div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_dark_primary || '#3b82f6'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_dark_primary: e.target.value}); document.documentElement.style.setProperty('--theme-primary-dark', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Primary</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_dark_bg || '#0f172a'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_dark_bg: e.target.value}); document.documentElement.style.setProperty('--theme-bg-dark', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Background</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_dark_text || '#f1f5f9'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_dark_text: e.target.value}); document.documentElement.style.setProperty('--theme-text-dark', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Text</span>
+                            </div>
+                        </div>
+
+                        <div className="text-xs text-gray-400 font-medium">Light Mode</div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_light_primary || '#ec4899'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_light_primary: e.target.value}); document.documentElement.style.setProperty('--theme-primary-light', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Primary</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_light_bg || '#ffffff'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_light_bg: e.target.value}); document.documentElement.style.setProperty('--theme-bg-light', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Background</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_light_text || '#1e293b'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_light_text: e.target.value}); document.documentElement.style.setProperty('--theme-text-light', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Text</span>
+                            </div>
+                        </div>
+
+                        <button onClick={() => {
+                            setGlobalSettings({...globalSettings, theme_dark_primary: '#3b82f6', theme_dark_bg: '#0f172a', theme_dark_text: '#f1f5f9', theme_light_primary: '#ec4899', theme_light_bg: '#ffffff', theme_light_text: '#1e293b', theme_hue_shift: 0, theme_saturation: 100, theme_brightness: 100});
+                            document.documentElement.style.setProperty('--theme-primary-dark', '#3b82f6'); document.documentElement.style.setProperty('--theme-bg-dark', '#0f172a'); document.documentElement.style.setProperty('--theme-text-dark', '#f1f5f9');
+                            document.documentElement.style.setProperty('--theme-primary-light', '#ec4899'); document.documentElement.style.setProperty('--theme-bg-light', '#ffffff'); document.documentElement.style.setProperty('--theme-text-light', '#1e293b');
+                            document.documentElement.style.setProperty('--theme-hue-shift', '0deg'); document.documentElement.style.setProperty('--theme-saturation', '100%'); document.documentElement.style.setProperty('--theme-brightness', '100%');
+                        }} className="text-xs text-gray-400 hover:text-white">Reset to defaults</button>
+                    </div>
                 )}
 
                 {activeTab === 'shortcuts' && (
