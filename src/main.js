@@ -6510,7 +6510,17 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
 
   async function readDirRecursive(currentPath, depth = 0) {
     const result = {};
-    const items = await fsPromises.readdir(currentPath, { withFileTypes: true });
+    let items;
+    try {
+      items = await fsPromises.readdir(currentPath, { withFileTypes: true });
+    } catch (err) {
+      // Can't read this directory - return empty result
+      if (err.code === 'EACCES' || err.code === 'EPERM') {
+        console.log(`[Main Process] Permission denied, skipping: ${currentPath}`);
+        return result;
+      }
+      throw err;
+    }
     for (const item of items) {
       if (item.isDirectory() && ignorePatterns.includes(item.name)) {
         console.log(`[Main Process] Ignoring directory: ${path.join(currentPath, item.name)}`);
@@ -6521,11 +6531,26 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
       if (item.isDirectory()) {
         // Only recurse if we haven't hit max depth
         if (depth < maxDepth) {
-          result[item.name] = {
-            type: 'directory',
-            path: itemPath,
-            children: await readDirRecursive(itemPath, depth + 1)
-          };
+          try {
+            result[item.name] = {
+              type: 'directory',
+              path: itemPath,
+              children: await readDirRecursive(itemPath, depth + 1)
+            };
+          } catch (err) {
+            // If we can't read subdirectory, still show it but mark as inaccessible
+            if (err.code === 'EACCES' || err.code === 'EPERM') {
+              console.log(`[Main Process] Permission denied for subdirectory: ${itemPath}`);
+              result[item.name] = {
+                type: 'directory',
+                path: itemPath,
+                children: {},
+                inaccessible: true
+              };
+            } else {
+              throw err;
+            }
+          }
         } else {
           // At max depth, just show directory without children
           result[item.name] = {
@@ -6946,6 +6971,56 @@ ipcMain.handle('renameFile', async (_, oldPath, newPath) => {
     }
   }
 );
+
+// ============================================
+// File Permission Management (chmod/chown)
+// ============================================
+
+ipcMain.handle('chmod', async (_, { path: filePath, mode, recursive, useSudo }) => {
+    try {
+        if (!filePath || !mode) {
+            return { success: false, error: 'Path and mode are required' };
+        }
+
+        // Validate mode format (octal like 755, 0755, etc.)
+        if (!/^[0-7]{3,4}$/.test(mode)) {
+            return { success: false, error: 'Invalid mode format. Use octal format (e.g., 755)' };
+        }
+
+        const { execSync } = require('child_process');
+        const args = recursive ? ['-R', mode, filePath] : [mode, filePath];
+        const command = useSudo ? `sudo chmod ${args.join(' ')}` : `chmod ${args.join(' ')}`;
+
+        console.log(`[CHMOD] Executing: ${command}`);
+        execSync(command, { encoding: 'utf-8' });
+        console.log(`[CHMOD] Successfully changed permissions for ${filePath}`);
+        return { success: true, error: null };
+    } catch (err) {
+        console.error('[CHMOD] Error:', err);
+        return { success: false, error: err.message || 'Failed to change permissions' };
+    }
+});
+
+ipcMain.handle('chown', async (_, { path: filePath, owner, group, recursive, useSudo }) => {
+    try {
+        if (!filePath || !owner) {
+            return { success: false, error: 'Path and owner are required' };
+        }
+
+        const { execSync } = require('child_process');
+        const ownerGroup = group ? `${owner}:${group}` : owner;
+        const args = recursive ? ['-R', ownerGroup, filePath] : [ownerGroup, filePath];
+        const command = useSudo ? `sudo chown ${args.join(' ')}` : `chown ${args.join(' ')}`;
+
+        console.log(`[CHOWN] Executing: ${command}`);
+        execSync(command, { encoding: 'utf-8' });
+        console.log(`[CHOWN] Successfully changed owner for ${filePath}`);
+        return { success: true, error: null };
+    } catch (err) {
+        console.error('[CHOWN] Error:', err);
+        return { success: false, error: err.message || 'Failed to change owner' };
+    }
+});
 
 // ============================================
 // Jupyter Kernel Management

@@ -20,7 +20,10 @@
 
 ---
 
-Incognide combines chat, code, documents, web browsing, multi-media management, and much more into a tiled workspace desktop environment with smart context and composable automations.
+Incognide unifies chat, code, documents, web browsing, and media into a tileable workspace with intelligent context and composable automations.
+
+Built for seamless workflows, Incognide eliminates distractions and context switching. A path-based organization keeps your work structured naturally, while auto-saving workspaces let you resume any project exactly where you left off. No more juggling desktops, drowning in browser tabs, or hunting for scattered files.
+
 
 ### Highlights
 
@@ -28,7 +31,7 @@ Incognide combines chat, code, documents, web browsing, multi-media management, 
 - Browse the web, read and annotate PDFs, analyze data and create dashboards, compile LaTeX.
 - Edit DOCX, XLSX, PPTX, MAPX.
 - Arrange chats, editors, PDFs, browsers, terminals as your work evolves.
-- Manage agents, team context, MCP Server integrations, memory, and knowledge graphs.
+- Manage agents, have them run on jobs, edit team context, integrate with MCP Servers, approve or rejected suggested memories, prune and evolve knowledge graphs.
 
 ## Demo Video
 

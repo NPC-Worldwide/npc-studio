@@ -196,6 +196,9 @@ const Sidebar = (props: any) => {
     // Limit input dialog state
     const [limitDialog, setLimitDialog] = useState<{ domain: string; hourlyTime: string; dailyTime: string; hourlyVisits: string; dailyVisits: string } | null>(null);
 
+    // Permission dialog state (chmod/chown)
+    const [permissionDialog, setPermissionDialog] = useState<{ path: string; type: 'chmod' | 'chown'; mode?: string; owner?: string; group?: string; recursive?: boolean; useSudo?: boolean } | null>(null);
+
 // ===== ALL THE SIDEBAR FUNCTIONS BELOW =====
 
 const handleSidebarResize = useCallback((e) => {
@@ -367,13 +370,13 @@ const handleOpenFolderAsWorkspace = useCallback(async (folderPath) => {
     setSidebarItemContextMenuPos(null);
 }, [currentPath, switchToPath]);
 
-const handleSidebarItemContextMenu = (e, path, type) => {
+const handleSidebarItemContextMenu = (e, path, type, isInaccessible = false) => {
     e.preventDefault();
     e.stopPropagation();
     if (type === 'file' && !selectedFiles.has(path)) {
         setSelectedFiles(new Set([path]));
     }
-    setSidebarItemContextMenuPos({ x: e.clientX, y: e.clientY, path, type });
+    setSidebarItemContextMenuPos({ x: e.clientX, y: e.clientY, path, type, isInaccessible });
 };
 
 const handleAnalyzeInDashboard = () => {
@@ -1542,7 +1545,7 @@ useEffect(() => {
 
               const renderSidebarItemContextMenu = () => {
     if (!sidebarItemContextMenuPos) return null;
-    const { x, y, path, type } = sidebarItemContextMenuPos;
+    const { x, y, path, type, isInaccessible } = sidebarItemContextMenuPos;
 
     const selectedFilePaths = Array.from(selectedFiles);
 
@@ -1556,7 +1559,7 @@ useEffect(() => {
                 className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
                 style={{ top: y, left: x }}
             >
-                {type === 'file' && (
+                {type === 'file' && !isInaccessible && (
                     <>
                         <button
                             onClick={() => {
@@ -1583,7 +1586,7 @@ useEffect(() => {
                     </>
                 )}
 
-                {type === 'directory' && (
+                {type === 'directory' && !isInaccessible && (
                     <>
                         <button
                             onClick={() => handleOpenFolderAsWorkspace(path)}
@@ -1595,24 +1598,51 @@ useEffect(() => {
                         <div className="border-t theme-border my-1"></div>
                     </>
                 )}
-                
+
+                {/* Permission options - always show for both files and directories */}
                 <button
-                    onClick={handleSidebarRenameStart}
+                    onClick={() => {
+                        setPermissionDialog({ path, type: 'chmod' });
+                        setSidebarItemContextMenuPos(null);
+                    }}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
                 >
-                    <Edit size={16} />
-                    <span>Rename</span>
+                    <KeyRound size={16} />
+                    <span>Change Permissions (chmod)</span>
                 </button>
-
                 <button
-                    onClick={handleZipItems}
+                    onClick={() => {
+                        setPermissionDialog({ path, type: 'chown' });
+                        setSidebarItemContextMenuPos(null);
+                    }}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
                 >
-                    <Archive size={16} />
-                    <span>Zip{selectedFiles.size > 1 ? ` (${selectedFiles.size} items)` : ''}</span>
+                    <Users size={16} />
+                    <span>Change Owner (chown)</span>
                 </button>
-
                 <div className="border-t theme-border my-1"></div>
+
+                {!isInaccessible && (
+                    <>
+                        <button
+                            onClick={handleSidebarRenameStart}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <Edit size={16} />
+                            <span>Rename</span>
+                        </button>
+
+                        <button
+                            onClick={handleZipItems}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <Archive size={16} />
+                            <span>Zip{selectedFiles.size > 1 ? ` (${selectedFiles.size} items)` : ''}</span>
+                        </button>
+
+                        <div className="border-t theme-border my-1"></div>
+                    </>
+                )}
 
                 <button
                     onClick={handleSidebarItemDelete}
@@ -1719,13 +1749,15 @@ const renderFolderList = (structure) => {
             const isRenaming = renamingPath === fullPath;
 
             if (isFolder) {
+                const isInaccessible = content.inaccessible === true;
                 return (
                     <div key={fullPath} className="pl-4">
                         <button
-                            draggable="true"
-                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'folder', id: fullPath }); }}
+                            draggable={!isInaccessible}
+                            onDragStart={(e) => { if (isInaccessible) { e.preventDefault(); return; } e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'folder', id: fullPath }); }}
                             onDragEnd={handleGlobalDragEnd}
                             onClick={(e) => {
+                                if (isInaccessible) return; // Don't allow expanding inaccessible folders
                                 // Check for Ctrl or Meta key (Command on Mac)
                                 if (e.ctrlKey || e.metaKey) {
                                     handleOpenFolderAsWorkspace(fullPath);
@@ -1738,12 +1770,19 @@ const renderFolderList = (structure) => {
                                     });
                                 }
                             }}
-                            onDoubleClick={() => handleOpenFolderAsWorkspace(fullPath)}
-                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')}
-                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
-                            title={`Drag to open as folder viewer, Click to expand, Ctrl+Click to open as workspace`}
+                            onDoubleClick={() => !isInaccessible && handleOpenFolderAsWorkspace(fullPath)}
+                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory', isInaccessible)}
+                            className={`flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded ${isInaccessible ? 'opacity-60' : ''}`}
+                            title={isInaccessible ? `Permission denied: ${fullPath}` : `Drag to open as folder viewer, Click to expand, Ctrl+Click to open as workspace`}
                         >
-                            <Folder size={16} className="text-blue-400 flex-shrink-0" />
+                            {isInaccessible ? (
+                                <div className="relative flex-shrink-0">
+                                    <Folder size={16} className="text-gray-500" />
+                                    <Lock size={8} className="absolute -bottom-0.5 -right-0.5 text-red-400" />
+                                </div>
+                            ) : (
+                                <Folder size={16} className="text-blue-400 flex-shrink-0" />
+                            )}
                             {isRenaming ? (
                                 <input
                                     type="text"
@@ -2453,6 +2492,162 @@ return (
                                 className="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700"
                             >
                                 Save
+                            </button>
+                        </div>
+                    </div>
+                </>
+            )}
+            {/* Permission Dialog (chmod/chown) */}
+            {permissionDialog && (
+                <>
+                    <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setPermissionDialog(null)} />
+                    <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 theme-bg-secondary border theme-border rounded-lg shadow-xl p-4 min-w-[380px]">
+                        <h3 className="text-sm font-medium mb-1 flex items-center gap-2">
+                            {permissionDialog.type === 'chmod' ? (
+                                <><KeyRound size={16} className="text-yellow-400" /> Change Permissions</>
+                            ) : (
+                                <><Users size={16} className="text-blue-400" /> Change Owner</>
+                            )}
+                        </h3>
+                        <p className="text-xs text-gray-400 mb-4 truncate" title={permissionDialog.path}>{permissionDialog.path}</p>
+
+                        {permissionDialog.type === 'chmod' ? (
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Quick Presets</label>
+                                    <select
+                                        value={permissionDialog.mode || ''}
+                                        onChange={(e) => setPermissionDialog({ ...permissionDialog, mode: e.target.value })}
+                                        className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                    >
+                                        <option value="">-- Select preset or enter custom --</option>
+                                        <optgroup label="Files">
+                                            <option value="644">644 - Read/write owner, read others (rw-r--r--)</option>
+                                            <option value="664">664 - Read/write owner+group, read others (rw-rw-r--)</option>
+                                            <option value="600">600 - Private file, owner only (rw-------)</option>
+                                            <option value="666">666 - Read/write everyone (rw-rw-rw-)</option>
+                                        </optgroup>
+                                        <optgroup label="Directories / Executables">
+                                            <option value="755">755 - Standard directory/executable (rwxr-xr-x)</option>
+                                            <option value="775">775 - Group writable directory (rwxrwxr-x)</option>
+                                            <option value="700">700 - Private directory, owner only (rwx------)</option>
+                                            <option value="777">777 - Full access everyone (rwxrwxrwx)</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Custom Mode (octal)</label>
+                                    <input
+                                        type="text"
+                                        value={permissionDialog.mode || ''}
+                                        onChange={(e) => setPermissionDialog({ ...permissionDialog, mode: e.target.value })}
+                                        className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm font-mono"
+                                        placeholder="755"
+                                        maxLength={4}
+                                    />
+                                </div>
+                                <div className="text-xs text-gray-500 space-y-1">
+                                    <div className="flex gap-4">
+                                        <span><strong>7</strong> = rwx</span>
+                                        <span><strong>6</strong> = rw-</span>
+                                        <span><strong>5</strong> = r-x</span>
+                                        <span><strong>4</strong> = r--</span>
+                                    </div>
+                                    <div>Format: [owner][group][others]</div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Owner (username or UID)</label>
+                                    <input
+                                        type="text"
+                                        value={permissionDialog.owner || ''}
+                                        onChange={(e) => setPermissionDialog({ ...permissionDialog, owner: e.target.value })}
+                                        className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                        placeholder="username"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Group (groupname or GID, optional)</label>
+                                    <input
+                                        type="text"
+                                        value={permissionDialog.group || ''}
+                                        onChange={(e) => setPermissionDialog({ ...permissionDialog, group: e.target.value })}
+                                        className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                        placeholder="groupname"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-4 mt-3">
+                            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={permissionDialog.recursive || false}
+                                    onChange={(e) => setPermissionDialog({ ...permissionDialog, recursive: e.target.checked })}
+                                    className="rounded border-gray-600"
+                                />
+                                Recursive (-R)
+                            </label>
+                            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={permissionDialog.useSudo || false}
+                                    onChange={(e) => setPermissionDialog({ ...permissionDialog, useSudo: e.target.checked })}
+                                    className="rounded border-gray-600"
+                                />
+                                Use sudo
+                            </label>
+                        </div>
+
+                        <div className="flex gap-2 justify-end mt-4">
+                            <button
+                                onClick={() => setPermissionDialog(null)}
+                                className="px-3 py-1.5 text-sm rounded theme-hover"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        if (permissionDialog.type === 'chmod') {
+                                            if (!permissionDialog.mode || !/^[0-7]{3,4}$/.test(permissionDialog.mode)) {
+                                                setError('Invalid mode. Use octal format (e.g., 755)');
+                                                return;
+                                            }
+                                            const result = await (window as any).api.chmod({
+                                                path: permissionDialog.path,
+                                                mode: permissionDialog.mode,
+                                                recursive: permissionDialog.recursive,
+                                                useSudo: permissionDialog.useSudo
+                                            });
+                                            if (result?.error) throw new Error(result.error);
+                                        } else {
+                                            if (!permissionDialog.owner) {
+                                                setError('Owner is required');
+                                                return;
+                                            }
+                                            const result = await (window as any).api.chown({
+                                                path: permissionDialog.path,
+                                                owner: permissionDialog.owner,
+                                                group: permissionDialog.group,
+                                                recursive: permissionDialog.recursive,
+                                                useSudo: permissionDialog.useSudo
+                                            });
+                                            if (result?.error) throw new Error(result.error);
+                                        }
+                                        setPermissionDialog(null);
+                                        // Refresh directory to see updated permissions
+                                        await loadDirectoryStructure(currentPath);
+                                    } catch (err: any) {
+                                        setError(err.message || 'Failed to change permissions');
+                                    }
+                                }}
+                                className="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700"
+                            >
+                                Apply
                             </button>
                         </div>
                     </div>
