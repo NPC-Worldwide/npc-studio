@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     Folder, FolderOpen, ChevronRight, Clock,
-    HardDrive, FolderPlus, X, ChevronDown
+    HardDrive, FolderPlus, X, ChevronDown, ArrowUp
 } from 'lucide-react';
 
 interface PathSwitcherProps {
@@ -122,6 +122,20 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
 
     return (
         <div className="relative flex items-center gap-1" ref={dropdownRef}>
+            {/* Go up button */}
+            <button
+                onClick={onGoUp}
+                disabled={isAtRoot}
+                className={`p-1.5 rounded-lg theme-bg-tertiary border theme-border transition-all ${
+                    isAtRoot
+                        ? 'opacity-40 cursor-not-allowed'
+                        : 'hover:border-green-500/50 hover:bg-green-500/10'
+                }`}
+                title="Go up one folder"
+            >
+                <ArrowUp size={14} className={isAtRoot ? 'text-gray-500' : 'text-green-400'} />
+            </button>
+
             {/* Main path display button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}

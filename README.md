@@ -20,7 +20,10 @@
 
 ---
 
-Incognide combines chat, code, documents, web browsing, multi-media management, and much more into a tiled workspace desktop environment with smart context and composable automations.
+Incognide unifies chat, code, documents, web browsing, and media into a tileable workspace with intelligent context and composable automations.
+
+Built for seamless workflows, Incognide eliminates distractions and context switching. A path-based organization keeps your work structured naturally, while auto-saving workspaces let you resume any project exactly where you left off. No more juggling desktops, drowning in browser tabs, or hunting for scattered files.
+
 
 ### Highlights
 
@@ -28,7 +31,7 @@ Incognide combines chat, code, documents, web browsing, multi-media management, 
 - Browse the web, read and annotate PDFs, analyze data and create dashboards, compile LaTeX.
 - Edit DOCX, XLSX, PPTX, MAPX.
 - Arrange chats, editors, PDFs, browsers, terminals as your work evolves.
-- Manage agents, team context, MCP Server integrations, memory, and knowledge graphs.
+- Manage agents, have them run on jobs, edit team context, integrate with MCP Servers, approve or rejected suggested memories, prune and evolve knowledge graphs.
 
 ## Demo Video
 
@@ -69,15 +72,12 @@ Incognide combines chat, code, documents, web browsing, multi-media management, 
 
 ## Features
 
+
 ### AI Chat & Conversations
 
-Organize conversations by project path and chat with multiple AI models.
 
-![Chat Window](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/chat_window.png)
+![Chat Window](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/chat.png)
 
-**Thinking Traces**: See the agent's reasoning process:
-
-![Reasoning Trace](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/reasoning.png)
 
 **Aggregate Conversations**: Select and combine multiple conversations:
 
@@ -96,6 +96,7 @@ Organize conversations by project path and chat with multiple AI models.
 
 ![MCP Tool Use](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/mcp_tool_use.png)
 
+
 ---
 
 ### File Editing
@@ -104,6 +105,11 @@ Edit code and text files with syntax highlighting.
 
 ![Code Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/code_editor.png)
 
+Execute python scripts
+
+![script execution](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/script_execution.png)
+
+![latex compilation](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/latex.png)
 **AI-Powered Analysis**: Analyze files with AI assistance:
 
 ![Analyze Files](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/analyze_files.png)
@@ -114,15 +120,23 @@ Edit code and text files with syntax highlighting.
 
 ---
 
+
 ### Document Viewers
 
 **DOCX & XLSX Support**: Edit Word documents and Excel spreadsheets with full functionality:
 
 ![DOCX and XLSX Editing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/docx_xlsx.png)
 
+![CSV Editing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/csv.png)
+
+![PPTX Editing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/pptx.png)
+
+
 **PDF Analysis**: Highlight and analyze PDF documents:
 
 ![PDF Highlighting](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/pdf_highlight.png)
+
+![Folder contents](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/folder_explorer.png)
 
 ---
 
@@ -130,7 +144,7 @@ Edit code and text files with syntax highlighting.
 
 Browse the web with AI assistance at your fingertips.
 
-![AI Web Browsing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/ai_web_browsing.png)
+![AI Web Browsing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/browse_and_wait.png)
 
 **Tiled Browsing**: Browse while viewing PDFs or chatting:
 
@@ -142,7 +156,7 @@ Browse the web with AI assistance at your fingertips.
 
 **Photo Editor**: Browse photos
 
-![Photo Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/photo_editor.png)
+![Photo Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/vixynt.png)
 
 **AI Image generation with references**:
 
@@ -154,7 +168,7 @@ Browse the web with AI assistance at your fingertips.
 
 ---
 
-### Data Dashboard
+### Data Tools
 
 Composable widgets for analytics, querying, and visualization.
 
@@ -176,13 +190,26 @@ Composable widgets for analytics, querying, and visualization.
 
 ![Knowledge Graph](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/kg_inspector.png)
 
+
+![Disk usage](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/disk_usage_analyzer.png)
+
+
+![PDF Library](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/library.png)
+
+
 ---
 
-### Agent Management
+### Agent team and context management
 
 **Create and Edit NPC Personas**: edit the primary directive, model, provider, and jinxs for your persona.
 
-![Edit NPCs](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/edit_npcs.png)
+![Edit NPCs](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/agent_editor.png)
+
+![Agent History](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/npc_history.png)
+
+![Agent memories](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/memories.png)
+
+![Agents in SQL models](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/nql.png)
 
 **Jinx Management**: Create and manage Jinxs for agents:
 
@@ -196,9 +223,14 @@ Composable widgets for analytics, querying, and visualization.
 
 ![SQL Jinx](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/sql_jinx.png)
 
-**Context Editor**: Manage global and project context:
+**Context Editor**: Manage global and project context.
 
-![Context Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/ctx_editor.png)
+![Context Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/team_management.png)
+
+![Manage mcp servers](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/mcp_server.png)
+
+![Cron jobs](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/cron_daemon.png)
+
 
 ---
 
@@ -218,11 +250,26 @@ Composable widgets for analytics, querying, and visualization.
 
 **Global Settings**: Configure default models and providers:
 
-![Global Settings](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/default_settings.png)
+![Global Settings](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/settings1.png)
+
+
+![TTS](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/tts_management.png)
+
+![keyboard shortcuts](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/keyboard_shortcuts.png)
+
+![git manager](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/git_manager.png)
+
+![custom api](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/custom_api.png)
+
+![model management](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/model_management.png)
+
+![hf model management](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/hf.png)
 
 **Project Settings**: Set environment variables per project:
 
-![Environment Variables](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/env_variables.png)
+![Environment Variables](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/env_vars.png)
+
+
 
 ---
 

@@ -476,7 +476,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             updateContentPane, performSplit, setRootLayoutNode,
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
-            renderPptxViewer, renderLatexViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
+            renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
             renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane,
             moveContentPane,
@@ -1013,6 +1013,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderPptxViewer({ nodeId: node.id });
                 case 'latex':
                     return renderLatexViewer({ nodeId: node.id });
+                case 'notebook':
+                    return renderNotebookViewer({ nodeId: node.id });
                 case 'image':
                     return renderPicViewer({ nodeId: node.id });
                 case 'mindmap':

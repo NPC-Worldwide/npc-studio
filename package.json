@@ -1,6 +1,6 @@
 {
   "name": "incognide",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "description": "Explore the unknown, build the future, own your data.",
   "author": "Chris Agostino <info@npcworldwi.de>",
   "main": "src/main.js",
@@ -79,7 +79,7 @@
         "deb"
       ],
       "category": "Utility",
-      "icon": "build/icons",
+      "icon": "assets/icon.png",
       "extraResources": [
         {
           "from": "resources/backend/npc_studio_serve",

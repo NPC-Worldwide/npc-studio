@@ -4,7 +4,7 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
     Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
-    Star, Clock, Activity, Lock, Archive, BookOpen
+    Star, Clock, Activity, Lock, Archive, BookOpen, Sparkles
 } from 'lucide-react';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import npcLogo from '../../assets/icon.png';
@@ -67,6 +67,8 @@ const Sidebar = (props: any) => {
 
     // Doc dropdown state (click-based instead of hover)
     const [docDropdownOpen, setDocDropdownOpen] = useState(false);
+    // Terminal dropdown state (click-based)
+    const [terminalDropdownOpen, setTerminalDropdownOpen] = useState(false);
     // Chat+ dropdown state (click-based)
     const [chatPlusDropdownOpen, setChatPlusDropdownOpen] = useState(false);
     // Website context menu state
@@ -79,6 +81,47 @@ const Sidebar = (props: any) => {
     const [bookmarks, setBookmarks] = useState<Array<{ id: number; url: string; title: string; folder_path: string; is_global: number }>>([]);
     // Default new pane type from global settings
     const [defaultNewPaneType, setDefaultNewPaneType] = useState<string>('chat');
+    // Default new terminal type (system/bash, npcsh, guac)
+    const [defaultNewTerminalType, setDefaultNewTerminalType] = useState<string>(() =>
+        localStorage.getItem('npcStudio_defaultNewTerminalType') || 'system'
+    );
+    // Default new document type (docx, xlsx, pptx, mapx)
+    const [defaultNewDocumentType, setDefaultNewDocumentType] = useState<string>(() =>
+        localStorage.getItem('npcStudio_defaultNewDocumentType') || 'docx'
+    );
+
+    // Load default terminal/document types from global settings and listen for changes
+    useEffect(() => {
+        const loadDefaults = async () => {
+            try {
+                const data = await (window as any).api.loadGlobalSettings();
+                if (data?.global_settings?.default_new_terminal_type) {
+                    setDefaultNewTerminalType(data.global_settings.default_new_terminal_type);
+                    localStorage.setItem('npcStudio_defaultNewTerminalType', data.global_settings.default_new_terminal_type);
+                }
+                if (data?.global_settings?.default_new_document_type) {
+                    setDefaultNewDocumentType(data.global_settings.default_new_document_type);
+                    localStorage.setItem('npcStudio_defaultNewDocumentType', data.global_settings.default_new_document_type);
+                }
+            } catch (err) {
+                console.error('Failed to load default types:', err);
+            }
+        };
+        loadDefaults();
+
+        const handleTerminalTypeChanged = (e: CustomEvent) => {
+            if (e.detail) setDefaultNewTerminalType(e.detail);
+        };
+        const handleDocumentTypeChanged = (e: CustomEvent) => {
+            if (e.detail) setDefaultNewDocumentType(e.detail);
+        };
+        window.addEventListener('defaultTerminalTypeChanged', handleTerminalTypeChanged as EventListener);
+        window.addEventListener('defaultDocumentTypeChanged', handleDocumentTypeChanged as EventListener);
+        return () => {
+            window.removeEventListener('defaultTerminalTypeChanged', handleTerminalTypeChanged as EventListener);
+            window.removeEventListener('defaultDocumentTypeChanged', handleDocumentTypeChanged as EventListener);
+        };
+    }, []);
 
     // Load bookmarks from database
     const loadBookmarks = useCallback(async () => {
@@ -152,6 +195,9 @@ const Sidebar = (props: any) => {
 
     // Limit input dialog state
     const [limitDialog, setLimitDialog] = useState<{ domain: string; hourlyTime: string; dailyTime: string; hourlyVisits: string; dailyVisits: string } | null>(null);
+
+    // Permission dialog state (chmod/chown)
+    const [permissionDialog, setPermissionDialog] = useState<{ path: string; type: 'chmod' | 'chown'; mode?: string; owner?: string; group?: string; recursive?: boolean; useSudo?: boolean } | null>(null);
 
 // ===== ALL THE SIDEBAR FUNCTIONS BELOW =====
 
@@ -324,13 +370,13 @@ const handleOpenFolderAsWorkspace = useCallback(async (folderPath) => {
     setSidebarItemContextMenuPos(null);
 }, [currentPath, switchToPath]);
 
-const handleSidebarItemContextMenu = (e, path, type) => {
+const handleSidebarItemContextMenu = (e, path, type, isInaccessible = false) => {
     e.preventDefault();
     e.stopPropagation();
     if (type === 'file' && !selectedFiles.has(path)) {
         setSelectedFiles(new Set([path]));
     }
-    setSidebarItemContextMenuPos({ x: e.clientX, y: e.clientY, path, type });
+    setSidebarItemContextMenuPos({ x: e.clientX, y: e.clientY, path, type, isInaccessible });
 };
 
 const handleAnalyzeInDashboard = () => {
@@ -1499,7 +1545,7 @@ useEffect(() => {
 
               const renderSidebarItemContextMenu = () => {
     if (!sidebarItemContextMenuPos) return null;
-    const { x, y, path, type } = sidebarItemContextMenuPos;
+    const { x, y, path, type, isInaccessible } = sidebarItemContextMenuPos;
 
     const selectedFilePaths = Array.from(selectedFiles);
 
@@ -1513,7 +1559,7 @@ useEffect(() => {
                 className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
                 style={{ top: y, left: x }}
             >
-                {type === 'file' && (
+                {type === 'file' && !isInaccessible && (
                     <>
                         <button
                             onClick={() => {
@@ -1540,7 +1586,7 @@ useEffect(() => {
                     </>
                 )}
 
-                {type === 'directory' && (
+                {type === 'directory' && !isInaccessible && (
                     <>
                         <button
                             onClick={() => handleOpenFolderAsWorkspace(path)}
@@ -1552,24 +1598,51 @@ useEffect(() => {
                         <div className="border-t theme-border my-1"></div>
                     </>
                 )}
-                
+
+                {/* Permission options - always show for both files and directories */}
                 <button
-                    onClick={handleSidebarRenameStart}
+                    onClick={() => {
+                        setPermissionDialog({ path, type: 'chmod' });
+                        setSidebarItemContextMenuPos(null);
+                    }}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
                 >
-                    <Edit size={16} />
-                    <span>Rename</span>
+                    <KeyRound size={16} />
+                    <span>Change Permissions (chmod)</span>
                 </button>
-
                 <button
-                    onClick={handleZipItems}
+                    onClick={() => {
+                        setPermissionDialog({ path, type: 'chown' });
+                        setSidebarItemContextMenuPos(null);
+                    }}
                     className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
                 >
-                    <Archive size={16} />
-                    <span>Zip{selectedFiles.size > 1 ? ` (${selectedFiles.size} items)` : ''}</span>
+                    <Users size={16} />
+                    <span>Change Owner (chown)</span>
                 </button>
-
                 <div className="border-t theme-border my-1"></div>
+
+                {!isInaccessible && (
+                    <>
+                        <button
+                            onClick={handleSidebarRenameStart}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <Edit size={16} />
+                            <span>Rename</span>
+                        </button>
+
+                        <button
+                            onClick={handleZipItems}
+                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        >
+                            <Archive size={16} />
+                            <span>Zip{selectedFiles.size > 1 ? ` (${selectedFiles.size} items)` : ''}</span>
+                        </button>
+
+                        <div className="border-t theme-border my-1"></div>
+                    </>
+                )}
 
                 <button
                     onClick={handleSidebarItemDelete}
@@ -1676,13 +1749,15 @@ const renderFolderList = (structure) => {
             const isRenaming = renamingPath === fullPath;
 
             if (isFolder) {
+                const isInaccessible = content.inaccessible === true;
                 return (
                     <div key={fullPath} className="pl-4">
                         <button
-                            draggable="true"
-                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'folder', id: fullPath }); }}
+                            draggable={!isInaccessible}
+                            onDragStart={(e) => { if (isInaccessible) { e.preventDefault(); return; } e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'folder', id: fullPath }); }}
                             onDragEnd={handleGlobalDragEnd}
                             onClick={(e) => {
+                                if (isInaccessible) return; // Don't allow expanding inaccessible folders
                                 // Check for Ctrl or Meta key (Command on Mac)
                                 if (e.ctrlKey || e.metaKey) {
                                     handleOpenFolderAsWorkspace(fullPath);
@@ -1695,12 +1770,19 @@ const renderFolderList = (structure) => {
                                     });
                                 }
                             }}
-                            onDoubleClick={() => handleOpenFolderAsWorkspace(fullPath)}
-                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory')}
-                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
-                            title={`Drag to open as folder viewer, Click to expand, Ctrl+Click to open as workspace`}
+                            onDoubleClick={() => !isInaccessible && handleOpenFolderAsWorkspace(fullPath)}
+                            onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory', isInaccessible)}
+                            className={`flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded ${isInaccessible ? 'opacity-60' : ''}`}
+                            title={isInaccessible ? `Permission denied: ${fullPath}` : `Drag to open as folder viewer, Click to expand, Ctrl+Click to open as workspace`}
                         >
-                            <Folder size={16} className="text-blue-400 flex-shrink-0" />
+                            {isInaccessible ? (
+                                <div className="relative flex-shrink-0">
+                                    <Folder size={16} className="text-gray-500" />
+                                    <Lock size={8} className="absolute -bottom-0.5 -right-0.5 text-red-400" />
+                                </div>
+                            ) : (
+                                <Folder size={16} className="text-blue-400 flex-shrink-0" />
+                            )}
                             {isRenaming ? (
                                 <input
                                     type="text"
@@ -2207,7 +2289,7 @@ return (
 
         {/* Header Actions */}
         <div className={`px-4 py-2 border-b theme-border flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
-            <div className={`grid grid-cols-2 ${headerActionsExpanded ? 'grid-rows-4' : ''} divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden`}>
+            <div className={`grid grid-cols-2 ${headerActionsExpanded ? 'grid-rows-4' : ''} divide-x divide-y divide-theme-border border theme-border rounded-lg`}>
                 <button onClick={toggleTheme} className="action-grid-button-wide" aria-label="Toggle Theme" title="Toggle Theme">
                     {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}<span className="text-[10px] ml-1.5">Theme</span>
                 </button>
@@ -2251,18 +2333,48 @@ return (
                         <button onClick={() => createNewBrowser?.()} className="action-grid-button-wide" aria-label="New Browser" title="New Browser (Ctrl+Shift+B)">
                             <Globe size={16} /><span className="text-[10px] ml-1.5">Browser</span>
                         </button>
-                        <button onClick={createNewTerminal} className="action-grid-button-wide" aria-label="New Terminal" title="New Terminal (Ctrl+Shift+T)">
-                            <Terminal size={16} /><span className="text-[10px] ml-1.5">Terminal</span>
-                        </button>
+                        <div className="relative flex">
+                            <button onClick={() => createNewTerminal?.(defaultNewTerminalType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Terminal" title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal (Ctrl+Shift+T)`}>
+                                {defaultNewTerminalType === 'system' && <Terminal size={16} className="text-green-400" />}
+                                {defaultNewTerminalType === 'npcsh' && <Sparkles size={16} className="text-purple-400" />}
+                                {defaultNewTerminalType === 'guac' && <Code2 size={16} className="text-yellow-400" />}
+                                <span className="text-[10px] ml-1.5">{defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType}</span>
+                            </button>
+                            <button onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Terminal options">
+                                <ChevronDown size={10} />
+                            </button>
+                            {terminalDropdownOpen && (
+                                <div className="absolute left-0 top-full mt-1 w-36 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1">
+                                    <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                        <Terminal size={14} className="text-green-400" /><span>Bash</span>
+                                    </button>
+                                    <button onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                        <Sparkles size={14} className="text-purple-400" /><span>npcsh</span>
+                                    </button>
+                                    <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                        <Code2 size={14} className="text-yellow-400" /><span>guac</span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                         <button onClick={createNewTextFile} className="action-grid-button-wide" aria-label="New Code File" title="New Code File (Ctrl+Shift+F)">
                             <Code2 size={16} /><span className="text-[10px] ml-1.5">Code</span>
                         </button>
-                        <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="action-grid-button-wide" aria-label="New Document" title="New Document">
-                            <FileStack size={16} /><span className="text-[10px] ml-1.5">Doc</span>
-                        </button>
+                        <div className="relative flex">
+                            <button onClick={() => createNewDocument?.(defaultNewDocumentType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Document" title={`New ${defaultNewDocumentType.toUpperCase()} Document`}>
+                                {defaultNewDocumentType === 'docx' && <FileText size={16} className="text-blue-300" />}
+                                {defaultNewDocumentType === 'xlsx' && <FileJson size={16} className="text-green-300" />}
+                                {defaultNewDocumentType === 'pptx' && <BarChart3 size={16} className="text-orange-300" />}
+                                {defaultNewDocumentType === 'mapx' && <Share2 size={16} className="text-pink-300" />}
+                                <span className="text-[10px] ml-1.5">{defaultNewDocumentType === 'mapx' ? 'Map' : defaultNewDocumentType.slice(0, -1).toUpperCase()}</span>
+                            </button>
+                            <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
+                                <ChevronDown size={10} />
+                            </button>
+                        </div>
                         <button onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="action-grid-button-wide" aria-label="New Workspace" title="New Workspace (Ctrl+Shift+N)">
-                            <img src={npcLogo} alt="NPC" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
-                            <span className="text-[10px] ml-1.5">NPC</span>
+                            <img src={npcLogo} alt="Incognide" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
+                            <span className="text-[10px] ml-1.5">Incognide</span>
                         </button>
                     </>
                 )}
@@ -2380,6 +2492,162 @@ return (
                                 className="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700"
                             >
                                 Save
+                            </button>
+                        </div>
+                    </div>
+                </>
+            )}
+            {/* Permission Dialog (chmod/chown) */}
+            {permissionDialog && (
+                <>
+                    <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setPermissionDialog(null)} />
+                    <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 theme-bg-secondary border theme-border rounded-lg shadow-xl p-4 min-w-[380px]">
+                        <h3 className="text-sm font-medium mb-1 flex items-center gap-2">
+                            {permissionDialog.type === 'chmod' ? (
+                                <><KeyRound size={16} className="text-yellow-400" /> Change Permissions</>
+                            ) : (
+                                <><Users size={16} className="text-blue-400" /> Change Owner</>
+                            )}
+                        </h3>
+                        <p className="text-xs text-gray-400 mb-4 truncate" title={permissionDialog.path}>{permissionDialog.path}</p>
+
+                        {permissionDialog.type === 'chmod' ? (
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Quick Presets</label>
+                                    <select
+                                        value={permissionDialog.mode || ''}
+                                        onChange={(e) => setPermissionDialog({ ...permissionDialog, mode: e.target.value })}
+                                        className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                    >
+                                        <option value="">-- Select preset or enter custom --</option>
+                                        <optgroup label="Files">
+                                            <option value="644">644 - Read/write owner, read others (rw-r--r--)</option>
+                                            <option value="664">664 - Read/write owner+group, read others (rw-rw-r--)</option>
+                                            <option value="600">600 - Private file, owner only (rw-------)</option>
+                                            <option value="666">666 - Read/write everyone (rw-rw-rw-)</option>
+                                        </optgroup>
+                                        <optgroup label="Directories / Executables">
+                                            <option value="755">755 - Standard directory/executable (rwxr-xr-x)</option>
+                                            <option value="775">775 - Group writable directory (rwxrwxr-x)</option>
+                                            <option value="700">700 - Private directory, owner only (rwx------)</option>
+                                            <option value="777">777 - Full access everyone (rwxrwxrwx)</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Custom Mode (octal)</label>
+                                    <input
+                                        type="text"
+                                        value={permissionDialog.mode || ''}
+                                        onChange={(e) => setPermissionDialog({ ...permissionDialog, mode: e.target.value })}
+                                        className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm font-mono"
+                                        placeholder="755"
+                                        maxLength={4}
+                                    />
+                                </div>
+                                <div className="text-xs text-gray-500 space-y-1">
+                                    <div className="flex gap-4">
+                                        <span><strong>7</strong> = rwx</span>
+                                        <span><strong>6</strong> = rw-</span>
+                                        <span><strong>5</strong> = r-x</span>
+                                        <span><strong>4</strong> = r--</span>
+                                    </div>
+                                    <div>Format: [owner][group][others]</div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Owner (username or UID)</label>
+                                    <input
+                                        type="text"
+                                        value={permissionDialog.owner || ''}
+                                        onChange={(e) => setPermissionDialog({ ...permissionDialog, owner: e.target.value })}
+                                        className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                        placeholder="username"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Group (groupname or GID, optional)</label>
+                                    <input
+                                        type="text"
+                                        value={permissionDialog.group || ''}
+                                        onChange={(e) => setPermissionDialog({ ...permissionDialog, group: e.target.value })}
+                                        className="w-full px-2 py-1.5 rounded border theme-border theme-bg-primary text-sm"
+                                        placeholder="groupname"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-4 mt-3">
+                            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={permissionDialog.recursive || false}
+                                    onChange={(e) => setPermissionDialog({ ...permissionDialog, recursive: e.target.checked })}
+                                    className="rounded border-gray-600"
+                                />
+                                Recursive (-R)
+                            </label>
+                            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={permissionDialog.useSudo || false}
+                                    onChange={(e) => setPermissionDialog({ ...permissionDialog, useSudo: e.target.checked })}
+                                    className="rounded border-gray-600"
+                                />
+                                Use sudo
+                            </label>
+                        </div>
+
+                        <div className="flex gap-2 justify-end mt-4">
+                            <button
+                                onClick={() => setPermissionDialog(null)}
+                                className="px-3 py-1.5 text-sm rounded theme-hover"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        if (permissionDialog.type === 'chmod') {
+                                            if (!permissionDialog.mode || !/^[0-7]{3,4}$/.test(permissionDialog.mode)) {
+                                                setError('Invalid mode. Use octal format (e.g., 755)');
+                                                return;
+                                            }
+                                            const result = await (window as any).api.chmod({
+                                                path: permissionDialog.path,
+                                                mode: permissionDialog.mode,
+                                                recursive: permissionDialog.recursive,
+                                                useSudo: permissionDialog.useSudo
+                                            });
+                                            if (result?.error) throw new Error(result.error);
+                                        } else {
+                                            if (!permissionDialog.owner) {
+                                                setError('Owner is required');
+                                                return;
+                                            }
+                                            const result = await (window as any).api.chown({
+                                                path: permissionDialog.path,
+                                                owner: permissionDialog.owner,
+                                                group: permissionDialog.group,
+                                                recursive: permissionDialog.recursive,
+                                                useSudo: permissionDialog.useSudo
+                                            });
+                                            if (result?.error) throw new Error(result.error);
+                                        }
+                                        setPermissionDialog(null);
+                                        // Refresh directory to see updated permissions
+                                        await loadDirectoryStructure(currentPath);
+                                    } catch (err: any) {
+                                        setError(err.message || 'Failed to change permissions');
+                                    }
+                                }}
+                                className="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700"
+                            >
+                                Apply
                             </button>
                         </div>
                     </div>
@@ -2503,8 +2771,16 @@ return (
                 <button onClick={() => { createNewBrowser?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                     <Globe size={16} className="text-cyan-400" /><span>Browser</span>
                 </button>
-                <button onClick={() => { createNewTerminal?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Terminal size={16} className="text-green-400" /><span>Terminal</span>
+                <div className="border-t border-gray-700 my-1"></div>
+                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Terminal</div>
+                <button onClick={() => { createNewTerminal?.('system'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                    <Terminal size={16} className="text-green-400" /><span>Bash</span>
+                </button>
+                <button onClick={() => { createNewTerminal?.('npcsh'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                    <Sparkles size={16} className="text-purple-400" /><span>npcsh</span>
+                </button>
+                <button onClick={() => { createNewTerminal?.('guac'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                    <Code2 size={16} className="text-yellow-400" /><span>guac</span>
                 </button>
                 <button onClick={() => { createNewTextFile?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                     <Code2 size={16} className="text-purple-400" /><span>Code File</span>

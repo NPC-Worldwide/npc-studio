@@ -577,6 +577,17 @@ const defaultSettings = {
     keyboard_shortcuts: defaultKeyboardShortcuts,
     backend_python_path: '', // Empty means use bundled backend
     default_new_pane_type: 'chat',
+    default_new_terminal_type: 'system',
+    default_new_document_type: 'docx',
+    theme_dark_primary: '#3b82f6',
+    theme_dark_bg: '#0f172a',
+    theme_dark_text: '#f1f5f9',
+    theme_light_primary: '#ec4899',
+    theme_light_bg: '#ffffff',
+    theme_light_text: '#1e293b',
+    theme_hue_shift: 0,
+    theme_saturation: 100,
+    theme_brightness: 100,
 };
 
 // Local provider configuration
@@ -640,6 +651,13 @@ const ModelManager = () => {
     const [hfModelUrl, setHfModelUrl] = useState('');
     const [hfDownloadProgress, setHfDownloadProgress] = useState(null);
     const [isDownloadingHf, setIsDownloadingHf] = useState(false);
+    // HuggingFace browser state
+    const [hfSearchQuery, setHfSearchQuery] = useState('');
+    const [hfSearchResults, setHfSearchResults] = useState([]);
+    const [isSearchingHf, setIsSearchingHf] = useState(false);
+    const [selectedHfRepo, setSelectedHfRepo] = useState(null);
+    const [hfRepoFiles, setHfRepoFiles] = useState([]);
+    const [isLoadingFiles, setIsLoadingFiles] = useState(false);
 
     // Fetch models for a specific provider
     const fetchModelsForProvider = async (provider) => {
@@ -750,6 +768,76 @@ const ModelManager = () => {
                 setTimeout(() => {
                     setHfDownloadProgress(null);
                     setHfModelUrl('');
+                    fetchModelsForProvider('gguf');
+                }, 2000);
+            }
+        } catch (err: any) {
+            setHfDownloadProgress({ status: 'Error', details: err.message });
+        } finally {
+            setIsDownloadingHf(false);
+        }
+    };
+
+    // Search HuggingFace for GGUF models
+    const handleSearchHf = async () => {
+        if (!hfSearchQuery.trim() || isSearchingHf) return;
+        setIsSearchingHf(true);
+        setSelectedHfRepo(null);
+        setHfRepoFiles([]);
+        try {
+            const result = await (window as any).api.searchHfModels?.({ query: hfSearchQuery, limit: 20 });
+            if (result?.error) {
+                console.error('HF search error:', result.error);
+                setHfSearchResults([]);
+            } else {
+                setHfSearchResults(result.models || []);
+            }
+        } catch (err) {
+            console.error('HF search error:', err);
+            setHfSearchResults([]);
+        } finally {
+            setIsSearchingHf(false);
+        }
+    };
+
+    // List files in a HuggingFace repo
+    const handleSelectHfRepo = async (repoId) => {
+        setSelectedHfRepo(repoId);
+        setIsLoadingFiles(true);
+        try {
+            const result = await (window as any).api.listHfFiles?.({ repoId });
+            if (result?.error) {
+                console.error('HF files error:', result.error);
+                setHfRepoFiles([]);
+            } else {
+                setHfRepoFiles(result.files || []);
+            }
+        } catch (err) {
+            console.error('HF files error:', err);
+            setHfRepoFiles([]);
+        } finally {
+            setIsLoadingFiles(false);
+        }
+    };
+
+    // Download a specific file from HuggingFace
+    const handleDownloadHfFile = async (filename) => {
+        if (!selectedHfRepo || isDownloadingHf) return;
+        setIsDownloadingHf(true);
+        setHfDownloadProgress({ status: `Downloading ${filename}...`, percent: 0 });
+        try {
+            const targetDir = ggufDirectory || '~/.npcsh/models/gguf';
+            const result = await (window as any).api.downloadHfFile?.({
+                repoId: selectedHfRepo,
+                filename,
+                targetDir
+            });
+            if (result?.error) {
+                setHfDownloadProgress({ status: 'Error', details: result.error });
+            } else {
+                setHfDownloadProgress({ status: 'Success!', details: `Downloaded to ${result.path}` });
+                setTimeout(() => {
+                    setHfDownloadProgress(null);
                     fetchModelsForProvider('gguf');
                 }, 2000);
             }
@@ -964,38 +1052,109 @@ const ModelManager = () => {
                         </div>
                     )}
 
-                    {/* HuggingFace Model Download */}
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-2">Download from HuggingFace</label>
+                    {/* HuggingFace Model Browser */}
+                    <div className="space-y-3">
+                        <label className="block text-sm text-gray-400">Search HuggingFace for GGUF Models</label>
                         <div className="flex gap-2">
                             <Input
-                                value={hfModelUrl}
-                                onChange={(e) => setHfModelUrl(e.target.value)}
-                                placeholder="unsloth/Qwen3-4B-GGUF or TheBloke/Llama-2-7B-GGUF"
+                                value={hfSearchQuery}
+                                onChange={(e) => setHfSearchQuery(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSearchHf()}
+                                placeholder="Search: llama, qwen, mistral, phi..."
                                 className="flex-1"
                             />
-                            <Button variant="primary" onClick={handleDownloadHfModel} disabled={isDownloadingHf || !hfModelUrl.trim()}>
-                                {isDownloadingHf ? 'Downloading...' : 'Download'}
+                            <Button variant="primary" onClick={handleSearchHf} disabled={isSearchingHf || !hfSearchQuery.trim()}>
+                                {isSearchingHf ? 'Searching...' : 'Search'}
                             </Button>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                            Enter a HuggingFace model ID or direct URL. Downloaded models will be auto-detected on next scan.
-                        </p>
+
+                        {/* Search Results */}
+                        {hfSearchResults.length > 0 && (
+                            <div className="max-h-40 overflow-y-auto space-y-1 border border-gray-700 rounded p-2">
+                                {hfSearchResults.map((repo: any) => (
+                                    <button
+                                        key={repo.id}
+                                        onClick={() => handleSelectHfRepo(repo.id)}
+                                        className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
+                                            selectedHfRepo === repo.id
+                                                ? 'bg-orange-600 text-white'
+                                                : 'hover:bg-gray-700 text-gray-300'
+                                        }`}
+                                    >
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-medium truncate">{repo.id}</span>
+                                            <span className="text-gray-500 ml-2">↓{repo.downloads?.toLocaleString()}</span>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* File Selection */}
+                        {selectedHfRepo && (
+                            <div className="border border-gray-700 rounded p-2">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-xs text-orange-400 font-medium">{selectedHfRepo}</span>
+                                    <button onClick={() => { setSelectedHfRepo(null); setHfRepoFiles([]); }} className="text-xs text-gray-500 hover:text-white">✕</button>
+                                </div>
+                                {isLoadingFiles ? (
+                                    <p className="text-xs text-gray-500">Loading files...</p>
+                                ) : hfRepoFiles.length > 0 ? (
+                                    <div className="max-h-32 overflow-y-auto space-y-1">
+                                        {hfRepoFiles.map((file: any) => (
+                                            <div key={file.filename} className="flex justify-between items-center px-2 py-1 hover:bg-gray-700 rounded text-xs">
+                                                <div className="flex-1 truncate">
+                                                    <span className="text-gray-300">{file.filename}</span>
+                                                    {file.size_gb && <span className="text-gray-500 ml-2">({file.size_gb} GB)</span>}
+                                                    {file.quantization !== 'unknown' && (
+                                                        <span className="ml-2 px-1 py-0.5 bg-gray-700 rounded text-green-400">{file.quantization}</span>
+                                                    )}
+                                                </div>
+                                                <Button
+                                                    variant="secondary"
+                                                    onClick={() => handleDownloadHfFile(file.filename)}
+                                                    disabled={isDownloadingHf}
+                                                    className="ml-2 text-xs px-2 py-1"
+                                                >
+                                                    Download
+                                                </Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-gray-500">No GGUF files found in this repository.</p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Direct URL fallback */}
+                        <details className="text-xs">
+                            <summary className="text-gray-500 cursor-pointer hover:text-gray-300">Or enter direct URL/model ID</summary>
+                            <div className="flex gap-2 mt-2">
+                                <Input
+                                    value={hfModelUrl}
+                                    onChange={(e) => setHfModelUrl(e.target.value)}
+                                    placeholder="unsloth/Qwen3-4B-GGUF"
+                                    className="flex-1 text-xs"
+                                />
+                                <Button variant="secondary" onClick={handleDownloadHfModel} disabled={isDownloadingHf || !hfModelUrl.trim()}>
+                                    {isDownloadingHf ? '...' : 'Go'}
+                                </Button>
+                            </div>
+                        </details>
                     </div>
 
                     {/* HF Download Progress */}
                     {hfDownloadProgress && (
-                        <Card>
-                            <div className="p-3">
-                                <p className="text-sm font-semibold text-white">{hfDownloadProgress.status}</p>
-                                {hfDownloadProgress.details && <p className="text-xs text-gray-400 mt-1 font-mono">{hfDownloadProgress.details}</p>}
-                                {hfDownloadProgress.percent > 0 && (
-                                    <div className="w-full bg-gray-600 rounded-full h-2.5 mt-2">
-                                        <div className="bg-orange-500 h-2.5 rounded-full transition-all" style={{ width: `${hfDownloadProgress.percent}%` }} />
-                                    </div>
-                                )}
-                            </div>
-                        </Card>
+                        <div className="bg-gray-800 border border-gray-700 rounded p-3">
+                            <p className="text-sm font-semibold text-white">{hfDownloadProgress.status}</p>
+                            {hfDownloadProgress.details && <p className="text-xs text-gray-400 mt-1 font-mono break-all">{hfDownloadProgress.details}</p>}
+                            {hfDownloadProgress.percent > 0 && (
+                                <div className="w-full bg-gray-600 rounded-full h-2.5 mt-2">
+                                    <div className="bg-orange-500 h-2.5 rounded-full transition-all" style={{ width: `${hfDownloadProgress.percent}%` }} />
+                                </div>
+                            )}
+                        </div>
                     )}
 
                     <Card>
@@ -1179,6 +1338,49 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
             // Dispatch custom event for same-window updates
             window.dispatchEvent(new CustomEvent('defaultPaneTypeChanged', { detail: globalSettings.default_new_pane_type }));
         }
+        if (globalSettings.default_new_terminal_type) {
+            localStorage.setItem('npcStudio_defaultNewTerminalType', globalSettings.default_new_terminal_type);
+            window.dispatchEvent(new CustomEvent('defaultTerminalTypeChanged', { detail: globalSettings.default_new_terminal_type }));
+        }
+        if (globalSettings.default_new_document_type) {
+            localStorage.setItem('npcStudio_defaultNewDocumentType', globalSettings.default_new_document_type);
+            window.dispatchEvent(new CustomEvent('defaultDocumentTypeChanged', { detail: globalSettings.default_new_document_type }));
+        }
+
+        // Save theme colors to localStorage and apply them
+        // Dark mode colors
+        if (globalSettings.theme_dark_primary) {
+            localStorage.setItem('npcStudio_themeDarkPrimary', globalSettings.theme_dark_primary);
+            document.documentElement.style.setProperty('--theme-primary-dark', globalSettings.theme_dark_primary);
+        }
+        if (globalSettings.theme_dark_bg) {
+            localStorage.setItem('npcStudio_themeDarkBg', globalSettings.theme_dark_bg);
+            document.documentElement.style.setProperty('--theme-bg-dark', globalSettings.theme_dark_bg);
+        }
+        if (globalSettings.theme_dark_text) {
+            localStorage.setItem('npcStudio_themeDarkText', globalSettings.theme_dark_text);
+            document.documentElement.style.setProperty('--theme-text-dark', globalSettings.theme_dark_text);
+        }
+        // Light mode colors
+        if (globalSettings.theme_light_primary) {
+            localStorage.setItem('npcStudio_themeLightPrimary', globalSettings.theme_light_primary);
+            document.documentElement.style.setProperty('--theme-primary-light', globalSettings.theme_light_primary);
+        }
+        if (globalSettings.theme_light_bg) {
+            localStorage.setItem('npcStudio_themeLightBg', globalSettings.theme_light_bg);
+            document.documentElement.style.setProperty('--theme-bg-light', globalSettings.theme_light_bg);
+        }
+        if (globalSettings.theme_light_text) {
+            localStorage.setItem('npcStudio_themeLightText', globalSettings.theme_light_text);
+            document.documentElement.style.setProperty('--theme-text-light', globalSettings.theme_light_text);
+        }
+        // HSB adjustments
+        localStorage.setItem('npcStudio_themeHueShift', String(globalSettings.theme_hue_shift ?? 0));
+        localStorage.setItem('npcStudio_themeSaturation', String(globalSettings.theme_saturation ?? 100));
+        localStorage.setItem('npcStudio_themeBrightness', String(globalSettings.theme_brightness ?? 100));
+        document.documentElement.style.setProperty('--theme-hue-shift', `${globalSettings.theme_hue_shift ?? 0}deg`);
+        document.documentElement.style.setProperty('--theme-saturation', `${globalSettings.theme_saturation ?? 100}%`);
+        document.documentElement.style.setProperty('--theme-brightness', `${globalSettings.theme_brightness ?? 100}%`);
 
         const envVars = customEnvVars.reduce((acc, { key, value }) => {
             if (key && value) acc[key] = value;
@@ -1197,6 +1399,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
 
     const tabs = [
         { id: 'global', name: 'Global Settings' },
+        { id: 'theme', name: 'Theme' },
         { id: 'shortcuts', name: 'Keyboard Shortcuts' },
         { id: 'models', name: 'Model Management' },
         { id: 'voice', name: 'Voice / TTS' },
@@ -1211,7 +1414,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
     };
 
     const content = (
-        <div className={`flex flex-col ${embedded ? 'h-full' : ''}`}>
+        <div className={`flex flex-col ${embedded ? 'h-full' : 'max-h-[80vh]'}`}>
             <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
 
             <div className={`${embedded ? 'flex-1' : ''} overflow-y-auto p-6 space-y-4`}>
@@ -1268,7 +1471,31 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                             ]}
                         />
 
-                        <Card title="Backend Python Environment">
+                        <Select
+                            label="Default New Terminal Type"
+                            value={globalSettings.default_new_terminal_type || 'system'}
+                            onChange={(e) => setGlobalSettings({...globalSettings, default_new_terminal_type: e.target.value})}
+                            options={[
+                                { value: 'system', label: 'Bash' },
+                                { value: 'npcsh', label: 'npcsh' },
+                                { value: 'guac', label: 'guac' },
+                            ]}
+                        />
+
+                        <Select
+                            label="Default New Document Type"
+                            value={globalSettings.default_new_document_type || 'docx'}
+                            onChange={(e) => setGlobalSettings({...globalSettings, default_new_document_type: e.target.value})}
+                            options={[
+                                { value: 'docx', label: 'Word (.docx)' },
+                                { value: 'xlsx', label: 'Excel (.xlsx)' },
+                                { value: 'pptx', label: 'PowerPoint (.pptx)' },
+                                { value: 'mapx', label: 'Mind Map (.mapx)' },
+                            ]}
+                        />
+
+                        <div className="theme-bg-tertiary p-4 rounded-lg">
+                            <h4 className="font-semibold theme-text-secondary mb-2">Backend Python Environment</h4>
                             <p className="text-xs text-gray-400 mb-2">
                                 Specify a Python executable with npcpy installed to use instead of the bundled backend.
                                 This allows you to use additional packages like torch/diffusers for local image generation.
@@ -1280,60 +1507,141 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                 onChange={(e) => setGlobalSettings({...globalSettings, backend_python_path: e.target.value})}
                                 placeholder="Leave empty for bundled backend"
                             />
-                        </Card>
+                        </div>
 
                         <Card title="Custom Global Variables">
-                            {customGlobalVars.map((variable, index) => (
-                                <div key={index} className="flex gap-2 mb-2">
-                                    <Input
-                                        value={variable.key}
-                                        onChange={(e) => {
-                                            const newVars = [...customGlobalVars];
-                                            newVars[index].key = e.target.value;
-                                            setCustomGlobalVars(newVars);
-                                        }}
-                                        placeholder="Variable name"
-                                        className="flex-1"
-                                    />
-                                    <div className="flex-1 relative">
+                            <div className="max-h-64 overflow-y-auto pr-2 mb-3">
+                                {customGlobalVars.map((variable, index) => (
+                                    <div key={index} className="flex gap-2 mb-2">
                                         <Input
-                                            type={visibleFields[`global_${index}`] || !isSensitiveField(variable.key) ? "text" : "password"}
-                                            value={variable.value}
+                                            value={variable.key}
                                             onChange={(e) => {
                                                 const newVars = [...customGlobalVars];
-                                                newVars[index].value = e.target.value;
+                                                newVars[index].key = e.target.value;
                                                 setCustomGlobalVars(newVars);
                                             }}
-                                            placeholder="Value"
+                                            placeholder="Variable name"
+                                            className="flex-1"
                                         />
-                                        {isSensitiveField(variable.key) && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setVisibleFields(prev => ({ ...prev, [`global_${index}`]: !prev[`global_${index}`] }))}
-                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
-                                            >
-                                                {visibleFields[`global_${index}`] ? <EyeOff size={20} /> : <Eye size={20} />}
-                                            </button>
-                                        )}
+                                        <div className="flex-1 relative">
+                                            <Input
+                                                type={visibleFields[`global_${index}`] || !isSensitiveField(variable.key) ? "text" : "password"}
+                                                value={variable.value}
+                                                onChange={(e) => {
+                                                    const newVars = [...customGlobalVars];
+                                                    newVars[index].value = e.target.value;
+                                                    setCustomGlobalVars(newVars);
+                                                }}
+                                                placeholder="Value"
+                                            />
+                                            {isSensitiveField(variable.key) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setVisibleFields(prev => ({ ...prev, [`global_${index}`]: !prev[`global_${index}`] }))}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
+                                                >
+                                                    {visibleFields[`global_${index}`] ? <EyeOff size={20} /> : <Eye size={20} />}
+                                                </button>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                const newVars = [...customGlobalVars];
+                                                newVars.splice(index, 1);
+                                                if (newVars.length === 0) newVars.push({ key: '', value: '' });
+                                                setCustomGlobalVars(newVars);
+                                            }}
+                                            className="p-2 text-red-400"
+                                        >
+                                            <X size={20} />
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={() => {
-                                            const newVars = [...customGlobalVars];
-                                            newVars.splice(index, 1);
-                                            if (newVars.length === 0) newVars.push({ key: '', value: '' });
-                                            setCustomGlobalVars(newVars);
-                                        }}
-                                        className="p-2 text-red-400"
-                                    >
-                                        <X size={20} />
-                                    </button>
-                                </div>
-                            ))}
+                                ))}
+                            </div>
                             <Button variant="secondary" onClick={() => setCustomGlobalVars([...customGlobalVars, { key: '', value: '' }])}>
                                 Add Variable
                             </Button>
                         </Card>
                     </>
+                )}
+
+                {activeTab === 'theme' && (
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between p-2 theme-bg-tertiary rounded">
+                            <span className="text-sm">Dark Mode</span>
+                            <button
+                                onClick={() => {
+                                    const isDark = document.body.classList.contains('dark-mode');
+                                    document.body.classList.toggle('dark-mode', !isDark);
+                                    document.body.classList.toggle('light-mode', isDark);
+                                    localStorage.setItem('npcStudio_darkMode', (!isDark).toString());
+                                }}
+                                className={`w-10 h-5 rounded-full transition-colors ${document.body.classList.contains('dark-mode') ? 'bg-blue-500' : 'bg-gray-400'}`}
+                            >
+                                <div className={`w-4 h-4 bg-white rounded-full shadow transform transition-transform ${document.body.classList.contains('dark-mode') ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Hue</span><span>{globalSettings.theme_hue_shift || 0}°</span></div>
+                                <input type="range" min="-180" max="180" value={globalSettings.theme_hue_shift || 0}
+                                    onChange={(e) => { const val = parseInt(e.target.value); setGlobalSettings({...globalSettings, theme_hue_shift: val}); document.documentElement.style.setProperty('--theme-hue-shift', `${val}deg`); }}
+                                    className="w-full h-2 rounded-lg appearance-none cursor-pointer" style={{background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)'}} />
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Saturation</span><span>{globalSettings.theme_saturation || 100}%</span></div>
+                                <input type="range" min="0" max="200" value={globalSettings.theme_saturation || 100}
+                                    onChange={(e) => { const val = parseInt(e.target.value); setGlobalSettings({...globalSettings, theme_saturation: val}); document.documentElement.style.setProperty('--theme-saturation', `${val}%`); }}
+                                    className="w-full h-2 bg-gradient-to-r from-gray-500 to-blue-500 rounded-lg appearance-none cursor-pointer" />
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Brightness</span><span>{globalSettings.theme_brightness || 100}%</span></div>
+                                <input type="range" min="50" max="150" value={globalSettings.theme_brightness || 100}
+                                    onChange={(e) => { const val = parseInt(e.target.value); setGlobalSettings({...globalSettings, theme_brightness: val}); document.documentElement.style.setProperty('--theme-brightness', `${val}%`); }}
+                                    className="w-full h-2 bg-gradient-to-r from-gray-900 via-gray-500 to-white rounded-lg appearance-none cursor-pointer" />
+                            </div>
+                        </div>
+
+                        <div className="text-xs text-gray-400 font-medium">Dark Mode</div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_dark_primary || '#3b82f6'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_dark_primary: e.target.value}); document.documentElement.style.setProperty('--theme-primary-dark', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Primary</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_dark_bg || '#0f172a'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_dark_bg: e.target.value}); document.documentElement.style.setProperty('--theme-bg-dark', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Background</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_dark_text || '#f1f5f9'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_dark_text: e.target.value}); document.documentElement.style.setProperty('--theme-text-dark', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Text</span>
+                            </div>
+                        </div>
+
+                        <div className="text-xs text-gray-400 font-medium">Light Mode</div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_light_primary || '#ec4899'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_light_primary: e.target.value}); document.documentElement.style.setProperty('--theme-primary-light', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Primary</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_light_bg || '#ffffff'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_light_bg: e.target.value}); document.documentElement.style.setProperty('--theme-bg-light', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Background</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="color" value={globalSettings.theme_light_text || '#1e293b'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_light_text: e.target.value}); document.documentElement.style.setProperty('--theme-text-light', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <span className="text-xs text-gray-400">Text</span>
+                            </div>
+                        </div>
+
+                        <button onClick={() => {
+                            setGlobalSettings({...globalSettings, theme_dark_primary: '#3b82f6', theme_dark_bg: '#0f172a', theme_dark_text: '#f1f5f9', theme_light_primary: '#ec4899', theme_light_bg: '#ffffff', theme_light_text: '#1e293b', theme_hue_shift: 0, theme_saturation: 100, theme_brightness: 100});
+                            document.documentElement.style.setProperty('--theme-primary-dark', '#3b82f6'); document.documentElement.style.setProperty('--theme-bg-dark', '#0f172a'); document.documentElement.style.setProperty('--theme-text-dark', '#f1f5f9');
+                            document.documentElement.style.setProperty('--theme-primary-light', '#ec4899'); document.documentElement.style.setProperty('--theme-bg-light', '#ffffff'); document.documentElement.style.setProperty('--theme-text-light', '#1e293b');
+                            document.documentElement.style.setProperty('--theme-hue-shift', '0deg'); document.documentElement.style.setProperty('--theme-saturation', '100%'); document.documentElement.style.setProperty('--theme-brightness', '100%');
+                        }} className="text-xs text-gray-400 hover:text-white">Reset to defaults</button>
+                    </div>
                 )}
 
                 {activeTab === 'shortcuts' && (
@@ -1467,7 +1775,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
     }
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Settings" size="lg">
+        <Modal isOpen={isOpen} onClose={onClose} title="Settings" size="md">
             {content}
         </Modal>
     );
