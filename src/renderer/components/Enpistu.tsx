@@ -711,6 +711,9 @@ const ChatInterface = () => {
         const lightBg = localStorage.getItem('npcStudio_themeLightBg');
         const lightText = localStorage.getItem('npcStudio_themeLightText');
         const darkMode = localStorage.getItem('npcStudio_darkMode');
+        const hueShift = localStorage.getItem('npcStudio_themeHueShift');
+        const saturation = localStorage.getItem('npcStudio_themeSaturation');
+        const brightness = localStorage.getItem('npcStudio_themeBrightness');
 
         // Apply dark mode colors
         if (darkPrimary) document.documentElement.style.setProperty('--theme-primary-dark', darkPrimary);
@@ -720,6 +723,10 @@ const ChatInterface = () => {
         if (lightPrimary) document.documentElement.style.setProperty('--theme-primary-light', lightPrimary);
         if (lightBg) document.documentElement.style.setProperty('--theme-bg-light', lightBg);
         if (lightText) document.documentElement.style.setProperty('--theme-text-light', lightText);
+        // Apply HSB adjustments
+        if (hueShift) document.documentElement.style.setProperty('--theme-hue-shift', `${hueShift}deg`);
+        if (saturation) document.documentElement.style.setProperty('--theme-saturation', `${saturation}%`);
+        if (brightness) document.documentElement.style.setProperty('--theme-brightness', `${brightness}%`);
 
         // Apply dark/light mode class
         if (darkMode === 'false') {

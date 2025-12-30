@@ -585,6 +585,9 @@ const defaultSettings = {
     theme_light_primary: '#ec4899',
     theme_light_bg: '#ffffff',
     theme_light_text: '#1e293b',
+    theme_hue_shift: 0,
+    theme_saturation: 100,
+    theme_brightness: 100,
 };
 
 // Local provider configuration
@@ -1371,6 +1374,13 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
             localStorage.setItem('npcStudio_themeLightText', globalSettings.theme_light_text);
             document.documentElement.style.setProperty('--theme-text-light', globalSettings.theme_light_text);
         }
+        // HSB adjustments
+        localStorage.setItem('npcStudio_themeHueShift', String(globalSettings.theme_hue_shift ?? 0));
+        localStorage.setItem('npcStudio_themeSaturation', String(globalSettings.theme_saturation ?? 100));
+        localStorage.setItem('npcStudio_themeBrightness', String(globalSettings.theme_brightness ?? 100));
+        document.documentElement.style.setProperty('--theme-hue-shift', `${globalSettings.theme_hue_shift ?? 0}deg`);
+        document.documentElement.style.setProperty('--theme-saturation', `${globalSettings.theme_saturation ?? 100}%`);
+        document.documentElement.style.setProperty('--theme-brightness', `${globalSettings.theme_brightness ?? 100}%`);
 
         const envVars = customEnvVars.reduce((acc, { key, value }) => {
             if (key && value) acc[key] = value;
@@ -1500,6 +1510,65 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                     </button>
                                 </div>
 
+                                <div className="text-xs text-gray-400 font-medium mb-2 mt-4">Global Adjustments</div>
+                                <div className="space-y-3">
+                                    <div>
+                                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                            <label>Hue Shift</label>
+                                            <span>{globalSettings.theme_hue_shift || 0}°</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="-180"
+                                            max="180"
+                                            value={globalSettings.theme_hue_shift || 0}
+                                            onChange={(e) => {
+                                                const val = parseInt(e.target.value);
+                                                setGlobalSettings({...globalSettings, theme_hue_shift: val});
+                                                document.documentElement.style.setProperty('--theme-hue-shift', `${val}deg`);
+                                            }}
+                                            className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+                                            style={{background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)'}}
+                                        />
+                                    </div>
+                                    <div>
+                                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                            <label>Saturation</label>
+                                            <span>{globalSettings.theme_saturation || 100}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="200"
+                                            value={globalSettings.theme_saturation || 100}
+                                            onChange={(e) => {
+                                                const val = parseInt(e.target.value);
+                                                setGlobalSettings({...globalSettings, theme_saturation: val});
+                                                document.documentElement.style.setProperty('--theme-saturation', `${val}%`);
+                                            }}
+                                            className="w-full h-2 bg-gradient-to-r from-gray-500 to-blue-500 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                            <label>Brightness</label>
+                                            <span>{globalSettings.theme_brightness || 100}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="50"
+                                            max="150"
+                                            value={globalSettings.theme_brightness || 100}
+                                            onChange={(e) => {
+                                                const val = parseInt(e.target.value);
+                                                setGlobalSettings({...globalSettings, theme_brightness: val});
+                                                document.documentElement.style.setProperty('--theme-brightness', `${val}%`);
+                                            }}
+                                            className="w-full h-2 bg-gradient-to-r from-gray-900 via-gray-500 to-white rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
                                 <div className="text-xs text-gray-400 font-medium mb-2 mt-4">Dark Mode Colors</div>
                                 <div className="grid grid-cols-3 gap-3">
                                     <div>
@@ -1589,7 +1658,10 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                             theme_dark_text: '#f1f5f9',
                                             theme_light_primary: '#ec4899',
                                             theme_light_bg: '#ffffff',
-                                            theme_light_text: '#1e293b'
+                                            theme_light_text: '#1e293b',
+                                            theme_hue_shift: 0,
+                                            theme_saturation: 100,
+                                            theme_brightness: 100
                                         });
                                         document.documentElement.style.setProperty('--theme-primary-dark', '#3b82f6');
                                         document.documentElement.style.setProperty('--theme-bg-dark', '#0f172a');
@@ -1597,6 +1669,9 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                         document.documentElement.style.setProperty('--theme-primary-light', '#ec4899');
                                         document.documentElement.style.setProperty('--theme-bg-light', '#ffffff');
                                         document.documentElement.style.setProperty('--theme-text-light', '#1e293b');
+                                        document.documentElement.style.setProperty('--theme-hue-shift', '0deg');
+                                        document.documentElement.style.setProperty('--theme-saturation', '100%');
+                                        document.documentElement.style.setProperty('--theme-brightness', '100%');
                                     }}
                                     className="text-xs text-gray-400 hover:text-white"
                                 >
