@@ -706,14 +706,20 @@ const ChatInterface = () => {
     useEffect(() => {
         const darkPrimary = localStorage.getItem('npcStudio_themeDarkPrimary');
         const darkBg = localStorage.getItem('npcStudio_themeDarkBg');
+        const darkText = localStorage.getItem('npcStudio_themeDarkText');
         const lightPrimary = localStorage.getItem('npcStudio_themeLightPrimary');
         const lightBg = localStorage.getItem('npcStudio_themeLightBg');
+        const lightText = localStorage.getItem('npcStudio_themeLightText');
         const darkMode = localStorage.getItem('npcStudio_darkMode');
 
+        // Apply dark mode colors
         if (darkPrimary) document.documentElement.style.setProperty('--theme-primary-dark', darkPrimary);
         if (darkBg) document.documentElement.style.setProperty('--theme-bg-dark', darkBg);
+        if (darkText) document.documentElement.style.setProperty('--theme-text-dark', darkText);
+        // Apply light mode colors
         if (lightPrimary) document.documentElement.style.setProperty('--theme-primary-light', lightPrimary);
         if (lightBg) document.documentElement.style.setProperty('--theme-bg-light', lightBg);
+        if (lightText) document.documentElement.style.setProperty('--theme-text-light', lightText);
 
         // Apply dark/light mode class
         if (darkMode === 'false') {

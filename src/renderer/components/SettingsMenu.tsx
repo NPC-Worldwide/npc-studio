@@ -581,8 +581,10 @@ const defaultSettings = {
     default_new_document_type: 'docx',
     theme_dark_primary: '#3b82f6',
     theme_dark_bg: '#0f172a',
+    theme_dark_text: '#f1f5f9',
     theme_light_primary: '#ec4899',
     theme_light_bg: '#ffffff',
+    theme_light_text: '#1e293b',
 };
 
 // Local provider configuration
@@ -1343,6 +1345,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
         }
 
         // Save theme colors to localStorage and apply them
+        // Dark mode colors
         if (globalSettings.theme_dark_primary) {
             localStorage.setItem('npcStudio_themeDarkPrimary', globalSettings.theme_dark_primary);
             document.documentElement.style.setProperty('--theme-primary-dark', globalSettings.theme_dark_primary);
@@ -1351,6 +1354,11 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
             localStorage.setItem('npcStudio_themeDarkBg', globalSettings.theme_dark_bg);
             document.documentElement.style.setProperty('--theme-bg-dark', globalSettings.theme_dark_bg);
         }
+        if (globalSettings.theme_dark_text) {
+            localStorage.setItem('npcStudio_themeDarkText', globalSettings.theme_dark_text);
+            document.documentElement.style.setProperty('--theme-text-dark', globalSettings.theme_dark_text);
+        }
+        // Light mode colors
         if (globalSettings.theme_light_primary) {
             localStorage.setItem('npcStudio_themeLightPrimary', globalSettings.theme_light_primary);
             document.documentElement.style.setProperty('--theme-primary-light', globalSettings.theme_light_primary);
@@ -1358,6 +1366,10 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
         if (globalSettings.theme_light_bg) {
             localStorage.setItem('npcStudio_themeLightBg', globalSettings.theme_light_bg);
             document.documentElement.style.setProperty('--theme-bg-light', globalSettings.theme_light_bg);
+        }
+        if (globalSettings.theme_light_text) {
+            localStorage.setItem('npcStudio_themeLightText', globalSettings.theme_light_text);
+            document.documentElement.style.setProperty('--theme-text-light', globalSettings.theme_light_text);
         }
 
         const envVars = customEnvVars.reduce((acc, { key, value }) => {
@@ -1488,9 +1500,10 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                     </button>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="text-xs text-gray-400 font-medium mb-2 mt-4">Dark Mode Colors</div>
+                                <div className="grid grid-cols-3 gap-3">
                                     <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Dark Mode Primary Color</label>
+                                        <label className="text-xs text-gray-400 block mb-1">Primary</label>
                                         <input
                                             type="color"
                                             value={globalSettings.theme_dark_primary || '#3b82f6'}
@@ -1502,7 +1515,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Dark Mode Background</label>
+                                        <label className="text-xs text-gray-400 block mb-1">Background</label>
                                         <input
                                             type="color"
                                             value={globalSettings.theme_dark_bg || '#0f172a'}
@@ -1514,7 +1527,23 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Light Mode Primary Color</label>
+                                        <label className="text-xs text-gray-400 block mb-1">Text</label>
+                                        <input
+                                            type="color"
+                                            value={globalSettings.theme_dark_text || '#f1f5f9'}
+                                            onChange={(e) => {
+                                                setGlobalSettings({...globalSettings, theme_dark_text: e.target.value});
+                                                document.documentElement.style.setProperty('--theme-text-dark', e.target.value);
+                                            }}
+                                            className="w-full h-8 rounded cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="text-xs text-gray-400 font-medium mb-2 mt-4">Light Mode Colors</div>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Primary</label>
                                         <input
                                             type="color"
                                             value={globalSettings.theme_light_primary || '#ec4899'}
@@ -1526,13 +1555,25 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs text-gray-400 block mb-1">Light Mode Background</label>
+                                        <label className="text-xs text-gray-400 block mb-1">Background</label>
                                         <input
                                             type="color"
                                             value={globalSettings.theme_light_bg || '#ffffff'}
                                             onChange={(e) => {
                                                 setGlobalSettings({...globalSettings, theme_light_bg: e.target.value});
                                                 document.documentElement.style.setProperty('--theme-bg-light', e.target.value);
+                                            }}
+                                            className="w-full h-8 rounded cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Text</label>
+                                        <input
+                                            type="color"
+                                            value={globalSettings.theme_light_text || '#1e293b'}
+                                            onChange={(e) => {
+                                                setGlobalSettings({...globalSettings, theme_light_text: e.target.value});
+                                                document.documentElement.style.setProperty('--theme-text-light', e.target.value);
                                             }}
                                             className="w-full h-8 rounded cursor-pointer"
                                         />
@@ -1545,13 +1586,17 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                             ...globalSettings,
                                             theme_dark_primary: '#3b82f6',
                                             theme_dark_bg: '#0f172a',
+                                            theme_dark_text: '#f1f5f9',
                                             theme_light_primary: '#ec4899',
-                                            theme_light_bg: '#ffffff'
+                                            theme_light_bg: '#ffffff',
+                                            theme_light_text: '#1e293b'
                                         });
                                         document.documentElement.style.setProperty('--theme-primary-dark', '#3b82f6');
                                         document.documentElement.style.setProperty('--theme-bg-dark', '#0f172a');
+                                        document.documentElement.style.setProperty('--theme-text-dark', '#f1f5f9');
                                         document.documentElement.style.setProperty('--theme-primary-light', '#ec4899');
                                         document.documentElement.style.setProperty('--theme-bg-light', '#ffffff');
+                                        document.documentElement.style.setProperty('--theme-text-light', '#1e293b');
                                     }}
                                     className="text-xs text-gray-400 hover:text-white"
                                 >
