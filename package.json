@@ -151,6 +151,7 @@
     "react-dom": "^18.3.1",
     "react-draggable": "^4.5.0",
     "react-force-graph-2d": "^1.28.0",
+    "react-live": "^4.1.8",
     "react-markdown": "^9.1.0",
     "react-syntax-highlighter": "^15.6.1",
     "rehype-katex": "^7.0.1",

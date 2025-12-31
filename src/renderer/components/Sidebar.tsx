@@ -4,9 +4,39 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
     Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
-    Star, Clock, Activity, Lock, Archive, BookOpen, Sparkles
+    Star, Clock, Activity, Lock, Archive, BookOpen, Sparkles, Box, GripVertical, Play,
+    Search, RefreshCw, Download, Upload, Copy, Check, AlertCircle, Info, Eye, EyeOff,
+    Palette, Code, Save, FolderOpen, Home, ArrowLeft, ArrowRight, Menu, MoreVertical,
+    Loader2, ExternalLink, Link, Unlink, Filter, SortAsc, SortDesc, Table, Grid,
+    List, Maximize2, Minimize2, Move, RotateCcw, ZoomIn, ZoomOut, Layers, Layout,
+    Pause, Server, Mail, Cpu, Wifi, WifiOff, Power, PowerOff, Hash, AtSign
 } from 'lucide-react';
+import CodeMirror from '@uiw/react-codemirror';
+import { javascript } from '@codemirror/lang-javascript';
+import { EditorView } from '@codemirror/view';
+import { LiveProvider, LivePreview, LiveError } from 'react-live';
+import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
+import AutosizeTextarea from './AutosizeTextarea';
+import ForceGraph2D from 'react-force-graph-2d';
+// ALL components used by tile jinxes - for REAL live preview
+import ActivityIntelligence from './ActivityIntelligence';
+import BrowserHistoryWeb from './BrowserHistoryWeb';
+import CtxEditor from './CtxEditor';
+import JinxMenu from './JinxMenu';
+import KnowledgeGraphEditor from './KnowledgeGraphEditor';
+import LabeledDataManager from './LabeledDataManager';
+import McpServerMenu from './McpServerMenu';
+import MemoryManagement from './MemoryManagement';
+import MessageLabeling from './MessageLabeling';
+import NPCTeamMenu from './NPCTeamMenu';
+import PythonEnvSettings from './PythonEnvSettings';
+import DBTool from './DBTool';
+import DataDash from './DataDash';
+import LibraryViewer from './LibraryViewer';
+import GraphViewer from './GraphViewer';
+import PhotoViewer from './PhotoViewer';
+import SettingsMenu from './SettingsMenu';
 import npcLogo from '../../assets/icon.png';
 
 const Sidebar = (props: any) => {
@@ -222,6 +252,41 @@ const Sidebar = (props: any) => {
         customTiles: []
     });
     const [tileEditMode, setTileEditMode] = useState(false);
+    const [bottomGridEditMode, setBottomGridEditMode] = useState(false);
+    // Tile jinx state - loaded from ~/.npcsh/incognide/tiles/*.jinx
+    const [tileJinxes, setTileJinxes] = useState<Array<{
+        filename: string;
+        jinx_name: string;
+        label: string;
+        icon: string;
+        order: number;
+        enabled: boolean;
+        action?: string;
+        rawContent: string;
+    }>>([]);
+    const [tileJinxesLoaded, setTileJinxesLoaded] = useState(false);
+    const [editingTileJinx, setEditingTileJinx] = useState<string | null>(null);
+    const [draggedTileIdx, setDraggedTileIdx] = useState<number | null>(null);
+    const [tileJinxEditContent, setTileJinxEditContent] = useState('');
+    const [showLivePreview, setShowLivePreview] = useState(false);
+    const [livePreviewCode, setLivePreviewCode] = useState('');
+
+    // Fallback config (used until jinxes load)
+    const [bottomGridConfig, setBottomGridConfig] = useState([
+        { id: 'db', label: 'DB Tool', icon: 'Database', enabled: true, order: 0 },
+        { id: 'photo', label: 'Photo', icon: 'Image', enabled: true, order: 1 },
+        { id: 'library', label: 'Library', icon: 'BookOpen', enabled: true, order: 2 },
+        { id: 'datadash', label: 'Data Dash', icon: 'BarChart3', enabled: true, order: 3 },
+        { id: 'graph', label: 'Graph', icon: 'GitBranch', enabled: true, order: 4 },
+        { id: 'browsergraph', label: 'Browser Graph', icon: 'Network', enabled: true, order: 5 },
+        { id: 'team', label: 'Team', icon: 'Users', enabled: true, order: 6 },
+        { id: 'npc', label: 'NPCs', icon: 'Bot', enabled: true, order: 7 },
+        { id: 'jinx', label: 'Jinxs', icon: 'Zap', enabled: true, order: 8 },
+        { id: 'settings', label: 'Settings', icon: 'Settings', enabled: true, order: 9 },
+        { id: 'env', label: 'Env', icon: 'KeyRound', enabled: true, order: 10 },
+        { id: 'disk', label: 'Disk', icon: 'HardDrive', enabled: true, order: 11 },
+    ]);
+    const [draggedBottomTileId, setDraggedBottomTileId] = useState<string | null>(null);
     const [draggedTileId, setDraggedTileId] = useState<string | null>(null);
 
     // Load tile configuration on mount
@@ -238,6 +303,288 @@ const Sidebar = (props: any) => {
         };
         loadTilesConfig();
     }, []);
+
+    // Load tile jinxes on mount
+    useEffect(() => {
+        const loadTileJinxes = async () => {
+            try {
+                const result = await (window as any).api?.tileJinxList?.();
+                if (result?.success && result.tiles) {
+                    const parsed = result.tiles.map((tile: { filename: string; content: string }) => {
+                        const content = tile.content;
+                        let jinx_name = '', label = '', icon = '', order = 0, enabled = true;
+
+                        // Try JSDoc format first: @key value
+                        let jinxMatch = content.match(/@jinx\s+(\S+)/);
+                        let labelMatch = content.match(/@label\s+(.+)/);
+                        let iconMatch = content.match(/@icon\s+(\S+)/);
+                        let orderMatch = content.match(/@order\s+(\d+)/);
+                        let enabledMatch = content.match(/@enabled\s+(\S+)/);
+
+                        // Fallback to old # comment format: # key: value
+                        if (!labelMatch) {
+                            const oldLabel = content.match(/^#\s*label:\s*(.+)/m);
+                            if (oldLabel) label = oldLabel[1].trim();
+                        }
+                        if (!iconMatch) {
+                            const oldIcon = content.match(/^#\s*icon:\s*(\S+)/m);
+                            if (oldIcon) icon = oldIcon[1].trim();
+                        }
+                        if (!orderMatch) {
+                            const oldOrder = content.match(/^#\s*order:\s*(\d+)/m);
+                            if (oldOrder) order = parseInt(oldOrder[1]) || 0;
+                        }
+                        if (!enabledMatch) {
+                            const oldEnabled = content.match(/^#\s*enabled:\s*(\S+)/m);
+                            if (oldEnabled) enabled = oldEnabled[1].trim() !== 'false';
+                        }
+                        if (!jinxMatch) {
+                            const oldJinx = content.match(/^#\s*jinx_name:\s*(\S+)/m);
+                            if (oldJinx) jinx_name = oldJinx[1].trim();
+                        }
+
+                        if (jinxMatch) jinx_name = jinxMatch[1].trim();
+                        if (labelMatch) label = labelMatch[1].trim();
+                        if (iconMatch) icon = iconMatch[1].trim();
+                        if (orderMatch) order = parseInt(orderMatch[1]) || 0;
+                        if (enabledMatch) enabled = enabledMatch[1].trim() !== 'false';
+
+                        // Derive action from filename (db.jinx -> db)
+                        const action = tile.filename.replace('.jinx', '');
+
+                        return {
+                            filename: tile.filename,
+                            jinx_name,
+                            label: label || action,
+                            icon: icon || 'Box',
+                            order,
+                            enabled,
+                            action,
+                            rawContent: tile.content
+                        };
+                    });
+
+                    // Filter out example/disabled and sort
+                    setTileJinxes(parsed.filter((t: any) => !t.filename.startsWith('_')).sort((a: any, b: any) => a.order - b.order));
+                    setTileJinxesLoaded(true);
+                }
+            } catch (err) {
+                console.error('Failed to load tile jinxes:', err);
+            }
+        };
+        loadTileJinxes();
+    }, []);
+
+    // Save a tile jinx after editing
+    const saveTileJinx = useCallback(async (filename: string, content: string) => {
+        try {
+            await (window as any).api?.tileJinxWrite?.(filename, content);
+            // Reload jinxes
+            const result = await (window as any).api?.tileJinxList?.();
+            if (result?.success && result.tiles) {
+                const parsed = result.tiles.map((tile: { filename: string; content: string }) => {
+                    const content = tile.content;
+                    let jinx_name = '', label = '', icon = '', order = 0, enabled = true;
+
+                    // Try JSDoc format: @key value
+                    let m = content.match(/@jinx\s+(\S+)/); if (m) jinx_name = m[1].trim();
+                    m = content.match(/@label\s+(.+)/); if (m) label = m[1].trim();
+                    m = content.match(/@icon\s+(\S+)/); if (m) icon = m[1].trim();
+                    m = content.match(/@order\s+(\d+)/); if (m) order = parseInt(m[1]) || 0;
+                    m = content.match(/@enabled\s+(\S+)/); if (m) enabled = m[1].trim() !== 'false';
+
+                    // Fallback to old # format
+                    if (!label) { m = content.match(/^#\s*label:\s*(.+)/m); if (m) label = m[1].trim(); }
+                    if (!icon) { m = content.match(/^#\s*icon:\s*(\S+)/m); if (m) icon = m[1].trim(); }
+                    if (!order) { m = content.match(/^#\s*order:\s*(\d+)/m); if (m) order = parseInt(m[1]) || 0; }
+                    if (!jinx_name) { m = content.match(/^#\s*jinx_name:\s*(\S+)/m); if (m) jinx_name = m[1].trim(); }
+
+                    const action = tile.filename.replace('.jinx', '');
+                    return { filename: tile.filename, jinx_name, label: label || action, icon: icon || 'Box', order, enabled, action, rawContent: tile.content };
+                });
+                setTileJinxes(parsed.filter((t: any) => !t.filename.startsWith('_')).sort((a: any, b: any) => a.order - b.order));
+            }
+            setEditingTileJinx(null);
+            setTileJinxEditContent('');
+            setBottomGridEditMode(false);
+        } catch (err) {
+            console.error('Failed to save tile jinx:', err);
+        }
+    }, []);
+
+    // Reorder tiles via drag and drop
+    const handleTileReorder = useCallback(async (fromIdx: number, toIdx: number) => {
+        if (fromIdx === toIdx) return;
+        const newTiles = [...tileJinxes];
+        const [moved] = newTiles.splice(fromIdx, 1);
+        newTiles.splice(toIdx, 0, moved);
+
+        // Update order values in each tile's metadata and save
+        for (let i = 0; i < newTiles.length; i++) {
+            const tile = newTiles[i];
+            // Update order in the rawContent header
+            // Update order - try JSDoc format first, then old # format
+            let updatedContent = tile.rawContent;
+            if (/@order\s+\d+/.test(updatedContent)) {
+                updatedContent = updatedContent.replace(/(@order\s+)\d+/, `$1${i}`);
+            } else {
+                updatedContent = updatedContent.replace(/^(#\s*order:\s*)\d+/m, `$1${i}`);
+            }
+            tile.order = i;
+            tile.rawContent = updatedContent;
+            await (window as any).api?.tileJinxWrite?.(tile.filename, updatedContent);
+        }
+        setTileJinxes(newTiles);
+        setDraggedTileIdx(null);
+    }, [tileJinxes]);
+
+    // Compile TSX and prepare for react-live preview
+    const compileForPreview = useCallback(async (code: string): Promise<string> => {
+        try {
+            // Find the EXPORTED component name BEFORE stripping exports
+            // Look for "export default ComponentName" at end of file
+            const exportDefaultMatch = code.match(/export\s+default\s+(\w+)\s*;?\s*$/m);
+            // Or "export default function/const ComponentName"
+            const exportDefaultFuncMatch = code.match(/export\s+default\s+(?:function|const)\s+(\w+)/);
+
+            let componentName = exportDefaultMatch?.[1] || exportDefaultFuncMatch?.[1];
+
+            // Fallback: find first component definition
+            if (!componentName) {
+                const funcMatch = code.match(/(?:const|function)\s+(\w+)\s*(?::\s*React\.FC)?[=(:]/);
+                componentName = funcMatch?.[1] || 'Component';
+            }
+
+            console.log('[PREVIEW] Detected component:', componentName);
+
+            // Remove JSDoc metadata and imports
+            let cleaned = code.replace(/\/\*\*[\s\S]*?\*\/\s*\n?/, '');
+            cleaned = cleaned.replace(/^#[^\n]*\n/gm, '');
+            cleaned = cleaned.replace(/^import\s+.*?['"];?\s*$/gm, '');
+            cleaned = cleaned.replace(/^export\s+(default\s+)?/gm, '');
+
+            // Compile TypeScript to JavaScript via IPC
+            const result = await (window as any).api?.transformTsx?.(cleaned);
+            if (!result?.success) {
+                return `render(<div className="p-4 text-red-400">Compile Error: ${result?.error || 'Unknown error'}</div>)`;
+            }
+
+            let compiled = result.output || '';
+            if (!compiled) {
+                return `render(<div className="p-4 text-red-400">No output from compiler</div>)`;
+            }
+            // Remove module system artifacts
+            compiled = compiled.replace(/["']use strict["'];?\n?/g, '');
+            compiled = compiled.replace(/Object\.defineProperty\(exports[\s\S]*?\);/g, '');
+            compiled = compiled.replace(/exports\.\w+\s*=\s*/g, '');
+            compiled = compiled.replace(/exports\.default\s*=\s*\w+;?/g, '');
+            // Remove require() calls - dependencies come from scope
+            compiled = compiled.replace(/(?:var|const|let)\s+\w+\s*=\s*require\([^)]+\);?\n?/g, '');
+            compiled = compiled.replace(/require\([^)]+\)/g, '{}');
+            // Replace module prefixes like lucide_react_1.Play with just Play
+            compiled = compiled.replace(/\w+_\d+\.(\w+)/g, '$1');
+            // Also handle react_1.useState etc
+            compiled = compiled.replace(/react_1\.(\w+)/g, '$1');
+
+            // Add render call with realistic props - embedded:true to prevent modal wrapper
+            const mockProps = `{
+                onClose: () => console.log('Preview: onClose called'),
+                isPane: true,
+                isOpen: true,
+                isModal: false,
+                embedded: true,
+                projectPath: '/mock',
+                currentPath: '/mock',
+                theme: { bg: '#1a1a2e', fg: '#fff', accent: '#4a9eff' }
+            }`;
+            const finalCode = `${compiled}\n\nrender(<${componentName} {...${mockProps}} />)`;
+            console.log('[PREVIEW] Compiled code (first 500 chars):', finalCode.slice(0, 500));
+            return finalCode;
+        } catch (err: any) {
+            return `render(<div className="p-4 text-red-400">Error: ${err.message}</div>)`;
+        }
+    }, []);
+
+    // Toggle live preview
+    const toggleLivePreview = useCallback(async () => {
+        if (!showLivePreview) {
+            setLivePreviewCode('render(<div className="p-4 text-gray-400">Compiling...</div>)');
+            setShowLivePreview(true);
+            const compiled = await compileForPreview(tileJinxEditContent);
+            setLivePreviewCode(compiled);
+        } else {
+            setShowLivePreview(false);
+        }
+    }, [showLivePreview, tileJinxEditContent, compileForPreview]);
+
+    // Update preview when code changes (debounced)
+    useEffect(() => {
+        if (showLivePreview && tileJinxEditContent) {
+            const timeoutId = setTimeout(async () => {
+                const compiled = await compileForPreview(tileJinxEditContent);
+                setLivePreviewCode(compiled);
+            }, 800); // debounce
+            return () => clearTimeout(timeoutId);
+        }
+    }, [tileJinxEditContent, showLivePreview, compileForPreview]);
+
+    // Live preview scope - REAL components and REAL window.api
+    const liveScope = useMemo(() => ({
+        // React
+        React,
+        useState,
+        useEffect,
+        useCallback,
+        useRef,
+        useMemo,
+        useLayoutEffect: React.useLayoutEffect,
+        useContext: React.useContext,
+        createContext: React.createContext,
+        forwardRef: React.forwardRef,
+        memo: React.memo,
+        Fragment: React.Fragment,
+        // REAL npcts components
+        Modal, Tabs, Card, Button, Input, Select,
+        // ALL REAL tile components - exactly what gets rendered
+        DiskUsageAnalyzer,
+        AutosizeTextarea,
+        ForceGraph2D,
+        ActivityIntelligence,
+        BrowserHistoryWeb,
+        CtxEditor,
+        JinxMenu,
+        KnowledgeGraphEditor,
+        LabeledDataManager,
+        McpServerMenu,
+        MemoryManagement,
+        MessageLabeling,
+        NPCTeamMenu,
+        PythonEnvSettings,
+        DBTool,
+        DataDash,
+        LibraryViewer,
+        GraphViewer,
+        PhotoViewer,
+        SettingsMenu,
+        SettingsPanel: SettingsMenu, // alias
+        // ALL lucide icons
+        Database, Image, BookOpen, BarChart3, GitBranch, Network, Users, Bot, Zap,
+        Settings, KeyRound, HardDrive, Box, Folder, File, Globe, ChevronRight, Edit,
+        Terminal, Trash, Plus, X, Star, Clock, Activity, Lock, Archive, Sparkles,
+        ChevronDown, ChevronUp, Play, GripVertical, Search, RefreshCw, Download,
+        Upload, Copy, Check, AlertCircle, Info, Eye, EyeOff, Moon, Sun, Palette,
+        Code, Save, FolderOpen, FileText, Home, ArrowLeft, ArrowRight, Menu, MoreVertical,
+        Loader2, ExternalLink, Link, Unlink, Filter, SortAsc, SortDesc, Table, Grid,
+        List, Maximize2, Minimize2, Move, RotateCcw, ZoomIn, ZoomOut, Layers, Layout,
+        Pause, Server, Mail, Cpu, Wifi, WifiOff, Power, PowerOff, Hash, AtSign,
+        FileJson, Wrench, Code2, FileStack, Share2, Tag, MessageSquare, ArrowUp,
+        // Icon aliases
+        DownloadCloud: Download, Trash2: Trash, Square: Box, Volume2: Activity, Mic: Activity, Keyboard: Settings,
+        // REAL window with REAL api
+        window,
+        // Console
+        console,
+    }), []);
 
     // Save tile configuration
     const saveTilesConfig = useCallback(async (newConfig: typeof tilesConfig) => {
@@ -2501,23 +2848,14 @@ return (
                     </>
                 )}
             </div>
-            {/* Expand/collapse toggle and edit mode */}
+            {/* Expand/collapse toggle */}
             <div className="flex items-center mt-1">
                 <button onClick={() => setHeaderActionsExpanded(!headerActionsExpanded)} className="flex-1 py-1 text-[10px] text-gray-500 hover:text-gray-300 flex items-center justify-center gap-1">
-                    {headerActionsExpanded ? <><ChevronUp size={10} /> Less</> : <><ChevronDown size={10} /> More actions</>}
+                    {headerActionsExpanded ? <><ChevronUp size={10} /> Less</> : <><ChevronDown size={10} /> More</>}
                 </button>
-                {headerActionsExpanded && (
-                    <button
-                        onClick={() => setTileEditMode(!tileEditMode)}
-                        className={`px-2 py-1 text-[10px] rounded ${tileEditMode ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                        title="Edit tile layout"
-                    >
-                        <Settings size={10} />
-                    </button>
-                )}
             </div>
             {/* Tile edit mode panel */}
-            {tileEditMode && headerActionsExpanded && (
+            {tileEditMode && (
                 <div className="mt-2 p-2 bg-gray-800/50 rounded-lg border border-gray-700">
                     <div className="text-[10px] text-gray-400 mb-2">Drag to reorder • Click eye to toggle</div>
                     <div className="space-y-1">
@@ -2890,32 +3228,212 @@ return (
         </div>
 
         <div className="p-4 border-t theme-border flex-shrink-0">
-            {/* 4x3 Grid BELOW delete button */}
-            {!sidebarCollapsed && (
-                <div className="grid grid-cols-3 grid-rows-4 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
-                    {/* Row 1: DB Tool | Photo Tool | Library */}
-                    <button onClick={() => createDBToolPane?.()} className="action-grid-button" aria-label="DB Tool" title="Database Query Tool (includes Data Labeler)"><Database size={16} /></button>
-                    <button onClick={() => createPhotoViewerPane?.()} className="action-grid-button" aria-label="Photo Tool" title="Photo Viewer"><Image size={16} /></button>
-                    <button onClick={() => createLibraryViewerPane?.()} className="action-grid-button" aria-label="Library" title="Document Library (PDFs, EPUBs)"><BookOpen size={16} /></button>
-                    {/* Row 2: Data Dash | Knowledge Graph | Web Browser Graph */}
-                    <button onClick={() => createDataDashPane?.()} className="action-grid-button" aria-label="Data Dash" title="Data Dashboard"><BarChart3 size={16} /></button>
-                    <button onClick={() => createGraphViewerPane?.()} className="action-grid-button" aria-label="Knowledge Graph" title="Knowledge Graph"><GitBranch size={16} /></button>
-                    <button onClick={() => createBrowserGraphPane?.()} className="action-grid-button" aria-label="Browser Graph" title="Web Browser Graph"><Network size={16} /></button>
-                    {/* Row 3: Team Management | NPCs | Jinxs */}
-                    <button onClick={() => createTeamManagementPane?.()} className="action-grid-button" aria-label="Team Management" title="Team Management"><Users size={16} /></button>
-                    <button onClick={() => createNPCTeamPane?.()} className="action-grid-button" aria-label="NPCs" title="NPCs"><Bot size={16} /></button>
-                    <button onClick={() => createJinxPane?.()} className="action-grid-button" aria-label="Jinxs" title="Jinxs"><Zap size={16} /></button>
-                    {/* Row 4: Settings | Project Env | Disk Usage Analyzer */}
-                    <button onClick={() => createSettingsPane?.()} className="action-grid-button" aria-label="Settings" title="Settings"><Settings size={16} /></button>
-                    <button onClick={() => createProjectEnvPane?.()} className="action-grid-button" aria-label="Env Variables" title="Environment Variables"><KeyRound size={16} /></button>
-                    <button onClick={() => createDiskUsagePane?.()} className="action-grid-button" aria-label="Disk Usage" title="Disk Usage Analyzer"><HardDrive size={16} /></button>
+            {/* Bottom Grid Edit Mode - uses jinx tiles when loaded */}
+            {!sidebarCollapsed && bottomGridEditMode && (
+                <div className="mb-2 p-2 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <div className="text-[10px] text-gray-400 mb-2">Drag to reorder • Click to edit</div>
+                    <div className="grid grid-cols-3 gap-1">
+                        {(tileJinxesLoaded ? tileJinxes : bottomGridConfig.map(t => ({ ...t, filename: `${t.id}.jinx`, jinx_name: `tile.${t.id}`, action: t.id, rawContent: '' }))).map((tile, idx) => (
+                            <div
+                                key={tile.filename || tile.id}
+                                draggable
+                                onDragStart={() => setDraggedTileIdx(idx)}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={() => { if (draggedTileIdx !== null) handleTileReorder(draggedTileIdx, idx); }}
+                                onDragEnd={() => setDraggedTileIdx(null)}
+                                onClick={() => {
+                                    setEditingTileJinx(tile.filename);
+                                    setTileJinxEditContent(tile.rawContent);
+                                }}
+                                className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] cursor-grab active:cursor-grabbing hover:bg-purple-600/30 ${
+                                    !tile.enabled ? 'opacity-50' : 'bg-gray-700/50'
+                                } ${draggedTileIdx === idx ? 'ring-2 ring-purple-500 opacity-50' : ''}`}
+                            >
+                                <GripVertical size={10} className="text-gray-500" />
+                                <span className="flex-1 truncate">{tile.label}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <button
+                        onClick={() => {
+                            // Create new custom tile
+                            const newName = `custom_${Date.now()}`;
+                            const newContent = `/**
+ * @jinx tile.${newName}
+ * @label Custom
+ * @icon Box
+ * @order ${tileJinxes.length}
+ * @enabled true
+ */
+
+import React from 'react';
+import { Box } from 'lucide-react';
+
+export default function CustomTile({ onClose, theme }: { onClose?: () => void; theme?: any }) {
+    return (
+        <div className="p-4">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+                <Box size={20} />
+                Custom Tile
+            </h2>
+            <p className="text-gray-400 mt-2">Edit this component to create your custom tile.</p>
+        </div>
+    );
+}
+`;
+                            setEditingTileJinx(`${newName}.jinx`);
+                            setTileJinxEditContent(newContent);
+                        }}
+                        className="mt-2 w-full px-2 py-1 text-xs bg-purple-600/30 text-purple-300 rounded hover:bg-purple-600/50 flex items-center justify-center gap-1"
+                    >
+                        <Plus size={12} /> New Custom Tile
+                    </button>
                 </div>
             )}
 
-            <div className={`flex justify-center ${!sidebarCollapsed ? 'mt-4' : ''}`}>
+            {/* Tile Editor Modal - Full component code editor with live preview */}
+            {editingTileJinx && (
+                <div className="fixed inset-0 bg-black/70 z-[9999] flex items-center justify-center p-4">
+                    <div className="bg-gray-900 border border-gray-700 rounded-lg w-[95vw] h-[95vh] flex flex-col">
+                        <div className="flex items-center justify-between p-3 border-b border-gray-700">
+                            <span className="text-sm font-medium">{editingTileJinx.replace('.jinx', '')} Component</span>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={toggleLivePreview}
+                                    className={`px-3 py-1 text-xs rounded flex items-center gap-1 ${showLivePreview ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                                >
+                                    <Play size={12} /> {showLivePreview ? 'Hide Preview' : 'Live Preview'}
+                                </button>
+                                <button
+                                    onClick={() => saveTileJinx(editingTileJinx, tileJinxEditContent)}
+                                    className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                >
+                                    Save
+                                </button>
+                                <button
+                                    onClick={() => { setEditingTileJinx(null); setTileJinxEditContent(''); setShowLivePreview(false); }}
+                                    className="px-3 py-1 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-hidden flex">
+                            {/* Code Editor */}
+                            <div className={`${showLivePreview ? 'w-1/2' : 'w-full'} h-full`}>
+                                <CodeMirror
+                                    value={tileJinxEditContent}
+                                    onChange={(val) => setTileJinxEditContent(val)}
+                                    extensions={[
+                                        javascript({ jsx: true, typescript: true }),
+                                        EditorView.theme({
+                                            '&': { height: '100%', fontSize: '13px' },
+                                            '.cm-scroller': { overflow: 'auto' },
+                                            '.cm-content': { fontFamily: '"Fira Code", "JetBrains Mono", monospace' },
+                                            '.cm-gutters': { backgroundColor: '#1a1a2e', borderRight: '1px solid #333' },
+                                        }),
+                                    ]}
+                                    theme="dark"
+                                    height="100%"
+                                    style={{ height: '100%' }}
+                                />
+                            </div>
+                            {/* Live Preview - renders the actual component */}
+                            {showLivePreview && (
+                                <div className="w-1/2 h-full border-l border-gray-700 flex flex-col">
+                                    <div className="p-2 border-b border-gray-700 text-xs text-gray-400 flex items-center justify-between">
+                                        <span className="flex items-center gap-2">
+                                            <Play size={12} className="text-green-400" />
+                                            Live Preview
+                                        </span>
+                                        <span className="text-gray-500 text-[10px]">updates as you type</span>
+                                    </div>
+                                    <div className="flex-1 overflow-auto bg-gray-900 relative" style={{ contain: 'layout paint' }}>
+                                        <LiveProvider code={livePreviewCode} scope={liveScope} noInline={true}>
+                                            <LiveError className="p-4 text-red-400 text-sm font-mono bg-red-900/30 border-b border-red-800" />
+                                            <LivePreview className="h-full w-full" />
+                                        </LiveProvider>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="px-3 py-2 text-[10px] text-gray-500 border-t border-gray-700">
+                            ~/.npcsh/incognide/tiles/{editingTileJinx}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 4x3 Grid - uses jinx tiles when loaded */}
+            {!sidebarCollapsed && !bottomGridEditMode && (
+                <div className="grid grid-cols-3 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
+                    {(() => {
+                        // Action map for tile IDs
+                        const actions: Record<string, () => void> = {
+                            db: () => createDBToolPane?.(),
+                            photo: () => createPhotoViewerPane?.(),
+                            library: () => createLibraryViewerPane?.(),
+                            datadash: () => createDataDashPane?.(),
+                            graph: () => createGraphViewerPane?.(),
+                            browsergraph: () => createBrowserGraphPane?.(),
+                            team: () => createTeamManagementPane?.(),
+                            npc: () => createNPCTeamPane?.(),
+                            jinx: () => createJinxPane?.(),
+                            settings: () => createSettingsPane?.(),
+                            env: () => createProjectEnvPane?.(),
+                            disk: () => createDiskUsagePane?.(),
+                        };
+                        // Icon map
+                        const iconMap: Record<string, React.ReactNode> = {
+                            Database: <Database size={16} />,
+                            Image: <Image size={16} />,
+                            BookOpen: <BookOpen size={16} />,
+                            BarChart3: <BarChart3 size={16} />,
+                            GitBranch: <GitBranch size={16} />,
+                            Network: <Network size={16} />,
+                            Users: <Users size={16} />,
+                            Bot: <Bot size={16} />,
+                            Zap: <Zap size={16} />,
+                            Settings: <Settings size={16} />,
+                            KeyRound: <KeyRound size={16} />,
+                            HardDrive: <HardDrive size={16} />,
+                            Box: <Box size={16} />,
+                        };
+
+                        // Use jinx tiles if loaded, otherwise fallback
+                        const tiles = tileJinxesLoaded
+                            ? tileJinxes.filter(t => t.enabled)
+                            : bottomGridConfig.filter(t => t.enabled).map(t => ({ ...t, action: t.id }));
+
+                        return tiles.map((tile) => (
+                            <button
+                                key={tile.filename || tile.id}
+                                onClick={actions[tile.action] || (() => console.log(`No action for ${tile.action}`))}
+                                className="action-grid-button"
+                                aria-label={tile.label}
+                                title={tile.label}
+                            >
+                                {iconMap[tile.icon] || <Box size={16} />}
+                            </button>
+                        ));
+                    })()}
+                </div>
+            )}
+
+            {/* Bottom row: Edit tiles button + Collapse */}
+            <div className={`flex items-center gap-2 ${!sidebarCollapsed ? 'mt-2' : ''}`}>
+                {!sidebarCollapsed && (
+                    <button
+                        onClick={() => setBottomGridEditMode(!bottomGridEditMode)}
+                        className={`px-2 py-2 text-xs rounded-lg ${bottomGridEditMode ? 'bg-purple-600 text-white' : 'theme-bg-tertiary theme-border border hover:bg-gray-700'}`}
+                        title="Edit tiles"
+                    >
+                        <Edit size={14} />
+                    </button>
+                )}
                 <button
                     onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                    className="p-2 w-full theme-button theme-hover rounded-full transition-all group"
+                    className="flex-1 p-2 theme-button theme-hover rounded-lg transition-all group"
                     title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 >
                     <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">

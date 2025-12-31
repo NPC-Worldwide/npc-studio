@@ -185,6 +185,14 @@ readDocxContent: (filePath) =>
     tilesConfigAddCustom: (tile) => ipcRenderer.invoke('tiles-config-add-custom', tile),
     tilesConfigRemoveCustom: (tileId) => ipcRenderer.invoke('tiles-config-remove-custom', tileId),
 
+    // Tile Jinx system
+    tileJinxList: () => ipcRenderer.invoke('tile-jinx-list'),
+    tileJinxRead: (filename) => ipcRenderer.invoke('tile-jinx-read', filename),
+    tileJinxWrite: (filename, content) => ipcRenderer.invoke('tile-jinx-write', filename, content),
+    tileJinxDelete: (filename) => ipcRenderer.invoke('tile-jinx-delete', filename),
+    tileJinxReset: () => ipcRenderer.invoke('tile-jinx-reset'),
+    transformTsx: (code) => ipcRenderer.invoke('transformTsx', code),
+
     getGlobalContext: () => ipcRenderer.invoke('get-global-context'),
     saveGlobalContext: (contextData) => ipcRenderer.invoke('save-global-context', contextData),
     getProjectContext: (path) => ipcRenderer.invoke('get-project-context', path),
@@ -385,6 +393,9 @@ onTerminalClosed: (callback) => {
     pythonEnvResolve: (workspacePath) => ipcRenderer.invoke('python-env-resolve', { workspacePath }),
     pythonEnvCreate: (workspacePath, venvName, pythonPath) => ipcRenderer.invoke('python-env-create', { workspacePath, venvName, pythonPath }),
     pythonEnvCheckConfigured: (workspacePath) => ipcRenderer.invoke('python-env-check-configured', { workspacePath }),
+    pythonEnvListPackages: (workspacePath) => ipcRenderer.invoke('python-env-list-packages', workspacePath),
+    pythonEnvInstallPackage: (workspacePath, packageName, extraArgs) => ipcRenderer.invoke('python-env-install-package', workspacePath, packageName, extraArgs),
+    pythonEnvUninstallPackage: (workspacePath, packageName) => ipcRenderer.invoke('python-env-uninstall-package', workspacePath, packageName),
 
     generativeFill: async (params) => {
     return ipcRenderer.invoke('generative-fill', params);

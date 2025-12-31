@@ -658,6 +658,11 @@ function registerGlobalShortcut(win) {
             console.log('Screenshot saved to:', screenshotPath);
             win.webContents.send('screenshot-captured', screenshotPath);
 
+            // Bring window to foreground after screenshot capture
+            if (win.isMinimized()) win.restore();
+            win.show();
+            win.focus();
+
           } catch (error) {
             console.error('Screenshot crop/save failed:', error);
           } finally {
@@ -3454,6 +3459,218 @@ ipcMain.handle('python-env-check-configured', async (event, { workspacePath }) =
   }
 });
 
+// Helper to resolve Python path from config or detect from workspace
+const resolvePythonPath = async (workspacePath, envConfig) => {
+  const platform = process.platform;
+  const isWindows = platform === 'win32';
+  const pythonBin = isWindows ? 'python.exe' : 'python';
+  const pythonBin3 = isWindows ? 'python3.exe' : 'python3';
+
+  // If we have a config, use it
+  if (envConfig) {
+    if (envConfig.type === 'venv' || envConfig.type === 'uv') {
+      const binDir = isWindows ? 'Scripts' : 'bin';
+      const venvPath = envConfig.venvPath || '.venv';
+      const pythonPath = path.join(workspacePath, venvPath, binDir, pythonBin3);
+      const pythonPath2 = path.join(workspacePath, venvPath, binDir, pythonBin);
+      try {
+        await fsPromises.access(pythonPath);
+        return { pythonPath };
+      } catch {
+        try {
+          await fsPromises.access(pythonPath2);
+          return { pythonPath: pythonPath2 };
+        } catch {}
+      }
+    } else if (envConfig.type === 'custom' && envConfig.customPath) {
+      return { pythonPath: envConfig.customPath };
+    } else if (envConfig.type === 'conda' && envConfig.condaEnv) {
+      const condaRoot = envConfig.condaRoot || path.join(os.homedir(), 'miniconda3');
+      const condaPython = path.join(condaRoot, 'envs', envConfig.condaEnv, isWindows ? 'python.exe' : 'bin/python');
+      try {
+        await fsPromises.access(condaPython);
+        return { pythonPath: condaPython };
+      } catch {}
+    }
+  }
+
+  // Try to detect venv in workspace
+  const venvPaths = ['.venv', 'venv', '.env', 'env'];
+  for (const venvDir of venvPaths) {
+    const binDir = isWindows ? 'Scripts' : 'bin';
+    const venvPythonPath = path.join(workspacePath, venvDir, binDir, pythonBin3);
+    const venvPythonPath2 = path.join(workspacePath, venvDir, binDir, pythonBin);
+    try {
+      await fsPromises.access(venvPythonPath);
+      return { pythonPath: venvPythonPath };
+    } catch {
+      try {
+        await fsPromises.access(venvPythonPath2);
+        return { pythonPath: venvPythonPath2 };
+      } catch {}
+    }
+  }
+
+  // Fall back to system python
+  try {
+    const { execSync } = require('child_process');
+    const systemPython = execSync('which python3 || which python', { encoding: 'utf8' }).trim();
+    if (systemPython) {
+      return { pythonPath: systemPython };
+    }
+  } catch {}
+
+  return null;
+};
+
+// List installed packages in the Python environment
+ipcMain.handle('python-env-list-packages', async (event, workspacePath) => {
+  const { spawn } = require('child_process');
+
+  try {
+    const config = await readPythonEnvConfig();
+    const envConfig = config.workspaces[workspacePath];
+
+    // Get the Python path for this workspace
+    const pythonInfo = await resolvePythonPath(workspacePath, envConfig);
+    if (!pythonInfo?.pythonPath) {
+      return [];
+    }
+
+    return new Promise((resolve) => {
+      const proc = spawn(pythonInfo.pythonPath, ['-m', 'pip', 'list', '--format=json'], {
+        cwd: workspacePath,
+        env: { ...process.env }
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data) => { stdout += data.toString(); });
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const packages = JSON.parse(stdout);
+            resolve(packages.map(p => ({ name: p.name, version: p.version })));
+          } catch {
+            resolve([]);
+          }
+        } else {
+          console.error('pip list failed:', stderr);
+          resolve([]);
+        }
+      });
+
+      proc.on('error', () => resolve([]));
+    });
+  } catch (err) {
+    console.error('Error listing packages:', err);
+    return [];
+  }
+});
+
+// Install a package in the Python environment
+ipcMain.handle('python-env-install-package', async (event, workspacePath, packageName, extraArgs = []) => {
+  const { spawn } = require('child_process');
+
+  try {
+    const config = await readPythonEnvConfig();
+    const envConfig = config.workspaces[workspacePath];
+
+    const pythonInfo = await resolvePythonPath(workspacePath, envConfig);
+    if (!pythonInfo?.pythonPath) {
+      return { success: false, error: 'No Python environment configured' };
+    }
+
+    // Split package name in case multiple packages are passed
+    const packages = packageName.split(/\s+/).filter(p => p.trim());
+    const args = ['-m', 'pip', 'install', ...packages, ...extraArgs];
+
+    console.log(`[PIP] Installing: ${pythonInfo.pythonPath} ${args.join(' ')}`);
+
+    return new Promise((resolve) => {
+      const proc = spawn(pythonInfo.pythonPath, args, {
+        cwd: workspacePath,
+        env: { ...process.env }
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+        console.log('[PIP]', data.toString().trim());
+      });
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+        console.log('[PIP ERR]', data.toString().trim());
+      });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true, output: stdout });
+        } else {
+          resolve({ success: false, error: stderr || 'Installation failed' });
+        }
+      });
+
+      proc.on('error', (err) => {
+        resolve({ success: false, error: err.message });
+      });
+    });
+  } catch (err) {
+    console.error('Error installing package:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Uninstall a package from the Python environment
+ipcMain.handle('python-env-uninstall-package', async (event, workspacePath, packageName) => {
+  const { spawn } = require('child_process');
+
+  try {
+    const config = await readPythonEnvConfig();
+    const envConfig = config.workspaces[workspacePath];
+
+    const pythonInfo = await resolvePythonPath(workspacePath, envConfig);
+    if (!pythonInfo?.pythonPath) {
+      return { success: false, error: 'No Python environment configured' };
+    }
+
+    const args = ['-m', 'pip', 'uninstall', '-y', packageName];
+
+    console.log(`[PIP] Uninstalling: ${pythonInfo.pythonPath} ${args.join(' ')}`);
+
+    return new Promise((resolve) => {
+      const proc = spawn(pythonInfo.pythonPath, args, {
+        cwd: workspacePath,
+        env: { ...process.env }
+      });
+
+      let stderr = '';
+
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true });
+        } else {
+          resolve({ success: false, error: stderr || 'Uninstall failed' });
+        }
+      });
+
+      proc.on('error', (err) => {
+        resolve({ success: false, error: err.message });
+      });
+    });
+  } catch (err) {
+    console.error('Error uninstalling package:', err);
+    return { success: false, error: err.message };
+  }
+});
+
 // ==================== END PYTHON ENVIRONMENT ====================
 
 // ==================== TILE CONFIGURATION ====================
@@ -3571,6 +3788,187 @@ ipcMain.handle('tiles-config-remove-custom', async (event, tileId) => {
 });
 
 // ==================== END TILE CONFIGURATION ====================
+
+// ==================== TILE JINX SYSTEM ====================
+const tileJinxDir = path.join(os.homedir(), '.npcsh', 'incognide', 'tiles');
+
+// Map tile names to their source component files
+// Each jinx file contains the FULL component source code
+const tileSourceMap = {
+  'db.jinx': { source: 'DBTool.tsx', label: 'DB Tool', icon: 'Database', order: 0 },
+  'photo.jinx': { source: 'PhotoViewer.tsx', label: 'Photo', icon: 'Image', order: 1 },
+  'library.jinx': { source: 'LibraryViewer.tsx', label: 'Library', icon: 'BookOpen', order: 2 },
+  'datadash.jinx': { source: 'DataDash.tsx', label: 'Data Dash', icon: 'BarChart3', order: 3 },
+  'graph.jinx': { source: 'GraphViewer.tsx', label: 'Graph', icon: 'GitBranch', order: 4 },
+  'browsergraph.jinx': { source: 'BrowserHistoryWeb.tsx', label: 'Browser Graph', icon: 'Network', order: 5 },
+  'team.jinx': { source: 'TeamManagement.tsx', label: 'Team', icon: 'Users', order: 6 },
+  'npc.jinx': { source: 'NPCTeamMenu.tsx', label: 'NPCs', icon: 'Bot', order: 7 },
+  'jinx.jinx': { source: 'JinxMenu.tsx', label: 'Jinxs', icon: 'Zap', order: 8 },
+  'settings.jinx': { source: 'SettingsMenu.tsx', label: 'Settings', icon: 'Settings', order: 9 },
+  'env.jinx': { source: 'ProjectEnvEditor.tsx', label: 'Env', icon: 'KeyRound', order: 10 },
+  'disk.jinx': { source: 'DiskUsageAnalyzer.tsx', label: 'Disk', icon: 'HardDrive', order: 11 },
+};
+
+// Components directory path
+const componentsDir = path.join(__dirname, 'renderer', 'components');
+
+// Generate jinx header with metadata
+const generateJinxHeader = (meta) => `/**
+ * @jinx tile.${meta.filename.replace('.jinx', '')}
+ * @label ${meta.label}
+ * @icon ${meta.icon}
+ * @order ${meta.order}
+ * @enabled true
+ */
+
+`;
+
+// Ensure tile jinx directory exists with defaults
+const ensureTileJinxDir = async () => {
+  await fsPromises.mkdir(tileJinxDir, { recursive: true });
+
+  // Write default jinx files from actual component source
+  for (const [filename, meta] of Object.entries(tileSourceMap)) {
+    const jinxPath = path.join(tileJinxDir, filename);
+    try {
+      await fsPromises.access(jinxPath);
+      // File exists, skip
+    } catch {
+      // File doesn't exist, create from source
+      try {
+        const sourcePath = path.join(componentsDir, meta.source);
+        const sourceCode = await fsPromises.readFile(sourcePath, 'utf8');
+        const header = generateJinxHeader({ ...meta, filename });
+        await fsPromises.writeFile(jinxPath, header + sourceCode);
+      } catch (err) {
+        console.warn(`Could not create ${filename} from ${meta.source}:`, err.message);
+      }
+    }
+  }
+};
+
+// List all tile jinx files
+ipcMain.handle('tile-jinx-list', async () => {
+  try {
+    await ensureTileJinxDir();
+    const files = await fsPromises.readdir(tileJinxDir);
+    const jinxFiles = files.filter(f => f.endsWith('.jinx'));
+
+    const tiles = [];
+    for (const file of jinxFiles) {
+      const content = await fsPromises.readFile(path.join(tileJinxDir, file), 'utf8');
+      tiles.push({ filename: file, content });
+    }
+    return { success: true, tiles };
+  } catch (err) {
+    console.error('Error listing tile jinxes:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Read a specific tile jinx
+ipcMain.handle('tile-jinx-read', async (event, filename) => {
+  try {
+    await ensureTileJinxDir();
+    const filePath = path.join(tileJinxDir, filename);
+    const content = await fsPromises.readFile(filePath, 'utf8');
+    return { success: true, content };
+  } catch (err) {
+    console.error('Error reading tile jinx:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Write/update a tile jinx
+ipcMain.handle('tile-jinx-write', async (event, filename, content) => {
+  try {
+    await ensureTileJinxDir();
+    if (!filename.endsWith('.jinx')) {
+      filename += '.jinx';
+    }
+    const filePath = path.join(tileJinxDir, filename);
+    await fsPromises.writeFile(filePath, content);
+    return { success: true };
+  } catch (err) {
+    console.error('Error writing tile jinx:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Delete a tile jinx
+ipcMain.handle('tile-jinx-delete', async (event, filename) => {
+  try {
+    const filePath = path.join(tileJinxDir, filename);
+    await fsPromises.unlink(filePath);
+    return { success: true };
+  } catch (err) {
+    console.error('Error deleting tile jinx:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Reset tile jinxes to defaults
+ipcMain.handle('tile-jinx-reset', async () => {
+  try {
+    // Delete all existing jinx files
+    const files = await fsPromises.readdir(tileJinxDir);
+    for (const file of files) {
+      if (file.endsWith('.jinx')) {
+        await fsPromises.unlink(path.join(tileJinxDir, file));
+      }
+    }
+    // Recreate from source component files
+    for (const [filename, meta] of Object.entries(tileSourceMap)) {
+      try {
+        const sourcePath = path.join(componentsDir, meta.source);
+        const sourceCode = await fsPromises.readFile(sourcePath, 'utf8');
+        const header = generateJinxHeader({ ...meta, filename });
+        await fsPromises.writeFile(path.join(tileJinxDir, filename), header + sourceCode);
+      } catch (err) {
+        console.warn(`Could not reset ${filename}:`, err.message);
+      }
+    }
+    return { success: true };
+  } catch (err) {
+    console.error('Error resetting tile jinxes:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Transform/check TSX code
+ipcMain.handle('transformTsx', async (event, code) => {
+  try {
+    const ts = require('typescript');
+
+    // Transpile TypeScript to JavaScript (no imports/exports, just plain JS)
+    const result = ts.transpileModule(code, {
+      compilerOptions: {
+        module: ts.ModuleKind.None,  // No module system - inline everything
+        target: ts.ScriptTarget.ES2020,
+        jsx: ts.JsxEmit.React,
+        esModuleInterop: false,
+        removeComments: true,
+      },
+      reportDiagnostics: true,
+    });
+
+    // Check for errors
+    if (result.diagnostics && result.diagnostics.length > 0) {
+      const errors = result.diagnostics.map(d => {
+        const message = ts.flattenDiagnosticMessageText(d.messageText, '\n');
+        const line = d.file ? d.file.getLineAndCharacterOfPosition(d.start).line + 1 : 0;
+        return `Line ${line}: ${message}`;
+      }).join('\n');
+      return { success: false, error: errors };
+    }
+
+    return { success: true, output: result.outputText };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ==================== END TILE JINX SYSTEM ====================
 
 ipcMain.handle('loadProjectSettings', async (event, currentPath) => {
     try {

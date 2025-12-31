@@ -3778,6 +3778,7 @@ ${contextPrompt}`;
                     streamId: newStreamId,
                 });
             } else {
+                console.log('[DEBUG] uploadedFiles before sending:', uploadedFiles);
                 const commandData = {
                     commandstr: finalPromptForUserMessage,
                     currentPath,
@@ -4684,20 +4685,12 @@ ${contextPrompt}`;
         const cleanup = window.api.onScreenshotCaptured(async (screenshotPath: string) => {
             console.log('[Screenshot] Captured:', screenshotPath);
 
-            // Create a new conversation
-            const newConvoId = generateId();
-            const newConversation = {
-                id: newConvoId,
+            // Create the conversation in the backend
+            const conversation = await window.api.createConversation({
                 title: `Screenshot ${new Date().toLocaleString()}`,
-                messages: [],
-                timestamp: new Date().toISOString(),
-                npc: currentNPC,
-                model: currentModel,
-                provider: currentProvider
-            };
-
-            // Add to conversations list
-            setDirectoryConversations(prev => [newConversation, ...prev]);
+                type: 'conversation',
+                directory_path: currentPath
+            });
 
             // Create the attachment from the screenshot path
             const fileName = screenshotPath.split('/').pop() || 'screenshot.png';
@@ -4713,26 +4706,45 @@ ${contextPrompt}`;
             // Set the uploaded files with the screenshot
             setUploadedFiles([attachment]);
 
-            // Open the conversation in a new pane
-            const newPaneData = {
-                type: 'chat' as const,
-                title: newConversation.title,
-                conversationId: newConvoId,
-                conversation: newConversation,
-                npc: currentNPC,
-                model: currentModel,
-                provider: currentProvider,
-            };
+            // Get or create a pane for the conversation
+            let paneId = activeContentPaneId;
+            const existingPaneIds = Object.keys(contentDataRef.current);
 
-            createAndAddPaneNodeToLayout(newPaneData);
-            setActiveConversationId(newConvoId);
+            if (!paneId && existingPaneIds.length > 0) {
+                paneId = existingPaneIds[0];
+            }
+
+            if (!paneId) {
+                // No panes exist - create a new layout with a single pane
+                paneId = generateId();
+                contentDataRef.current[paneId] = {
+                    contentType: 'chat',
+                    contentId: conversation.id,
+                    chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+                };
+                setRootLayoutNode({ id: paneId, type: 'content' });
+            } else {
+                // Update existing pane
+                contentDataRef.current[paneId] = {
+                    contentType: 'chat',
+                    contentId: conversation.id,
+                    chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+                };
+                setRootLayoutNode(prev => prev ? { ...prev } : { id: paneId, type: 'content' });
+            }
+
+            setActiveContentPaneId(paneId);
+            setActiveConversationId(conversation.id);
+
+            // Refresh the sidebar
+            refreshConversations();
 
             // Focus the window
             window.focus();
         });
 
         return cleanup;
-    }, [currentNPC, currentModel, currentProvider, generateId, createAndAddPaneNodeToLayout]);
+    }, [currentPath, generateId, activeContentPaneId, refreshConversations]);
 
         
     useEffect(() => {
@@ -6523,11 +6535,13 @@ const handleConversationSelect = async (conversationId: string, skipMessageLoad 
         // ADD THIS CHECK: Only update if the pane exists and is not empty
         if (paneIdToUpdate && contentDataRef.current[paneIdToUpdate]) {
             await updateContentPane(paneIdToUpdate, 'chat', conversationId, skipMessageLoad);
+            setActiveContentPaneId(paneIdToUpdate);
             setRootLayoutNode(prev => ({...prev}));
         } else {
             console.warn('[SELECT_CONVO] No valid pane to update, creating new one');
             const newPaneId = createAndAddPaneNodeToLayout();
             await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
+            setActiveContentPaneId(newPaneId);
             paneIdToUpdate = newPaneId;
         }
     }
