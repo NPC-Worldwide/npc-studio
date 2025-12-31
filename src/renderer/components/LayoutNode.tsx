@@ -5,7 +5,7 @@ import {
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
     Image as ImageIcon, Tag, Folder, Users, Settings, Images, BookOpen,
-    FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2
+    FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2, Maximize2, Minimize2
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
@@ -1089,7 +1089,42 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
                 onDrop={(e) => onDrop(e, 'center')}
             >
-                {/* X button - ABSOLUTELY positioned on pane, always visible */}
+                {/* Expand button - ABSOLUTELY positioned top-left */}
+                {toggleZenMode && (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            toggleZenMode(node.id);
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        style={{
+                            position: 'absolute',
+                            top: '2px',
+                            left: '2px',
+                            width: '24px',
+                            height: '24px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            border: 'none',
+                            background: 'transparent',
+                            borderRadius: '4px',
+                            zIndex: 100
+                        }}
+                        className={`hover:bg-blue-500/30 ${zenModePaneId === node.id ? 'bg-blue-500/30' : ''}`}
+                        aria-label={zenModePaneId === node.id ? "Exit zen mode" : "Enter zen mode"}
+                        title={zenModePaneId === node.id ? "Exit zen mode (Esc)" : "Enter zen mode"}
+                    >
+                        {zenModePaneId === node.id ? (
+                            <Minimize2 size={14} className="text-blue-400" />
+                        ) : (
+                            <Maximize2 size={14} className="text-gray-400 hover:text-blue-400" />
+                        )}
+                    </button>
+                )}
+
+                {/* X button - ABSOLUTELY positioned top-right */}
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
@@ -1098,23 +1133,24 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     onMouseDown={(e) => e.stopPropagation()}
                     style={{
                         position: 'absolute',
-                        top: 0,
-                        right: 0,
-                        width: '28px',
-                        height: '28px',
+                        top: '2px',
+                        right: '2px',
+                        width: '24px',
+                        height: '24px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         cursor: 'pointer',
                         border: 'none',
-                        background: 'rgba(55, 65, 81, 0.9)',
+                        background: 'transparent',
+                        borderRadius: '4px',
                         zIndex: 100
                     }}
-                    className="hover:bg-red-500"
+                    className="hover:bg-red-500/30"
                     aria-label="Close pane"
                     title="Close pane"
                 >
-                    <X size={14} style={{ color: '#e5e7eb' }} />
+                    <X size={14} className="text-gray-400 hover:text-red-400" />
                 </button>
 
                 {/* Tab bar - shows when there are multiple tabs */}
@@ -1139,7 +1175,6 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         rootLayoutNode={rootLayoutNode}
                         setDraggedItem={setDraggedItem}
                         setPaneContextMenu={setPaneContextMenu}
-                        closeContentPane={closeContentPane}
                         fileChanged={paneData?.fileChanged || activeTab?.fileChanged}
                         onSave={() => { /* No-op, actual save logic is in renderFileEditor */ }}
                         onStartRename={() => {
@@ -1148,8 +1183,6 @@ export const LayoutNode = memo(({ node, path, component }) => {
                                 setEditedFileName(contentId.split('/').pop() || '');
                             }
                         }}
-                        isZenMode={zenModePaneId === node.id}
-                        onToggleZenMode={toggleZenMode}
                         // Renaming props
                         isRenaming={renamingPaneId === node.id}
                         editedFileName={editedFileName}

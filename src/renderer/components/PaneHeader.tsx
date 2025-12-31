@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { X, Maximize2, Minimize2, Check, Play, Plus, MessageSquare, Terminal, Globe, BookOpen, FileText } from 'lucide-react';
+import { Check, Play, Plus, MessageSquare, Terminal, Globe, BookOpen } from 'lucide-react';
 
 export const PaneHeader = React.memo(({
     nodeId,
@@ -10,12 +10,9 @@ export const PaneHeader = React.memo(({
     rootLayoutNode,
     setDraggedItem,
     setPaneContextMenu,
-    closeContentPane,
     fileChanged,
     onSave,
     onStartRename,
-    isZenMode,
-    onToggleZenMode,
     isRenaming,
     editedFileName,
     setEditedFileName,
@@ -182,17 +179,6 @@ export const PaneHeader = React.memo(({
                         </button>
                     )}
 
-                    {onToggleZenMode && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onToggleZenMode(nodeId); }}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            className={`p-1 theme-hover rounded-full ${isZenMode ? 'bg-blue-500/30 text-blue-400' : ''}`}
-                            title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
-                            style={{ flexShrink: 0 }}
-                        >
-                            {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                        </button>
-                    )}
                 </div>
             </div>
 
