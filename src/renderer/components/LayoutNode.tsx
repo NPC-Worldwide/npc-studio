@@ -774,7 +774,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
         };
 
         let headerIcon = <FileIcon size={14} className="text-gray-400" />;
-        let headerTitle = 'Empty Pane';
+        let headerTitle = contentType || 'Pane';
 
         if (contentType === 'chat') {
             headerIcon = <MessageSquare size={14} className="text-blue-400" />;
@@ -1057,15 +1057,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 case 'tilejinx':
                     return renderTileJinxPane({ nodeId: node.id });
                 default:
-                    // This is the content for an empty pane
-                    return (
-                        <div className="flex-1 flex items-center justify-center theme-text-muted">
-                            <div className="text-center">
-                                <div className="text-lg mb-2">Empty Pane</div>
-                                <div className="text-sm">Drag content here or close this pane</div>
-                            </div>
-                        </div>
-                    );
+                    return null;
             }
         };
 
@@ -1089,70 +1081,6 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
                 onDrop={(e) => onDrop(e, 'center')}
             >
-                {/* Expand button - ABSOLUTELY positioned top-left */}
-                {toggleZenMode && (
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            toggleZenMode(node.id);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        style={{
-                            position: 'absolute',
-                            top: '2px',
-                            left: '2px',
-                            width: '24px',
-                            height: '24px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            border: 'none',
-                            background: 'transparent',
-                            borderRadius: '4px',
-                            zIndex: 100
-                        }}
-                        className={`hover:bg-blue-500/30 ${zenModePaneId === node.id ? 'bg-blue-500/30' : ''}`}
-                        aria-label={zenModePaneId === node.id ? "Exit zen mode" : "Enter zen mode"}
-                        title={zenModePaneId === node.id ? "Exit zen mode (Esc)" : "Enter zen mode"}
-                    >
-                        {zenModePaneId === node.id ? (
-                            <Minimize2 size={14} className="text-blue-400" />
-                        ) : (
-                            <Maximize2 size={14} className="text-gray-400 hover:text-blue-400" />
-                        )}
-                    </button>
-                )}
-
-                {/* X button - ABSOLUTELY positioned top-right */}
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        closeContentPane(node.id, path);
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    style={{
-                        position: 'absolute',
-                        top: '2px',
-                        right: '2px',
-                        width: '24px',
-                        height: '24px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        border: 'none',
-                        background: 'transparent',
-                        borderRadius: '4px',
-                        zIndex: 100
-                    }}
-                    className="hover:bg-red-500/30"
-                    aria-label="Close pane"
-                    title="Close pane"
-                >
-                    <X size={14} className="text-gray-400 hover:text-red-400" />
-                </button>
-
                 {/* Tab bar - shows when there are multiple tabs */}
                 {showTabBar && (
                     <PaneTabBar
@@ -1165,36 +1093,95 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     />
                 )}
 
-                {/* Skip PaneHeader for browser - it has its own integrated toolbar */}
-                {contentType !== 'browser' && (
-                    <PaneHeader
-                        nodeId={node.id}
-                        icon={headerIcon}
-                        title={headerTitle}
-                        findNodePath={findNodePath}
-                        rootLayoutNode={rootLayoutNode}
-                        setDraggedItem={setDraggedItem}
-                        setPaneContextMenu={setPaneContextMenu}
-                        fileChanged={paneData?.fileChanged || activeTab?.fileChanged}
-                        onSave={() => { /* No-op, actual save logic is in renderFileEditor */ }}
-                        onStartRename={() => {
-                            if (contentId && (contentType === 'editor' || contentType === 'latex' || contentType === 'csv' || contentType === 'docx' || contentType === 'pptx')) {
-                                setRenamingPaneId(node.id);
-                                setEditedFileName(contentId.split('/').pop() || '');
-                            }
+                {/* Header wrapper - contains PaneHeader and control buttons */}
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                    {/* Skip PaneHeader for browser - it has its own integrated toolbar */}
+                    {contentType !== 'browser' && (
+                        <PaneHeader
+                            nodeId={node.id}
+                            icon={headerIcon}
+                            title={headerTitle}
+                            findNodePath={findNodePath}
+                            rootLayoutNode={rootLayoutNode}
+                            setDraggedItem={setDraggedItem}
+                            setPaneContextMenu={setPaneContextMenu}
+                            fileChanged={paneData?.fileChanged || activeTab?.fileChanged}
+                            onSave={() => { /* No-op, actual save logic is in renderFileEditor */ }}
+                            onStartRename={() => {
+                                if (contentId && (contentType === 'editor' || contentType === 'latex' || contentType === 'csv' || contentType === 'docx' || contentType === 'pptx')) {
+                                    setRenamingPaneId(node.id);
+                                    setEditedFileName(contentId.split('/').pop() || '');
+                                }
+                            }}
+                            // Renaming props
+                            isRenaming={renamingPaneId === node.id}
+                            editedFileName={editedFileName}
+                            setEditedFileName={setEditedFileName}
+                            onConfirmRename={() => handleConfirmRename?.(node.id, contentId)}
+                            onCancelRename={() => setRenamingPaneId(null)}
+                            filePath={contentId}
+                            onRunScript={onRunScript}
+                        >
+                            {paneHeaderChildren} {/* Pass the conditional children here */}
+                        </PaneHeader>
+                    )}
+                    {/* Browser gets a minimal header bar for controls */}
+                    {contentType === 'browser' && (
+                        <div style={{ height: '28px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }} />
+                    )}
+                    {/* Expand button - top-left of header with solid background */}
+                    {toggleZenMode && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); toggleZenMode(node.id); }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            style={{
+                                position: 'absolute',
+                                top: '2px',
+                                left: '2px',
+                                width: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                border: 'none',
+                                background: 'var(--bg-secondary, #1f2937)',
+                                borderRadius: '6px',
+                                zIndex: 50,
+                                boxShadow: '4px 0 8px 4px var(--bg-secondary, #1f2937)'
+                            }}
+                            className={`hover:bg-blue-500/50 ${zenModePaneId === node.id ? 'bg-blue-500/50' : ''}`}
+                            title={zenModePaneId === node.id ? "Exit zen mode (Esc)" : "Enter zen mode"}
+                        >
+                            {zenModePaneId === node.id ? <Minimize2 size={14} className="text-blue-400" /> : <Maximize2 size={14} className="text-gray-300 hover:text-blue-400" />}
+                        </button>
+                    )}
+                    {/* X button - top-right of header with solid background to block content behind */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); closeContentPane(node.id, path); }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        style={{
+                            position: 'absolute',
+                            top: '2px',
+                            right: '2px',
+                            width: '28px',
+                            height: '28px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            border: 'none',
+                            background: 'var(--bg-secondary, #1f2937)',
+                            borderRadius: '6px',
+                            zIndex: 50,
+                            boxShadow: '-4px 0 8px 4px var(--bg-secondary, #1f2937)'
                         }}
-                        // Renaming props
-                        isRenaming={renamingPaneId === node.id}
-                        editedFileName={editedFileName}
-                        setEditedFileName={setEditedFileName}
-                        onConfirmRename={() => handleConfirmRename?.(node.id, contentId)}
-                        onCancelRename={() => setRenamingPaneId(null)}
-                        filePath={contentId}
-                        onRunScript={onRunScript}
+                        className="hover:bg-red-500/50"
+                        title="Close pane"
                     >
-                        {paneHeaderChildren} {/* Pass the conditional children here */}
-                    </PaneHeader>
-                )}
+                        <X size={14} className="text-gray-300 hover:text-red-400" />
+                    </button>
+                </div>
 
                 {draggedItem && (
                     <>

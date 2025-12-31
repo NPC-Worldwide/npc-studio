@@ -2176,8 +2176,13 @@ const handleOpenDocumentFromLibrary = useCallback(async (path: string, type: 'pd
     // Open the document in a new pane
     const newPaneId = generateId();
 
+    // Set content BEFORE creating layout node - never create empty panes
+    contentDataRef.current[newPaneId] = {
+        contentType: type,
+        contentId: path
+    };
+
     setRootLayoutNode(oldRoot => {
-        contentDataRef.current[newPaneId] = {};
 
         if (!oldRoot) {
             return { id: newPaneId, type: 'content' };
@@ -2614,32 +2619,28 @@ const renderMessageContextMenu = () => (
 );
 
 
-  // Helper to find an empty pane that can be reused
+  // Helper to find an empty pane that can be reused (kept for backwards compat but should not be used)
   const findEmptyPaneId = useCallback(() => {
-    for (const [paneId, data] of Object.entries(contentDataRef.current)) {
-      if (!data || !data.contentType || data.contentType === 'empty') {
-        return paneId;
-      }
-    }
+    // DISABLED - we should never have empty panes
     return null;
   }, []);
 
-  const createAndAddPaneNodeToLayout = useCallback(() => {
-  // First check if there's an empty pane to reuse
-  const emptyPaneId = findEmptyPaneId();
-  if (emptyPaneId) {
-    setActiveContentPaneId(emptyPaneId);
-    return emptyPaneId;
+  const createAndAddPaneNodeToLayout = useCallback((contentType: string, contentId: string | null) => {
+  // NEVER create a pane without contentType
+  if (!contentType) {
+    console.error('[createAndAddPaneNodeToLayout] Cannot create pane without contentType!');
+    return null;
   }
 
   const newPaneId = generateId();
 
-  // Create the contentData entry ONLY AFTER we know where it goes
-  let finalPaneId = newPaneId;
+  // Set content BEFORE creating layout node - never create empty panes
+  contentDataRef.current[newPaneId] = {
+    contentType,
+    contentId
+  };
 
   setRootLayoutNode(oldRoot => {
-    // Initialize contentData entry NOW, inside the state update
-    contentDataRef.current[newPaneId] = {};
     
     if (!oldRoot) {
       return { id: newPaneId, type: 'content' };
@@ -2692,7 +2693,7 @@ const renderMessageContextMenu = () => (
 
   setActiveContentPaneId(newPaneId);
   return newPaneId;
-}, [activeContentPaneId, findNodePath, findNodeByPath, findEmptyPaneId]);
+}, [activeContentPaneId, findNodePath, findNodeByPath]);
   
   
    
@@ -6815,10 +6816,12 @@ const handleConversationSelect = async (conversationId: string, skipMessageLoad 
             setRootLayoutNode(prev => ({...prev}));
         } else {
             console.warn('[SELECT_CONVO] No valid pane to update, creating new one');
-            const newPaneId = createAndAddPaneNodeToLayout();
-            await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
-            setActiveContentPaneId(newPaneId);
-            paneIdToUpdate = newPaneId;
+            const newPaneId = createAndAddPaneNodeToLayout('chat', conversationId);
+            if (newPaneId) {
+                await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
+                setActiveContentPaneId(newPaneId);
+                paneIdToUpdate = newPaneId;
+            }
         }
     }
     return paneIdToUpdate;
