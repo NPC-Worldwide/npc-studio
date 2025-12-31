@@ -65,9 +65,6 @@ rotateLogIfNeeded(backendLogPath);
 const electronLogStream = fs.createWriteStream(electronLogPath, { flags: 'a' });
 const backendLogStream = fs.createWriteStream(backendLogPath, { flags: 'a' });
 
-try { fs.mkdirSync(legacyLogDir, { recursive: true }); } catch (e) {}
-const logFilePath = path.join(legacyLogDir, 'app.log');
-const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 let mainWindow = null;
 let pdfView = null; 
 // Update your ensureTablesExist function:
@@ -195,14 +192,12 @@ const log = (...messages) => {
     const msg = formatLogMessage('[ELECTRON]', messages);
     console.log(msg);
     electronLogStream.write(`${msg}\n`);
-    logStream.write(`${msg}\n`); // Legacy support
 };
 
 const logBackend = (...messages) => {
     const msg = formatLogMessage('[BACKEND]', messages);
     console.log(msg);
     backendLogStream.write(`${msg}\n`);
-    logStream.write(`${msg}\n`); // Legacy support
 };
 // Use Option+Space on macOS, Command/Control+Space elsewhere
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
@@ -3970,7 +3965,6 @@ app.on('will-quit', () => {
     // Close log streams
     electronLogStream.end();
     backendLogStream.end();
-    logStream.end();
   });
 
   // Logs directory handler
@@ -3978,8 +3972,7 @@ app.on('will-quit', () => {
     return {
       logsDir,
       electronLog: electronLogPath,
-      backendLog: backendLogPath,
-      legacyLog: logFilePath
+      backendLog: backendLogPath
     };
   });
 
@@ -3989,7 +3982,6 @@ app.on('will-quit', () => {
       switch (logType) {
         case 'electron': logPath = electronLogPath; break;
         case 'backend': logPath = backendLogPath; break;
-        case 'legacy': logPath = logFilePath; break;
         default: throw new Error(`Unknown log type: ${logType}`);
       }
       if (fs.existsSync(logPath)) {
