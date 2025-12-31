@@ -67,7 +67,7 @@ const Sidebar = (props: any) => {
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
         setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed,
         createGraphViewerPane, createBrowserGraphPane, createDataLabelerPane,
-        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane,
+        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane, createTileJinxPane,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -3368,8 +3368,8 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
             {!sidebarCollapsed && !bottomGridEditMode && (
                 <div className="grid grid-cols-3 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
                     {(() => {
-                        // Action map for tile IDs
-                        const actions: Record<string, () => void> = {
+                        // Fallback actions for when jinxes haven't loaded yet
+                        const fallbackActions: Record<string, () => void> = {
                             db: () => createDBToolPane?.(),
                             photo: () => createPhotoViewerPane?.(),
                             library: () => createLibraryViewerPane?.(),
@@ -3408,7 +3408,17 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                         return tiles.map((tile) => (
                             <button
                                 key={tile.filename || tile.id}
-                                onClick={actions[tile.action] || (() => console.log(`No action for ${tile.action}`))}
+                                onClick={() => {
+                                    // If tile has a filename, use jinx pane (compiles jinx at runtime)
+                                    if (tile.filename && createTileJinxPane) {
+                                        createTileJinxPane(tile.filename);
+                                    } else {
+                                        // Fallback to bundled components
+                                        const action = fallbackActions[tile.action];
+                                        if (action) action();
+                                        else console.log(`No action for ${tile.action}`);
+                                    }
+                                }}
                                 className="action-grid-button"
                                 aria-label={tile.label}
                                 title={tile.label}

@@ -478,7 +478,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
-            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -857,6 +857,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'zip') {
             headerIcon = <FileIcon size={14} className="text-yellow-500" />;
             headerTitle = contentId?.split('/').pop() || 'Archive';
+        } else if (contentType === 'tilejinx') {
+            headerIcon = <Zap size={14} className="text-amber-400" />;
+            headerTitle = contentId?.replace('.jinx', '') || 'Tile';
         } else if (contentId) {
             headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();
@@ -1051,6 +1054,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderFolderViewerPane({ nodeId: node.id });
                 case 'markdown-preview':
                     return renderMarkdownPreviewPane({ nodeId: node.id });
+                case 'tilejinx':
+                    return renderTileJinxPane({ nodeId: node.id });
                 default:
                     // This is the content for an empty pane
                     return (

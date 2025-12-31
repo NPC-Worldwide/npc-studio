@@ -40,6 +40,21 @@ import DBTool from './DBTool';
 import LibraryViewer from './LibraryViewer';
 import FolderViewer from './FolderViewer';
 import PathSwitcher from './PathSwitcher';
+import { LiveProvider, LivePreview, LiveError } from 'react-live';
+// Components for tile jinx runtime rendering
+import GraphViewer from './GraphViewer';
+import BrowserHistoryWeb from './BrowserHistoryWeb';
+import KnowledgeGraphEditor from './KnowledgeGraphEditor';
+import McpServerMenu from './McpServerMenu';
+import MemoryManagement from './MemoryManagement';
+import MessageLabeling from './MessageLabeling';
+import LabeledDataManager from './LabeledDataManager';
+import ActivityIntelligence from './ActivityIntelligence';
+import PythonEnvSettings from './PythonEnvSettings';
+import AutosizeTextarea from './AutosizeTextarea';
+import ForceGraph2D from 'react-force-graph-2d';
+import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
+import * as LucideIcons from 'lucide-react';
 import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
@@ -2265,6 +2280,147 @@ const renderDBToolPane = useCallback(({ nodeId }: { nodeId: string }) => {
     );
 }, [currentPath, currentModel, currentProvider, currentNPC]);
 
+// Tile Jinx runtime scope - all components available to compiled jinx code
+const tileJinxScope = useMemo(() => ({
+    // React
+    React,
+    useState,
+    useEffect,
+    useCallback,
+    useRef,
+    useMemo,
+    useLayoutEffect: React.useLayoutEffect,
+    useContext: React.useContext,
+    createContext: React.createContext,
+    forwardRef: React.forwardRef,
+    memo: React.memo,
+    Fragment: React.Fragment,
+    // npcts components
+    Modal, Tabs, Card, Button, Input, Select,
+    // All tile components
+    DiskUsageAnalyzer,
+    AutosizeTextarea,
+    ForceGraph2D,
+    ActivityIntelligence,
+    BrowserHistoryWeb,
+    CtxEditor,
+    JinxMenu,
+    KnowledgeGraphEditor,
+    LabeledDataManager,
+    McpServerMenu,
+    MemoryManagement,
+    MessageLabeling,
+    NPCTeamMenu,
+    PythonEnvSettings,
+    DBTool,
+    DataDash,
+    LibraryViewer,
+    GraphViewer,
+    PhotoViewer,
+    SettingsMenu,
+    TeamManagement,
+    // All lucide icons
+    ...LucideIcons,
+    // Real window and console
+    window,
+    console,
+}), []);
+
+// Compile tile jinx code for runtime rendering
+const compileTileJinx = useCallback(async (code: string): Promise<string> => {
+    try {
+        // Find the exported component name
+        const exportDefaultMatch = code.match(/export\s+default\s+(\w+)\s*;?\s*$/m);
+        const exportDefaultFuncMatch = code.match(/export\s+default\s+(?:function|const)\s+(\w+)/);
+        let componentName = exportDefaultMatch?.[1] || exportDefaultFuncMatch?.[1];
+        if (!componentName) {
+            const funcMatch = code.match(/(?:const|function)\s+(\w+)\s*(?::\s*React\.FC)?[=(:]/);
+            componentName = funcMatch?.[1] || 'Component';
+        }
+
+        // Clean the code
+        let cleaned = code.replace(/\/\*\*[\s\S]*?\*\/\s*\n?/, '');
+        cleaned = cleaned.replace(/^#[^\n]*\n/gm, '');
+        cleaned = cleaned.replace(/^import\s+.*?['"];?\s*$/gm, '');
+        cleaned = cleaned.replace(/^export\s+(default\s+)?/gm, '');
+
+        // Compile TypeScript
+        const result = await (window as any).api?.transformTsx?.(cleaned);
+        if (!result?.success) {
+            return `render(<div className="p-4 text-red-400">Compile Error: ${result?.error || 'Unknown error'}</div>)`;
+        }
+
+        let compiled = result.output || '';
+        // Remove module artifacts
+        compiled = compiled.replace(/["']use strict["'];?\n?/g, '');
+        compiled = compiled.replace(/Object\.defineProperty\(exports[\s\S]*?\);/g, '');
+        compiled = compiled.replace(/exports\.\w+\s*=\s*/g, '');
+        compiled = compiled.replace(/exports\.default\s*=\s*\w+;?/g, '');
+        compiled = compiled.replace(/(?:var|const|let)\s+\w+\s*=\s*require\([^)]+\);?\n?/g, '');
+        compiled = compiled.replace(/require\([^)]+\)/g, '{}');
+        compiled = compiled.replace(/\w+_\d+\.(\w+)/g, '$1');
+        compiled = compiled.replace(/react_1\.(\w+)/g, '$1');
+
+        // Render with real props
+        const propsCode = `{
+            onClose: () => console.log('Tile closed'),
+            isPane: true,
+            isOpen: true,
+            isModal: false,
+            embedded: true,
+            projectPath: '${currentPath || '/'}',
+            currentPath: '${currentPath || '/'}',
+            theme: { bg: '#1a1a2e', fg: '#fff', accent: '#4a9eff' }
+        }`;
+        return `${compiled}\n\nrender(<${componentName} {...${propsCode}} />)`;
+    } catch (err: any) {
+        return `render(<div className="p-4 text-red-400">Error: ${err.message}</div>)`;
+    }
+}, [currentPath]);
+
+// Render Tile Jinx pane - returns a component that compiles and runs jinx code
+const renderTileJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const jinxFile = paneData?.jinxFile;
+
+    // Inner component with proper hooks
+    const TileJinxContent = () => {
+        const [compiledCode, setCompiledCode] = useState<string>('render(<div className="p-4 text-gray-400">Loading...</div>)');
+
+        useEffect(() => {
+            const loadAndCompile = async () => {
+                if (!jinxFile) {
+                    setCompiledCode('render(<div className="p-4 text-red-400">No jinx file specified</div>)');
+                    return;
+                }
+                try {
+                    const result = await (window as any).api?.tileJinxRead?.(jinxFile);
+                    if (result?.success && result.content) {
+                        const compiled = await compileTileJinx(result.content);
+                        setCompiledCode(compiled);
+                    } else {
+                        setCompiledCode(`render(<div className="p-4 text-red-400">Failed to load ${jinxFile}</div>)`);
+                    }
+                } catch (err: any) {
+                    setCompiledCode(`render(<div className="p-4 text-red-400">Error: ${err.message}</div>)`);
+                }
+            };
+            loadAndCompile();
+        }, []);
+
+        return (
+            <div className="flex-1 overflow-auto theme-bg-primary">
+                <LiveProvider code={compiledCode} scope={tileJinxScope} noInline={true}>
+                    <LiveError className="p-4 text-red-400 text-sm font-mono bg-red-900/30" />
+                    <LivePreview className="h-full w-full" />
+                </LiveProvider>
+            </div>
+        );
+    };
+
+    return <TileJinxContent />;
+}, [tileJinxScope, compileTileJinx]);
+
 // Use the PDF highlights loader from PdfViewer module
 useEffect(() => {
     loadPdfHighlightsForActivePane(activeContentPaneId, contentDataRef, setPdfHighlights);
@@ -2937,6 +3093,61 @@ const renderMessageContextMenu = () => (
 
         setActiveContentPaneId(newPaneId);
     }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+
+    // Create Tile Jinx pane - loads and runs a jinx file at runtime
+    const createTileJinxPane = useCallback(async (jinxFile: string) => {
+        const newPaneId = generateId();
+
+        setRootLayoutNode(oldRoot => {
+            contentDataRef.current[newPaneId] = {
+                contentType: 'tilejinx',
+                contentId: jinxFile,
+                jinxFile: jinxFile,
+            };
+
+            if (!oldRoot) {
+                return { id: newPaneId, type: 'content' };
+            }
+
+            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+            if (activeContentPaneId) {
+                const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                if (pathToActive && pathToActive.length > 0) {
+                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                    const targetIndex = pathToActive[pathToActive.length - 1];
+
+                    if (targetParent && targetParent.type === 'split') {
+                        const newChildren = [...targetParent.children];
+                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                        targetParent.children = newChildren;
+                        targetParent.sizes = newSizes;
+                        return newRoot;
+                    }
+                }
+            }
+
+            if (newRoot.type === 'content') {
+                return {
+                    id: generateId(),
+                    type: 'split',
+                    direction: 'horizontal',
+                    children: [newRoot, { id: newPaneId, type: 'content' }],
+                    sizes: [50, 50],
+                };
+            } else if (newRoot.type === 'split') {
+                newRoot.children.push({ id: newPaneId, type: 'content' });
+                const equalSize = 100 / newRoot.children.length;
+                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                return newRoot;
+            }
+
+            return { id: newPaneId, type: 'content' };
+        });
+
+        setActiveContentPaneId(newPaneId);
+    }, [activeContentPaneId, findNodePath, findNodeByPath]);
 
     // Create PhotoViewer pane
     const createPhotoViewerPane = useCallback(async () => {
@@ -6427,6 +6638,7 @@ const layoutComponentApi = useMemo(() => ({
     renderProjectEnvPane,
     renderDiskUsagePane,
     renderMarkdownPreviewPane,
+    renderTileJinxPane,
     setPaneContextMenu,
     // Chat-specific props:
     autoScrollEnabled, setAutoScrollEnabled,
@@ -6475,6 +6687,7 @@ const layoutComponentApi = useMemo(() => ({
     renderProjectEnvPane,
     renderDiskUsagePane,
     renderMarkdownPreviewPane,
+    renderTileJinxPane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
     autoScrollEnabled, setAutoScrollEnabled,
@@ -7180,6 +7393,7 @@ const renderMainContent = () => {
         createProjectEnvPane={createProjectEnvPane}
         createDiskUsagePane={createDiskUsagePane}
         createLibraryViewerPane={createLibraryViewerPane}
+        createTileJinxPane={createTileJinxPane}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}
