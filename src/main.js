@@ -549,6 +549,76 @@ function getBackendPythonPath() {
   return null;
 }
 
+// Check if first-run setup is needed
+function needsFirstRunSetup() {
+  // Check if BACKEND_PYTHON_PATH is configured
+  const customPythonPath = getBackendPythonPath();
+  if (customPythonPath) {
+    return false; // Already configured
+  }
+
+  // Check if bundled backend exists
+  const executableName = process.platform === 'win32' ? 'incognide_serve.exe' : 'incognide_serve';
+  const bundledPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'backend', executableName)
+    : path.join(app.getAppPath(), 'dist', 'resources', 'backend', executableName);
+
+  if (fs.existsSync(bundledPath)) {
+    return false; // Bundled backend exists
+  }
+
+  // Check for setup complete marker
+  const setupMarkerPath = path.join(os.homedir(), '.npcsh', 'incognide', '.setup_complete');
+  if (fs.existsSync(setupMarkerPath)) {
+    return false; // Setup was completed before
+  }
+
+  log('First-run setup needed: no BACKEND_PYTHON_PATH and no bundled backend');
+  return true;
+}
+
+// Save BACKEND_PYTHON_PATH to .npcshrc
+function saveBackendPythonPath(pythonPath) {
+  const rcPath = path.join(os.homedir(), '.npcshrc');
+  let rcContent = '';
+
+  try {
+    if (fs.existsSync(rcPath)) {
+      rcContent = fs.readFileSync(rcPath, 'utf8');
+    }
+  } catch (err) {
+    log('Error reading .npcshrc:', err);
+  }
+
+  // Remove existing BACKEND_PYTHON_PATH if present
+  rcContent = rcContent.replace(/^BACKEND_PYTHON_PATH=.*$/gm, '').trim();
+
+  // Add new BACKEND_PYTHON_PATH
+  rcContent = `${rcContent}\nBACKEND_PYTHON_PATH="${pythonPath}"\n`.trim() + '\n';
+
+  try {
+    fs.writeFileSync(rcPath, rcContent);
+    log(`Saved BACKEND_PYTHON_PATH to .npcshrc: ${pythonPath}`);
+    return true;
+  } catch (err) {
+    log('Error saving to .npcshrc:', err);
+    return false;
+  }
+}
+
+// Mark setup as complete
+function markSetupComplete() {
+  const setupMarkerPath = path.join(os.homedir(), '.npcsh', 'incognide', '.setup_complete');
+  try {
+    fs.mkdirSync(path.dirname(setupMarkerPath), { recursive: true });
+    fs.writeFileSync(setupMarkerPath, new Date().toISOString());
+    return true;
+  } catch (err) {
+    log('Error marking setup complete:', err);
+    return false;
+  }
+}
+
 
 function registerGlobalShortcut(win) {
   if (!win) {
@@ -3448,6 +3518,261 @@ ipcMain.handle('python-env-create', async (event, { workspacePath, venvName = '.
   }
 });
 
+// ==================== FIRST-RUN SETUP ====================
+
+// Check if first-run setup is needed
+ipcMain.handle('setup:checkNeeded', async () => {
+  return { needed: needsFirstRunSetup() };
+});
+
+// Get current backend Python path
+ipcMain.handle('setup:getBackendPythonPath', async () => {
+  const pythonPath = getBackendPythonPath();
+  return { pythonPath };
+});
+
+// Detect available Python installations
+ipcMain.handle('setup:detectPython', async () => {
+  const { execSync } = require('child_process');
+  const pythons = [];
+
+  const tryPython = (cmd, name) => {
+    try {
+      const version = execSync(`${cmd} --version 2>&1`, { encoding: 'utf8' }).trim();
+      const pathResult = execSync(`which ${cmd} 2>/dev/null || where ${cmd} 2>nul`, { encoding: 'utf8' }).trim().split('\n')[0];
+      pythons.push({ name, cmd, version, path: pathResult });
+    } catch {}
+  };
+
+  tryPython('python3', 'Python 3 (System)');
+  tryPython('python', 'Python (System)');
+
+  // Check for pyenv
+  try {
+    const pyenvVersions = execSync('pyenv versions --bare 2>/dev/null', { encoding: 'utf8' }).trim().split('\n').filter(v => v);
+    const pyenvRoot = execSync('pyenv root', { encoding: 'utf8' }).trim();
+    for (const ver of pyenvVersions) {
+      pythons.push({
+        name: `pyenv ${ver}`,
+        cmd: 'pyenv',
+        version: ver,
+        path: path.join(pyenvRoot, 'versions', ver, 'bin', 'python')
+      });
+    }
+  } catch {}
+
+  // Check for conda
+  try {
+    const condaEnvs = execSync('conda env list --json 2>/dev/null', { encoding: 'utf8' });
+    const envData = JSON.parse(condaEnvs);
+    for (const envPath of (envData.envs || [])) {
+      const envName = path.basename(envPath);
+      pythons.push({
+        name: `conda ${envName}`,
+        cmd: 'conda',
+        version: envName,
+        path: path.join(envPath, process.platform === 'win32' ? 'python.exe' : 'bin/python')
+      });
+    }
+  } catch {}
+
+  return { pythons };
+});
+
+// Create the incognide venv for the backend
+ipcMain.handle('setup:createVenv', async () => {
+  const { spawn } = require('child_process');
+  const venvDir = path.join(os.homedir(), '.npcsh', 'incognide', 'venv');
+
+  try {
+    // Create parent directory
+    await fsPromises.mkdir(path.dirname(venvDir), { recursive: true });
+
+    // Check if venv already exists
+    try {
+      await fsPromises.access(venvDir);
+      // Venv exists - return its python path
+      const pythonPath = path.join(venvDir, 'bin', 'python');
+      return { success: true, pythonPath, message: 'Using existing virtual environment' };
+    } catch {}
+
+    const isWindows = process.platform === 'win32';
+    const pythonCmd = isWindows ? 'python' : 'python3';
+
+    return new Promise((resolve) => {
+      const args = ['-m', 'venv', venvDir];
+      log(`[SETUP] Creating incognide venv: ${pythonCmd} ${args.join(' ')}`);
+
+      const proc = spawn(pythonCmd, args, { shell: isWindows });
+
+      let stderr = '';
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          const pythonPath = path.join(venvDir, isWindows ? 'Scripts' : 'bin', isWindows ? 'python.exe' : 'python');
+          resolve({ success: true, pythonPath, message: 'Virtual environment created successfully' });
+        } else {
+          resolve({ success: false, error: `Failed to create venv: ${stderr}` });
+        }
+      });
+
+      proc.on('error', (err) => {
+        resolve({ success: false, error: `Failed to spawn python: ${err.message}` });
+      });
+    });
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Install npcpy and dependencies in a Python environment
+ipcMain.handle('setup:installNpcpy', async (event, { pythonPath, extras = 'local' }) => {
+  const { spawn } = require('child_process');
+
+  if (!pythonPath) {
+    return { success: false, error: 'No Python path provided' };
+  }
+
+  // Validate extras to prevent injection
+  const validExtras = ['lite', 'local', 'yap', 'all'];
+  const safeExtras = validExtras.includes(extras) ? extras : 'local';
+
+  // Get the sender's webContents to stream updates
+  const sender = event.sender;
+
+  return new Promise((resolve) => {
+    // Install npcpy with selected extras
+    const args = ['-m', 'pip', 'install', '--upgrade', `npcpy[${safeExtras}]`];
+    log(`[SETUP] Installing npcpy: ${pythonPath} ${args.join(' ')}`);
+
+    const proc = spawn(pythonPath, args, {
+      env: { ...process.env }
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => {
+      const text = data.toString();
+      stdout += text;
+      log('[SETUP]', text.trim());
+      // Stream to renderer
+      if (sender && !sender.isDestroyed()) {
+        sender.send('setup:installProgress', { type: 'stdout', text: text.trim() });
+      }
+    });
+
+    proc.stderr.on('data', (data) => {
+      const text = data.toString();
+      stderr += text;
+      log('[SETUP]', text.trim());
+      // Stream to renderer (pip outputs progress to stderr)
+      if (sender && !sender.isDestroyed()) {
+        sender.send('setup:installProgress', { type: 'stderr', text: text.trim() });
+      }
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve({ success: true, message: 'npcpy installed successfully' });
+      } else {
+        resolve({ success: false, error: stderr || 'Installation failed' });
+      }
+    });
+
+    proc.on('error', (err) => {
+      resolve({ success: false, error: err.message });
+    });
+  });
+});
+
+// Complete setup - save Python path and mark complete
+ipcMain.handle('setup:complete', async (event, { pythonPath }) => {
+  try {
+    if (pythonPath) {
+      const saved = saveBackendPythonPath(pythonPath);
+      if (!saved) {
+        return { success: false, error: 'Failed to save Python path to .npcshrc' };
+      }
+    }
+
+    markSetupComplete();
+    return { success: true, message: 'Setup completed successfully' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Skip setup without configuring Python
+ipcMain.handle('setup:skip', async () => {
+  markSetupComplete();
+  return { success: true };
+});
+
+// Reset setup to allow re-running the wizard
+ipcMain.handle('setup:reset', async () => {
+  const setupMarkerPath = path.join(os.homedir(), '.npcsh', 'incognide', '.setup_complete');
+  try {
+    await fsPromises.unlink(setupMarkerPath);
+    return { success: true };
+  } catch (err) {
+    // File might not exist, that's fine
+    return { success: true };
+  }
+});
+
+// Restart backend with new Python path (for after setup)
+ipcMain.handle('setup:restartBackend', async () => {
+  try {
+    // Kill existing backend
+    if (backendProcess) {
+      backendProcess.kill();
+      backendProcess = null;
+    }
+
+    // Get the newly configured Python path
+    const customPythonPath = getBackendPythonPath();
+
+    if (!customPythonPath) {
+      return { success: false, error: 'No Python path configured' };
+    }
+
+    const dataPath = ensureUserDataDirectory();
+
+    backendProcess = spawn(customPythonPath, ['-m', 'npcpy.serve'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: {
+        ...process.env,
+        CORNERIA_DATA_DIR: dataPath,
+        INCOGNIDE_PORT: '5337',
+        FLASK_DEBUG: '1',
+        PYTHONUNBUFFERED: '1',
+      },
+    });
+
+    backendProcess.stdout.on('data', (data) => {
+      logBackend(`stdout: ${data.toString().trim()}`);
+    });
+
+    backendProcess.stderr.on('data', (data) => {
+      logBackend(`stderr: ${data.toString().trim()}`);
+    });
+
+    const serverReady = await waitForServer();
+    if (!serverReady) {
+      return { success: false, error: 'Backend failed to start' };
+    }
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ==================== END FIRST-RUN SETUP ====================
+
 // Check if Python environment is configured for a workspace
 ipcMain.handle('python-env-check-configured', async (event, { workspacePath }) => {
   try {
@@ -3484,6 +3809,15 @@ const resolvePythonPath = async (workspacePath, envConfig) => {
       }
     } else if (envConfig.type === 'custom' && envConfig.customPath) {
       return { pythonPath: envConfig.customPath };
+    } else if (envConfig.type === 'pyenv' && envConfig.pyenvVersion) {
+      // pyenv stores versions in ~/.pyenv/versions/<version>/bin/python
+      try {
+        const { execSync } = require('child_process');
+        const pyenvRoot = execSync('pyenv root 2>/dev/null', { encoding: 'utf8' }).trim() || path.join(os.homedir(), '.pyenv');
+        const pyenvPython = path.join(pyenvRoot, 'versions', envConfig.pyenvVersion, 'bin', 'python');
+        await fsPromises.access(pyenvPython);
+        return { pythonPath: pyenvPython };
+      } catch {}
     } else if (envConfig.type === 'conda' && envConfig.condaEnv) {
       const condaRoot = envConfig.condaRoot || path.join(os.homedir(), 'miniconda3');
       const condaPython = path.join(condaRoot, 'envs', envConfig.condaEnv, isWindows ? 'python.exe' : 'bin/python');
@@ -3509,6 +3843,12 @@ const resolvePythonPath = async (workspacePath, envConfig) => {
         return { pythonPath: venvPythonPath2 };
       } catch {}
     }
+  }
+
+  // Fall back to BACKEND_PYTHON_PATH (from first-run setup)
+  const backendPython = getBackendPythonPath();
+  if (backendPython) {
+    return { pythonPath: backendPython };
   }
 
   // Fall back to system python
@@ -7544,8 +7884,17 @@ ipcMain.handle('get-directory-contents-recursive', async (_, directoryPath) => {
 
 // Disk usage analyzer handler
 ipcMain.handle('analyze-disk-usage', async (_, folderPath) => {
+    // Skip virtual/system filesystems that can cause hangs or permission errors
+    const SKIP_PATHS = ['/proc', '/sys', '/dev', '/run', '/snap', '/tmp/.X11-unix', '/var/run'];
+    const shouldSkip = (p) => SKIP_PATHS.some(skip => p === skip || p.startsWith(skip + '/'));
+
     try {
         const analyzePath = async (currentPath, depth = 0, maxDepth = 3) => {
+            // Skip virtual filesystems
+            if (shouldSkip(currentPath)) {
+                return null;
+            }
+
             const stats = await fsPromises.stat(currentPath);
             const name = path.basename(currentPath);
 
@@ -7593,6 +7942,8 @@ ipcMain.handle('analyze-disk-usage', async (_, folderPath) => {
                         // At max depth, just count sizes without going deeper
                         for (const entry of entries) {
                             const childPath = path.join(currentPath, entry.name);
+                            // Skip virtual filesystems at max depth too
+                            if (shouldSkip(childPath)) continue;
                             try {
                                 const childStats = await fsPromises.stat(childPath);
                                 if (childStats.isFile()) {

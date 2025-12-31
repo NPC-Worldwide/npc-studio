@@ -5,12 +5,9 @@ const WebBrowserViewer = memo(({
     nodeId,
     contentDataRef,
     currentPath,
-    browserContextMenuPos,
     setBrowserContextMenuPos,
-    handleNewBrowserTab, // New prop for opening new browser tabs/panes
-    setRootLayoutNode, // For triggering re-renders when title changes
-
-    // Props for drag-and-drop and context menu
+    handleNewBrowserTab,
+    setRootLayoutNode,
     findNodePath,
     rootLayoutNode,
     setDraggedItem,

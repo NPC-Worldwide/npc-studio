@@ -55,7 +55,7 @@ import AutosizeTextarea from './AutosizeTextarea';
 import ForceGraph2D from 'react-force-graph-2d';
 import { Pie, Bar, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement } from 'chart.js';
-import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart } from 'npcts';
+import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart, ImageEditor } from 'npcts';
 
 // Register chart.js components for jinx runtime
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement);
@@ -441,6 +441,8 @@ const ChatInterface = () => {
     const [dropTarget, setDropTarget] = useState(null);
    
     const contentDataRef = useRef({});
+    const currentPathRef = useRef(currentPath);
+    currentPathRef.current = currentPath;
     const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
     const rootLayoutNodeRef = useRef(rootLayoutNode);
     const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -1174,10 +1176,10 @@ const ChatInterface = () => {
     
     
     useEffect(() => {
-        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText }) => {
-            console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText });
-           
-            setBrowserContextMenuPos({ x, y, selectedText });
+        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText, linkURL, pageURL }) => {
+            console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText, linkURL });
+
+            setBrowserContextMenuPos({ x, y, selectedText, linkURL, pageURL });
         });
     
         return () => {
@@ -2070,11 +2072,11 @@ const renderDataDashPane = useCallback(({ nodeId }: { nodeId: string }) => {
 const renderPhotoViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
         <PhotoViewer
-            currentPath={currentPath}
+            currentPath={currentPathRef.current}
             onStartConversation={handleStartConversationFromViewer}
         />
     );
-}, [currentPath, handleStartConversationFromViewer]);
+}, [handleStartConversationFromViewer]);
 
 // Handle opening a document from the library viewer
 const handleOpenDocumentFromLibrary = useCallback(async (path: string, type: 'pdf' | 'epub') => {
@@ -2137,16 +2139,16 @@ const handleOpenDocumentFromLibrary = useCallback(async (path: string, type: 'pd
 const renderLibraryViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
         <LibraryViewer
-            currentPath={currentPath}
+            currentPath={currentPathRef.current}
             onOpenDocument={handleOpenDocumentFromLibrary}
         />
     );
-}, [currentPath, handleOpenDocumentFromLibrary]);
+}, [handleOpenDocumentFromLibrary]);
 
 // Render FolderViewer pane (for pane-based folder browsing)
 const renderFolderViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
     const paneData = contentDataRef.current[nodeId];
-    const folderPath = paneData?.contentId || currentPath || '/';
+    const folderPath = paneData?.contentId || currentPathRef.current;
 
     const handleOpenFile = (filePath: string) => {
         // Open the file in a new pane or tab
@@ -2197,27 +2199,27 @@ const renderFolderViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
             onNavigate={handleNavigate}
         />
     );
-}, [currentPath, setRootLayoutNode]);
+}, []);
 
 // Render ProjectEnvEditor pane (for pane-based viewing)
 const renderProjectEnvPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
         <ProjectEnvEditor
-            currentPath={currentPath}
+            currentPath={currentPathRef.current}
         />
     );
-}, [currentPath]);
+}, []);
 
 // Render DiskUsageAnalyzer pane (for pane-based viewing)
 const renderDiskUsagePane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
         <DiskUsageAnalyzer
-            path={currentPath}
+            path={currentPathRef.current}
             isDarkMode={isDarkMode}
             isPane={true}
         />
     );
-}, [currentPath, isDarkMode]);
+}, [isDarkMode]);
 
 // Markdown Preview Component (needs to be a proper component for hooks)
 const MarkdownPreviewContent: React.FC<{ filePath: string }> = ({ filePath }) => {
@@ -2300,7 +2302,7 @@ const tileJinxScope = useMemo(() => ({
     memo: React.memo,
     Fragment: React.Fragment,
     // npcts UI components and utilities
-    Modal, Tabs, Card, Button, Input, Select,
+    Modal, Tabs, Card, Button, Input, Select, ImageEditor,
     createWindowApiDatabaseClient, QueryChart,
     // Chart.js components (Chart is alias for ChartJS)
     Pie, Bar, Line, ChartJS, Chart: ChartJS,
@@ -2316,6 +2318,7 @@ const tileJinxScope = useMemo(() => ({
     KnowledgeGraphEditor,
     CtxEditor,
     TeamManagement,
+    PythonEnvSettings,
     // All lucide icons
     ...LucideIcons,
     // Real window, console, and JS built-ins (in case icons shadow them)
@@ -2367,8 +2370,8 @@ const compileTileJinx = useCallback(async (code: string): Promise<string> => {
             isOpen: true,
             isModal: false,
             embedded: true,
-            projectPath: '${currentPath || '/'}',
-            currentPath: '${currentPath || '/'}',
+            projectPath: '${currentPath || ''}',
+            currentPath: '${currentPath || ''}',
             theme: { bg: '#1a1a2e', fg: '#fff', accent: '#4a9eff' }
         }`;
         return `${compiled}\n\nrender(<${componentName} {...${propsCode}} />)`;
@@ -2377,102 +2380,113 @@ const compileTileJinx = useCallback(async (code: string): Promise<string> => {
     }
 }, [currentPath]);
 
+// Stable TileJinxContent component - defined outside render to prevent state loss
+const TileJinxContent: React.FC<{
+    jinxFile: string;
+    tileJinxScope: Record<string, any>;
+    currentPath: string;
+}> = React.memo(({ jinxFile, tileJinxScope, currentPath }) => {
+    const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const loadCompiledComponent = async () => {
+            if (!jinxFile) {
+                setError('No jinx file specified');
+                setLoading(false);
+                return;
+            }
+            try {
+                // Load pre-compiled code from cache
+                const result = await (window as any).api?.tileJinxCompiled?.(jinxFile);
+                if (!result?.success || !result.compiled) {
+                    setError(result?.error || `Failed to load compiled ${jinxFile}`);
+                    setLoading(false);
+                    return;
+                }
+
+                // Execute the compiled code with scope
+                const scopeKeys = Object.keys(tileJinxScope);
+                const scopeValues = Object.values(tileJinxScope);
+
+                // Create function that returns the component
+                const fn = new Function(...scopeKeys, `
+                    ${result.compiled}
+                    return __component;
+                `);
+
+                const LoadedComponent = fn(...scopeValues);
+                if (LoadedComponent) {
+                    setComponent(() => LoadedComponent);
+                } else {
+                    setError('Component not found in compiled code');
+                }
+            } catch (err: any) {
+                console.error('Failed to load tile jinx:', err);
+                setError(err.message);
+            }
+            setLoading(false);
+        };
+        loadCompiledComponent();
+    }, [jinxFile, tileJinxScope]);
+
+    if (loading) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-bg-primary">
+                <div className="text-gray-400">Loading {jinxFile}...</div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex-1 p-4 theme-bg-primary">
+                <div className="text-red-400 font-mono text-sm bg-red-900/30 p-4 rounded">
+                    Error loading {jinxFile}: {error}
+                </div>
+            </div>
+        );
+    }
+
+    if (!Component) {
+        return (
+            <div className="flex-1 p-4 theme-bg-primary">
+                <div className="text-yellow-400">No component found</div>
+            </div>
+        );
+    }
+
+    // Render the loaded component with props
+    return (
+        <div className="flex-1 overflow-auto theme-bg-primary">
+            <Component
+                onClose={() => console.log('Tile closed')}
+                isPane={true}
+                isOpen={true}
+                isModal={false}
+                embedded={true}
+                projectPath={currentPath}
+                currentPath={currentPath}
+            />
+        </div>
+    );
+});
+
 // Render Tile Jinx pane - loads pre-compiled cached code and executes it
 const renderTileJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
     const paneData = contentDataRef.current[nodeId];
     const jinxFile = paneData?.jinxFile;
 
-    // Inner component with proper hooks
-    const TileJinxContent = () => {
-        const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
-        const [error, setError] = useState<string | null>(null);
-        const [loading, setLoading] = useState(true);
-
-        useEffect(() => {
-            const loadCompiledComponent = async () => {
-                if (!jinxFile) {
-                    setError('No jinx file specified');
-                    setLoading(false);
-                    return;
-                }
-                try {
-                    // Load pre-compiled code from cache
-                    const result = await (window as any).api?.tileJinxCompiled?.(jinxFile);
-                    if (!result?.success || !result.compiled) {
-                        setError(result?.error || `Failed to load compiled ${jinxFile}`);
-                        setLoading(false);
-                        return;
-                    }
-
-                    // Execute the compiled code with scope
-                    const scopeKeys = Object.keys(tileJinxScope);
-                    const scopeValues = Object.values(tileJinxScope);
-
-                    // Create function that returns the component
-                    const fn = new Function(...scopeKeys, `
-                        ${result.compiled}
-                        return __component;
-                    `);
-
-                    const LoadedComponent = fn(...scopeValues);
-                    if (LoadedComponent) {
-                        setComponent(() => LoadedComponent);
-                    } else {
-                        setError('Component not found in compiled code');
-                    }
-                } catch (err: any) {
-                    console.error('Failed to load tile jinx:', err);
-                    setError(err.message);
-                }
-                setLoading(false);
-            };
-            loadCompiledComponent();
-        }, []);
-
-        if (loading) {
-            return (
-                <div className="flex-1 flex items-center justify-center theme-bg-primary">
-                    <div className="text-gray-400">Loading {jinxFile}...</div>
-                </div>
-            );
-        }
-
-        if (error) {
-            return (
-                <div className="flex-1 p-4 theme-bg-primary">
-                    <div className="text-red-400 font-mono text-sm bg-red-900/30 p-4 rounded">
-                        Error loading {jinxFile}: {error}
-                    </div>
-                </div>
-            );
-        }
-
-        if (!Component) {
-            return (
-                <div className="flex-1 p-4 theme-bg-primary">
-                    <div className="text-yellow-400">No component found</div>
-                </div>
-            );
-        }
-
-        // Render the loaded component with props
-        return (
-            <div className="flex-1 overflow-auto theme-bg-primary">
-                <Component
-                    onClose={() => console.log('Tile closed')}
-                    isPane={true}
-                    isOpen={true}
-                    isModal={false}
-                    embedded={true}
-                    projectPath={currentPath || '/'}
-                    currentPath={currentPath || '/'}
-                />
-            </div>
-        );
-    };
-
-    return <TileJinxContent />;
-}, [tileJinxScope, currentPath]);
+    return (
+        <TileJinxContent
+            key={nodeId}
+            jinxFile={jinxFile}
+            tileJinxScope={tileJinxScope}
+            currentPath={currentPathRef.current}
+        />
+    );
+}, [tileJinxScope]);
 
 // Use the PDF highlights loader from PdfViewer module
 useEffect(() => {
@@ -3563,7 +3577,8 @@ const handleGlobalDragEnd = () => {
 
 // Handle opening a new browser tab/pane with a URL
 const handleNewBrowserTab = useCallback((url: string) => {
-    createNewBrowser(url || 'https://google.com');
+    if (!url) return;
+    createNewBrowser(url);
 }, [createNewBrowser]);
 
 const renderBrowserViewer = useCallback(({ nodeId }) => {
@@ -3572,7 +3587,6 @@ const renderBrowserViewer = useCallback(({ nodeId }) => {
             nodeId={nodeId}
             contentDataRef={contentDataRef}
             currentPath={currentPath}
-            browserContextMenuPos={browserContextMenuPos}
             setBrowserContextMenuPos={setBrowserContextMenuPos}
             handleNewBrowserTab={handleNewBrowserTab}
             setRootLayoutNode={setRootLayoutNode}
@@ -3583,7 +3597,7 @@ const renderBrowserViewer = useCallback(({ nodeId }) => {
             closeContentPane={closeContentPane}
         />
     );
-}, [currentPath, rootLayoutNode, closeContentPane, browserContextMenuPos, handleNewBrowserTab, createNewBrowser]);
+}, [currentPath, rootLayoutNode, closeContentPane, handleNewBrowserTab]);
 
 const handleBrowserDialogNavigate = (url) => {
         createNewBrowser(url);
@@ -7073,15 +7087,28 @@ const renderBrowserContextMenu = () => {
                         <div className="border-t theme-border my-1" />
                     </>
                 )}
-                <button
-                    onClick={() => {
-                        handleNewBrowserTab(paneData?.browserUrl || 'https://google.com');
-                        closeMenu();
-                    }}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
-                >
-                    Open in New Pane
-                </button>
+                {browserContextMenuPos.linkURL && (
+                    <button
+                        onClick={() => {
+                            handleNewBrowserTab(browserContextMenuPos.linkURL);
+                            closeMenu();
+                        }}
+                        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
+                    >
+                        Open Link in New Pane
+                    </button>
+                )}
+                {(browserContextMenuPos.pageURL || paneData?.browserUrl) && (
+                    <button
+                        onClick={() => {
+                            handleNewBrowserTab(browserContextMenuPos.pageURL || paneData?.browserUrl);
+                            closeMenu();
+                        }}
+                        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
+                    >
+                        Open Page in New Pane
+                    </button>
+                )}
                 <div className="border-t theme-border my-1" />
                 <button
                     onClick={() => {

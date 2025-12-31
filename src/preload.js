@@ -399,6 +399,22 @@ onTerminalClosed: (callback) => {
     pythonEnvInstallPackage: (workspacePath, packageName, extraArgs) => ipcRenderer.invoke('python-env-install-package', workspacePath, packageName, extraArgs),
     pythonEnvUninstallPackage: (workspacePath, packageName) => ipcRenderer.invoke('python-env-uninstall-package', workspacePath, packageName),
 
+    // First-run setup
+    setupCheckNeeded: () => ipcRenderer.invoke('setup:checkNeeded'),
+    setupGetBackendPythonPath: () => ipcRenderer.invoke('setup:getBackendPythonPath'),
+    setupDetectPython: () => ipcRenderer.invoke('setup:detectPython'),
+    setupCreateVenv: () => ipcRenderer.invoke('setup:createVenv'),
+    setupInstallNpcpy: (pythonPath, extras) => ipcRenderer.invoke('setup:installNpcpy', { pythonPath, extras }),
+    setupComplete: (pythonPath) => ipcRenderer.invoke('setup:complete', { pythonPath }),
+    setupSkip: () => ipcRenderer.invoke('setup:skip'),
+    setupReset: () => ipcRenderer.invoke('setup:reset'),
+    setupRestartBackend: () => ipcRenderer.invoke('setup:restartBackend'),
+    onSetupInstallProgress: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('setup:installProgress', handler);
+        return () => ipcRenderer.removeListener('setup:installProgress', handler);
+    },
+
     generativeFill: async (params) => {
     return ipcRenderer.invoke('generative-fill', params);
 },

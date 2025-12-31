@@ -79,9 +79,9 @@ export const PaneHeader = React.memo(({
             }}
             className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
         >
-            <div className="flex justify-between items-center min-h-[28px] w-full">
-                <div className="flex items-center gap-2 truncate min-w-0">
-                    {icon}
+            <div className="flex items-center min-h-[28px] w-full">
+                <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden mr-1">
+                    <span className="flex-shrink-0">{icon}</span>
                     {isRenaming && filePath ? (
                         <div className="flex items-center gap-1">
                             <input
@@ -120,7 +120,7 @@ export const PaneHeader = React.memo(({
                         </span>
                     )}
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-1 flex-shrink-0 ml-auto">
                     {children} {/* This is where the extra buttons will render */}
 
                     {/* Add Tab button */}

@@ -191,6 +191,8 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
             await (window as any).api?.pythonEnvSave?.(currentPath, config);
             setCurrentConfig(config);
             setShowCustomInput(false);
+            // Reload packages for the newly selected environment
+            await loadPackages();
         } catch (err) {
             console.error('Error saving python env config:', err);
             setError('Failed to save configuration');
@@ -210,6 +212,8 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
             };
             await (window as any).api?.pythonEnvSave?.(currentPath, config);
             setCurrentConfig(config);
+            // Reload packages for the custom Python path
+            await loadPackages();
         } catch (err) {
             console.error('Error saving custom python path:', err);
             setError('Failed to save configuration');
@@ -226,6 +230,8 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
             setCurrentConfig(null);
             setShowCustomInput(false);
             setCustomPath('');
+            // Reload packages (will use fallback/system Python)
+            await loadPackages();
         } catch (err) {
             console.error('Error clearing python env config:', err);
         } finally {
@@ -243,9 +249,10 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
             if (result?.success) {
                 setSuccess(result.message || 'Virtual environment created successfully!');
                 setShowCreateVenv(false);
-                // Refresh detected envs and config
+                // Refresh detected envs, config, and packages for new env
                 await detectEnvs();
                 await loadConfig();
+                await loadPackages();
             } else {
                 setError(result?.error || 'Failed to create virtual environment');
             }
@@ -587,6 +594,27 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
                     </div>
                 </div>
             )}
+
+            {/* Re-run Setup Wizard */}
+            <div className="pt-2 border-t theme-border">
+                <button
+                    onClick={async () => {
+                        try {
+                            await (window as any).api?.setupReset?.();
+                            window.location.reload();
+                        } catch (err) {
+                            console.error('Error resetting setup:', err);
+                        }
+                    }}
+                    className="flex items-center gap-2 text-xs text-orange-400 hover:text-orange-300"
+                >
+                    <RefreshCw size={12} />
+                    Re-run Setup Wizard
+                </button>
+                <div className="text-xs text-gray-500 mt-1">
+                    Reconfigure Python environment and reinstall npcpy packages
+                </div>
+            </div>
         </div>
     );
 };
