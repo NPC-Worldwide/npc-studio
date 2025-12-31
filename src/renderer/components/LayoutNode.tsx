@@ -1071,7 +1071,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         return (
             <div
-                className={`flex-1 flex flex-col relative border ${isActive ? 'border-blue-500 ring-1 ring-blue-500' : 'theme-border'}`}
+                className={`flex-1 flex flex-col border ${isActive ? 'border-blue-500 ring-1 ring-blue-500' : 'theme-border'}`}
+                style={{ position: 'relative', overflow: 'hidden' }}
                 onClick={() => setActiveContentPaneId(node.id)}
                 onContextMenu={(e) => {
                     e.preventDefault();
@@ -1088,6 +1089,34 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
                 onDrop={(e) => onDrop(e, 'center')}
             >
+                {/* X button - ABSOLUTELY positioned on pane, always visible */}
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        closeContentPane(node.id, path);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        right: 0,
+                        width: '28px',
+                        height: '28px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        border: 'none',
+                        background: 'rgba(55, 65, 81, 0.9)',
+                        zIndex: 100
+                    }}
+                    className="hover:bg-red-500"
+                    aria-label="Close pane"
+                    title="Close pane"
+                >
+                    <X size={14} style={{ color: '#e5e7eb' }} />
+                </button>
+
                 {/* Tab bar - shows when there are multiple tabs */}
                 {showTabBar && (
                     <PaneTabBar

@@ -118,6 +118,99 @@ import DataLabeler from './DataLabeler';
 import ChatInput from './ChatInput';
 import { StudioContext } from '../studioActions';
 
+// Stable TileJinxContent component - defined at module level to prevent state loss on parent re-renders
+const TileJinxContentExternal: React.FC<{
+    jinxFile: string;
+    tileJinxScope: Record<string, any>;
+    currentPath: string;
+}> = React.memo(({ jinxFile, tileJinxScope, currentPath }) => {
+    const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const loadCompiledComponent = async () => {
+            if (!jinxFile) {
+                setError('No jinx file specified');
+                setLoading(false);
+                return;
+            }
+            try {
+                // Load pre-compiled code from cache
+                const result = await (window as any).api?.tileJinxCompiled?.(jinxFile);
+                if (!result?.success || !result.compiled) {
+                    setError(result?.error || `Failed to load compiled ${jinxFile}`);
+                    setLoading(false);
+                    return;
+                }
+
+                // Execute the compiled code with scope
+                const scopeKeys = Object.keys(tileJinxScope);
+                const scopeValues = Object.values(tileJinxScope);
+
+                // Create function that returns the component
+                const fn = new Function(...scopeKeys, `
+                    ${result.compiled}
+                    return __component;
+                `);
+
+                const LoadedComponent = fn(...scopeValues);
+                if (LoadedComponent) {
+                    setComponent(() => LoadedComponent);
+                } else {
+                    setError('Component not found in compiled code');
+                }
+            } catch (err: any) {
+                console.error('Failed to load tile jinx:', err);
+                setError(err.message);
+            }
+            setLoading(false);
+        };
+        loadCompiledComponent();
+    }, [jinxFile, tileJinxScope]);
+
+    if (loading) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-bg-primary">
+                <div className="text-gray-400">Loading {jinxFile}...</div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex-1 p-4 theme-bg-primary">
+                <div className="text-red-400 font-mono text-sm bg-red-900/30 p-4 rounded">
+                    Error loading {jinxFile}: {error}
+                </div>
+            </div>
+        );
+    }
+
+    if (!Component) {
+        return (
+            <div className="flex-1 p-4 theme-bg-primary">
+                <div className="text-yellow-400">No component found</div>
+            </div>
+        );
+    }
+
+    // Render the loaded component with props
+    return (
+        <div className="flex-1 overflow-auto theme-bg-primary">
+            <Component
+                onClose={() => console.log('Tile closed')}
+                isPane={true}
+                isOpen={true}
+                isModal={false}
+                embedded={true}
+                projectPath={currentPath}
+                currentPath={currentPath}
+            />
+        </div>
+    );
+});
+
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
     const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -2380,106 +2473,13 @@ const compileTileJinx = useCallback(async (code: string): Promise<string> => {
     }
 }, [currentPath]);
 
-// Stable TileJinxContent component - defined outside render to prevent state loss
-const TileJinxContent: React.FC<{
-    jinxFile: string;
-    tileJinxScope: Record<string, any>;
-    currentPath: string;
-}> = React.memo(({ jinxFile, tileJinxScope, currentPath }) => {
-    const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const loadCompiledComponent = async () => {
-            if (!jinxFile) {
-                setError('No jinx file specified');
-                setLoading(false);
-                return;
-            }
-            try {
-                // Load pre-compiled code from cache
-                const result = await (window as any).api?.tileJinxCompiled?.(jinxFile);
-                if (!result?.success || !result.compiled) {
-                    setError(result?.error || `Failed to load compiled ${jinxFile}`);
-                    setLoading(false);
-                    return;
-                }
-
-                // Execute the compiled code with scope
-                const scopeKeys = Object.keys(tileJinxScope);
-                const scopeValues = Object.values(tileJinxScope);
-
-                // Create function that returns the component
-                const fn = new Function(...scopeKeys, `
-                    ${result.compiled}
-                    return __component;
-                `);
-
-                const LoadedComponent = fn(...scopeValues);
-                if (LoadedComponent) {
-                    setComponent(() => LoadedComponent);
-                } else {
-                    setError('Component not found in compiled code');
-                }
-            } catch (err: any) {
-                console.error('Failed to load tile jinx:', err);
-                setError(err.message);
-            }
-            setLoading(false);
-        };
-        loadCompiledComponent();
-    }, [jinxFile, tileJinxScope]);
-
-    if (loading) {
-        return (
-            <div className="flex-1 flex items-center justify-center theme-bg-primary">
-                <div className="text-gray-400">Loading {jinxFile}...</div>
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="flex-1 p-4 theme-bg-primary">
-                <div className="text-red-400 font-mono text-sm bg-red-900/30 p-4 rounded">
-                    Error loading {jinxFile}: {error}
-                </div>
-            </div>
-        );
-    }
-
-    if (!Component) {
-        return (
-            <div className="flex-1 p-4 theme-bg-primary">
-                <div className="text-yellow-400">No component found</div>
-            </div>
-        );
-    }
-
-    // Render the loaded component with props
-    return (
-        <div className="flex-1 overflow-auto theme-bg-primary">
-            <Component
-                onClose={() => console.log('Tile closed')}
-                isPane={true}
-                isOpen={true}
-                isModal={false}
-                embedded={true}
-                projectPath={currentPath}
-                currentPath={currentPath}
-            />
-        </div>
-    );
-});
-
-// Render Tile Jinx pane - loads pre-compiled cached code and executes it
+// Render Tile Jinx pane - uses external stable component to prevent state loss
 const renderTileJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
     const paneData = contentDataRef.current[nodeId];
     const jinxFile = paneData?.jinxFile;
 
     return (
-        <TileJinxContent
+        <TileJinxContentExternal
             key={nodeId}
             jinxFile={jinxFile}
             tileJinxScope={tileJinxScope}

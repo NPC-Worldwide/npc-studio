@@ -211,8 +211,8 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
                     onDrop={(e) => handleDrop(e, index)}
                     onClick={() => onTabSelect(index)}
                     className={`
-                        flex items-center gap-1.5 px-2 py-1 rounded-t text-xs cursor-pointer
-                        transition-colors group relative flex-shrink-0 max-w-[150px]
+                        flex items-center gap-1.5 pl-2 pr-6 py-1 rounded-t text-xs cursor-pointer
+                        transition-colors group relative min-w-[40px] max-w-[150px]
                         ${index === activeTabIndex
                             ? 'bg-gray-800 text-white border-t border-l border-r theme-border'
                             : 'hover:bg-gray-700/50 text-gray-400'
@@ -225,9 +225,9 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
                     <span className="truncate">{getTabTitle(tab)}</span>
                     <button
                         onClick={(e) => handleTabClose(e, index)}
-                        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-600 transition-opacity ml-auto"
+                        className="absolute top-0.5 right-0.5 p-0.5 rounded bg-gray-600 hover:bg-red-500/50 transition-colors z-10"
                     >
-                        <X size={10} />
+                        <X size={10} className="text-gray-300 hover:text-white" />
                     </button>
                 </div>
             ))}
