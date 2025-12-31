@@ -4,6 +4,22 @@ import {
     HardDrive, FolderPlus, X, ChevronDown, ArrowUp
 } from 'lucide-react';
 
+// Helper to split paths on both / and \ (Windows compatibility)
+const splitPath = (p: string): string[] => p.split(/[\\/]/).filter(Boolean);
+
+// Helper to detect if path is Windows-style (has drive letter)
+const isWindowsPath = (p: string): boolean => /^[A-Za-z]:/.test(p);
+
+// Helper to join path segments back together
+const joinPath = (segments: string[], originalPath: string): string => {
+    if (!segments.length) return originalPath;
+    // Preserve Windows drive letter format
+    if (isWindowsPath(originalPath)) {
+        return segments[0] + '\\' + segments.slice(1).join('\\');
+    }
+    return '/' + segments.join('/');
+};
+
 interface PathSwitcherProps {
     currentPath: string;
     baseDir: string;
@@ -68,10 +84,10 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
         }
     }, [isEditing]);
 
-    // Parse path into segments
-    const pathSegments = currentPath ? currentPath.split('/').filter(Boolean) : [];
+    // Parse path into segments (handles both / and \ separators)
+    const pathSegments = currentPath ? splitPath(currentPath) : [];
     const isAtRoot = currentPath === baseDir || !currentPath;
-    const baseDirSegments = baseDir ? baseDir.split('/').filter(Boolean) : [];
+    const baseDirSegments = baseDir ? splitPath(baseDir) : [];
     const rawRootName = baseDirSegments[baseDirSegments.length - 1] || '';
 
     // Give friendly names to special folders
@@ -97,7 +113,7 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
 
     // Handle path segment click - navigate to that segment
     const handleSegmentClick = (index: number) => {
-        const newPath = '/' + pathSegments.slice(0, index + 1).join('/');
+        const newPath = joinPath(pathSegments.slice(0, index + 1), currentPath);
         onPathChange(newPath);
     };
 
@@ -116,7 +132,7 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
 
     // Get folder name from path
     const getFolderName = (path: string) => {
-        const parts = path.split('/').filter(Boolean);
+        const parts = splitPath(path);
         return parts[parts.length - 1] || path;
     };
 

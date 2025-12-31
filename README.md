@@ -32,12 +32,15 @@ Built for seamless workflows, Incognide eliminates distractions and context swit
 - Edit DOCX, XLSX, PPTX, MAPX.
 - Arrange chats, editors, PDFs, browsers, terminals as your work evolves.
 - Manage agents, have them run on jobs, edit team context, integrate with MCP Servers, approve or rejected suggested memories, prune and evolve knowledge graphs.
+- Fine-tune your own image and text models using curated data from your conversations and memories.
 
 ## Demo Video
 
 <a href="https://www.youtube.com/watch?v=rXkc2CrLNb4" target="_blank">
-  <img src="https://img.youtube.com/vi/rXkc2CrLNb4/0.jpg" alt="Watch the video" />
+  <img src="https://img.youtube.com/vi/rXkc2CrLNb4/0.jpg" alt="Watch the demo video" />
 </a>
+
+---
 
 ## Quick Start
 
@@ -45,245 +48,352 @@ Built for seamless workflows, Incognide eliminates distractions and context swit
 2. **Run** the installer and launch Incognide
 3. **Configure** your models:
    - **Local models**: Install [Ollama](https://ollama.ai), [LM Studio](https://lmstudio.ai), or run a [llama.cpp server](https://github.com/ggerganov/llama.cpp)
-   - **Cloud providers**: Add API keys in Settings (gear icon) for OpenAI, Anthropic, Gemini, etc.
-4. **Start chatting** - select a model and begin a conversation
+   - **Cloud providers**: Add API keys in Settings for OpenAI, Anthropic, Gemini, etc.
+4. **Start working** - select a model and begin a conversation or open files
 
 ---
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
-- [Features](#features)
-  - [AI Chat & Conversations](#ai-chat--conversations)
-  - [File Editing](#file-editing)
-  - [Document Viewers](#document-viewers)
-  - [Web Browsing](#web-browsing)
-  - [Vixynt (Image Tools)](#vixynt-your-visual-assistant)
-  - [Data Dashboard](#data-dashboard)
-  - [Agent Management](#agent-management)
-- [Themes & Settings](#themes)
+- [Office & Productivity](#office--productivity)
+- [Development](#development)
+- [Research & Knowledge Management](#research--knowledge-management)
+- [Model Training & Fine-tuning](#model-training--fine-tuning)
+- [AI Chat & Agents](#ai-chat--agents)
+- [Image Tools (Vixynt)](#image-tools-vixynt)
+- [Settings & Customization](#settings--customization)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Installation](#installation)
-- [Development](#development)
+- [Development Setup](#development-setup)
 - [Community](#community)
 - [License](#license)
 
 ---
 
-## Features
+## Office & Productivity
 
+### Document Editing
 
-### AI Chat & Conversations
+Create and edit Office documents directly in Incognide without needing external applications or cloud services.
 
-
-![Chat Window](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/chat.png)
-
-
-**Aggregate Conversations**: Select and combine multiple conversations:
-
-![Select Conversations](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/convo_agg.png)
-![Aggregate Messages](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/agg_messages.png)
-
-**Include Attachments**: Attach files to your conversations:
-
-![Include Attachments](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/include_attachments.png)
-
-**Model Selection**: Choose from available models based on your environment:
-
-![Model Selector](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/model_selector.png)
-
-**Agentic Tool use**: Enable agents to use tools from MCP Servers or your local Jinxs during conversations:
-
-![MCP Tool Use](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/mcp_tool_use.png)
-
-
----
-
-### File Editing
-
-Edit code and text files with syntax highlighting.
-
-![Code Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/code_editor.png)
-
-Execute python scripts
-
-![script execution](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/script_execution.png)
-
-![latex compilation](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/latex.png)
-**AI-Powered Analysis**: Analyze files with AI assistance:
-
-![Analyze Files](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/analyze_files.png)
-
-**Tiled Layout**: Edit files while chatting with AI:
-
-![Tiled Chat](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/tiled_chat_ai.png)
-
----
-
-
-### Document Viewers
-
-**DOCX & XLSX Support**: Edit Word documents and Excel spreadsheets with full functionality:
+**Word Documents (DOCX)** - Full rich text editing with formatting, tables, and images:
 
 ![DOCX and XLSX Editing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/docx_xlsx.png)
 
+**Spreadsheets (XLSX & CSV)** - Edit data with formula support and cell formatting:
+
 ![CSV Editing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/csv.png)
+
+**Presentations (PPTX)** - View and edit PowerPoint presentations:
 
 ![PPTX Editing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/pptx.png)
 
+### PDF Management
 
-**PDF Analysis**: Highlight and analyze PDF documents:
+Read, annotate, and analyze PDF documents with AI assistance.
+
+**Highlight & Annotate** - Mark up PDFs with highlights that persist across sessions:
 
 ![PDF Highlighting](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/pdf_highlight.png)
 
+**PDF Library** - Browse and organize your PDF collection:
+
+![PDF Library](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/library.png)
+
+### File Management
+
+**Folder Explorer** - Drag any folder from the sidebar into a pane to open a dedicated file browser:
+
 ![Folder contents](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/folder_explorer.png)
 
----
+**Disk Usage Analyzer** - Visualize what's taking up space on your drives:
+
+![Disk usage](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/disk_usage_analyzer.png)
 
 ### Web Browsing
 
-Browse the web with AI assistance at your fingertips.
+Browse the web alongside your documents and chat with AI about what you're viewing.
 
-![AI Web Browsing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/browse_and_wait.png)
+**Integrated Browser** - No need to switch to a separate browser window:
 
-**Tiled Browsing**: Browse while viewing PDFs or chatting:
+![AI Web Browsing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/browse_and_chat.png)
+
+**Tileable configuration** - Browse while viewing PDF with a terminal open and a chat window:
 
 ![Tiled PDF Browser](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/tiled_pdf_browser.png)
 
 ---
 
-### Vixynt: Your Visual Assistant
+## Development
 
-**Photo Editor**: Browse photos
+### Code Editing
+
+Write code with syntax highlighting, run scripts, and compile documents.
+
+**Code Editor and script execution** - Syntax highlighting for Python, JavaScript, TypeScript, and more. Run Python scripts directly and see output inline:
+
+![script execution](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/script_execution.png)
+
+**LaTeX Compilation** - Write and compile LaTeX documents with PDF generation launching a pane.
+
+![latex compilation](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/latex.png)
+
+### AI-Assisted Development
+
+**File Analysis** - Select files and ask AI to analyze, explain, or refactor code:
+
+![Analyze Files](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/analyze_files.png)
+
+### Database Tools
+
+Connect to databases, explore schemas, and run queries.
+
+**Schema Viewer and SQL Querying** - Investigate your database structure, write queries manually or with natural language.
+
+![Database Schema](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/db_viewer.png)
+
+Manipulate table results and plot data directly for quick analysis:
+
+![Database Query](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/db_query.png)
+
+### Git Integration
+
+**Git Manager** - Stage, commit, and manage branches without leaving Incognide:
+
+![git manager](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/git_manager.png)
+
+---
+
+## Research & Knowledge Management
+
+### Data Analysis
+
+Build dashboards and visualizations from your data.
+
+**Data Dashboard** - Composable widgets for analytics and visualization:
+
+![Data Dashboard](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/data_dash.png)
+
+### Knowledge Graphs
+
+Explore connections between concepts and entities.
+
+**Graph Explorer** - Navigate and edit knowledge graphs built from your conversations:
+
+![Knowledge Graph](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/kg_inspector.png)
+
+### Memory & Context
+
+**Memory Management** - Review, edit, and organize what your agents remember:
+
+![Memory CRUD](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/memory_crud.png)
+
+**Agent Memories** - See what context agents have learned from conversations:
+
+![Agent memories](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/memories.png)
+
+---
+
+## Model Training & Fine-tuning
+
+Train custom AI models using your own data—no coding required. Incognide provides first-class UI for curating training data from your conversations and memories, then fine-tuning models locally.
+
+### Image Model Training
+
+Fine-tune image generation models with your own images using LoRA training.
+
+**Training Interface** - Select reference images, configure training parameters, and monitor progress:
+
+<!-- ![Image Training](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/image_training.png) -->
+
+*Features:*
+- Drag-and-drop image selection for training datasets
+- Automatic captioning with AI assistance
+- LoRA training with configurable rank, learning rate, and epochs
+- Real-time training progress and loss visualization
+- Export trained adapters for use in generation
+
+### Text Model Training
+
+Fine-tune language models using curated subsets of your AI interactions and memories.
+
+**Data Curation** - Select specific conversations, memories, and agent interactions to use as training data:
+
+<!-- ![Text Training Data](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/text_training_data.png) -->
+
+*Features:*
+- Browse and filter your conversation history
+- Select individual messages or entire conversations for training
+- Export agent memories as training examples
+- Preview and edit training pairs before export
+- Quality scoring to identify high-value training examples
+
+**Training Pipeline** - Fine-tune models locally with LoRA/QLoRA:
+
+<!-- ![Text Training](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/text_training.png) -->
+
+*Features:*
+- Support for Llama, Mistral, Qwen, and other popular architectures
+- LoRA and QLoRA for efficient training on consumer hardware
+- Configurable hyperparameters with sensible defaults
+- Training metrics and loss curves
+- Merge adapters or use them standalone
+
+### Why Fine-tune?
+
+- **Personalization** - Train models that understand your terminology, preferences, and domain
+- **Privacy** - Keep sensitive data local; train on private conversations without uploading anywhere
+- **Specialization** - Create expert models for specific tasks from your best interactions
+- **Cost savings** - Run fine-tuned smaller models instead of expensive API calls
+
+---
+
+## AI Chat & Agents
+
+### Conversations
+
+**Chat Interface** - Clean, focused conversations with AI:
+
+![Chat Window](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/chat.png)
+
+**Model Selection** - Choose from local models (Ollama, llama.cpp) or cloud providers (OpenAI, Anthropic, Gemini):
+
+![Model Selector](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/model_selector.png)
+
+**Aggregate Conversations** - Select multiple conversations and combine them for context:
+
+![Select Conversations](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/convo_agg.png)
+
+![Aggregate Messages](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/agg_messages.png)
+
+**File Attachments** - Include files directly in your conversations:
+
+![Include Attachments](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/include_attachments.png)
+
+### Tool Use & MCP
+
+**Agentic Tool Use** - Enable agents to use tools from MCP Servers or local Jinxs:
+
+![MCP Tool Use](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/mcp_tool_use.png)
+
+**MCP Server Management** - Connect to Model Context Protocol servers:
+
+![Manage mcp servers](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/mcp_server.png)
+
+### Agent Management
+
+**NPC Editor** - Create and customize AI personas with specific directives, models, and capabilities:
+
+![Edit NPCs](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/agent_editor.png)
+
+**Agent History** - Track what your agents have done:
+
+![Agent History](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/npc_history.png)
+
+**Team Management** - Manage global and project-specific context for your agent team:
+
+![Context Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/team_management.png)
+
+### Jinx Workflows
+
+Jinxs are reusable automation templates that combine natural language prompts with code execution.
+
+**Jinx Editor** - Create and edit Jinx workflows:
+
+![Jinx Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/jinx.png)
+
+**Jinx Execution** - Run Jinxs with custom parameters:
+
+![Jinx Execution](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/jinx_execution.png)
+
+**SQL Jinx** - Create Jinxs that query databases:
+
+![SQL Jinx](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/sql_jinx.png)
+
+**Agents in SQL** - Utilize agents and NPC personas within your SQL models for advanced analyses with native graph computations afforded by SQL engines.
+
+![Agents in SQL models](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/nql.png)
+
+### Scheduled Tasks
+
+**Cron Jobs** - Schedule Jinxs and agents to run automatically:
+
+![Cron jobs](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/cron_daemon.png)
+
+---
+
+## Image Tools (Vixynt)
+
+### Photo Browser
+
+Browse and organize your image collection:
 
 ![Photo Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/vixynt.png)
 
-**AI Image generation with references**:
+### AI Image Generation
+
+Generate images using AI with reference images for style and composition:
 
 ![Vixynt Editing](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/vixynt_image_edit.png)
 
-**DarkRoom**: Simple photo cropping, editing, and styling.
+### DarkRoom
+
+Simple photo editing with cropping, filters, and adjustments:
 
 ![DarkRoom](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/darkroom.png)
 
 ---
 
-### Data Tools
+## Settings & Customization
 
-Composable widgets for analytics, querying, and visualization.
-
-![Data Dashboard](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/data_dash.png)
-
-**Database Schema Viewer**:
-
-![Database Schema](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/db_viewer.png)
-
-**SQL Querying**: Run queries with natural language to SQL:
-
-![Database Query](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/db_query.png)
-
-**Memory Management**: Edit and manage agent memories:
-
-![Memory CRUD](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/memory_crud.png)
-
-**Knowledge Graph Explorer**:
-
-![Knowledge Graph](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/kg_inspector.png)
-
-
-![Disk usage](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/disk_usage_analyzer.png)
-
-
-![PDF Library](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/library.png)
-
-
----
-
-### Agent team and context management
-
-**Create and Edit NPC Personas**: edit the primary directive, model, provider, and jinxs for your persona.
-
-![Edit NPCs](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/agent_editor.png)
-
-![Agent History](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/npc_history.png)
-
-![Agent memories](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/memories.png)
-
-![Agents in SQL models](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/nql.png)
-
-**Jinx Management**: Create and manage Jinxs for agents:
-
-![Jinx Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/jinx.png)
-
-**Jinx Execution**: Run jinx workflows:
-
-![Jinx Execution](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/jinx_execution.png)
-
-**SQL Jinx**:
-
-![SQL Jinx](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/sql_jinx.png)
-
-**Context Editor**: Manage global and project context.
-
-![Context Editor](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/team_management.png)
-
-![Manage mcp servers](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/mcp_server.png)
-
-![Cron jobs](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/cron_daemon.png)
-
-
----
-
-## Themes
-
-**Light Mode**: Full light mode support with pink accents:
-
-![Light Mode](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/light_mode.png)
-
-**Sidebar Controls**: Collapse sidebar, delete conversations, access menus:
-
-![Sidebar](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/sidebar.png)
-
----
-
-## Settings
-
-**Global Settings**: Configure default models and providers:
+The Settings panel provides comprehensive configuration across multiple tabs: Global Settings, Theme, Keyboard Shortcuts, Model Management, Voice/TTS, Custom Providers, Passwords, and Python Environment.
 
 ![Global Settings](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/settings1.png)
 
+### Theme
 
-![TTS](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/tts_management.png)
+Light and dark modes with full color customization:
 
-![keyboard shortcuts](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/keyboard_shortcuts.png)
+![Light Mode](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/light_mode.png)
 
-![git manager](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/git_manager.png)
+### Sidebar
 
-![custom api](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/custom_api.png)
+**Collapsible Sidebar** - Manage files, conversations, and navigation:
+
+![Sidebar](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/sidebar.png)
+
+### Model Management
+
+Configure, download, and manage models from multiple sources:
 
 ![model management](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/model_management.png)
 
+**HuggingFace Integration** - Download GGUF models directly:
+
 ![hf model management](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/hf.png)
 
-**Project Settings**: Set environment variables per project:
+**Custom Providers** - Connect to custom OpenAI-compatible APIs:
+
+![custom api](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/custom_api.png)
+
+### Voice & Audio
+
+Configure TTS and STT settings:
+
+![TTS](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/tts_management.png)
+
+### Python Environment
+
+Configure Python environments per project:
 
 ![Environment Variables](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/env_vars.png)
 
+### Keyboard Shortcuts
 
+View and customize keyboard shortcuts:
 
----
+![keyboard shortcuts](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/keyboard_shortcuts.png)
 
-## Keyboard Shortcuts
-
-| Action | Shortcut |
-|--------|----------|
-| New conversation | `Ctrl/Cmd + N` |
-| Send message | `Enter` (or `Ctrl/Cmd + Enter` for multiline) |
-| Toggle sidebar | `Ctrl/Cmd + B` |
-| Open settings | `Ctrl/Cmd + ,` |
-| Close current pane | `Ctrl/Cmd + W` |
-| Split pane horizontal | `Ctrl/Cmd + \` |
-| Focus chat input | `Ctrl/Cmd + L` |
 
 ---
 
@@ -291,26 +401,18 @@ Composable widgets for analytics, querying, and visualization.
 
 Pre-built executables are available for **Linux**, **macOS**, and **Windows** at [enpisi.com/incognide](https://enpisi.com/incognide).
 
-### System Requirements
-
-| Component | Requirement |
-|-----------|-------------|
-| Python | 3.8 or higher |
-| Node.js | 16 or higher (for development) |
-| Ollama | Optional, for local models |
-
-> **Note**: Incognide includes built-in Ollama management, but this feature may have issues on some systems. Please [report issues](https://github.com/npc-worldwide/incognide/issues) if you encounter problems.
 
 ---
 
-## Development
+## Development Setup
 
-Incognide is an Electron + React frontend with a Python Flask backend powered by [npcpy](https://github.com/npc-worldwide/npcpy).
+Incognide is an Electron + React frontend with a Python Flask backend powered by [npcpy](https://github.com/npc-worldwide/npcpy). The UI uses [npcts](https://github.com/npc-worldwide/npcts), a React component library.
 
 ### Prerequisites
 
 - [npcpy](https://github.com/npc-worldwide/npcpy) - Core Python library
 - [npcsh](https://github.com/npc-worldwide/npcsh) - Shell interface (starts the backend)
+- [npcts](https://github.com/npc-worldwide/npcts) - React component library (installed via npm)
 - Node.js 16+ and npm
 - Ollama (optional, for local models)
 
@@ -323,7 +425,7 @@ cd incognide
 npm install
 ```
 
-**Option 2: Via npcsh** (installs to `~/.npcsh/npc_studio`)
+**Option 2: Via npcsh** (installs to `~/.npcsh/incognide`)
 ```bash
 npcsh> /incognide
 ```
@@ -331,21 +433,19 @@ npcsh> /incognide
 ### Running
 
 ```bash
-# Start both frontend and backend
-npm start
-
-# Or run separately:
-python npc_studio_serve.py   # Backend
-npm run dev                   # Frontend
+python incognide_serve.py   # Backend
+npm run dev                   # Frontend (Vite)
+npm start                     # Electron
 ```
 
 ---
 
 ## Community
 
+- **Discord**: [Join us](https://discord.gg/FwnSygWc)
 - **Issues & Bugs**: [GitHub Issues](https://github.com/npc-worldwide/incognide/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/npc-worldwide/incognide/discussions)
-- **NPC Ecosystem**: [npcpy](https://github.com/npc-worldwide/npcpy) | [npcsh](https://github.com/npc-worldwide/npcsh)
+- **NPC Ecosystem**: [npcpy](https://github.com/npc-worldwide/npcpy) | [npcsh](https://github.com/npc-worldwide/npcsh) | [npcts](https://github.com/npc-worldwide/npcts)
 
 ---
 

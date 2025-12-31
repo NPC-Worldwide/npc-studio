@@ -44,8 +44,8 @@
       "icon": "assets/icon.png",
       "extraResources": [
         {
-          "from": "resources/backend/npc_studio_serve",
-          "to": "backend/npc_studio_serve"
+          "from": "resources/backend/incognide_serve",
+          "to": "backend/incognide_serve"
         }
       ]
     },
@@ -56,8 +56,8 @@
       "icon": "assets/icon.png",
       "extraResources": [
         {
-          "from": "resources/backend/npc_studio_serve.exe",
-          "to": "backend/npc_studio_serve.exe"
+          "from": "resources/backend/incognide_serve.exe",
+          "to": "backend/incognide_serve.exe"
         }
       ],
       "extraFiles": [
@@ -82,8 +82,8 @@
       "icon": "assets/icon.png",
       "extraResources": [
         {
-          "from": "resources/backend/npc_studio_serve",
-          "to": "backend/npc_studio_serve"
+          "from": "resources/backend/incognide_serve",
+          "to": "backend/incognide_serve"
         }
       ]
     },

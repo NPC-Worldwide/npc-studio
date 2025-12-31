@@ -98,17 +98,17 @@ jobs:
             --exclude-module=cudart --exclude-module=cublas --exclude-module=cupy \
             --exclude-module=logfire --exclude-module=numba.cuda --exclude-module=torch.cuda \
             --exclude-module=tensorflow.python.framework.cuda_util \
-            --collect-data=litellm --collect-data=npcpy --collect-data=npcsh npc_studio_serve.py
+            --collect-data=litellm --collect-data=npcpy --collect-data=npcsh incognide_serve.py
           mkdir -p resources/backend
-          cp pyinstaller_dist/npc_studio_serve resources/backend/
-          chmod +x resources/backend/npc_studio_serve
+          cp pyinstaller_dist/incognide_serve resources/backend/
+          chmod +x resources/backend/incognide_serve
       
       - name: Build PyInstaller binary (Windows)
         if: runner.os == 'Windows'
         run: |
-          python -m PyInstaller --onefile --clean --distpath pyinstaller_dist --noupx --hidden-import=npcpy --hidden-import=npcsh --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow --hidden-import=nltk --hidden-import=litellm --hidden-import=anthropic --hidden-import=openai --hidden-import=google-genai --hidden-import=tiktoken_ext.openai_public --hidden-import=tiktoken_ext --hidden-import=sentence_transformers --hidden-import=chromadb --hidden-import=pydantic --collect-data=litellm --collect-data=npcpy --collect-data=npcsh npc_studio_serve.py
+          python -m PyInstaller --onefile --clean --distpath pyinstaller_dist --noupx --hidden-import=npcpy --hidden-import=npcsh --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow --hidden-import=nltk --hidden-import=litellm --hidden-import=anthropic --hidden-import=openai --hidden-import=google-genai --hidden-import=tiktoken_ext.openai_public --hidden-import=tiktoken_ext --hidden-import=sentence_transformers --hidden-import=chromadb --hidden-import=pydantic --collect-data=litellm --collect-data=npcpy --collect-data=npcsh incognide_serve.py
           mkdir -p resources/backend
-          copy pyinstaller_dist\npc_studio_serve.exe resources\backend\npc_studio_serve.exe
+          copy pyinstaller_dist\incognide_serve.exe resources\backend\incognide_serve.exe
       
       - name: Build PyInstaller binary (macOS)
         if: runner.os == 'macOS'
@@ -128,10 +128,10 @@ jobs:
             --exclude-module=cudart --exclude-module=cublas --exclude-module=cupy \
             --exclude-module=logfire --exclude-module=numba.cuda --exclude-module=torch.cuda \
             --exclude-module=nltk --exclude-module=tensorflow.python.framework.cuda_util \
-            --collect-data=litellm --collect-data=npcpy --collect-data=npcsh npc_studio_serve.py
+            --collect-data=litellm --collect-data=npcpy --collect-data=npcsh incognide_serve.py
           mkdir -p resources/backend
-          cp pyinstaller_dist/npc_studio_serve resources/backend/npc_studio_serve
-          chmod +x resources/backend/npc_studio_serve
+          cp pyinstaller_dist/incognide_serve resources/backend/incognide_serve
+          chmod +x resources/backend/incognide_serve
       
       - name: Build frontend
         run: npm run build:vite

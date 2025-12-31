@@ -65,11 +65,6 @@ rotateLogIfNeeded(backendLogPath);
 const electronLogStream = fs.createWriteStream(electronLogPath, { flags: 'a' });
 const backendLogStream = fs.createWriteStream(backendLogPath, { flags: 'a' });
 
-// Legacy support - keep old path working too
-const legacyLogDir = path.join(os.homedir(), '.npc_studio');
-try { fs.mkdirSync(legacyLogDir, { recursive: true }); } catch (e) {}
-const logFilePath = path.join(legacyLogDir, 'app.log');
-const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 let mainWindow = null;
 let pdfView = null; 
 // Update your ensureTablesExist function:
@@ -184,7 +179,7 @@ const ensureTablesExist = async () => {
   }
 };
 
-app.setAppUserModelId('com.npc_studio.chat');
+app.setAppUserModelId('com.incognide.chat');
 app.name = 'incognide';
 app.setName('incognide');
 // Unified logging functions
@@ -197,14 +192,12 @@ const log = (...messages) => {
     const msg = formatLogMessage('[ELECTRON]', messages);
     console.log(msg);
     electronLogStream.write(`${msg}\n`);
-    logStream.write(`${msg}\n`); // Legacy support
 };
 
 const logBackend = (...messages) => {
     const msg = formatLogMessage('[BACKEND]', messages);
     console.log(msg);
     backendLogStream.write(`${msg}\n`);
-    logStream.write(`${msg}\n`); // Legacy support
 };
 // Use Option+Space on macOS, Command/Control+Space elsewhere
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'CommandOrControl+Space';
@@ -434,7 +427,7 @@ app.whenReady().then(async () => {
       spawnArgs = ['-m', 'npcpy.serve'];
     } else {
       // Use bundled executable
-      const executableName = process.platform === 'win32' ? 'npc_studio_serve.exe' : 'npc_studio_serve';
+      const executableName = process.platform === 'win32' ? 'incognide_serve.exe' : 'incognide_serve';
       backendPath = app.isPackaged
         ? path.join(process.resourcesPath, 'backend', executableName)
         : path.join(app.getAppPath(), 'dist', 'resources', 'backend', executableName);
@@ -448,7 +441,7 @@ app.whenReady().then(async () => {
       env: {
         ...process.env,
         CORNERIA_DATA_DIR: dataPath,
-        NPC_STUDIO_PORT: '5337',
+        INCOGNIDE_PORT: '5337',
         FLASK_DEBUG: '1',
         PYTHONUNBUFFERED: '1',
       },
@@ -519,7 +512,7 @@ async function callBackendApi(url, options = {}) {
   }
 }
 function ensureUserDataDirectory() {
-  const userDataPath = path.join(os.homedir(), '.npc_studio', 'data');
+  const userDataPath = path.join(os.homedir(), '.npcsh', 'incognide', 'data');
   log('Creating user data directory:', userDataPath);
 
   try {
@@ -2871,7 +2864,7 @@ app.whenReady().then(() => {
 });
 
 // ==================== PASSWORD MANAGER ====================
-const passwordsFilePath = path.join(os.homedir(), '.npc_studio', 'credentials.enc');
+const passwordsFilePath = path.join(os.homedir(), '.npcsh', 'incognide', 'credentials.enc');
 
 // Ensure the credentials file exists
 const ensurePasswordsFile = async () => {
@@ -3044,7 +3037,7 @@ ipcMain.handle('password-encryption-status', async () => {
 // ==================== END PASSWORD MANAGER ====================
 
 // ==================== PYTHON ENVIRONMENT CONFIGURATION ====================
-const pythonEnvConfigPath = path.join(os.homedir(), '.npc_studio', 'python_envs.json');
+const pythonEnvConfigPath = path.join(os.homedir(), '.npcsh', 'incognide', 'python_envs.json');
 
 // Ensure python env config file exists
 const ensurePythonEnvConfig = async () => {
@@ -3463,6 +3456,122 @@ ipcMain.handle('python-env-check-configured', async (event, { workspacePath }) =
 
 // ==================== END PYTHON ENVIRONMENT ====================
 
+// ==================== TILE CONFIGURATION ====================
+const tilesConfigPath = path.join(os.homedir(), '.npcsh', 'incognide', 'tiles.json');
+
+// Default tiles configuration
+const defaultTilesConfig = {
+  tiles: [
+    { id: 'theme', label: 'Theme', icon: 'theme', enabled: true, order: 0 },
+    { id: 'chat', label: 'Chat', icon: 'plus', enabled: true, order: 1 },
+    { id: 'folder', label: 'Folder', icon: 'folder', enabled: true, order: 2 },
+    { id: 'browser', label: 'Browser', icon: 'globe', enabled: true, order: 3 },
+    { id: 'terminal', label: 'Terminal', icon: 'terminal', enabled: true, order: 4, subTypes: ['system', 'npcsh', 'guac'] },
+    { id: 'code', label: 'Code', icon: 'code', enabled: true, order: 5 },
+    { id: 'document', label: 'Doc', icon: 'file-text', enabled: true, order: 6, subTypes: ['docx', 'xlsx', 'pptx', 'mapx'] },
+    { id: 'workspace', label: 'Incognide', icon: 'incognide', enabled: true, order: 7 }
+  ],
+  customTiles: []
+};
+
+// Ensure tiles config file exists
+const ensureTilesConfig = async () => {
+  const dir = path.dirname(tilesConfigPath);
+  await fsPromises.mkdir(dir, { recursive: true });
+  try {
+    await fsPromises.access(tilesConfigPath);
+  } catch {
+    await fsPromises.writeFile(tilesConfigPath, JSON.stringify(defaultTilesConfig, null, 2));
+  }
+};
+
+// Read tiles config
+const readTilesConfig = async () => {
+  await ensureTilesConfig();
+  const content = await fsPromises.readFile(tilesConfigPath, 'utf8');
+  const config = JSON.parse(content);
+  // Merge with defaults to ensure all default tiles exist
+  const defaultIds = defaultTilesConfig.tiles.map(t => t.id);
+  const existingIds = (config.tiles || []).map(t => t.id);
+  // Add any missing default tiles
+  for (const defaultTile of defaultTilesConfig.tiles) {
+    if (!existingIds.includes(defaultTile.id)) {
+      config.tiles = config.tiles || [];
+      config.tiles.push(defaultTile);
+    }
+  }
+  return config;
+};
+
+// Write tiles config
+const writeTilesConfig = async (data) => {
+  await ensureTilesConfig();
+  await fsPromises.writeFile(tilesConfigPath, JSON.stringify(data, null, 2));
+};
+
+// Get tiles configuration
+ipcMain.handle('tiles-config-get', async () => {
+  try {
+    return await readTilesConfig();
+  } catch (err) {
+    console.error('Error getting tiles config:', err);
+    return defaultTilesConfig;
+  }
+});
+
+// Save tiles configuration
+ipcMain.handle('tiles-config-save', async (event, config) => {
+  try {
+    await writeTilesConfig(config);
+    return { success: true };
+  } catch (err) {
+    console.error('Error saving tiles config:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Reset tiles to defaults
+ipcMain.handle('tiles-config-reset', async () => {
+  try {
+    await writeTilesConfig(defaultTilesConfig);
+    return { success: true, config: defaultTilesConfig };
+  } catch (err) {
+    console.error('Error resetting tiles config:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Add a custom tile
+ipcMain.handle('tiles-config-add-custom', async (event, customTile) => {
+  try {
+    const config = await readTilesConfig();
+    config.customTiles = config.customTiles || [];
+    customTile.id = `custom_${Date.now()}`;
+    customTile.order = config.tiles.length + config.customTiles.length;
+    config.customTiles.push(customTile);
+    await writeTilesConfig(config);
+    return { success: true, tile: customTile };
+  } catch (err) {
+    console.error('Error adding custom tile:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Remove a custom tile
+ipcMain.handle('tiles-config-remove-custom', async (event, tileId) => {
+  try {
+    const config = await readTilesConfig();
+    config.customTiles = (config.customTiles || []).filter(t => t.id !== tileId);
+    await writeTilesConfig(config);
+    return { success: true };
+  } catch (err) {
+    console.error('Error removing custom tile:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// ==================== END TILE CONFIGURATION ====================
+
 ipcMain.handle('loadProjectSettings', async (event, currentPath) => {
     try {
         const url = `http://127.0.0.1:5337/api/settings/project?path=${encodeURIComponent(currentPath)}`;
@@ -3856,7 +3965,6 @@ app.on('will-quit', () => {
     // Close log streams
     electronLogStream.end();
     backendLogStream.end();
-    logStream.end();
   });
 
   // Logs directory handler
@@ -3864,8 +3972,7 @@ app.on('will-quit', () => {
     return {
       logsDir,
       electronLog: electronLogPath,
-      backendLog: backendLogPath,
-      legacyLog: logFilePath
+      backendLog: backendLogPath
     };
   });
 
@@ -3875,7 +3982,6 @@ app.on('will-quit', () => {
       switch (logType) {
         case 'electron': logPath = electronLogPath; break;
         case 'backend': logPath = backendLogPath; break;
-        case 'legacy': logPath = logFilePath; break;
         default: throw new Error(`Unknown log type: ${logType}`);
       }
       if (fs.existsSync(logPath)) {

@@ -177,6 +177,14 @@ readDocxContent: (filePath) =>
     renameFile: (oldPath, newPath) => ipcRenderer.invoke('renameFile', oldPath, newPath),
     chmod: (options) => ipcRenderer.invoke('chmod', options),
     chown: (options) => ipcRenderer.invoke('chown', options),
+
+    // Tile configuration
+    tilesConfigGet: () => ipcRenderer.invoke('tiles-config-get'),
+    tilesConfigSave: (config) => ipcRenderer.invoke('tiles-config-save', config),
+    tilesConfigReset: () => ipcRenderer.invoke('tiles-config-reset'),
+    tilesConfigAddCustom: (tile) => ipcRenderer.invoke('tiles-config-add-custom', tile),
+    tilesConfigRemoveCustom: (tileId) => ipcRenderer.invoke('tiles-config-remove-custom', tileId),
+
     getGlobalContext: () => ipcRenderer.invoke('get-global-context'),
     saveGlobalContext: (contextData) => ipcRenderer.invoke('save-global-context', contextData),
     getProjectContext: (path) => ipcRenderer.invoke('get-project-context', path),
