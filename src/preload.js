@@ -191,6 +191,8 @@ readDocxContent: (filePath) =>
     tileJinxWrite: (filename, content) => ipcRenderer.invoke('tile-jinx-write', filename, content),
     tileJinxDelete: (filename) => ipcRenderer.invoke('tile-jinx-delete', filename),
     tileJinxReset: () => ipcRenderer.invoke('tile-jinx-reset'),
+    tileJinxCompiled: (filename) => ipcRenderer.invoke('tile-jinx-compiled', filename),
+    tileJinxRecompile: () => ipcRenderer.invoke('tile-jinx-recompile'),
     transformTsx: (code) => ipcRenderer.invoke('transformTsx', code),
 
     getGlobalContext: () => ipcRenderer.invoke('get-global-context'),

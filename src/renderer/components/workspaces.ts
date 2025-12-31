@@ -19,7 +19,8 @@ export const serializeWorkspace = (
             contentId: paneData.contentId,
             displayedMessageCount: paneData.chatMessages?.displayedMessageCount,
             browserUrl: paneData.browserUrl,
-            fileChanged: paneData.fileChanged
+            fileChanged: paneData.fileChanged,
+            jinxFile: paneData.jinxFile  // Preserve jinxFile for tilejinx panes
         };
     });
 
@@ -119,12 +120,16 @@ export const deserializeWorkspace = async (
         // Populate contentDataRef synchronously BEFORE any async operations
         paneIdsInLayout.forEach(paneId => {
             const paneData = workspaceData.contentData[paneId];
+            // For tilejinx panes, jinxFile === contentId, so use contentId as fallback
+            const jinxFile = paneData?.jinxFile ||
+                (paneData?.contentType === 'tilejinx' ? paneData?.contentId : undefined);
             contentDataRef.current[paneId] = {
                 contentType: paneData?.contentType,
                 contentId: paneData?.contentId,
                 displayedMessageCount: paneData?.displayedMessageCount,
                 browserUrl: paneData?.browserUrl,
-                fileChanged: paneData?.fileChanged || false
+                fileChanged: paneData?.fileChanged || false,
+                jinxFile: jinxFile  // Restore jinxFile for tilejinx panes
             };
         });
 

@@ -53,7 +53,12 @@ import ActivityIntelligence from './ActivityIntelligence';
 import PythonEnvSettings from './PythonEnvSettings';
 import AutosizeTextarea from './AutosizeTextarea';
 import ForceGraph2D from 'react-force-graph-2d';
-import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
+import { Pie, Bar, Line } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement } from 'chart.js';
+import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart } from 'npcts';
+
+// Register chart.js components for jinx runtime
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement);
 import * as LucideIcons from 'lucide-react';
 import { useActivityTracker } from './ActivityTracker';
 import {
@@ -102,16 +107,13 @@ import { syncLayoutWithContentData } from './LayoutNode';
 import PaneHeader from './PaneHeader';
 import { LayoutNode } from './LayoutNode';
 import ConversationList from './ConversationList';
-import AutosizeTextarea from './AutosizeTextarea';
 import { ChatMessage } from './ChatMessage';
 import { PredictiveTextOverlay } from './PredictiveTextOverlay';
 import { usePredictiveText } from './PredictiveText';
 import { CommandPalette } from './CommandPalette';
-import MessageLabeling, { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage, ContextFile, ContextFileStorage } from './MessageLabeling';
+import { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage, ContextFile, ContextFileStorage } from './MessageLabeling';
 import ConversationLabeling from './ConversationLabeling';
 import ContextFilesPanel from './ContextFilesPanel';
-import GraphViewer from './GraphViewer';
-import BrowserHistoryWeb from './BrowserHistoryWeb';
 import DataLabeler from './DataLabeler';
 import ChatInput from './ChatInput';
 import { StudioContext } from '../studioActions';
@@ -2280,7 +2282,9 @@ const renderDBToolPane = useCallback(({ nodeId }: { nodeId: string }) => {
     );
 }, [currentPath, currentModel, currentProvider, currentNPC]);
 
-// Tile Jinx runtime scope - all components available to compiled jinx code
+// Tile Jinx runtime scope - dependencies available to compiled jinx code
+// NOTE: Don't include the MAIN tile components (the ones defined by jinx files themselves)
+// DO include utility components and sub-components that tiles may depend on
 const tileJinxScope = useMemo(() => ({
     // React
     React,
@@ -2295,35 +2299,30 @@ const tileJinxScope = useMemo(() => ({
     forwardRef: React.forwardRef,
     memo: React.memo,
     Fragment: React.Fragment,
-    // npcts components
+    // npcts UI components and utilities
     Modal, Tabs, Card, Button, Input, Select,
-    // All tile components
-    DiskUsageAnalyzer,
+    createWindowApiDatabaseClient, QueryChart,
+    // Chart.js components (Chart is alias for ChartJS)
+    Pie, Bar, Line, ChartJS, Chart: ChartJS,
+    ArcElement, Tooltip, Legend,
+    CategoryScale, LinearScale, BarElement, PointElement, LineElement,
+    // Utility components jinx files may use
     AutosizeTextarea,
     ForceGraph2D,
-    ActivityIntelligence,
-    BrowserHistoryWeb,
-    CtxEditor,
-    JinxMenu,
-    KnowledgeGraphEditor,
-    LabeledDataManager,
-    McpServerMenu,
+    // Sub-components that tiles may embed (not main tiles, but their dependencies)
     MemoryManagement,
-    MessageLabeling,
-    NPCTeamMenu,
-    PythonEnvSettings,
-    DBTool,
-    DataDash,
-    LibraryViewer,
-    GraphViewer,
-    PhotoViewer,
-    SettingsMenu,
+    ActivityIntelligence,
+    LabeledDataManager,
+    KnowledgeGraphEditor,
+    CtxEditor,
     TeamManagement,
     // All lucide icons
     ...LucideIcons,
-    // Real window and console
+    // Real window, console, and JS built-ins (in case icons shadow them)
     window,
     console,
+    Map: globalThis.Map,
+    Set: globalThis.Set,
 }), []);
 
 // Compile tile jinx code for runtime rendering
@@ -2378,48 +2377,102 @@ const compileTileJinx = useCallback(async (code: string): Promise<string> => {
     }
 }, [currentPath]);
 
-// Render Tile Jinx pane - returns a component that compiles and runs jinx code
+// Render Tile Jinx pane - loads pre-compiled cached code and executes it
 const renderTileJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
     const paneData = contentDataRef.current[nodeId];
     const jinxFile = paneData?.jinxFile;
 
     // Inner component with proper hooks
     const TileJinxContent = () => {
-        const [compiledCode, setCompiledCode] = useState<string>('render(<div className="p-4 text-gray-400">Loading...</div>)');
+        const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
+        const [error, setError] = useState<string | null>(null);
+        const [loading, setLoading] = useState(true);
 
         useEffect(() => {
-            const loadAndCompile = async () => {
+            const loadCompiledComponent = async () => {
                 if (!jinxFile) {
-                    setCompiledCode('render(<div className="p-4 text-red-400">No jinx file specified</div>)');
+                    setError('No jinx file specified');
+                    setLoading(false);
                     return;
                 }
                 try {
-                    const result = await (window as any).api?.tileJinxRead?.(jinxFile);
-                    if (result?.success && result.content) {
-                        const compiled = await compileTileJinx(result.content);
-                        setCompiledCode(compiled);
+                    // Load pre-compiled code from cache
+                    const result = await (window as any).api?.tileJinxCompiled?.(jinxFile);
+                    if (!result?.success || !result.compiled) {
+                        setError(result?.error || `Failed to load compiled ${jinxFile}`);
+                        setLoading(false);
+                        return;
+                    }
+
+                    // Execute the compiled code with scope
+                    const scopeKeys = Object.keys(tileJinxScope);
+                    const scopeValues = Object.values(tileJinxScope);
+
+                    // Create function that returns the component
+                    const fn = new Function(...scopeKeys, `
+                        ${result.compiled}
+                        return __component;
+                    `);
+
+                    const LoadedComponent = fn(...scopeValues);
+                    if (LoadedComponent) {
+                        setComponent(() => LoadedComponent);
                     } else {
-                        setCompiledCode(`render(<div className="p-4 text-red-400">Failed to load ${jinxFile}</div>)`);
+                        setError('Component not found in compiled code');
                     }
                 } catch (err: any) {
-                    setCompiledCode(`render(<div className="p-4 text-red-400">Error: ${err.message}</div>)`);
+                    console.error('Failed to load tile jinx:', err);
+                    setError(err.message);
                 }
+                setLoading(false);
             };
-            loadAndCompile();
+            loadCompiledComponent();
         }, []);
 
+        if (loading) {
+            return (
+                <div className="flex-1 flex items-center justify-center theme-bg-primary">
+                    <div className="text-gray-400">Loading {jinxFile}...</div>
+                </div>
+            );
+        }
+
+        if (error) {
+            return (
+                <div className="flex-1 p-4 theme-bg-primary">
+                    <div className="text-red-400 font-mono text-sm bg-red-900/30 p-4 rounded">
+                        Error loading {jinxFile}: {error}
+                    </div>
+                </div>
+            );
+        }
+
+        if (!Component) {
+            return (
+                <div className="flex-1 p-4 theme-bg-primary">
+                    <div className="text-yellow-400">No component found</div>
+                </div>
+            );
+        }
+
+        // Render the loaded component with props
         return (
             <div className="flex-1 overflow-auto theme-bg-primary">
-                <LiveProvider code={compiledCode} scope={tileJinxScope} noInline={true}>
-                    <LiveError className="p-4 text-red-400 text-sm font-mono bg-red-900/30" />
-                    <LivePreview className="h-full w-full" />
-                </LiveProvider>
+                <Component
+                    onClose={() => console.log('Tile closed')}
+                    isPane={true}
+                    isOpen={true}
+                    isModal={false}
+                    embedded={true}
+                    projectPath={currentPath || '/'}
+                    currentPath={currentPath || '/'}
+                />
             </div>
         );
     };
 
     return <TileJinxContent />;
-}, [tileJinxScope, compileTileJinx]);
+}, [tileJinxScope, currentPath]);
 
 // Use the PDF highlights loader from PdfViewer module
 useEffect(() => {
@@ -5242,26 +5295,22 @@ ${contextPrompt}`;
             setCurrentProvider(providerToSet);
             setCurrentNPC(npcToSet);
 
-            // Final check - only create panes if workspace wasn't loaded
-    // Final check - only create panes if workspace wasn't loaded
-    const hasExistingWorkspace = rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
+            // Final check - use workspaceRestored flag (not rootLayoutNode state which may not be updated yet)
+            console.log('[INIT] Final workspace check:', {
+                workspaceRestored,
+                contentDataCount: Object.keys(contentDataRef.current).length
+            });
 
-    console.log('[INIT] Final workspace check:', { 
-        hasExistingWorkspace, 
-        rootLayoutNode: !!rootLayoutNode, 
-        contentDataCount: Object.keys(contentDataRef.current).length
-    });
+            if (!workspaceRestored) {
+                console.log('[INIT] No workspace was restored, creating default panes');
 
-    if (!hasExistingWorkspace) {
-        console.log('[INIT] Creating default panes');
-        
-        if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
-            console.log('[INIT] Creating pane for stored conversation:', targetConvoId);
-            await handleConversationSelect(targetConvoId, false, false);  // ← THIS IS CREATING PHANTOM PANES!
-        }
-    } else {
-                console.log('[INIT] Workspace exists, skipping pane creation');
-                
+                if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
+                    console.log('[INIT] Creating pane for stored conversation:', targetConvoId);
+                    await handleConversationSelect(targetConvoId, false, false);
+                }
+            } else {
+                console.log('[INIT] Workspace was restored, skipping pane creation');
+
                 if (targetConvoId) {
                     setActiveConversationId(targetConvoId);
                 }
