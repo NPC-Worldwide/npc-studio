@@ -5,7 +5,8 @@ import {
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
     Image as ImageIcon, Tag, Folder, Users, Settings, Images, BookOpen,
-    FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2, Maximize2, Minimize2
+    FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2, Maximize2, Minimize2,
+    FlaskConical
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
@@ -476,7 +477,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             updateContentPane, performSplit, setRootLayoutNode,
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
-            renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
+            renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderExpViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
             renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane,
             moveContentPane,
@@ -753,6 +754,12 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 } else if (contentType === 'library') {
                     newContentId = 'library';
                     title = 'Library';
+                } else if (contentType === 'python') {
+                    newContentId = `python_${Date.now()}`;
+                    title = 'Python';
+                } else if (contentType === 'notebook') {
+                    newContentId = `notebook_${Date.now()}`;
+                    title = 'Notebook';
                 }
 
                 const newTab = {
@@ -857,9 +864,15 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'zip') {
             headerIcon = <FileIcon size={14} className="text-yellow-500" />;
             headerTitle = contentId?.split('/').pop() || 'Archive';
+        } else if (contentType === 'exp') {
+            headerIcon = <FlaskConical size={14} className="text-purple-400" />;
+            headerTitle = contentId?.split('/').pop() || 'Experiment';
         } else if (contentType === 'tilejinx') {
             headerIcon = <Zap size={14} className="text-amber-400" />;
             headerTitle = contentId?.replace('.jinx', '') || 'Tile';
+        } else if (contentType === 'branches') {
+            headerIcon = <GitBranch size={14} className="text-purple-400" />;
+            headerTitle = 'Branch Comparison';
         } else if (contentId) {
             headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();
@@ -981,9 +994,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             }
         }, [chatMessages.length, lastMessageContent, lastMessageReasoning, autoScrollEnabled, contentType]);
 
-        const renderPaneContent = () => { // Renamed from renderContent to avoid confusion
-            console.log('[RENDER_CONTENT] NodeId:', node.id, 'ContentType:', contentType);
-
+        const renderPaneContent = () => {
             switch (contentType) {
                 case 'chat':
                     return (
@@ -1018,6 +1029,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderLatexViewer({ nodeId: node.id });
                 case 'notebook':
                     return renderNotebookViewer({ nodeId: node.id });
+                case 'exp':
+                    return renderExpViewer({ nodeId: node.id });
                 case 'image':
                     return renderPicViewer({ nodeId: node.id });
                 case 'mindmap':
@@ -1056,6 +1069,11 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderMarkdownPreviewPane({ nodeId: node.id });
                 case 'tilejinx':
                     return renderTileJinxPane({ nodeId: node.id });
+                case 'python':
+                    // Python REPL - uses terminal with python3 shell
+                    return renderTerminalView({ nodeId: node.id, shell: 'python3' });
+                case 'branches':
+                    return renderBranchComparisonPane({ nodeId: node.id });
                 default:
                     return null;
             }

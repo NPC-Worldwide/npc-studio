@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, memo, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X, Plus, Settings, Trash2, Lock, GripVertical, Puzzle, Download, FolderOpen } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X, Plus, Settings, Trash2, Lock, GripVertical, Puzzle, Download, FolderOpen, Key, Eye, EyeOff, Shield, Check } from 'lucide-react';
 
 const WebBrowserViewer = memo(({
     nodeId,
@@ -28,6 +28,24 @@ const WebBrowserViewer = memo(({
     const [installedBrowsers, setInstalledBrowsers] = useState([]);
     const [importStatus, setImportStatus] = useState<{ importing: boolean; message?: string } | null>(null);
     const [isSecure, setIsSecure] = useState(false);
+
+    // Password management state
+    const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+    const [pendingCredentials, setPendingCredentials] = useState<{ site: string; username: string; password: string } | null>(null);
+    const [savedPasswords, setSavedPasswords] = useState<any[]>([]);
+    const [showPasswordFill, setShowPasswordFill] = useState(false);
+    const [showPasswordInPrompt, setShowPasswordInPrompt] = useState(false);
+    const [showPasswordsMenu, setShowPasswordsMenu] = useState(false);
+    const [allPasswords, setAllPasswords] = useState<any[]>([]);
+    const [showPasswordValue, setShowPasswordValue] = useState<string | null>(null);
+
+    // Site permissions state
+    const [sitePermissions, setSitePermissions] = useState<Record<string, string[]>>(() => {
+        try {
+            return JSON.parse(localStorage.getItem('npc-browser-site-permissions') || '{}');
+        } catch { return {}; }
+    });
+    const [showPermissionsMenu, setShowPermissionsMenu] = useState(false);
 
     // Search engine configuration
     const SEARCH_ENGINES = {
@@ -241,12 +259,28 @@ const WebBrowserViewer = memo(({
 
         // Handle permission requests (camera, microphone, geolocation, etc.)
         const handlePermissionRequest = (e) => {
-            // Allow common permissions, deny others
-            const allowedPermissions = ['clipboard-read', 'clipboard-write', 'notifications'];
-            if (allowedPermissions.includes(e.permission)) {
+            // Check stored site permissions
+            try {
+                const storedPerms = JSON.parse(localStorage.getItem('npc-browser-site-permissions') || '{}');
+                const url = webview.getURL?.();
+                let site = '';
+                try {
+                    site = new URL(url).hostname;
+                } catch { site = url; }
+                const sitePerms = storedPerms[site] || [];
+
+                // Allow if permission is explicitly granted for this site
+                if (sitePerms.includes(e.permission)) {
+                    e.request.allow();
+                    return;
+                }
+            } catch { /* ignore parsing errors */ }
+
+            // Default: allow common safe permissions, deny others
+            const defaultAllowed = ['clipboard-read', 'clipboard-write', 'notifications'];
+            if (defaultAllowed.includes(e.permission)) {
                 e.request.allow();
             } else {
-                // For now, deny other permissions - could add UI to prompt user
                 e.request.deny();
             }
         };
@@ -481,6 +515,224 @@ const WebBrowserViewer = memo(({
         }
     }, [showExtensionsMenu, loadExtensions]);
 
+    // Password management functions
+    const getSiteFromUrl = useCallback((url: string) => {
+        try {
+            const urlObj = new URL(url);
+            return urlObj.hostname;
+        } catch {
+            return url;
+        }
+    }, []);
+
+    const checkForSavedPasswords = useCallback(async (url: string) => {
+        const site = getSiteFromUrl(url);
+        try {
+            const result = await (window as any).api?.passwordGetForSite?.(site);
+            if (result?.success && result.passwords?.length > 0) {
+                setSavedPasswords(result.passwords);
+                setShowPasswordFill(true);
+            } else {
+                setSavedPasswords([]);
+                setShowPasswordFill(false);
+            }
+        } catch (err) {
+            console.error('[Browser] Failed to check saved passwords:', err);
+        }
+    }, [getSiteFromUrl]);
+
+    const handleSavePassword = useCallback(async () => {
+        if (!pendingCredentials) return;
+        try {
+            await (window as any).api?.passwordSave?.(pendingCredentials);
+            setShowPasswordPrompt(false);
+            setPendingCredentials(null);
+        } catch (err) {
+            console.error('[Browser] Failed to save password:', err);
+        }
+    }, [pendingCredentials]);
+
+    const handleFillPassword = useCallback(async (password: any) => {
+        const webview = webviewRef.current;
+        if (!webview) return;
+
+        try {
+            // Inject script to fill the login form
+            await webview.executeJavaScript(`
+                (function() {
+                    const username = ${JSON.stringify(password.username)};
+                    const pwd = ${JSON.stringify(password.password)};
+
+                    // Find username/email fields
+                    const usernameInputs = document.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"], input[id*="user"], input[id*="email"], input[id*="login"]');
+                    const passwordInputs = document.querySelectorAll('input[type="password"]');
+
+                    // Fill username - try to find the best match
+                    for (const input of usernameInputs) {
+                        if (input.offsetParent !== null) { // visible
+                            input.value = username;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            break;
+                        }
+                    }
+
+                    // Fill password
+                    for (const input of passwordInputs) {
+                        if (input.offsetParent !== null) { // visible
+                            input.value = pwd;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            break;
+                        }
+                    }
+                })();
+            `);
+            setShowPasswordFill(false);
+        } catch (err) {
+            console.error('[Browser] Failed to fill password:', err);
+        }
+    }, []);
+
+    const loadAllPasswords = useCallback(async () => {
+        try {
+            const result = await (window as any).api?.passwordList?.();
+            if (result?.success) {
+                setAllPasswords(result.passwords || []);
+            }
+        } catch (err) {
+            console.error('[Browser] Failed to load passwords:', err);
+        }
+    }, []);
+
+    const handleDeletePassword = useCallback(async (id: string) => {
+        try {
+            await (window as any).api?.passwordDelete?.(id);
+            loadAllPasswords();
+        } catch (err) {
+            console.error('[Browser] Failed to delete password:', err);
+        }
+    }, [loadAllPasswords]);
+
+    // Inject form detection script when page loads
+    useEffect(() => {
+        const webview = webviewRef.current;
+        if (!webview) return;
+
+        const handleDomReady = async () => {
+            // Check for saved passwords for this site
+            const url = webview.getURL?.();
+            if (url) {
+                checkForSavedPasswords(url);
+            }
+
+            // Inject script to detect login form submissions
+            try {
+                await webview.executeJavaScript(`
+                    (function() {
+                        if (window.__npcPasswordDetectorInstalled) return;
+                        window.__npcPasswordDetectorInstalled = true;
+
+                        document.addEventListener('submit', function(e) {
+                            const form = e.target;
+                            const passwordInputs = form.querySelectorAll('input[type="password"]');
+                            if (passwordInputs.length === 0) return;
+
+                            // Find username/email field
+                            const usernameInputs = form.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"]');
+                            let username = '';
+                            for (const input of usernameInputs) {
+                                if (input.value) {
+                                    username = input.value;
+                                    break;
+                                }
+                            }
+
+                            const password = passwordInputs[0].value;
+                            if (username && password) {
+                                // Send to parent via postMessage (will be picked up by IPC)
+                                window.postMessage({
+                                    type: 'npc-password-detected',
+                                    site: window.location.hostname,
+                                    username: username,
+                                    password: password
+                                }, '*');
+                            }
+                        }, true);
+                    })();
+                `);
+            } catch (err) {
+                // Ignore errors for pages that don't allow JS injection
+            }
+        };
+
+        const handleIpcMessage = (event: any) => {
+            if (event.channel === 'password-detected') {
+                const { site, username, password } = event.args[0];
+                setPendingCredentials({ site, username, password });
+                setShowPasswordPrompt(true);
+            }
+        };
+
+        // Listen for console messages that contain our password detection
+        const handleConsoleMessage = (event: any) => {
+            try {
+                if (event.message?.includes('npc-password-detected')) {
+                    const match = event.message.match(/npc-password-detected:(.+)/);
+                    if (match) {
+                        const data = JSON.parse(match[1]);
+                        setPendingCredentials(data);
+                        setShowPasswordPrompt(true);
+                    }
+                }
+            } catch { /* ignore parsing errors */ }
+        };
+
+        webview.addEventListener('dom-ready', handleDomReady);
+        webview.addEventListener('ipc-message', handleIpcMessage);
+        webview.addEventListener('console-message', handleConsoleMessage);
+
+        return () => {
+            webview.removeEventListener('dom-ready', handleDomReady);
+            webview.removeEventListener('ipc-message', handleIpcMessage);
+            webview.removeEventListener('console-message', handleConsoleMessage);
+        };
+    }, [checkForSavedPasswords]);
+
+    // Site permission management
+    const getPermissionsForSite = useCallback((url: string) => {
+        const site = getSiteFromUrl(url);
+        return sitePermissions[site] || [];
+    }, [sitePermissions, getSiteFromUrl]);
+
+    const toggleSitePermission = useCallback((permission: string) => {
+        const site = getSiteFromUrl(currentUrl);
+        setSitePermissions(prev => {
+            const current = prev[site] || [];
+            const updated = current.includes(permission)
+                ? current.filter(p => p !== permission)
+                : [...current, permission];
+            const newPerms = { ...prev, [site]: updated };
+            localStorage.setItem('npc-browser-site-permissions', JSON.stringify(newPerms));
+            return newPerms;
+        });
+    }, [currentUrl, getSiteFromUrl]);
+
+    const AVAILABLE_PERMISSIONS = [
+        { id: 'clipboard-read', name: 'Clipboard Read', desc: 'Read from clipboard' },
+        { id: 'clipboard-write', name: 'Clipboard Write', desc: 'Write to clipboard' },
+        { id: 'notifications', name: 'Notifications', desc: 'Show notifications' },
+        { id: 'geolocation', name: 'Location', desc: 'Access your location' },
+        { id: 'media', name: 'Camera/Mic', desc: 'Access camera and microphone' },
+    ];
+
+    // Load passwords when menu opens
+    useEffect(() => {
+        if (showPasswordsMenu) {
+            loadAllPasswords();
+        }
+    }, [showPasswordsMenu, loadAllPasswords]);
+
     // Re-introducing drag-and-drop and context menu for the pane itself
     const handleDragStart = useCallback((e) => {
         e.dataTransfer.effectAllowed = 'move';
@@ -558,11 +810,142 @@ const WebBrowserViewer = memo(({
                     </div>
                 </div>
 
-                {/* Far right: Extensions + Settings + Close in one row */}
+                {/* Far right: Passwords + Permissions + Extensions + Settings + Close in one row */}
                 <div className="flex items-center gap-0.5 px-1 border-l theme-border">
+                    {/* Saved passwords indicator */}
+                    {savedPasswords.length > 0 && (
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowPasswordFill(!showPasswordFill)}
+                                className="p-1 theme-hover rounded text-green-400"
+                                title={`${savedPasswords.length} saved password(s) available`}
+                            >
+                                <Key size={16} />
+                            </button>
+                            {showPasswordFill && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setShowPasswordFill(false)} />
+                                    <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[220px]">
+                                        <div className="p-2 border-b theme-border">
+                                            <span className="text-xs font-medium theme-text-primary">Auto-fill Credentials</span>
+                                        </div>
+                                        {savedPasswords.map((pwd: any, idx: number) => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => handleFillPassword(pwd)}
+                                                className="flex items-center gap-2 w-full px-3 py-2 text-left theme-hover"
+                                            >
+                                                <Key size={14} className="text-green-400" />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-xs theme-text-primary truncate">{pwd.username}</div>
+                                                    <div className="text-[10px] theme-text-muted">{pwd.site}</div>
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Site permissions button */}
+                    <div className="relative">
+                        <button
+                            onClick={() => { setShowPermissionsMenu(!showPermissionsMenu); setShowSessionMenu(false); setShowExtensionsMenu(false); setShowPasswordsMenu(false); }}
+                            className={`p-1 theme-hover rounded ${getPermissionsForSite(currentUrl).length > 0 ? 'text-blue-400' : ''}`}
+                            title="Site Permissions"
+                        >
+                            <Shield size={16} />
+                        </button>
+                        {showPermissionsMenu && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowPermissionsMenu(false)} />
+                                <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[250px]">
+                                    <div className="p-2 border-b theme-border">
+                                        <span className="text-xs font-medium theme-text-primary">Permissions for {getSiteFromUrl(currentUrl)}</span>
+                                    </div>
+                                    <div className="py-1">
+                                        {AVAILABLE_PERMISSIONS.map(perm => {
+                                            const isAllowed = getPermissionsForSite(currentUrl).includes(perm.id);
+                                            return (
+                                                <button
+                                                    key={perm.id}
+                                                    onClick={() => toggleSitePermission(perm.id)}
+                                                    className="flex items-center gap-2 w-full px-3 py-2 text-left theme-hover"
+                                                >
+                                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${isAllowed ? 'bg-green-500 border-green-500' : 'border-gray-500'}`}>
+                                                        {isAllowed && <Check size={10} className="text-white" />}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <div className="text-xs theme-text-primary">{perm.name}</div>
+                                                        <div className="text-[10px] theme-text-muted">{perm.desc}</div>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Passwords manager button */}
+                    <div className="relative">
+                        <button
+                            onClick={() => { setShowPasswordsMenu(!showPasswordsMenu); setShowSessionMenu(false); setShowExtensionsMenu(false); setShowPermissionsMenu(false); }}
+                            className="p-1 theme-hover rounded"
+                            title="Saved Passwords"
+                        >
+                            <Key size={16} />
+                        </button>
+                        {showPasswordsMenu && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowPasswordsMenu(false)} />
+                                <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[280px] max-h-[400px] overflow-auto">
+                                    <div className="p-2 border-b theme-border">
+                                        <span className="text-xs font-medium theme-text-primary">Saved Passwords</span>
+                                    </div>
+                                    {allPasswords.length > 0 ? (
+                                        <div className="py-1">
+                                            {allPasswords.map((pwd: any) => (
+                                                <div key={pwd.id} className="flex items-center gap-2 px-3 py-2 theme-hover">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="text-xs theme-text-primary truncate">{pwd.site}</div>
+                                                        <div className="text-[10px] theme-text-muted truncate">{pwd.username}</div>
+                                                        <div className="text-[10px] font-mono theme-text-muted">
+                                                            {showPasswordValue === pwd.id ? pwd.password : '••••••••'}
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => setShowPasswordValue(showPasswordValue === pwd.id ? null : pwd.id)}
+                                                        className="p-1 theme-hover rounded"
+                                                        title={showPasswordValue === pwd.id ? "Hide password" : "Show password"}
+                                                    >
+                                                        {showPasswordValue === pwd.id ? <EyeOff size={12} /> : <Eye size={12} />}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeletePassword(pwd.id)}
+                                                        className="p-1 theme-hover rounded text-red-400"
+                                                        title="Delete password"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="px-3 py-4 text-xs theme-text-muted text-center">
+                                            No saved passwords
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
                     {/* Extensions button */}
                     <div className="relative">
-                        <button onClick={() => { setShowExtensionsMenu(!showExtensionsMenu); setShowSessionMenu(false); }} className={`p-1 theme-hover rounded ${extensions.length > 0 ? 'text-purple-400' : ''}`} title="Extensions"><Puzzle size={16} /></button>
+                        <button onClick={() => { setShowExtensionsMenu(!showExtensionsMenu); setShowSessionMenu(false); setShowPasswordsMenu(false); setShowPermissionsMenu(false); }} className={`p-1 theme-hover rounded ${extensions.length > 0 ? 'text-purple-400' : ''}`} title="Extensions"><Puzzle size={16} /></button>
                         {showExtensionsMenu && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setShowExtensionsMenu(false)} />
@@ -656,6 +1039,59 @@ const WebBrowserViewer = memo(({
                     partition={`persist:${viewId}`}
                     style={{ visibility: error ? 'hidden' : 'visible' }}
                 />
+
+                {/* Password Save Prompt */}
+                {showPasswordPrompt && pendingCredentials && (
+                    <div className="absolute bottom-4 right-4 z-50 theme-bg-secondary border theme-border rounded-lg shadow-lg p-4 max-w-sm">
+                        <div className="flex items-start gap-3">
+                            <div className="p-2 rounded-full bg-green-500/20">
+                                <Key size={20} className="text-green-400" />
+                            </div>
+                            <div className="flex-1">
+                                <h4 className="text-sm font-medium theme-text-primary mb-1">Save password?</h4>
+                                <p className="text-xs theme-text-muted mb-2">
+                                    Save credentials for <span className="font-medium">{pendingCredentials.site}</span>
+                                </p>
+                                <div className="text-xs theme-text-muted mb-3">
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-gray-500">Username:</span>
+                                        <span>{pendingCredentials.username}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-gray-500">Password:</span>
+                                        <span>{showPasswordInPrompt ? pendingCredentials.password : '••••••••'}</span>
+                                        <button
+                                            onClick={() => setShowPasswordInPrompt(!showPasswordInPrompt)}
+                                            className="p-0.5 theme-hover rounded"
+                                        >
+                                            {showPasswordInPrompt ? <EyeOff size={10} /> : <Eye size={10} />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={handleSavePassword}
+                                        className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs rounded font-medium"
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        onClick={() => { setShowPasswordPrompt(false); setPendingCredentials(null); }}
+                                        className="flex-1 px-3 py-1.5 theme-bg-tertiary theme-hover text-xs rounded"
+                                    >
+                                        Not now
+                                    </button>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => { setShowPasswordPrompt(false); setPendingCredentials(null); }}
+                                className="p-1 theme-hover rounded"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

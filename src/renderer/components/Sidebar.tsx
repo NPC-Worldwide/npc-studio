@@ -9,7 +9,8 @@ import {
     Palette, Code, Save, FolderOpen, Home, ArrowLeft, ArrowRight, Menu, MoreVertical,
     Loader2, ExternalLink, Link, Unlink, Filter, SortAsc, SortDesc, Table, Grid,
     List, Maximize2, Minimize2, Move, RotateCcw, ZoomIn, ZoomOut, Layers, Layout,
-    Pause, Server, Mail, Cpu, Wifi, WifiOff, Power, PowerOff, Hash, AtSign
+    Pause, Server, Mail, Cpu, Wifi, WifiOff, Power, PowerOff, Hash, AtSign, FlaskConical,
+    BrainCircuit
 } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
@@ -75,7 +76,7 @@ const Sidebar = (props: any) => {
         handleGlobalDragStart, handleGlobalDragEnd, normalizePath, getFileIcon,
         serializeWorkspace, saveWorkspaceToStorage, handleConversationSelect, handleFileClick,
         handleInputSubmit, toggleTheme, goUpDirectory, switchToPath,
-        handleCreateNewFolder, createNewTextFile, createNewTerminal, createNewDocument,
+        handleCreateNewFolder, createNewTextFile, createNewTerminal, createNewNotebook, createNewExperiment, createNewDocument,
         handleOpenNpcTeamMenu, renderSearchResults,
         createAndAddPaneNodeToLayout, findNodePath, findNodeByPath
     } = props;
@@ -85,6 +86,48 @@ const Sidebar = (props: any) => {
 
     // Local state for disk usage panel
     const [diskUsageCollapsed, setDiskUsageCollapsed] = useState(true);
+    // Search state for sidebar sections
+    const [convoSearch, setConvoSearch] = useState('');
+    const [fileSearch, setFileSearch] = useState('');
+    const [fileTypeFilter, setFileTypeFilter] = useState<string>(() => localStorage.getItem('npcStudio_fileTypeFilter') || '');
+    const [showFileTypeFilter, setShowFileTypeFilter] = useState(false);
+    const [websiteSearch, setWebsiteSearch] = useState('');
+
+    // Conversation filters
+    const [showConvoFilters, setShowConvoFilters] = useState(false);
+    const [convoNpcFilter, setConvoNpcFilter] = useState<string>(() => localStorage.getItem('npcStudio_convoNpcFilter') || '');
+    const [convoModelFilter, setConvoModelFilter] = useState<string>(() => localStorage.getItem('npcStudio_convoModelFilter') || '');
+    const [convoDateFrom, setConvoDateFrom] = useState<string>(() => localStorage.getItem('npcStudio_convoDateFrom') || '');
+    const [convoDateTo, setConvoDateTo] = useState<string>(() => localStorage.getItem('npcStudio_convoDateTo') || '');
+
+    // Persist file type filter to localStorage
+    useEffect(() => {
+        localStorage.setItem('npcStudio_fileTypeFilter', fileTypeFilter);
+    }, [fileTypeFilter]);
+
+    // Persist conversation filters to localStorage
+    useEffect(() => {
+        localStorage.setItem('npcStudio_convoNpcFilter', convoNpcFilter);
+    }, [convoNpcFilter]);
+    useEffect(() => {
+        localStorage.setItem('npcStudio_convoModelFilter', convoModelFilter);
+    }, [convoModelFilter]);
+    useEffect(() => {
+        localStorage.setItem('npcStudio_convoDateFrom', convoDateFrom);
+    }, [convoDateFrom]);
+    useEffect(() => {
+        localStorage.setItem('npcStudio_convoDateTo', convoDateTo);
+    }, [convoDateTo]);
+
+    // Memory and Knowledge Graph sections
+    const [memoriesCollapsed, setMemoriesCollapsed] = useState(true);
+    const [knowledgeCollapsed, setKnowledgeCollapsed] = useState(true);
+    const [memorySearch, setMemorySearch] = useState('');
+    const [knowledgeSearch, setKnowledgeSearch] = useState('');
+    const [memories, setMemories] = useState<any[]>([]);
+    const [knowledgeEntities, setKnowledgeEntities] = useState<any[]>([]);
+    const [loadingMemories, setLoadingMemories] = useState(false);
+    const [loadingKnowledge, setLoadingKnowledge] = useState(false);
     // Local state for header actions expanded/collapsed (persisted)
     const [headerActionsExpanded, setHeaderActionsExpanded] = useState(() => {
         const saved = localStorage.getItem('npcStudio_headerActionsExpanded');
@@ -101,6 +144,75 @@ const Sidebar = (props: any) => {
     const [terminalDropdownOpen, setTerminalDropdownOpen] = useState(false);
     // Chat+ dropdown state (click-based)
     const [chatPlusDropdownOpen, setChatPlusDropdownOpen] = useState(false);
+    // Code file dropdown state
+    const [codeFileDropdownOpen, setCodeFileDropdownOpen] = useState(false);
+    const [defaultCodeFileType, setDefaultCodeFileType] = useState<string>(() =>
+        localStorage.getItem('npcStudio_defaultCodeFileType') || 'py'
+    );
+    // Refs to track button positions for fixed dropdowns
+    const terminalDropdownRef = useRef<HTMLButtonElement>(null);
+    const codeFileDropdownRef = useRef<HTMLButtonElement>(null);
+    const docDropdownRef = useRef<HTMLButtonElement>(null);
+
+    // Persist default code file type
+    useEffect(() => {
+        localStorage.setItem('npcStudio_defaultCodeFileType', defaultCodeFileType);
+    }, [defaultCodeFileType]);
+
+    // Common file types for quick access
+    const commonFileTypes = [
+        { ext: 'py', label: 'Python', icon: '🐍' },
+        { ext: 'js', label: 'JavaScript', icon: '📜' },
+        { ext: 'ts', label: 'TypeScript', icon: '📘' },
+        { ext: 'jsx', label: 'React JSX', icon: '⚛️' },
+        { ext: 'tsx', label: 'React TSX', icon: '⚛️' },
+        { ext: 'md', label: 'Markdown', icon: '📝' },
+        { ext: 'txt', label: 'Text', icon: '📄' },
+        { ext: 'sh', label: 'Shell Script', icon: '🖥️' },
+        { ext: 'json', label: 'JSON', icon: '{}' },
+        { ext: 'html', label: 'HTML', icon: '🌐' },
+        { ext: 'css', label: 'CSS', icon: '🎨' },
+        { ext: 'yaml', label: 'YAML', icon: '📋' },
+        { ext: 'sql', label: 'SQL', icon: '🗃️' },
+        { ext: 'go', label: 'Go', icon: '🐹' },
+        { ext: 'rs', label: 'Rust', icon: '🦀' },
+        { ext: 'c', label: 'C', icon: '©️' },
+        { ext: 'cpp', label: 'C++', icon: '➕' },
+        { ext: 'java', label: 'Java', icon: '☕' },
+    ];
+
+    // Create file with specific extension
+    const createFileWithExtension = (ext: string) => {
+        setCodeFileDropdownOpen(false);
+        const filename = `untitled.${ext}`;
+        // Call createNewTextFile with the pre-filled filename
+        if (createNewTextFile) {
+            // We need to trigger the modal with a default filename
+            // For now, just set a global or pass through props
+            window.dispatchEvent(new CustomEvent('createNewFileWithName', { detail: { filename } }));
+        }
+    };
+
+    // Close dropdowns when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            // Close code file dropdown if clicking outside
+            if (codeFileDropdownOpen && !target.closest('[data-dropdown="code-file"]')) {
+                setCodeFileDropdownOpen(false);
+            }
+            // Close doc dropdown if clicking outside
+            if (docDropdownOpen && !target.closest('[data-dropdown="doc"]')) {
+                setDocDropdownOpen(false);
+            }
+            // Close terminal dropdown if clicking outside
+            if (terminalDropdownOpen && !target.closest('[data-dropdown="terminal"]')) {
+                setTerminalDropdownOpen(false);
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [codeFileDropdownOpen, docDropdownOpen, terminalDropdownOpen]);
     // Website context menu state
     const [websiteContextMenu, setWebsiteContextMenu] = useState<{ x: number; y: number; url: string; title: string } | null>(null);
     // Zip modal state
@@ -1135,11 +1247,6 @@ const renderActiveWindowsIndicator = () => {
     );
 };
 const renderWorkspaceIndicator = () => {
-    // Debug logging
-    console.log('contentDataRef.current:', contentDataRef.current);
-    console.log('Object.keys(contentDataRef.current):', Object.keys(contentDataRef.current));
-    console.log('rootLayoutNode:', rootLayoutNode);
-    
     // Check if current path has a saved workspace
     const allWorkspaces = JSON.parse(localStorage.getItem(WINDOW_WORKSPACES_KEY) || '{}');
     const windowWorkspaces = allWorkspaces[windowId] || {};
@@ -1158,10 +1265,7 @@ const renderWorkspaceIndicator = () => {
         return 0;
     };
     const layoutPaneCount = countPanesInLayout(rootLayoutNode);
-    
-    console.log('activePaneCount from contentDataRef:', activePaneCount);
-    console.log('layoutPaneCount from rootLayoutNode:', layoutPaneCount);
-    
+
     const workspaceData = windowWorkspaces[currentPath];
     const workspaceInfo = workspaceData ? {
         paneCount: layoutPaneCount, // Use the layout count instead
@@ -1279,14 +1383,11 @@ const renderWorkspaceIndicator = () => {
     }
     
     try {
-        
         if (selectedConversationIds.length > 0) {
-            console.log('Deleting conversations from database:', selectedConversationIds);
             await Promise.all(selectedConversationIds.map(id => window.api.deleteConversation(id)));
         }
-        
+
         if (selectedFilePaths.length > 0) {
-            console.log('Deleting files from filesystem:', selectedFilePaths);
             await Promise.all(selectedFilePaths.map(filePath => window.api.deleteFile(filePath)));
         }
 
@@ -1324,7 +1425,6 @@ const refreshDirectoryStructureOnly = async () => {
         }
         
         // DON'T load conversations - just refresh the file structure
-        console.log('[REFRESH_STRUCTURE] Refreshed folder structure only');
         return structureResult;
     } catch (err) {
         console.error('Error loading structure:', err);
@@ -1335,36 +1435,32 @@ const refreshDirectoryStructureOnly = async () => {
 };
 const refreshConversations = async () => {
     if (currentPath) {
-        console.log('[REFRESH] Starting conversation refresh for path:', currentPath);
         try {
             const normalizedPath = normalizePath(currentPath);
             const response = await window.api.getConversations(normalizedPath);
-            console.log('[REFRESH] Got response:', response);
-            
+
             if (response?.conversations) {
                 const formattedConversations = response.conversations.map(conv => ({
                     id: conv.id,
                     title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
                     preview: conv.preview || 'No content',
                     timestamp: conv.timestamp || Date.now(),
-                    last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
+                    last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now(),
+                    npc: conv.npc || conv.assistant_name || conv.npc_name || '',
+                    model: conv.model || conv.model_name || '',
+                    provider: conv.provider || '',
                 }));
-                
-                formattedConversations.sort((a, b) => 
+
+                formattedConversations.sort((a, b) =>
                     new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
                 );
-                
-                console.log('[REFRESH] Setting conversations:', formattedConversations.length);
+
                 setDirectoryConversations([...formattedConversations]);
-                
-                // ADD THIS: Don't auto-select anything - just update the list
-                console.log('[REFRESH] Refresh complete, preserving current selection');
             } else {
-                console.error('[REFRESH] No conversations in response');
                 setDirectoryConversations([]);
             }
         } catch (err) {
-            console.error('[REFRESH] Error:', err);
+            console.error('Error refreshing conversations:', err);
             setDirectoryConversations([]);
         }
     }
@@ -1372,58 +1468,81 @@ const refreshConversations = async () => {
 
 
 const renderWebsiteList = () => {
+    // Filter websites by search
+    const allWebsites = [...(websiteHistory || []), ...(bookmarks || [])];
+    const filteredWebsites = websiteSearch.trim()
+        ? allWebsites.filter(site =>
+            (site.title || '').toLowerCase().includes(websiteSearch.toLowerCase()) ||
+            (site.url || '').toLowerCase().includes(websiteSearch.toLowerCase())
+        )
+        : allWebsites;
+
     const header = (
-        <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
-            <div className="text-xs text-gray-400 font-medium">Websites</div>
-                    <div className="flex items-center gap-1 w-[66%]">
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        loadWebsiteHistory();
-                    }}
-                    className="p-1 theme-hover rounded-full transition-all"
-                    title="Refresh website history"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
-                    </svg>
-                </button>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setWebsitesCollapsed(!websitesCollapsed);
-                    }}
-                    className="p-1 theme-hover rounded-full transition-all"
-                    title={websitesCollapsed ? "Expand websites" : "Collapse websites"}
-                >
-                    <ChevronRight
-                        size={16}
-                        className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`}
-                    />
-                </button>
+        <div className="mx-1 mt-3">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-purple-900/20 to-indigo-900/20 rounded-t-lg border-b border-purple-500/20">
+                <div className="flex items-center gap-1.5">
+                    <Globe size={12} className="text-purple-400" />
+                    <span className="text-[11px] text-purple-300 font-medium">Websites</span>
+                    <span className="text-[10px] text-gray-500">({openBrowsers.length + allWebsites.length})</span>
+                </div>
+                <div className="flex items-center gap-0.5">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
+                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                        title="Refresh"
+                    >
+                        <RefreshCw size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setWebsitesCollapsed(!websitesCollapsed); }}
+                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                        title={websitesCollapsed ? "Expand" : "Collapse"}
+                    >
+                        <ChevronRight size={14} className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`} />
+                    </button>
+                </div>
             </div>
+            {!websitesCollapsed && allWebsites.length > 0 && (
+                <div className="px-1 py-1 bg-black/20 border-b border-white/5">
+                    <div className="relative">
+                        <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                        <input
+                            type="text"
+                            value={websiteSearch}
+                            onChange={(e) => setWebsiteSearch(e.target.value)}
+                            placeholder="Search websites..."
+                            className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-purple-500/50"
+                        />
+                        {websiteSearch && (
+                            <button onClick={() => setWebsiteSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                <X size={10} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 
     if (websitesCollapsed && openBrowsers.length === 0) {
-        return <div className="mt-4">{header}</div>;
+        return <div>{header}</div>;
     }
 
     return (
-        <div className="mt-4">
+        <div>
             {header}
-            
+
             {!websitesCollapsed && (
-                <div className="px-1 space-y-2">
+                <div className="mx-1 bg-black/10 rounded-b-lg max-h-[240px] overflow-y-auto">
                     {/* Currently Open Browsers */}
                     {openBrowsers.length > 0 && (
-                        <div>
+                        <div className="border-b border-white/5">
                             <div
-                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                className="text-[10px] text-gray-500 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-white/5"
                                 onClick={() => setOpenBrowsersCollapsed(!openBrowsersCollapsed)}
                             >
-                                <span>Open Now ({openBrowsers.length})</span>
-                                <ChevronRight size={12} className={`transform transition-transform ${openBrowsersCollapsed ? '' : 'rotate-90'}`} />
+                                <span className="flex items-center gap-1"><Globe size={10} className="text-blue-400" /> Open ({openBrowsers.length})</span>
+                                <ChevronRight size={10} className={`transform transition-transform ${openBrowsersCollapsed ? '' : 'rotate-90'}`} />
                             </div>
                             {!openBrowsersCollapsed && openBrowsers.map(browser => (
                                 <button
@@ -1439,20 +1558,16 @@ const renderWebsiteList = () => {
                                             title: browser.title || new URL(browser.url).hostname
                                         });
                                     }}
-                                    className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all ${
+                                    className={`flex items-center gap-2 px-2 py-1.5 w-full text-left transition-all group ${
                                         activeContentPaneId === browser.paneId
-                                            ? 'conversation-selected border-l-2 border-blue-500'
-                                            : 'hover:bg-gray-800'
+                                            ? 'bg-blue-500/20 border-l-2 border-blue-500'
+                                            : 'hover:bg-white/5 border-l-2 border-transparent'
                                     }`}
                                 >
-                                    <Globe size={14} className="text-blue-400 flex-shrink-0" />
+                                    <Globe size={13} className="text-blue-400 flex-shrink-0" />
                                     <div className="flex flex-col overflow-hidden min-w-0 flex-1">
-                                        <span className="text-xs truncate font-medium">
-                                            {browser.title}
-                                        </span>
-                                        <span className="text-xs text-gray-500 truncate">
-                                            {browser.url}
-                                        </span>
+                                        <span className="text-[11px] truncate text-gray-200">{browser.title}</span>
+                                        <span className="text-[9px] text-gray-600 truncate">{browser.url}</span>
                                     </div>
                                 </button>
                             ))}
@@ -1461,13 +1576,16 @@ const renderWebsiteList = () => {
 
                     {/* Bookmarks */}
                     {bookmarks.length > 0 && (
-                        <div>
+                        <div className="border-b border-white/5">
                             <div
-                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                className="text-[10px] text-gray-500 px-2 py-1.5 font-medium flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors"
                                 onClick={() => setBookmarksCollapsed(!bookmarksCollapsed)}
                             >
-                                <span>Bookmarks ({bookmarks.length})</span>
-                                <ChevronRight size={12} className={`transform transition-transform ${bookmarksCollapsed ? '' : 'rotate-90'}`} />
+                                <span className="flex items-center gap-1.5">
+                                    <Star size={10} className="text-yellow-400" />
+                                    Bookmarks ({bookmarks.length})
+                                </span>
+                                <ChevronRight size={10} className={`transform transition-transform text-gray-600 ${bookmarksCollapsed ? '' : 'rotate-90'}`} />
                             </div>
                             {!bookmarksCollapsed && bookmarks.map((bookmark, idx) => (
                                 <button
@@ -1483,12 +1601,12 @@ const renderWebsiteList = () => {
                                             title: bookmark.title
                                         });
                                     }}
-                                    className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all group"
+                                    className="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-white/5 transition-all group border-l-2 border-transparent hover:border-yellow-500/50"
                                 >
-                                    <Star size={14} className="text-yellow-400 flex-shrink-0" />
+                                    <Star size={12} className="text-yellow-400 flex-shrink-0" />
                                     <div className="flex flex-col overflow-hidden min-w-0 flex-1">
-                                        <span className="text-xs truncate">{bookmark.title}</span>
-                                        <span className="text-xs text-gray-500 truncate">{bookmark.url}</span>
+                                        <span className="text-[11px] truncate text-gray-200">{bookmark.title}</span>
+                                        <span className="text-[9px] text-gray-600 truncate">{bookmark.url}</span>
                                     </div>
                                 </button>
                             ))}
@@ -1497,13 +1615,16 @@ const renderWebsiteList = () => {
 
                     {/* Common Sites */}
                     {commonSites.length > 0 && (
-                        <div>
+                        <div className="border-b border-white/5">
                             <div
-                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                className="text-[10px] text-gray-500 px-2 py-1.5 font-medium flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors"
                                 onClick={() => setCommonSitesCollapsed(!commonSitesCollapsed)}
                             >
-                                <span>Common Sites ({commonSites.length})</span>
-                                <ChevronRight size={12} className={`transform transition-transform ${commonSitesCollapsed ? '' : 'rotate-90'}`} />
+                                <span className="flex items-center gap-1.5">
+                                    <Globe size={10} className="text-green-400" />
+                                    Frequent ({commonSites.length})
+                                </span>
+                                <ChevronRight size={10} className={`transform transition-transform text-gray-600 ${commonSitesCollapsed ? '' : 'rotate-90'}`} />
                             </div>
                             {!commonSitesCollapsed && commonSites.map(site => (
                                 <button
@@ -1529,25 +1650,25 @@ const renderWebsiteList = () => {
                                             title: site.domain
                                         });
                                     }}
-                                    className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all group"
+                                    className="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-white/5 transition-all group border-l-2 border-transparent hover:border-green-500/50"
                                 >
-                                    <img 
-                                        src={site.favicon} 
-                                        alt="" 
-                                        className="w-4 h-4 flex-shrink-0"
+                                    <img
+                                        src={site.favicon}
+                                        alt=""
+                                        className="w-3.5 h-3.5 flex-shrink-0 rounded"
                                         onError={(e) => {
                                             e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="gray" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
                                         }}
                                     />
                                     <div className="flex flex-col overflow-hidden min-w-0 flex-1">
-                                        <span className="text-xs truncate">{site.domain}</span>
-                                        <span className="text-xs text-gray-500">
+                                        <span className="text-[11px] truncate text-gray-200">{site.domain}</span>
+                                        <span className="text-[9px] text-gray-600">
                                             {site.count} visits
                                         </span>
                                     </div>
-                                    <Plus 
-                                        size={12} 
-                                        className="text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" 
+                                    <Plus
+                                        size={10}
+                                        className="text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity hover:text-green-400"
                                     />
                                 </button>
                             ))}
@@ -1558,11 +1679,14 @@ const renderWebsiteList = () => {
                     {websiteHistory.length > 0 && (
                         <div>
                             <div
-                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                className="text-[10px] text-gray-500 px-2 py-1.5 font-medium flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors"
                                 onClick={() => setRecentHistoryCollapsed(!recentHistoryCollapsed)}
                             >
-                                <span>Recent History ({websiteHistory.length})</span>
-                                <ChevronRight size={12} className={`transform transition-transform ${recentHistoryCollapsed ? '' : 'rotate-90'}`} />
+                                <span className="flex items-center gap-1.5">
+                                    <Clock size={10} className="text-cyan-400" />
+                                    History ({websiteHistory.length})
+                                </span>
+                                <ChevronRight size={10} className={`transform transition-transform text-gray-600 ${recentHistoryCollapsed ? '' : 'rotate-90'}`} />
                             </div>
                             {!recentHistoryCollapsed && <div className="max-h-48 overflow-y-auto">
                                 {websiteHistory.slice(0, 20).map((item, idx) => (
@@ -1589,14 +1713,14 @@ const renderWebsiteList = () => {
                                                 title: item.title || new URL(item.url).hostname
                                             });
                                         }}
-                                        className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all"
+                                        className="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-white/5 transition-all group border-l-2 border-transparent hover:border-cyan-500/50"
                                     >
-                                        <Globe size={12} className="text-gray-400 flex-shrink-0" />
+                                        <Globe size={11} className="text-gray-500 flex-shrink-0" />
                                         <div className="flex flex-col overflow-hidden min-w-0 flex-1">
-                                            <span className="text-xs truncate">
+                                            <span className="text-[11px] truncate text-gray-300">
                                                 {item.title || new URL(item.url).hostname}
                                             </span>
-                                            <span className="text-xs text-gray-500 truncate">
+                                            <span className="text-[9px] text-gray-600 truncate">
                                                 {new Date(item.timestamp).toLocaleString()}
                                             </span>
                                         </div>
@@ -1629,6 +1753,234 @@ useEffect(() => {
         loadGitStatus();
     }
     }, [currentPath, loadGitStatus]);
+
+    // Load memories for the current path
+    const loadMemories = useCallback(async () => {
+        if (!currentPath) return;
+        setLoadingMemories(true);
+        try {
+            // Try to fetch memories from the API
+            const response = await window.api.getMemories?.({ path: currentPath, limit: 50 });
+            if (response?.memories) {
+                setMemories(response.memories);
+            }
+        } catch (err) {
+            console.error('[Sidebar] Failed to load memories:', err);
+        } finally {
+            setLoadingMemories(false);
+        }
+    }, [currentPath]);
+
+    // Load knowledge graph entities for the current path
+    const loadKnowledgeEntities = useCallback(async () => {
+        if (!currentPath) return;
+        setLoadingKnowledge(true);
+        try {
+            // Try to fetch knowledge graph from the API
+            const response = await window.api.getKnowledgeGraph?.({ path: currentPath, limit: 50 });
+            if (response?.entities) {
+                setKnowledgeEntities(response.entities);
+            }
+        } catch (err) {
+            console.error('[Sidebar] Failed to load knowledge graph:', err);
+        } finally {
+            setLoadingKnowledge(false);
+        }
+    }, [currentPath]);
+
+    // Load memories and knowledge when path changes or sections expand
+    useEffect(() => {
+        if (!memoriesCollapsed && currentPath) {
+            loadMemories();
+        }
+    }, [memoriesCollapsed, currentPath, loadMemories]);
+
+    useEffect(() => {
+        if (!knowledgeCollapsed && currentPath) {
+            loadKnowledgeEntities();
+        }
+    }, [knowledgeCollapsed, currentPath, loadKnowledgeEntities]);
+
+    // Render Memory section
+    const renderMemorySection = () => {
+        const filteredMemories = memorySearch.trim()
+            ? memories.filter(m =>
+                (m.content || '').toLowerCase().includes(memorySearch.toLowerCase()) ||
+                (m.type || '').toLowerCase().includes(memorySearch.toLowerCase())
+            )
+            : memories;
+
+        return (
+            <div className="mx-1 mt-3">
+                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-purple-900/20 to-pink-900/20 rounded-t-lg border-b border-purple-500/20">
+                    <div className="flex items-center gap-1.5">
+                        <BrainCircuit size={12} className="text-purple-400" />
+                        <span className="text-[11px] text-purple-300 font-medium">Memories</span>
+                        <span className="text-[10px] text-gray-500">({filteredMemories.length})</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); loadMemories(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                            title="Refresh memories"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setMemoriesCollapsed(!memoriesCollapsed); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                            title={memoriesCollapsed ? "Expand" : "Collapse"}
+                        >
+                            <ChevronRight size={14} className={`transform transition-transform ${memoriesCollapsed ? "" : "rotate-90"}`} />
+                        </button>
+                    </div>
+                </div>
+
+                {!memoriesCollapsed && (
+                    <>
+                        {/* Search */}
+                        <div className="px-1 py-1 bg-black/20 border-b border-white/5">
+                            <div className="relative">
+                                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="text"
+                                    value={memorySearch}
+                                    onChange={(e) => setMemorySearch(e.target.value)}
+                                    placeholder="Search memories..."
+                                    className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-purple-500/50"
+                                />
+                                {memorySearch && (
+                                    <button onClick={() => setMemorySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                        <X size={10} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Memory list */}
+                        <div className="bg-black/10 rounded-b-lg max-h-[200px] overflow-y-auto">
+                            {loadingMemories ? (
+                                <div className="px-3 py-3 text-[11px] text-gray-500 text-center">Loading...</div>
+                            ) : filteredMemories.length === 0 ? (
+                                <div className="px-3 py-3 text-[11px] text-gray-500 text-center">
+                                    {memorySearch ? `No matches for "${memorySearch}"` : 'No memories yet'}
+                                </div>
+                            ) : (
+                                filteredMemories.map((memory, index) => (
+                                    <div
+                                        key={memory.id || index}
+                                        className="px-2 py-1.5 hover:bg-white/5 border-l-2 border-transparent hover:border-purple-500/50 cursor-pointer"
+                                        onClick={() => {
+                                            // Could open memory in a viewer pane
+                                            console.log('Memory clicked:', memory);
+                                        }}
+                                    >
+                                        <div className="text-[11px] text-gray-200 truncate">{memory.content || memory.summary || 'Memory'}</div>
+                                        <div className="text-[9px] text-gray-500 flex items-center gap-1 mt-0.5">
+                                            <span className="px-1 py-0.5 bg-purple-500/20 rounded text-purple-400">{memory.type || 'general'}</span>
+                                            {memory.timestamp && <span>{new Date(memory.timestamp).toLocaleDateString()}</span>}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        );
+    };
+
+    // Render Knowledge Graph section
+    const renderKnowledgeSection = () => {
+        const filteredEntities = knowledgeSearch.trim()
+            ? knowledgeEntities.filter(e =>
+                (e.name || '').toLowerCase().includes(knowledgeSearch.toLowerCase()) ||
+                (e.type || '').toLowerCase().includes(knowledgeSearch.toLowerCase())
+            )
+            : knowledgeEntities;
+
+        return (
+            <div className="mx-1 mt-3">
+                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 rounded-t-lg border-b border-cyan-500/20">
+                    <div className="flex items-center gap-1.5">
+                        <Network size={12} className="text-cyan-400" />
+                        <span className="text-[11px] text-cyan-300 font-medium">Knowledge</span>
+                        <span className="text-[10px] text-gray-500">({filteredEntities.length})</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); loadKnowledgeEntities(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-cyan-400"
+                            title="Refresh knowledge graph"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setKnowledgeCollapsed(!knowledgeCollapsed); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                            title={knowledgeCollapsed ? "Expand" : "Collapse"}
+                        >
+                            <ChevronRight size={14} className={`transform transition-transform ${knowledgeCollapsed ? "" : "rotate-90"}`} />
+                        </button>
+                    </div>
+                </div>
+
+                {!knowledgeCollapsed && (
+                    <>
+                        {/* Search */}
+                        <div className="px-1 py-1 bg-black/20 border-b border-white/5">
+                            <div className="relative">
+                                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="text"
+                                    value={knowledgeSearch}
+                                    onChange={(e) => setKnowledgeSearch(e.target.value)}
+                                    placeholder="Search entities..."
+                                    className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-cyan-500/50"
+                                />
+                                {knowledgeSearch && (
+                                    <button onClick={() => setKnowledgeSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                        <X size={10} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Entity list */}
+                        <div className="bg-black/10 rounded-b-lg max-h-[200px] overflow-y-auto">
+                            {loadingKnowledge ? (
+                                <div className="px-3 py-3 text-[11px] text-gray-500 text-center">Loading...</div>
+                            ) : filteredEntities.length === 0 ? (
+                                <div className="px-3 py-3 text-[11px] text-gray-500 text-center">
+                                    {knowledgeSearch ? `No matches for "${knowledgeSearch}"` : 'No knowledge entries yet'}
+                                </div>
+                            ) : (
+                                filteredEntities.map((entity, index) => (
+                                    <div
+                                        key={entity.id || index}
+                                        className="px-2 py-1.5 hover:bg-white/5 border-l-2 border-transparent hover:border-cyan-500/50 cursor-pointer"
+                                        onClick={() => {
+                                            // Could open entity in knowledge graph viewer
+                                            createGraphViewerPane?.();
+                                        }}
+                                    >
+                                        <div className="text-[11px] text-gray-200 truncate flex items-center gap-1">
+                                            <Share2 size={10} className="text-cyan-400" />
+                                            {entity.name || 'Entity'}
+                                        </div>
+                                        <div className="text-[9px] text-gray-500 flex items-center gap-1 mt-0.5">
+                                            <span className="px-1 py-0.5 bg-cyan-500/20 rounded text-cyan-400">{entity.type || 'node'}</span>
+                                            {entity.connections && <span>{entity.connections} connections</span>}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        );
+    };
 
     const renderDiskUsagePanel = () => {
         console.log('[DiskUsage] renderDiskUsagePanel called, currentPath:', currentPath, 'diskUsageCollapsed:', diskUsageCollapsed);
@@ -1877,7 +2229,10 @@ useEffect(() => {
                   title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
                   preview: conv.preview || 'No content',
                   timestamp: conv.timestamp || Date.now(),
-                  last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
+                  last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now(),
+                  npc: conv.npc || conv.assistant_name || conv.npc_name || '',
+                  model: conv.model || conv.model_name || '',
+                  provider: conv.provider || '',
               })) || [];
       
               formattedConversations.sort((a, b) => 
@@ -2104,40 +2459,184 @@ const renderFolderList = (structure) => {
     if (!structure || typeof structure !== 'object' || structure.error) {
         return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>;
     }
+
+    // Count files for display
+    const countItems = (struct) => {
+        let count = 0;
+        Object.values(struct).forEach((item: any) => {
+            if (item?.type === 'file') count++;
+            else if (item?.type === 'directory' && item?.children) count += countItems(item.children);
+        });
+        return count;
+    };
+    const fileCount = countItems(structure);
+
+    // Parse file type filter into array of extensions
+    const parseFileTypeFilter = (filter: string): string[] => {
+        if (!filter.trim()) return [];
+        return filter.split(/[,\s]+/)
+            .map(ext => ext.trim().toLowerCase())
+            .filter(ext => ext.length > 0)
+            .map(ext => ext.startsWith('.') ? ext : `.${ext}`);
+    };
+    const activeTypeFilters = parseFileTypeFilter(fileTypeFilter);
+
+    // Check if a file matches the type filter
+    const matchesTypeFilter = (name: string): boolean => {
+        if (activeTypeFilters.length === 0) return true;
+        const lowerName = name.toLowerCase();
+        return activeTypeFilters.some(ext => lowerName.endsWith(ext));
+    };
+
+    // Filter files by search and type
+    const filterStructure = (struct, query) => {
+        const q = query.toLowerCase().trim();
+        const hasQuery = q.length > 0;
+        const hasTypeFilter = activeTypeFilters.length > 0;
+
+        if (!hasQuery && !hasTypeFilter) return struct;
+
+        const filtered = {};
+        Object.entries(struct).forEach(([name, item]: [string, any]) => {
+            const isDirectory = item?.type === 'directory';
+            const isFile = item?.type === 'file';
+
+            if (isDirectory && item?.children) {
+                // For directories, recursively filter children
+                const filteredChildren = filterStructure(item.children, query);
+                if (Object.keys(filteredChildren).length > 0) {
+                    filtered[name] = { ...item, children: filteredChildren };
+                }
+                // Also include directory if name matches search query (even if empty after filter)
+                else if (hasQuery && name.toLowerCase().includes(q)) {
+                    filtered[name] = item;
+                }
+            } else if (isFile) {
+                // For files, check both search query and type filter
+                const matchesQuery = !hasQuery || name.toLowerCase().includes(q);
+                const matchesType = matchesTypeFilter(name);
+                if (matchesQuery && matchesType) {
+                    filtered[name] = item;
+                }
+            }
+        });
+        return filtered;
+    };
+    const filteredStructure = filterStructure(structure, fileSearch);
+
     if (Object.keys(structure).length === 0) {
         return <div className="p-2 text-xs text-gray-500">Empty directory</div>;
     }
 
     const header = (
-        <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
-            <div className="text-xs text-gray-400 font-medium">Files & Folders</div>
-            <div className="flex items-center gap-1">
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        handleRefreshFilesAndFolders();
-                    }}
-                    className="p-1 theme-hover rounded-full transition-all"
-                    title="Refresh file and folder list"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5" />
-                    </svg>
-                </button>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setFilesCollapsed(!filesCollapsed);
-                    }}
-                    className="p-1 theme-hover rounded-full transition-all"
-                    title={filesCollapsed ? "Expand files" : "Collapse files"}
-                >
-                    <ChevronRight
-                        size={16}
-                        className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`}
-                    />
-                </button>
+        <div className="mx-1 mt-3">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-yellow-900/20 to-orange-900/20 rounded-t-lg border-b border-yellow-500/20">
+                <div className="flex items-center gap-1.5">
+                    <FolderOpen size={12} className="text-yellow-400" />
+                    <span className="text-[11px] text-yellow-300 font-medium">Files</span>
+                    <span className="text-[10px] text-gray-500">({fileCount})</span>
+                    {activeTypeFilters.length > 0 && (
+                        <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                            {activeTypeFilters.length} filter{activeTypeFilters.length !== 1 ? 's' : ''}
+                        </span>
+                    )}
+                </div>
+                <div className="flex items-center gap-0.5">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setShowFileTypeFilter(!showFileTypeFilter); }}
+                        className={`p-1 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                        title="Filter by file type"
+                    >
+                        <Filter size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
+                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                        title="Refresh files"
+                    >
+                        <RefreshCw size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setFilesCollapsed(!filesCollapsed); }}
+                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                        title={filesCollapsed ? "Expand" : "Collapse"}
+                    >
+                        <ChevronRight size={14} className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`} />
+                    </button>
+                </div>
             </div>
+            {!filesCollapsed && (
+                <div className="bg-black/20 border-b border-white/5">
+                    {/* Search input */}
+                    {fileCount > 5 && (
+                        <div className="px-1 py-1">
+                            <div className="relative">
+                                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="text"
+                                    value={fileSearch}
+                                    onChange={(e) => setFileSearch(e.target.value)}
+                                    placeholder="Search files..."
+                                    className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-yellow-500/50"
+                                />
+                                {fileSearch && (
+                                    <button onClick={() => setFileSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                        <X size={10} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    {/* File type filter */}
+                    {showFileTypeFilter && (
+                        <div className="px-1 py-1 border-t border-white/5">
+                            <div className="relative">
+                                <Filter size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="text"
+                                    value={fileTypeFilter}
+                                    onChange={(e) => setFileTypeFilter(e.target.value)}
+                                    placeholder=".py .js .tsx (comma or space separated)"
+                                    className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-6 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-yellow-500/50"
+                                />
+                                {fileTypeFilter && (
+                                    <button onClick={() => setFileTypeFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                        <X size={10} />
+                                    </button>
+                                )}
+                            </div>
+                            {/* Quick filter presets */}
+                            <div className="flex flex-wrap gap-1 mt-1.5 px-1">
+                                {[
+                                    { label: 'Python', ext: '.py' },
+                                    { label: 'JS/TS', ext: '.js .ts .jsx .tsx' },
+                                    { label: 'Docs', ext: '.md .txt .docx .pdf' },
+                                    { label: 'Data', ext: '.json .csv .xlsx' },
+                                    { label: 'Images', ext: '.png .jpg .jpeg .gif .svg' },
+                                ].map(preset => (
+                                    <button
+                                        key={preset.label}
+                                        onClick={() => setFileTypeFilter(fileTypeFilter ? `${fileTypeFilter} ${preset.ext}` : preset.ext)}
+                                        className="text-[9px] px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-gray-400 hover:text-yellow-400 transition-colors"
+                                        title={`Add ${preset.ext}`}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                                {fileTypeFilter && (
+                                    <button
+                                        onClick={() => setFileTypeFilter('')}
+                                        className="text-[9px] px-1.5 py-0.5 bg-red-500/10 hover:bg-red-500/20 rounded text-red-400 hover:text-red-300 transition-colors"
+                                        title="Clear all filters"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 
@@ -2152,17 +2651,17 @@ const renderFolderList = (structure) => {
         };
         const activeFile = currentFile ? findCurrentFile(structure) : null;
         return (
-            <div className="mt-4">
+            <div>
                 {header}
                 {activeFile && (
-                    <div className="px-1 mt-1">
+                    <div className="mx-1 bg-black/10 rounded-b-lg p-1">
                         <button
                             onClick={() => handleFileClick(activeFile.content.path)}
-                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
+                            className="flex items-center gap-2 px-2 py-1.5 w-full hover:bg-white/5 text-left rounded transition-all border-l-2 border-yellow-500"
                             title={`Edit ${activeFile.name}`}
                         >
                             {getFileIcon(activeFile.name)}
-                            <span className="text-gray-300 truncate">{activeFile.name}</span>
+                            <span className="text-[11px] text-gray-200 truncate">{activeFile.name}</span>
                         </button>
                     </div>
                 )}
@@ -2328,7 +2827,13 @@ const renderFolderList = (structure) => {
     return (
         <div>
             {header}
-            <div className="px-1">{renderFolderContents(structure)}</div>
+            <div className="mx-1 bg-black/10 rounded-b-lg max-h-[320px] overflow-y-auto">
+                {fileSearch.trim() && Object.keys(filteredStructure).length === 0 ? (
+                    <div className="px-3 py-3 text-[11px] text-gray-500 text-center">No files match "{fileSearch}"</div>
+                ) : (
+                    <div className="py-1">{renderFolderContents(fileSearch.trim() ? filteredStructure : structure)}</div>
+                )}
+            </div>
         </div>
     );
 };
@@ -2342,145 +2847,314 @@ const renderFolderList = (structure) => {
             })
             : [];
 
+        // Count active filters
+        const activeFilterCount = [convoNpcFilter, convoModelFilter, convoDateFrom, convoDateTo].filter(f => f.trim()).length;
+
+        // Apply all filters
+        let filteredConversations = sortedConversations;
+
+        // Text search filter
+        if (convoSearch.trim()) {
+            const q = convoSearch.toLowerCase();
+            filteredConversations = filteredConversations.filter(conv =>
+                (conv.title || conv.id || '').toLowerCase().includes(q) ||
+                (conv.preview || '').toLowerCase().includes(q) ||
+                (conv.npc || '').toLowerCase().includes(q) ||
+                (conv.model || '').toLowerCase().includes(q)
+            );
+        }
+
+        // NPC filter
+        if (convoNpcFilter.trim()) {
+            const npcFilters = convoNpcFilter.toLowerCase().split(/[,\s]+/).filter(f => f);
+            filteredConversations = filteredConversations.filter(conv =>
+                npcFilters.some(npc => (conv.npc || '').toLowerCase().includes(npc))
+            );
+        }
+
+        // Model/Provider filter
+        if (convoModelFilter.trim()) {
+            const modelFilters = convoModelFilter.toLowerCase().split(/[,\s]+/).filter(f => f);
+            filteredConversations = filteredConversations.filter(conv =>
+                modelFilters.some(model => (conv.model || conv.provider || '').toLowerCase().includes(model))
+            );
+        }
+
+        // Date range filter
+        if (convoDateFrom) {
+            const fromDate = new Date(convoDateFrom).getTime();
+            filteredConversations = filteredConversations.filter(conv => {
+                const convDate = new Date(conv.last_message_timestamp || conv.timestamp).getTime();
+                return convDate >= fromDate;
+            });
+        }
+        if (convoDateTo) {
+            const toDate = new Date(convoDateTo).setHours(23, 59, 59, 999);
+            filteredConversations = filteredConversations.filter(conv => {
+                const convDate = new Date(conv.last_message_timestamp || conv.timestamp).getTime();
+                return convDate <= toDate;
+            });
+        }
+
+        // Get unique NPCs and models for filter dropdowns
+        const uniqueNpcs = [...new Set(sortedConversations.map(c => c.npc).filter(Boolean))];
+        const uniqueModels = [...new Set(sortedConversations.map(c => c.model || c.provider).filter(Boolean))];
+
         const header = (
-            <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
-                <div className="text-xs text-gray-400 font-medium">Conversations ({sortedConversations.length})</div>
-                <div className="flex items-center gap-1">
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            refreshConversations();
-                        }}
-                        className="p-1 theme-hover rounded-full transition-all"
-                        title="Refresh conversations"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
-                        </svg>
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setConversationsCollapsed(!conversationsCollapsed);
-                        }}
-                        className="p-1 theme-hover rounded-full transition-all"
-                        title={conversationsCollapsed ? "Expand conversations" : "Collapse conversations"}
-                    >
-                        <ChevronRight
-                            size={16}
-                            className={`transform transition-transform ${conversationsCollapsed ? "" : "rotate-90"}`}
-                        />
-                    </button>
+            <div className="mx-1 mt-3">
+                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-green-900/20 to-emerald-900/20 rounded-t-lg border-b border-green-500/20">
+                    <div className="flex items-center gap-1.5">
+                        <MessageSquare size={12} className="text-green-400" />
+                        <span className="text-[11px] text-green-300 font-medium">Conversations</span>
+                        <span className="text-[10px] text-gray-500">({filteredConversations.length})</span>
+                        {activeFilterCount > 0 && (
+                            <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full">
+                                {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setShowConvoFilters(!showConvoFilters); }}
+                            className={`p-1 hover:bg-white/10 rounded transition-all ${activeFilterCount > 0 || showConvoFilters ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
+                            title="Filter conversations"
+                        >
+                            <Filter size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
+                            title="Refresh conversations"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setConversationsCollapsed(!conversationsCollapsed); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                            title={conversationsCollapsed ? "Expand" : "Collapse"}
+                        >
+                            <ChevronRight size={14} className={`transform transition-transform ${conversationsCollapsed ? "" : "rotate-90"}`} />
+                        </button>
+                    </div>
                 </div>
+                {!conversationsCollapsed && (
+                    <div className="bg-black/20 border-b border-white/5">
+                        {/* Search input */}
+                        {sortedConversations.length > 0 && (
+                            <div className="px-1 py-1">
+                                <div className="relative">
+                                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <input
+                                        type="text"
+                                        value={convoSearch}
+                                        onChange={(e) => setConvoSearch(e.target.value)}
+                                        placeholder="Search conversations..."
+                                        className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                    />
+                                    {convoSearch && (
+                                        <button onClick={() => setConvoSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                            <X size={10} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {/* Advanced filters */}
+                        {showConvoFilters && (
+                            <div className="px-1 py-1 border-t border-white/5 space-y-1.5">
+                                {/* NPC filter */}
+                                <div className="relative">
+                                    <Bot size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <input
+                                        type="text"
+                                        value={convoNpcFilter}
+                                        onChange={(e) => setConvoNpcFilter(e.target.value)}
+                                        placeholder="Filter by NPC (comma separated)..."
+                                        className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-6 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                        list="npc-suggestions"
+                                    />
+                                    {uniqueNpcs.length > 0 && (
+                                        <datalist id="npc-suggestions">
+                                            {uniqueNpcs.map(npc => <option key={npc} value={npc} />)}
+                                        </datalist>
+                                    )}
+                                    {convoNpcFilter && (
+                                        <button onClick={() => setConvoNpcFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                            <X size={10} />
+                                        </button>
+                                    )}
+                                </div>
+                                {/* Model/Provider filter */}
+                                <div className="relative">
+                                    <Cpu size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <input
+                                        type="text"
+                                        value={convoModelFilter}
+                                        onChange={(e) => setConvoModelFilter(e.target.value)}
+                                        placeholder="Filter by model/provider..."
+                                        className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-6 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                        list="model-suggestions"
+                                    />
+                                    {uniqueModels.length > 0 && (
+                                        <datalist id="model-suggestions">
+                                            {uniqueModels.map(model => <option key={model} value={model} />)}
+                                        </datalist>
+                                    )}
+                                    {convoModelFilter && (
+                                        <button onClick={() => setConvoModelFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                            <X size={10} />
+                                        </button>
+                                    )}
+                                </div>
+                                {/* Date range */}
+                                <div className="flex gap-1">
+                                    <div className="relative flex-1">
+                                        <Clock size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                        <input
+                                            type="date"
+                                            value={convoDateFrom}
+                                            onChange={(e) => setConvoDateFrom(e.target.value)}
+                                            className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-1 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                            title="From date"
+                                        />
+                                    </div>
+                                    <span className="text-gray-500 text-[10px] self-center">to</span>
+                                    <div className="relative flex-1">
+                                        <input
+                                            type="date"
+                                            value={convoDateTo}
+                                            onChange={(e) => setConvoDateTo(e.target.value)}
+                                            className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                            title="To date"
+                                        />
+                                    </div>
+                                </div>
+                                {/* Quick date presets + clear */}
+                                <div className="flex flex-wrap gap-1 px-1">
+                                    {[
+                                        { label: 'Today', days: 0 },
+                                        { label: '7 days', days: 7 },
+                                        { label: '30 days', days: 30 },
+                                        { label: '90 days', days: 90 },
+                                    ].map(preset => (
+                                        <button
+                                            key={preset.label}
+                                            onClick={() => {
+                                                const today = new Date();
+                                                const from = new Date(today);
+                                                from.setDate(from.getDate() - preset.days);
+                                                setConvoDateFrom(from.toISOString().split('T')[0]);
+                                                setConvoDateTo(today.toISOString().split('T')[0]);
+                                            }}
+                                            className="text-[9px] px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-gray-400 hover:text-green-400 transition-colors"
+                                        >
+                                            {preset.label}
+                                        </button>
+                                    ))}
+                                    {activeFilterCount > 0 && (
+                                        <button
+                                            onClick={() => { setConvoNpcFilter(''); setConvoModelFilter(''); setConvoDateFrom(''); setConvoDateTo(''); }}
+                                            className="text-[9px] px-1.5 py-0.5 bg-red-500/10 hover:bg-red-500/20 rounded text-red-400 hover:text-red-300 transition-colors"
+                                            title="Clear all filters"
+                                        >
+                                            Clear all
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         );
 
         // Always show the header, even when empty
         if (!sortedConversations.length) {
             return (
-                <div className="mt-4">
+                <div>
                     {header}
-                    <div className="px-3 py-2 text-xs text-gray-500">No conversations yet</div>
+                    <div className="mx-1 px-3 py-3 text-[11px] text-gray-500 bg-black/10 rounded-b-lg text-center">No conversations yet</div>
                 </div>
             );
         }
 
         if (conversationsCollapsed) {
             const activeConversation = activeConversationId ? sortedConversations.find(conv => conv.id === activeConversationId) : null;
-
             return (
-                <div className="mt-4">
+                <div>
                     {header}
                     {activeConversation && !currentFile && (
-                        <div className="px-1 mt-1">
+                        <div className="mx-1 bg-black/10 rounded-b-lg p-1">
                             <button
-                                key={activeConversation.id}
                                 onClick={() => handleConversationSelect(activeConversation.id)}
-                                className="flex items-center gap-2 px-4 py-2 w-full theme-hover text-left rounded-lg transition-all duration-200 conversation-selected border-l-2 border-blue-500"
+                                className="flex items-center gap-2 px-2 py-1.5 w-full hover:bg-white/5 text-left rounded transition-all border-l-2 border-green-500"
                             >
-                                <File size={16} className="text-gray-400 flex-shrink-0" />
-                                <div className="flex flex-col overflow-hidden">
-                                    <span className="text-sm truncate">{activeConversation.title || activeConversation.id}</span>
-                                    <span className="text-xs text-gray-500">{new Date(activeConversation.timestamp).toLocaleString()}</span>
+                                <MessageSquare size={14} className="text-green-400 flex-shrink-0" />
+                                <div className="flex flex-col overflow-hidden min-w-0">
+                                    <span className="text-[11px] truncate text-gray-200">{activeConversation.title || 'Untitled'}</span>
                                 </div>
                             </button>
-
-
                         </div>
-
                     )}
-
                 </div>
             );
         }
 
         return (
-            <div className="mt-4">
+            <div>
                 {header}
-                <div className="px-1">
-                    {sortedConversations.map((conv, index) => {
-    
-                        const isSelected = selectedConvos?.has(conv.id);
-                        const isActive = conv.id === activeConversationId && !currentFile;
-                        const isLastClicked = lastClickedIndex === index;
-    
-                        
-                        return (
-                            <button
-                            key={conv.id}
-                            draggable="true"
-                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'conversation', id: conv.id }); }}
-                            onDragEnd={handleGlobalDragEnd}
-    
-                            onClick={(e) => { 
-                                    if (e.ctrlKey || e.metaKey) { 
-                                        const newSelected = new Set(selectedConvos || new Set()); 
-                                        if (newSelected.has(conv.id)) { 
-                                            newSelected.delete(conv.id); 
-                                        } else { 
-                                            newSelected.add(conv.id); 
-                                        } 
-                                        setSelectedConvos(newSelected);
-                                        setLastClickedIndex(index);
-                                    } else if (e.shiftKey && lastClickedIndex !== null) {
-                                        const newSelected = new Set();
-                                        const start = Math.min(lastClickedIndex, index);
-                                        const end = Math.max(lastClickedIndex, index);
-                                        for (let i = start; i <= end; i++) {
-                                            if (sortedConversations[i]) {
-                                                newSelected.add(sortedConversations[i].id);
+                <div className="mx-1 bg-black/10 rounded-b-lg max-h-[280px] overflow-y-auto">
+                    {filteredConversations.length === 0 ? (
+                        <div className="px-3 py-3 text-[11px] text-gray-500 text-center">No matches for "{convoSearch}"</div>
+                    ) : (
+                        filteredConversations.map((conv, index) => {
+                            const isSelected = selectedConvos?.has(conv.id);
+                            const isActive = conv.id === activeConversationId && !currentFile;
+                            return (
+                                <button
+                                    key={conv.id}
+                                    draggable="true"
+                                    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'conversation', id: conv.id }); }}
+                                    onDragEnd={handleGlobalDragEnd}
+                                    onClick={(e) => {
+                                        if (e.ctrlKey || e.metaKey) {
+                                            const newSelected = new Set(selectedConvos || new Set());
+                                            if (newSelected.has(conv.id)) newSelected.delete(conv.id);
+                                            else newSelected.add(conv.id);
+                                            setSelectedConvos(newSelected);
+                                            setLastClickedIndex(index);
+                                        } else if (e.shiftKey && lastClickedIndex !== null) {
+                                            const newSelected = new Set();
+                                            const start = Math.min(lastClickedIndex, index);
+                                            const end = Math.max(lastClickedIndex, index);
+                                            for (let i = start; i <= end; i++) {
+                                                if (filteredConversations[i]) newSelected.add(filteredConversations[i].id);
                                             }
+                                            setSelectedConvos(newSelected);
+                                        } else {
+                                            setSelectedConvos(new Set([conv.id]));
+                                            handleConversationSelect(conv.id);
+                                            setLastClickedIndex(index);
                                         }
-                                        setSelectedConvos(newSelected);
-                                    } else { 
-                                        setSelectedConvos(new Set([conv.id])); 
-                                        handleConversationSelect(conv.id);
-                                        setLastClickedIndex(index);
-                                    } 
-                                }}
-                                onContextMenu={(e) => { 
-                                    e.preventDefault(); 
-                                    if (!selectedConvos?.has(conv.id)) { 
-                                        setSelectedConvos(new Set([conv.id])); 
-                                    } 
-                                    setContextMenuPos({ x: e.clientX, y: e.clientY }); 
-                                }}
-                                className={`flex items-center gap-2 px-4 py-2 w-full theme-hover text-left rounded-lg transition-all duration-200
-                                    ${isSelected || isActive ? 'conversation-selected' : 'theme-text-primary'}
-                                    ${isActive ? 'border-l-2 border-blue-500' : ''}`}
-                            >
-                                <File size={16} className="text-gray-400 flex-shrink-0" />
-                                <div className="flex flex-col overflow-hidden">
-                                    <span className="text-sm truncate">{conv.title || conv.id}</span>
-                                    <span className="text-xs text-gray-500">{new Date(conv.timestamp).toLocaleString()}</span>
-                                </div>
-    
-                            </button>
-                            
-                        );
-    
-                
-                })}
+                                    }}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        if (!selectedConvos?.has(conv.id)) setSelectedConvos(new Set([conv.id]));
+                                        setContextMenuPos({ x: e.clientX, y: e.clientY });
+                                    }}
+                                    className={`flex items-center gap-2 px-2 py-1.5 w-full text-left transition-all group
+                                        ${isActive ? 'bg-green-500/20 border-l-2 border-green-500' : 'hover:bg-white/5 border-l-2 border-transparent'}
+                                        ${isSelected ? 'bg-blue-500/10' : ''}`}
+                                >
+                                    <MessageSquare size={13} className={`flex-shrink-0 ${isActive ? 'text-green-400' : 'text-gray-500 group-hover:text-gray-400'}`} />
+                                    <div className="flex flex-col overflow-hidden min-w-0 flex-1">
+                                        <span className={`text-[11px] truncate ${isActive ? 'text-green-200' : 'text-gray-300'}`}>{conv.title || 'Untitled'}</span>
+                                        <span className="text-[9px] text-gray-600 truncate">{conv.preview?.substring(0, 40) || new Date(conv.timestamp).toLocaleDateString()}</span>
+                                    </div>
+                                </button>
+                            );
+                        })
+                    )}
                 
                 
                 </div>
@@ -2795,29 +3469,32 @@ return (
                                                 {defaultNewTerminalType === 'guac' && <Code2 size={16} className="text-yellow-400" />}
                                                 <span className="text-[10px] ml-1.5">{defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType}</span>
                                             </button>
-                                            <button onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Terminal options">
+                                            <button
+                                                ref={terminalDropdownRef}
+                                                onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)}
+                                                className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700"
+                                                aria-label="Terminal options"
+                                            >
                                                 <ChevronDown size={10} />
                                             </button>
-                                            {terminalDropdownOpen && (
-                                                <div className="absolute left-0 top-full mt-1 w-36 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1">
-                                                    <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <Terminal size={14} className="text-green-400" /><span>Bash</span>
-                                                    </button>
-                                                    <button onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <Sparkles size={14} className="text-purple-400" /><span>npcsh</span>
-                                                    </button>
-                                                    <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <Code2 size={14} className="text-yellow-400" /><span>guac</span>
-                                                    </button>
-                                                </div>
-                                            )}
                                         </div>
                                     );
                                 case 'code':
+                                    const defaultType = commonFileTypes.find(t => t.ext === defaultCodeFileType) || commonFileTypes[0];
                                     return (
-                                        <button key={tile.id} onClick={createNewTextFile} className="action-grid-button-wide" aria-label="New Code File" title="New Code File (Ctrl+Shift+F)">
-                                            <Code2 size={16} /><span className="text-[10px] ml-1.5">Code</span>
-                                        </button>
+                                        <div key={tile.id} className="relative flex" data-dropdown="code-file">
+                                            <button onClick={() => createFileWithExtension(defaultCodeFileType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Code File" title={`New ${defaultType.label} file (Ctrl+Shift+F)`}>
+                                                <Code2 size={16} /><span className="text-[10px] ml-1.5">.{defaultCodeFileType}</span>
+                                            </button>
+                                            <button
+                                                ref={codeFileDropdownRef}
+                                                onClick={() => setCodeFileDropdownOpen(!codeFileDropdownOpen)}
+                                                className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700"
+                                                aria-label="File type options"
+                                            >
+                                                <ChevronDown size={10} />
+                                            </button>
+                                        </div>
                                     );
                                 case 'document':
                                     return (
@@ -2829,7 +3506,7 @@ return (
                                                 {defaultNewDocumentType === 'mapx' && <Share2 size={16} className="text-pink-300" />}
                                                 <span className="text-[10px] ml-1.5">{defaultNewDocumentType === 'mapx' ? 'Map' : defaultNewDocumentType.slice(0, -1).toUpperCase()}</span>
                                             </button>
-                                            <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
+                                            <button ref={docDropdownRef} onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
                                                 <ChevronDown size={10} />
                                             </button>
                                         </div>
@@ -3504,10 +4181,10 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
     )}
 
     {/* Doc Dropdown - rendered outside sidebar to avoid clipping from overflow-hidden */}
-    {docDropdownOpen && (
+    {docDropdownOpen && docDropdownRef.current && (
         <>
             <div className="fixed inset-0 z-[9998]" onClick={() => setDocDropdownOpen(false)} />
-            <div className="fixed theme-bg-secondary border theme-border rounded-lg shadow-2xl py-2 z-[9999]" style={{ top: '160px', left: '10px', minWidth: '150px' }}>
+            <div className="fixed theme-bg-secondary border theme-border rounded-lg shadow-2xl py-2 z-[9999]" style={{ top: docDropdownRef.current.getBoundingClientRect().bottom + 4, left: docDropdownRef.current.getBoundingClientRect().left, minWidth: '150px' }}>
                 <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">New Document</div>
                 <button onClick={() => { createNewDocument?.('docx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
                     <FileText size={16} className="text-blue-300" /><span>Word (.docx)</span>
@@ -3521,6 +4198,70 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                 <button onClick={() => { createNewDocument?.('mapx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
                     <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
                 </button>
+            </div>
+        </>
+    )}
+
+    {/* Terminal Dropdown - rendered outside to avoid clipping */}
+    {terminalDropdownOpen && terminalDropdownRef.current && (
+        <>
+            <div className="fixed inset-0 z-[9998]" onClick={() => setTerminalDropdownOpen(false)} />
+            <div className="fixed theme-bg-secondary border theme-border rounded-lg shadow-2xl py-1 z-[9999]" style={{ top: terminalDropdownRef.current.getBoundingClientRect().bottom + 4, left: terminalDropdownRef.current.getBoundingClientRect().left, minWidth: '140px' }}>
+                <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
+                    <Terminal size={14} className="text-green-400" /><span>Bash</span>
+                </button>
+                <button onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
+                    <Sparkles size={14} className="text-purple-400" /><span>npcsh</span>
+                </button>
+                <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
+                    <Code2 size={14} className="text-yellow-400" /><span>guac</span>
+                </button>
+                <div className="border-t theme-border my-1" />
+                <button onClick={() => { createNewTerminal?.('python3'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
+                    <Code2 size={14} className="text-blue-400" /><span>Python</span>
+                </button>
+                <div className="border-t theme-border my-1" />
+                <button onClick={() => { createNewNotebook?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
+                    <FileText size={14} className="text-orange-400" /><span>Notebook (.ipynb)</span>
+                </button>
+                <button onClick={() => { createNewExperiment?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
+                    <FlaskConical size={14} className="text-purple-400" /><span>Experiment (.exp)</span>
+                </button>
+            </div>
+        </>
+    )}
+
+    {/* Code File Dropdown - rendered outside to avoid clipping */}
+    {codeFileDropdownOpen && codeFileDropdownRef.current && (
+        <>
+            <div className="fixed inset-0 z-[9998]" onClick={() => setCodeFileDropdownOpen(false)} />
+            <div className="fixed theme-bg-secondary border theme-border rounded-lg shadow-2xl py-1 z-[9999] max-h-80 overflow-y-auto" style={{ top: codeFileDropdownRef.current.getBoundingClientRect().bottom + 4, left: codeFileDropdownRef.current.getBoundingClientRect().left, minWidth: '180px' }}>
+                <div className="px-3 py-1.5 border-b theme-border">
+                    <div className="text-[9px] text-gray-500">Click to create, right-click to set default</div>
+                </div>
+                {commonFileTypes.map(type => (
+                    <button
+                        key={type.ext}
+                        onClick={() => { createFileWithExtension(type.ext); setCodeFileDropdownOpen(false); }}
+                        onContextMenu={(e) => { e.preventDefault(); setDefaultCodeFileType(type.ext); setCodeFileDropdownOpen(false); }}
+                        className={`flex items-center gap-2 w-full px-3 py-1.5 text-left text-[11px] theme-hover ${defaultCodeFileType === type.ext ? 'bg-blue-900/30 text-blue-300' : 'theme-text-primary'}`}
+                        title="Click to create, right-click to set as default"
+                    >
+                        <span className="w-4 text-center">{type.icon}</span>
+                        <span className="flex-1">{type.label}</span>
+                        <span className="text-[9px] text-gray-500">.{type.ext}</span>
+                        {defaultCodeFileType === type.ext && <Star size={10} className="text-yellow-400" />}
+                    </button>
+                ))}
+                <div className="border-t theme-border">
+                    <button
+                        onClick={() => { setCodeFileDropdownOpen(false); createNewTextFile?.(); }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] text-gray-400 theme-hover"
+                    >
+                        <span className="w-4 text-center">✏️</span>
+                        <span>Custom filename...</span>
+                    </button>
+                </div>
             </div>
         </>
     )}

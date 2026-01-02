@@ -59,25 +59,10 @@ export const saveWorkspaceToStorage = (path: string, workspaceData: any) => {
 
 export const loadWorkspaceFromStorage = (path: string) => {
     try {
-        console.log('[LOAD_WORKSPACE] Attempting to load for path:', path);
-
         const allWorkspaces = JSON.parse(localStorage.getItem(WORKSPACES_STORAGE_KEY) || '{}');
-        console.log('[LOAD_WORKSPACE] All workspace paths in storage:', Object.keys(allWorkspaces));
-
-        const workspace = allWorkspaces[path];
-        console.log('[LOAD_WORKSPACE] Found workspace for path:', !!workspace);
-
-        if (workspace) {
-            console.log('[LOAD_WORKSPACE] Workspace details:', {
-                hasLayout: !!workspace.layoutNode,
-                paneCount: Object.keys(workspace.contentData || {}).length,
-                timestamp: workspace.timestamp
-            });
-        }
-
-        return workspace || null;
+        return allWorkspaces[path] || null;
     } catch (error) {
-        console.error('[LOAD_WORKSPACE] Error loading workspace:', error);
+        console.error('Error loading workspace:', error);
         return null;
     }
 };
@@ -98,11 +83,6 @@ export const deserializeWorkspace = async (
     try {
         const newRootLayout = workspaceData.layoutNode;
 
-        console.log('[DESERIALIZE] Starting workspace restore', {
-            paneCount: Object.keys(workspaceData.contentData).length,
-            layoutExists: !!newRootLayout
-        });
-
         // CRITICAL: Clear contentDataRef COMPLETELY first
         contentDataRef.current = {};
 
@@ -117,23 +97,24 @@ export const deserializeWorkspace = async (
         };
         collectPaneIds(newRootLayout);
 
-        console.log('[DESERIALIZE] Panes in layout:', Array.from(paneIdsInLayout));
-        console.log('[DESERIALIZE] Panes in saved data:', Object.keys(workspaceData.contentData));
-
         // Populate contentDataRef synchronously BEFORE any async operations
         // Only create panes that have valid content data
         paneIdsInLayout.forEach(paneId => {
             const paneData = workspaceData.contentData[paneId];
             // SKIP panes without a valid contentType - don't create empty panes
             if (!paneData?.contentType) {
-                console.log('[DESERIALIZE] Skipping pane without contentType:', paneId);
                 return;
             }
             // For tilejinx panes, jinxFile === contentId, so use contentId as fallback
             const jinxFile = paneData?.jinxFile ||
                 (paneData?.contentType === 'tilejinx' ? paneData?.contentId : undefined);
+            // Fix content type for .exp files that were saved as 'notebook'
+            let contentType = paneData.contentType;
+            if (contentType === 'notebook' && paneData.contentId?.endsWith('.exp')) {
+                contentType = 'exp';
+            }
             contentDataRef.current[paneId] = {
-                contentType: paneData.contentType,
+                contentType: contentType,
                 contentId: paneData.contentId,
                 displayedMessageCount: paneData.displayedMessageCount,
                 browserUrl: paneData.browserUrl,
@@ -141,8 +122,6 @@ export const deserializeWorkspace = async (
                 jinxFile: jinxFile  // Restore jinxFile for tilejinx panes
             };
         });
-
-        console.log('[DESERIALIZE] Initialized contentDataRef with', Object.keys(contentDataRef.current).length, 'panes');
 
         // Set the layout
         setRootLayoutNode(newRootLayout);
@@ -152,8 +131,6 @@ export const deserializeWorkspace = async (
         const loadPromises = [];
         for (const [paneId, paneData] of Object.entries(workspaceData.contentData)) {
             if (!paneIdsInLayout.has(paneId)) continue;
-
-            console.log('[DESERIALIZE] Loading content for pane:', paneId, (paneData as any).contentType, (paneData as any).contentId);
 
             const loadPromise = (async () => {
                 try {
@@ -181,10 +158,8 @@ export const deserializeWorkspace = async (
                     } else if (pd.contentType === 'browser') {
                         paneDataRef.browserUrl = pd.browserUrl || pd.contentId;
                     }
-
-                    console.log('[DESERIALIZE] Successfully loaded pane:', paneId);
                 } catch (err) {
-                    console.error('[DESERIALIZE] Error loading pane content:', paneId, err);
+                    console.error('Error loading pane content:', paneId, err);
                 }
             })();
 
@@ -196,15 +171,10 @@ export const deserializeWorkspace = async (
         // Force final re-render
         setRootLayoutNode((prev: any) => ({ ...prev }));
 
-        console.log('[DESERIALIZE] Workspace restored successfully', {
-            paneCount: Object.keys(contentDataRef.current).length,
-            layoutPanes: paneIdsInLayout.size
-        });
-
         setIsLoadingWorkspace(false);
         return true;
     } catch (error) {
-        console.error('[DESERIALIZE] Error:', error);
+        console.error('Error deserializing workspace:', error);
         setIsLoadingWorkspace(false);
         return false;
     }

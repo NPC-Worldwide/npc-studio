@@ -6,11 +6,15 @@ import '@xterm/xterm/css/xterm.css';
 
 const SHELL_PROMPT_KEY = 'incognide-shell-profile-prompted';
 
-const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId }) => {
+// Maximum lines to keep in the terminal output buffer for chat context
+const MAX_TERMINAL_CONTEXT_LINES = 100;
+
+const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId, shell }) => {
     const terminalRef = useRef(null);
     const xtermInstance = useRef(null);
     const fitAddonRef = useRef(null);
     const isSessionReady = useRef(false);
+    const terminalOutputBuffer = useRef<string[]>([]);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
     const [showShellPrompt, setShowShellPrompt] = useState(false);
     const [activeShell, setActiveShell] = useState<string>('system');
@@ -18,7 +22,17 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
 
     const paneData = contentDataRef.current[nodeId];
     const terminalId = paneData?.contentId;
-    const shellType = paneData?.shellType || 'system';
+
+    // Store terminal output buffer in contentDataRef so chat can access it
+    useEffect(() => {
+        if (nodeId && contentDataRef.current[nodeId]) {
+            contentDataRef.current[nodeId].getTerminalContext = () => {
+                return terminalOutputBuffer.current.join('').slice(-10000); // Last 10k chars
+            };
+        }
+    }, [nodeId, contentDataRef]);
+    // Use shell prop if provided (e.g., 'python3'), otherwise check paneData, default to 'system'
+    const shellType = shell || paneData?.shellType || 'system';
 
     const handleCopy = useCallback(() => {
         if (xtermInstance.current) {
@@ -119,8 +133,11 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             resizeObserver.observe(terminalRef.current);
 
             term.attachCustomKeyEventHandler((event) => {
+                const isMeta = event.ctrlKey || event.metaKey;
+                const key = event.key.toLowerCase();
+
                 // Ctrl+Shift+V or Ctrl+V for paste
-                if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+                if (isMeta && key === 'v') {
                     navigator.clipboard.readText().then(text => {
                         if (isSessionReady.current) {
                             window.api.writeToTerminal({ id: terminalId, data: text });
@@ -128,16 +145,18 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     });
                     return false;
                 }
+
                 // Ctrl+Shift+C for copy (terminal standard - doesn't interfere with SIGINT)
-                if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'c') {
+                if (isMeta && event.shiftKey && key === 'c') {
                     const selection = term.getSelection();
                     if (selection) {
                         navigator.clipboard.writeText(selection);
                     }
                     return false;
                 }
+
                 // Ctrl+C without shift - copy only if selection exists, otherwise pass through for SIGINT
-                if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key === 'c') {
+                if (isMeta && !event.shiftKey && key === 'c') {
                     const selection = term.getSelection();
                     if (selection) {
                         navigator.clipboard.writeText(selection);
@@ -145,6 +164,110 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     }
                     // No selection - let Ctrl+C pass through as SIGINT
                 }
+
+                // Ctrl+L - Clear screen (send to terminal)
+                if (isMeta && key === 'l') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x0c' }); // Form feed
+                    }
+                    return false;
+                }
+
+                // Ctrl+A - Go to beginning of line
+                if (isMeta && key === 'a' && !event.shiftKey) {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x01' }); // ASCII SOH
+                    }
+                    return false;
+                }
+
+                // Ctrl+E - Go to end of line
+                if (isMeta && key === 'e') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x05' }); // ASCII ENQ
+                    }
+                    return false;
+                }
+
+                // Ctrl+U - Clear line before cursor
+                if (isMeta && key === 'u') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x15' }); // ASCII NAK
+                    }
+                    return false;
+                }
+
+                // Ctrl+K - Kill line after cursor
+                if (isMeta && key === 'k') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x0b' }); // ASCII VT
+                    }
+                    return false;
+                }
+
+                // Ctrl+W - Delete word before cursor
+                if (isMeta && key === 'w') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x17' }); // ASCII ETB
+                    }
+                    return false;
+                }
+
+                // Ctrl+D - EOF / Exit (let it pass through)
+                // Ctrl+Z - Suspend (let it pass through)
+                // Ctrl+R - Reverse search (let it pass through)
+
+                // Ctrl+Shift+T - Could be used for new tab (handled elsewhere)
+                // Ctrl+Shift+N - Could be new window
+
+                // Alt+B - Move back one word (readline)
+                if (event.altKey && key === 'b') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x1bb' }); // ESC b
+                    }
+                    return false;
+                }
+
+                // Alt+F - Move forward one word (readline)
+                if (event.altKey && key === 'f') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x1bf' }); // ESC f
+                    }
+                    return false;
+                }
+
+                // Alt+D - Delete word after cursor
+                if (event.altKey && key === 'd') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x1bd' }); // ESC d
+                    }
+                    return false;
+                }
+
+                // Alt+Backspace - Delete word before cursor
+                if (event.altKey && event.key === 'Backspace') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x1b\x7f' }); // ESC DEL
+                    }
+                    return false;
+                }
+
+                // Ctrl+Left Arrow - Move back one word
+                if (isMeta && event.key === 'ArrowLeft') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x1bb' });
+                    }
+                    return false;
+                }
+
+                // Ctrl+Right Arrow - Move forward one word
+                if (isMeta && event.key === 'ArrowRight') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x1bf' });
+                    }
+                    return false;
+                }
+
                 return true;
             });
         }
@@ -155,7 +278,17 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         xtermInstance.current.write('Initializing session...\r\n');
 
         const dataCallback = (_, { id, data }) => {
-            if (id === terminalId && !isEffectCancelled) xtermInstance.current?.write(data);
+            if (id === terminalId && !isEffectCancelled) {
+                xtermInstance.current?.write(data);
+                // Capture output in buffer for chat context
+                terminalOutputBuffer.current.push(data);
+                // Keep buffer size manageable - trim to last N lines
+                const fullOutput = terminalOutputBuffer.current.join('');
+                const lines = fullOutput.split('\n');
+                if (lines.length > MAX_TERMINAL_CONTEXT_LINES) {
+                    terminalOutputBuffer.current = [lines.slice(-MAX_TERMINAL_CONTEXT_LINES).join('\n')];
+                }
+            }
         };
         const closedCallback = (_, { id }) => {
             if (id === terminalId && !isEffectCancelled) {

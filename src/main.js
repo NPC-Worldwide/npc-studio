@@ -1067,7 +1067,7 @@ function createWindow(cliArgs = {}) {
         "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com; " +
         "img-src 'self' data: file: media: blob: http: https:; " +
         "font-src 'self' data: https://cdn.jsdelivr.net; " +
-        "connect-src 'self' file: media: http://localhost:6337 http://localhost:5337 http://127.0.0.1:5337 blob: ws: wss: https://; " +
+        "connect-src 'self' file: media: http://localhost:6337 http://localhost:5337 http://127.0.0.1:5337 blob: ws: wss: https://* http://*; " +
         "frame-src 'self' file: data: blob: media: chrome-extension: https://js.stripe.com https://m.stripe.network https://checkout.stripe.com; " +
         "object-src 'self' file: data: blob: media: chrome-extension:; " +
         "worker-src 'self' blob: data:; " +
@@ -6358,9 +6358,37 @@ ipcMain.handle('read-docx-content', async (_, filePath) => {
     if (!buffer || buffer.length === 0) {
       return { content: '', error: null, isNew: true };
     }
-    const result = await mammoth.convertToMarkdown({ buffer });
 
-    return { content: result.value, error: null };
+    // Convert to HTML with style mapping for better preservation
+    const options = {
+      buffer,
+      styleMap: [
+        "p[style-name='Heading 1'] => h1:fresh",
+        "p[style-name='Heading 2'] => h2:fresh",
+        "p[style-name='Heading 3'] => h3:fresh",
+        "p[style-name='Heading 4'] => h4:fresh",
+        "p[style-name='Heading 5'] => h5:fresh",
+        "p[style-name='Heading 6'] => h6:fresh",
+        "p[style-name='Title'] => h1.title:fresh",
+        "p[style-name='Subtitle'] => h2.subtitle:fresh",
+        "r[style-name='Strong'] => strong",
+        "r[style-name='Emphasis'] => em",
+        "p[style-name='Quote'] => blockquote:fresh",
+        "p[style-name='Block Quote'] => blockquote:fresh",
+        "p[style-name='List Paragraph'] => li:fresh",
+      ],
+      convertImage: mammoth.images.imgElement(function(image) {
+        return image.read("base64").then(function(imageBuffer) {
+          return {
+            src: "data:" + image.contentType + ";base64," + imageBuffer
+          };
+        });
+      })
+    };
+
+    const result = await mammoth.convertToHtml(options);
+
+    return { content: result.value, messages: result.messages, error: null };
   } catch (err) {
     console.error('Error reading DOCX:', err);
     return { content: null, error: err.message };
@@ -6746,6 +6774,38 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) =>
     shell = 'guac';
     args = [];
     // We'll try guac, and if it fails, we'll handle it below
+  } else if (shellType === 'python3' || shellType === 'python') {
+    // Python REPL - resolve user's selected venv
+    try {
+      const config = await readPythonEnvConfig();
+      const envConfig = config.workspaces[workingDir];
+      const platform = process.platform;
+      const isWindows = platform === 'win32';
+      const pythonBin = isWindows ? 'python.exe' : 'python';
+
+      if (envConfig) {
+        switch (envConfig.type) {
+          case 'venv':
+            shell = path.join(envConfig.path, isWindows ? 'Scripts' : 'bin', pythonBin);
+            break;
+          case 'conda':
+            shell = path.join(envConfig.path, isWindows ? 'python.exe' : 'bin/python');
+            break;
+          case 'uv':
+            shell = path.join(envConfig.path, isWindows ? 'Scripts' : 'bin', pythonBin);
+            break;
+          case 'system':
+          default:
+            shell = envConfig.path || (isWindows ? 'python' : 'python3');
+        }
+      } else {
+        shell = isWindows ? 'python' : 'python3';
+      }
+    } catch (e) {
+      shell = process.platform === 'win32' ? 'python' : 'python3';
+    }
+    args = ['-i'];  // Interactive mode
+    actualShellType = 'python3';
   } else if (shellType === 'system' || !shellType) {
     // Check for npcsh switch in workspace or global .ctx files for auto-detection
     let useNpcsh = false;
@@ -7217,6 +7277,27 @@ ipcMain.handle('getConversations', async (_, path) => {
     }
   });
 
+  // Save data to a temp file (for clipboard paste of images/large text)
+  ipcMain.handle('save-temp-file', async (_, { name, data, encoding }) => {
+    try {
+      const os = require('os');
+      const tempDir = path.join(os.tmpdir(), 'incognide-paste');
+      await fsPromises.mkdir(tempDir, { recursive: true });
+      const tempPath = path.join(tempDir, name);
+
+      if (encoding === 'base64') {
+        await fsPromises.writeFile(tempPath, Buffer.from(data, 'base64'));
+      } else {
+        await fsPromises.writeFile(tempPath, data, encoding || 'utf8');
+      }
+
+      return { success: true, path: tempPath };
+    } catch (err) {
+      console.error('Error saving temp file:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('delete-file', async (_, filePath) => {
     try {
       await fsPromises.unlink(filePath);
@@ -7484,6 +7565,7 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
                              '.doc', 
                              '.xlsx', 
                              '.ipynb',
+                             '.exp',
                              '.tsx', 
                              '.ts', 
                              '.json', 
@@ -7709,38 +7791,44 @@ ipcMain.handle('readDirectoryStructure', async (_, dirPath) => {
     }
   });
 
-  ipcMain.handle('sendMessage', async (_, { conversationId, message, model, provider }) => {
+  // Execute Python code directly
+  ipcMain.handle('executeCode', async (_, { code, workingDir }) => {
     try {
-      const filePath = path.join(DEFAULT_CONFIG.baseDir, 'conversations', `${conversationId}.json`);
-      let conversation;
-      try {
-        const data = await fsPromises.readFile(filePath, 'utf8');
-        conversation = JSON.parse(data);
-      } catch (err) {
-        conversation = {
-          id: conversationId || Date.now().toString(),
-          title: message.slice(0, 30) + '...',
-          model: model || DEFAULT_CONFIG.model,
-          provider: provider || DEFAULT_CONFIG.provider,
-          created: new Date().toISOString(),
-          messages: []
-        };
-      }
-      conversation.messages.push({
-        role: 'user',
-        content: message,
-        timestamp: new Date().toISOString()
+      const pythonPath = getBackendPythonPath();
+
+      return new Promise((resolve) => {
+        const proc = spawn(pythonPath, ['-c', code], {
+          cwd: workingDir || process.cwd(),
+          env: { ...process.env },
+          timeout: 60000
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        proc.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        proc.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        proc.on('close', (exitCode) => {
+          if (exitCode === 0) {
+            resolve({ output: stdout, error: null });
+          } else {
+            resolve({ output: stdout, error: stderr || `Process exited with code ${exitCode}` });
+          }
+        });
+
+        proc.on('error', (err) => {
+          resolve({ output: null, error: err.message });
+        });
       });
-      conversation.messages.push({
-        role: 'assistant',
-        content: `Mock response to: ${message}`,
-        timestamp: new Date().toISOString()
-      });
-      await fsPromises.writeFile(filePath, JSON.stringify(conversation, null, 2));
-      return conversation;
     } catch (err) {
-      console.error('Error sending message:', err);
-      throw err;
+      console.error('Error executing code:', err);
+      return { output: null, error: err.message };
     }
   });
 

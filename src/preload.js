@@ -64,6 +64,8 @@ readDocxContent: (filePath) =>
    
     readFileContent: (filePath) => ipcRenderer.invoke('read-file-content', filePath),
     writeFileContent: (filePath, content) => ipcRenderer.invoke('write-file-content', filePath, content),
+    executeCode: (args) => ipcRenderer.invoke('executeCode', args),
+    saveTempFile: (args) => ipcRenderer.invoke('save-temp-file', args),
     createDirectory: (path) => ipcRenderer.invoke('create-directory', path),
     deleteDirectory: (path) => ipcRenderer.invoke('delete-directory', path),
     getDirectoryContentsRecursive: (path) => ipcRenderer.invoke('get-directory-contents-recursive', path),

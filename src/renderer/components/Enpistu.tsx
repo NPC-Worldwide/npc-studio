@@ -4,7 +4,7 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, ArrowDown,X, Wrench, FileText, Code2, FileJson, Paperclip,
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
-    Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen
+    Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen, User
 } from 'lucide-react';
 
 import { Icon } from 'lucide-react';
@@ -31,6 +31,7 @@ import BrowserUrlDialog from './BrowserUrlDialog';
 import PptxViewer from './PptxViewer';
 import LatexViewer from './LatexViewer';
 import NotebookViewer from './NotebookViewer';
+import ExpViewer from './ExpViewer';
 import PicViewer from './PicViewer';
 import MindMapViewer from './MindMapViewer';
 import ZipViewer from './ZipViewer';
@@ -55,7 +56,7 @@ import AutosizeTextarea from './AutosizeTextarea';
 import ForceGraph2D from 'react-force-graph-2d';
 import { Pie, Bar, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement } from 'chart.js';
-import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart, ImageEditor } from 'npcts';
+import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart, ImageEditor, WidgetBuilder, WidgetGrid, Widget, DataTable } from 'npcts';
 
 // Register chart.js components for jinx runtime
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement);
@@ -366,6 +367,9 @@ const ChatInterface = () => {
         });
         return labelsMap;
     });
+
+    // Branch/run navigation state - tracks which run is active for each cellId
+    const [activeRuns, setActiveRuns] = useState<{ [cellId: string]: number }>({});
 
     // Conversation labeling state
     const [conversationLabelingModal, setConversationLabelingModal] = useState<{ isOpen: boolean; conversation: any | null }>({ isOpen: false, conversation: null });
@@ -1606,13 +1610,252 @@ const handleResendMessage = useCallback((messageToResend: any) => {
         return;
     }
 
+    // If this is an assistant message, find the parent user message
+    let targetMessage = messageToResend;
+    if (messageToResend.role === 'assistant') {
+        const activePaneData = contentDataRef.current[activeContentPaneId];
+        if (activePaneData?.chatMessages?.allMessages) {
+            // Look for the parent user message by parentMessageId or cellId
+            const parentId = messageToResend.parentMessageId || messageToResend.cellId;
+            if (parentId) {
+                const userMsg = activePaneData.chatMessages.allMessages.find(
+                    (m: any) => (m.id === parentId || m.timestamp === parentId) && m.role === 'user'
+                );
+                if (userMsg) {
+                    targetMessage = userMsg;
+                }
+            }
+            // Fallback: find the user message just before this assistant message
+            if (targetMessage.role === 'assistant') {
+                const idx = activePaneData.chatMessages.allMessages.findIndex(
+                    (m: any) => m.id === messageToResend.id || m.timestamp === messageToResend.timestamp
+                );
+                if (idx > 0) {
+                    for (let i = idx - 1; i >= 0; i--) {
+                        if (activePaneData.chatMessages.allMessages[i].role === 'user') {
+                            targetMessage = activePaneData.chatMessages.allMessages[i];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     setResendModal({
         isOpen: true,
-        message: messageToResend,
-        selectedModel: currentModel,
-        selectedNPC: currentNPC
+        message: targetMessage,
+        selectedModel: messageToResend.model || currentModel,
+        selectedNPC: messageToResend.npc || currentNPC
     });
-}, [isStreaming, currentModel, currentNPC]);
+}, [isStreaming, currentModel, currentNPC, activeContentPaneId]);
+
+// Handle broadcast - send same message to multiple model/NPC combinations
+const handleBroadcast = useCallback(async (messageToResend: any, models: string[], npcs: string[]) => {
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData || activePaneData.contentType !== 'chat' || !activePaneData.contentId) {
+        setError("Cannot broadcast: The active pane is not a valid chat window.");
+        return;
+    }
+    if (isStreaming) {
+        console.warn('Cannot broadcast while another operation is in progress.');
+        return;
+    }
+
+    // Find the user message (same logic as handleResendMessage)
+    let targetMessage = messageToResend;
+    if (messageToResend.role === 'assistant') {
+        const parentId = messageToResend.parentMessageId || messageToResend.cellId;
+        if (parentId) {
+            const userMsg = activePaneData.chatMessages.allMessages.find(
+                (m: any) => (m.id === parentId || m.timestamp === parentId) && m.role === 'user'
+            );
+            if (userMsg) targetMessage = userMsg;
+        }
+        if (targetMessage.role === 'assistant') {
+            const idx = activePaneData.chatMessages.allMessages.findIndex(
+                (m: any) => m.id === messageToResend.id || m.timestamp === messageToResend.timestamp
+            );
+            for (let i = idx - 1; i >= 0; i--) {
+                if (activePaneData.chatMessages.allMessages[i].role === 'user') {
+                    targetMessage = activePaneData.chatMessages.allMessages[i];
+                    break;
+                }
+            }
+        }
+    }
+
+    const conversationId = activePaneData.contentId;
+    const cellId = targetMessage.cellId || targetMessage.id || targetMessage.timestamp;
+    const allMessages = activePaneData.chatMessages.allMessages;
+
+    // Ensure user message has cellId
+    const userMsgIndex = allMessages.findIndex((m: any) =>
+        (m.id === targetMessage.id || m.timestamp === targetMessage.timestamp) && m.role === 'user'
+    );
+    if (userMsgIndex !== -1 && !allMessages[userMsgIndex].cellId) {
+        allMessages[userMsgIndex].cellId = cellId;
+    }
+
+    // Create branches for each model × NPC combination
+    const combinations: Array<{model: string, npc: string}> = [];
+    for (const model of models) {
+        for (const npc of npcs) {
+            combinations.push({ model, npc });
+        }
+    }
+
+    // Count existing runs
+    const existingRuns = allMessages.filter((m: any) => m.cellId === cellId && m.role === 'assistant').length;
+
+    // Launch all branches
+    setIsStreaming(true);
+    const newStreamIds: string[] = [];
+
+    for (let i = 0; i < combinations.length; i++) {
+        const { model, npc } = combinations[i];
+        const newStreamId = generateId();
+        newStreamIds.push(newStreamId);
+        streamToPaneRef.current[newStreamId] = activeContentPaneId;
+
+        const runNumber = existingRuns + i + 1;
+        const selectedModelObj = availableModels.find((m: any) => m.value === model);
+        const selectedNpc = availableNPCs.find((n: any) => n.value === npc);
+        const providerToUse = selectedModelObj?.provider || currentProvider;
+
+        // Create placeholder message
+        const assistantPlaceholder = {
+            id: newStreamId,
+            role: 'assistant',
+            content: '',
+            isStreaming: true,
+            timestamp: new Date().toISOString(),
+            streamId: newStreamId,
+            model: model,
+            provider: providerToUse,
+            npc: npc,
+            cellId: cellId,
+            parentMessageId: targetMessage.id || targetMessage.timestamp,
+            runNumber: runNumber,
+            runCount: existingRuns + combinations.length,
+        };
+
+        allMessages.push(assistantPlaceholder);
+
+        // Update runCount on all related messages
+        allMessages.forEach((m: any) => {
+            if (m.cellId === cellId) {
+                m.runCount = existingRuns + combinations.length;
+            }
+        });
+    }
+
+    activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
+        -(activePaneData.chatMessages.displayedMessageCount || 20)
+    );
+    setRootLayoutNode(prev => ({ ...prev }));
+
+    // Execute all in parallel
+    const executePromises = combinations.map(async ({ model, npc }, i) => {
+        const newStreamId = newStreamIds[i];
+        const selectedModelObj = availableModels.find((m: any) => m.value === model);
+        const selectedNpc = availableNPCs.find((n: any) => n.value === npc);
+        const providerToUse = selectedModelObj?.provider || currentProvider;
+
+        try {
+            await window.api.executeCommandStream({
+                commandstr: targetMessage.content,
+                currentPath,
+                conversationId,
+                model,
+                provider: providerToUse,
+                npc: selectedNpc?.name || npc,
+                npcSource: selectedNpc?.source || 'global',
+                attachments: targetMessage.attachments?.map((att: any) => ({
+                    name: att.name, path: att.path, size: att.size, type: att.type
+                })) || [],
+                streamId: newStreamId,
+                isRerun: true,
+                cellId: cellId,
+                parentMessageId: targetMessage.id || targetMessage.timestamp,
+                runNumber: existingRuns + i + 1
+            });
+        } catch (err: any) {
+            console.error('[BROADCAST] Error for', model, npc, err);
+            const msgIndex = activePaneData.chatMessages.allMessages.findIndex((m: any) => m.id === newStreamId);
+            if (msgIndex !== -1) {
+                const message = activePaneData.chatMessages.allMessages[msgIndex];
+                message.content = `[Error: ${err.message}]`;
+                message.type = 'error';
+                message.isStreaming = false;
+            }
+        }
+    });
+
+    await Promise.all(executePromises);
+}, [isStreaming, activeContentPaneId, currentProvider, currentPath, availableModels, availableNPCs]);
+
+// Handle switching active run for a cell
+const handleSwitchRun = useCallback((cellId: string, runIndex: number) => {
+    setActiveRuns(prev => ({ ...prev, [cellId]: runIndex }));
+}, []);
+
+// Handle expanding branches to tiles
+const handleExpandBranches = useCallback((cellId: string) => {
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData?.chatMessages?.allMessages) return;
+
+    // Find all runs for this cell
+    const siblingRuns = activePaneData.chatMessages.allMessages.filter(
+        (m: any) => m.cellId === cellId && m.role === 'assistant'
+    );
+
+    if (siblingRuns.length <= 1) return;
+
+    // Find the original user message (parent)
+    const firstRun = siblingRuns[0];
+    const userMessage = activePaneData.chatMessages.allMessages.find(
+        (m: any) => m.id === firstRun.parentMessageId
+    );
+
+    // Get node path for the split
+    const nodePath = findNodePath(rootLayoutNodeRef.current, activeContentPaneId);
+    if (!nodePath) return;
+
+    // Create a unique content ID for the branches view
+    const branchesContentId = `branches_${cellId}_${Date.now()}`;
+
+    // Store branch data that will be picked up by the new pane
+    const branchData = {
+        cellId,
+        userMessage: userMessage || { content: 'Original prompt', role: 'user' },
+        runs: siblingRuns.map((run: any) => ({
+            id: run.id,
+            model: run.model,
+            npc: run.npc,
+            provider: run.provider,
+            content: run.content,
+            runNumber: run.runNumber,
+            timestamp: run.timestamp
+        }))
+    };
+
+    // Perform split to the right with branches content type
+    performSplit(nodePath, 'right', 'branches', branchesContentId);
+
+    // After split, update the new pane's data with branch info
+    setTimeout(() => {
+        // Find the pane that was just created
+        const newPaneId = Object.keys(contentDataRef.current).find(
+            id => contentDataRef.current[id]?.contentId === branchesContentId
+        );
+        if (newPaneId) {
+            contentDataRef.current[newPaneId].branchData = branchData;
+            setRootLayoutNode(prev => ({ ...prev })); // Trigger re-render
+        }
+    }, 50);
+
+}, [activeContentPaneId, findNodePath, performSplit]);
 
 // Handle creating a conversation branch from a specific message
 const handleCreateBranch = useCallback((messageIndex: number) => {
@@ -1814,35 +2057,59 @@ const renderChatView = useCallback(({ nodeId }) => {
         return <div className="flex-1 flex items-center justify-center theme-text-muted">No messages</div>;
     }
 
+    const allMessages = paneData.chatMessages.allMessages || [];
     const messages = paneData.chatMessages.messages || [];
+
+    // Build a map of cellId -> sibling runs for branch navigation
+    const siblingRunsMap: { [cellId: string]: any[] } = {};
+    allMessages.forEach((m: any) => {
+        if (m.cellId && m.role === 'assistant') {
+            if (!siblingRunsMap[m.cellId]) {
+                siblingRunsMap[m.cellId] = [];
+            }
+            siblingRunsMap[m.cellId].push(m);
+        }
+    });
 
     // Note: The scrollable container is in LayoutNode.tsx, we just render the messages here
     return (
         <div className="p-4 space-y-4">
-            {messages.map((msg: any, idx: number) => (
-                <ChatMessage
-                    key={msg.id || msg.timestamp || idx}
-                    message={msg}
-                    isSelected={selectedMessages.has(msg.id || msg.timestamp)}
-                    messageSelectionMode={messageSelectionMode}
-                    toggleMessageSelection={(msgId) => {
-                        const newSet = new Set(selectedMessages);
-                        if (newSet.has(msgId)) {
-                            newSet.delete(msgId);
-                        } else {
-                            newSet.add(msgId);
-                        }
-                        setSelectedMessages(newSet);
-                    }}
-                    handleMessageContextMenu={(e: React.MouseEvent) => handleMessageContextMenu(e, msg)}
-                    searchTerm={searchTerm}
-                    isCurrentSearchResult={false}
-                    onResendMessage={() => handleResendMessage(msg)}
-                    onCreateBranch={handleCreateBranch}
-                    messageIndex={idx}
-                    onLabelMessage={handleLabelMessage}
-                    messageLabel={messageLabels[msg.id || msg.timestamp]}
-                    conversationId={paneData.contentId}
+            {messages.map((msg: any, idx: number) => {
+                // Get sibling runs for this message
+                const siblingRuns = msg.cellId ? siblingRunsMap[msg.cellId] || [] : [];
+                const activeRunIndex = msg.cellId ? (activeRuns[msg.cellId] ?? siblingRuns.findIndex((r: any) => r.id === msg.id)) : 0;
+
+                return (
+                    <ChatMessage
+                        key={msg.id || msg.timestamp || idx}
+                        message={msg}
+                        isSelected={selectedMessages.has(msg.id || msg.timestamp)}
+                        messageSelectionMode={messageSelectionMode}
+                        toggleMessageSelection={(msgId) => {
+                            const newSet = new Set(selectedMessages);
+                            if (newSet.has(msgId)) {
+                                newSet.delete(msgId);
+                            } else {
+                                newSet.add(msgId);
+                            }
+                            setSelectedMessages(newSet);
+                        }}
+                        handleMessageContextMenu={(e: React.MouseEvent) => handleMessageContextMenu(e, msg)}
+                        searchTerm={searchTerm}
+                        isCurrentSearchResult={false}
+                        onResendMessage={() => handleResendMessage(msg)}
+                        onBroadcast={handleBroadcast}
+                        onExpandBranches={handleExpandBranches}
+                        onSwitchRun={handleSwitchRun}
+                        siblingRuns={siblingRuns}
+                        activeRunIndex={activeRunIndex >= 0 ? activeRunIndex : 0}
+                        onCreateBranch={handleCreateBranch}
+                        messageIndex={idx}
+                        onLabelMessage={handleLabelMessage}
+                        messageLabel={messageLabels[msg.id || msg.timestamp]}
+                        conversationId={paneData.contentId}
+                    availableModels={availableModels}
+                    availableNPCs={availableNPCs}
                     onOpenFile={(path: string) => {
                         const ext = path.split('.').pop()?.toLowerCase();
                         let contentType = 'editor';
@@ -1858,10 +2125,99 @@ const renderChatView = useCallback(({ nodeId }) => {
                         }
                     }}
                 />
-            ))}
+                );
+            })}
         </div>
     );
-}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleCreateBranch, findNodePath, performSplit]);
+}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleBroadcast, handleExpandBranches, handleSwitchRun, activeRuns, handleCreateBranch, findNodePath, performSplit, availableModels, availableNPCs]);
+
+// Render branch comparison view - shows all branches side by side
+const renderBranchComparisonPane = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const branchData = paneData?.branchData;
+
+    if (!branchData || !branchData.runs || branchData.runs.length === 0) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-text-muted p-4">
+                <div className="text-center">
+                    <GitBranch size={32} className="mx-auto mb-2 text-gray-500" />
+                    <p>No branch data available</p>
+                </div>
+            </div>
+        );
+    }
+
+    const { userMessage, runs } = branchData;
+    const userContent = typeof userMessage.content === 'string'
+        ? userMessage.content
+        : userMessage.content?.[0]?.text || '';
+
+    return (
+        <div className="flex-1 flex flex-col overflow-hidden theme-bg-secondary">
+            {/* User message header */}
+            <div className="p-3 border-b theme-border bg-gray-800/50">
+                <div className="flex items-center gap-2 mb-1">
+                    <User size={14} className="text-blue-400" />
+                    <span className="text-xs text-gray-400 uppercase">Original Prompt</span>
+                </div>
+                <div className="text-sm text-gray-200 whitespace-pre-wrap line-clamp-3">
+                    {userContent.slice(0, 300)}{userContent.length > 300 ? '...' : ''}
+                </div>
+            </div>
+
+            {/* Branch count indicator */}
+            <div className="px-3 py-2 border-b theme-border bg-gray-900/50 flex items-center gap-2">
+                <GitBranch size={14} className="text-purple-400" />
+                <span className="text-xs text-gray-400">
+                    {runs.length} Branches
+                </span>
+            </div>
+
+            {/* Branches grid */}
+            <div className="flex-1 overflow-auto p-2">
+                <div className={`grid gap-2 h-full ${
+                    runs.length <= 2 ? 'grid-cols-2' :
+                    runs.length <= 4 ? 'grid-cols-2 grid-rows-2' :
+                    'grid-cols-3'
+                }`}>
+                    {runs.map((run: any, idx: number) => {
+                        const content = typeof run.content === 'string'
+                            ? run.content
+                            : run.content?.[0]?.text || '';
+
+                        return (
+                            <div
+                                key={run.id || idx}
+                                className="flex flex-col border theme-border rounded-lg overflow-hidden bg-gray-900"
+                            >
+                                {/* Branch header */}
+                                <div className="px-2 py-1.5 bg-gray-800 border-b theme-border flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-xs font-semibold text-purple-400">
+                                        #{idx + 1}
+                                    </span>
+                                    <span className="text-[10px] px-1.5 py-0.5 bg-blue-600/20 text-blue-300 rounded">
+                                        {run.model?.slice(0, 20) || 'unknown'}
+                                    </span>
+                                    {run.npc && run.npc !== 'agent' && (
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-300 rounded">
+                                            {run.npc}
+                                        </span>
+                                    )}
+                                </div>
+                                {/* Branch content */}
+                                <div className="flex-1 overflow-auto p-2">
+                                    <div className="text-xs text-gray-300 whitespace-pre-wrap">
+                                        <MarkdownRenderer content={content} />
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+}, []);
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -1897,13 +2253,14 @@ const renderFileEditor = useCallback(({ nodeId }) => {
     );
 }, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal]);
 
-const renderTerminalView = useCallback(({ nodeId }) => {
+const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, shell?: string }) => {
     return (
         <TerminalView
             nodeId={nodeId}
             contentDataRef={contentDataRef}
             currentPath={currentPath}
             activeContentPaneId={activeContentPaneId}
+            shell={shell}
         />
     );
 }, [currentPath, activeContentPaneId]);
@@ -2034,6 +2391,20 @@ const renderNotebookViewer = useCallback(({ nodeId }) => {
         />
     );
 }, [rootLayoutNode, closeContentPane, performSplit]);
+
+const renderExpViewer = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const filePath = paneData?.contentId;
+    return (
+        <ExpViewer
+            filePath={filePath}
+            currentPath={currentPath}
+            modelsToDisplay={modelsToDisplay}
+            availableNPCs={availableNPCs}
+            jinxsToDisplay={jinxsToDisplay}
+        />
+    );
+}, [currentPath, modelsToDisplay, availableNPCs, jinxsToDisplay]);
 
 const renderZipViewer = useCallback(({ nodeId }) => {
     return (
@@ -2402,6 +2773,7 @@ const tileJinxScope = useMemo(() => ({
     // npcts UI components and utilities
     Modal, Tabs, Card, Button, Input, Select, ImageEditor,
     createWindowApiDatabaseClient, QueryChart,
+    WidgetBuilder, WidgetGrid, Widget, DataTable,
     // Chart.js components (Chart is alias for ChartJS)
     Pie, Bar, Line, ChartJS, Chart: ChartJS,
     ArcElement, Tooltip, Legend,
@@ -2409,13 +2781,12 @@ const tileJinxScope = useMemo(() => ({
     // Utility components jinx files may use
     AutosizeTextarea,
     ForceGraph2D,
-    // Sub-components that tiles may embed (not main tiles, but their dependencies)
+    // Sub-components that tiles may USE (not the main tile components they DEFINE)
     MemoryManagement,
     ActivityIntelligence,
     LabeledDataManager,
     KnowledgeGraphEditor,
     CtxEditor,
-    TeamManagement,
     PythonEnvSettings,
     // All lucide icons
     ...LucideIcons,
@@ -2811,7 +3182,7 @@ const renderMessageContextMenu = () => (
         }
     }, [editedFileName, currentPath]);
 
-    const createNewTerminal = useCallback(async (shellType: 'system' | 'npcsh' | 'guac' = 'system') => {
+    const createNewTerminal = useCallback(async (shellType: 'system' | 'npcsh' | 'guac' | 'python3' = 'system') => {
         const newTerminalId = `term_${generateId()}`;
 
         // Check for empty pane to reuse first
@@ -2881,6 +3252,106 @@ const renderMessageContextMenu = () => (
         setActiveConversationId(null);
         setCurrentFile(null);
     }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+
+    // Create a new experiment (.exp)
+    const createNewExperiment = useCallback(async () => {
+        // Create a new untitled experiment in the current directory
+        const timestamp = Date.now();
+        const notebookName = `experiment-${timestamp}.exp`;
+        const notebookPath = `${currentPath}/${notebookName}`;
+
+        // Create empty experiment structure with scientific method sections
+        const emptyExp = {
+            exp_version: '1.0',
+            created_at: new Date().toISOString(),
+            modified_at: new Date().toISOString(),
+            hypothesis: '',
+            sections: [
+                { id: 'hypothesis', type: 'hypothesis', title: 'Hypothesis', order: 0, blocks: [] },
+                { id: 'methods', type: 'methods', title: 'Methods', order: 1, blocks: [] },
+                { id: 'data', type: 'data', title: 'Data', order: 2, blocks: [] },
+                { id: 'results', type: 'results', title: 'Results', order: 3, blocks: [] },
+                { id: 'discussion', type: 'discussion', title: 'Discussion', order: 4, blocks: [] },
+                { id: 'conclusion', type: 'conclusion', title: 'Conclusion', order: 5, blocks: [] },
+            ],
+            status: 'draft',
+            conclusion: null,
+            tags: [],
+            session_ids: [],
+            notes: [],
+            artifacts: []
+        };
+
+        try {
+            await (window as any).api.writeFileContent(notebookPath, JSON.stringify(emptyExp, null, 2));
+
+            // Check for empty pane to reuse first
+            const emptyPaneId = findEmptyPaneId();
+            if (emptyPaneId) {
+                await updateContentPane(emptyPaneId, 'exp', notebookPath);
+                setActiveContentPaneId(emptyPaneId);
+                setRootLayoutNode(prev => ({ ...prev }));
+                return;
+            }
+
+            const newPaneId = generateId();
+
+            setRootLayoutNode(oldRoot => {
+                contentDataRef.current[newPaneId] = {};
+
+                if (!oldRoot) {
+                    return { id: newPaneId, type: 'content' };
+                }
+
+                let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+                if (activeContentPaneId) {
+                    const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                    if (pathToActive && pathToActive.length > 0) {
+                        const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                        const targetIndex = pathToActive[pathToActive.length - 1];
+
+                        if (targetParent && targetParent.type === 'split') {
+                            const newChildren = [...targetParent.children];
+                            newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                            const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                            targetParent.children = newChildren;
+                            targetParent.sizes = newSizes;
+                            return newRoot;
+                        }
+                    }
+                }
+
+                if (newRoot.type === 'content') {
+                    return {
+                        id: generateId(),
+                        type: 'split',
+                        direction: 'horizontal',
+                        children: [newRoot, { id: newPaneId, type: 'content' }],
+                        sizes: [50, 50],
+                    };
+                } else if (newRoot.type === 'split') {
+                    newRoot.children.push({ id: newPaneId, type: 'content' });
+                    const equalSize = 100 / newRoot.children.length;
+                    newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                    return newRoot;
+                }
+
+                return { id: newPaneId, type: 'content' };
+            });
+
+            setTimeout(async () => {
+                await updateContentPane(newPaneId, 'exp', notebookPath);
+                setRootLayoutNode(prev => ({ ...prev }));
+            }, 0);
+
+            setActiveContentPaneId(newPaneId);
+            setActiveConversationId(null);
+            setCurrentFile(notebookPath);
+        } catch (err: any) {
+            setError(`Failed to create notebook: ${err.message}`);
+        }
+    }, [currentPath, activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
     // Create DataLabeler pane
     const createDataLabelerPane = useCallback(async () => {
@@ -3763,6 +4234,112 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
         );
     };
 
+    // Create a new Jupyter notebook (.ipynb)
+    const createNewJupyterNotebook = useCallback(async () => {
+        const timestamp = Date.now();
+        const notebookName = `notebook-${timestamp}.ipynb`;
+        const notebookPath = `${currentPath}/${notebookName}`;
+
+        // Create empty Jupyter notebook structure
+        const emptyNotebook = {
+            nbformat: 4,
+            nbformat_minor: 5,
+            metadata: {
+                kernelspec: {
+                    display_name: 'Python 3',
+                    language: 'python',
+                    name: 'python3'
+                },
+                language_info: {
+                    name: 'python',
+                    version: '3.9.0'
+                }
+            },
+            cells: [
+                {
+                    cell_type: 'code',
+                    execution_count: null,
+                    metadata: {},
+                    outputs: [],
+                    source: ['']
+                }
+            ]
+        };
+
+        try {
+            await (window as any).api.writeFileContent(notebookPath, JSON.stringify(emptyNotebook, null, 2));
+
+            // Check for empty pane to reuse first
+            const emptyPaneId = findEmptyPaneId();
+            if (emptyPaneId) {
+                await updateContentPane(emptyPaneId, 'notebook', notebookPath);
+                setActiveContentPaneId(emptyPaneId);
+                setRootLayoutNode(prev => ({ ...prev }));
+                loadDirectoryStructure(currentPath);
+                return;
+            }
+
+            const newPaneId = generateId();
+
+            setRootLayoutNode(oldRoot => {
+                contentDataRef.current[newPaneId] = {};
+
+                if (!oldRoot) {
+                    return { id: newPaneId, type: 'content' };
+                }
+
+                let newRoot = JSON.parse(JSON.stringify(oldRoot));
+
+                if (activeContentPaneId) {
+                    const pathToActive = findNodePath(newRoot, activeContentPaneId);
+                    if (pathToActive && pathToActive.length > 0) {
+                        const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
+                        const targetIndex = pathToActive[pathToActive.length - 1];
+
+                        if (targetParent && targetParent.type === 'split') {
+                            const newChildren = [...targetParent.children];
+                            newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
+                            const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
+                            targetParent.children = newChildren;
+                            targetParent.sizes = newSizes;
+                            return newRoot;
+                        }
+                    }
+                }
+
+                if (newRoot.type === 'content') {
+                    return {
+                        id: generateId(),
+                        type: 'split',
+                        direction: 'horizontal',
+                        children: [newRoot, { id: newPaneId, type: 'content' }],
+                        sizes: [50, 50],
+                    };
+                } else if (newRoot.type === 'split') {
+                    newRoot.children.push({ id: newPaneId, type: 'content' });
+                    const equalSize = 100 / newRoot.children.length;
+                    newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
+                    return newRoot;
+                }
+
+                return { id: newPaneId, type: 'content' };
+            });
+
+            setTimeout(async () => {
+                await updateContentPane(newPaneId, 'notebook', notebookPath);
+                setRootLayoutNode(prev => ({ ...prev }));
+            }, 0);
+
+            setActiveContentPaneId(newPaneId);
+            setActiveConversationId(null);
+            setCurrentFile(null);
+            loadDirectoryStructure(currentPath);
+        } catch (err: any) {
+            console.error('Error creating notebook:', err);
+            setError(err.message);
+        }
+    }, [currentPath, activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+
     // File drag and drop handler
     const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();
@@ -3956,6 +4533,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
             if (contexts.length > 0 && contextChanged) {
                 const fileContexts = contexts.filter((c: any) => c.type === 'file');
                 const browserContexts = contexts.filter((c: any) => c.type === 'browser');
+                const terminalContexts = contexts.filter((c: any) => c.type === 'terminal');
                 let contextPrompt = '';
 
                 if (fileContexts.length > 0) {
@@ -3986,6 +4564,14 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
 
                     const browserContents = await Promise.all(browserContentPromises);
                     contextPrompt += browserContents.join('\n\n');
+                }
+
+                // Add terminal context
+                if (terminalContexts.length > 0) {
+                    if (contextPrompt) contextPrompt += '\n\n';
+                    contextPrompt += terminalContexts.map((ctx: any) =>
+                        `Terminal output (${ctx.shellType}):\n\`\`\`\n${ctx.content}\n\`\`\``
+                    ).join('\n\n');
                 }
 
                 if (paneExecMode === 'tool_agent') {
@@ -4057,7 +4643,6 @@ ${contextPrompt}`;
                     streamId: newStreamId,
                 });
             } else {
-                console.log('[DEBUG] uploadedFiles before sending:', uploadedFiles);
                 const commandData = {
                     commandstr: finalPromptForUserMessage,
                     currentPath,
@@ -4076,9 +4661,7 @@ ${contextPrompt}`;
                     mcpServerPath: paneExecMode === 'tool_agent' ? mcpServerPath : undefined,
                     selectedMcpTools: paneExecMode === 'tool_agent' ? selectedMcpTools : undefined,
                 };
-                console.log('[DEBUG] Sending to backend via executeCommandStream:', commandData);
                 await window.api.executeCommandStream(commandData);
-                console.log('[DEBUG] executeCommandStream call completed');
             }
         } catch (err: any) {
             setError(err.message);
@@ -4257,74 +4840,48 @@ ${contextPrompt}`;
         let newStreamId: string | null = null;
 
         try {
-            // Find the user message and the assistant response that followed
+            // Find the user message that we're re-running
             const messageIdToResend = messageToResend.id || messageToResend.timestamp;
             const allMessages = activePaneData.chatMessages.allMessages;
             const userMsgIndex = allMessages.findIndex((m: any) =>
                 (m.id || m.timestamp) === messageIdToResend
             );
 
-            console.log('[RESEND] Found user message at index:', userMsgIndex);
+            // Get or create cellId - this groups all runs for the same prompt
+            // cellId is the ID of the original user message
+            const cellId = messageToResend.cellId || messageToResend.id || messageToResend.timestamp;
 
-            if (userMsgIndex !== -1) {
-                // Collect messages to delete (the user message and any assistant responses after it)
-                const messagesToDelete = [];
+            // Count existing runs for this cell
+            const existingRuns = allMessages.filter((m: any) =>
+                m.cellId === cellId && m.role === 'assistant'
+            ).length;
+            const newRunNumber = existingRuns + 1;
 
-                // Add the original user message to delete list
-                const userMsg = allMessages[userMsgIndex];
-                if (userMsg.message_id || userMsg.id) {
-                    messagesToDelete.push(userMsg.message_id || userMsg.id);
-                }
-
-                // Add the assistant response that followed (if exists)
-                if (userMsgIndex + 1 < allMessages.length &&
-                    allMessages[userMsgIndex + 1].role === 'assistant') {
-                    const assistantMsg = allMessages[userMsgIndex + 1];
-                    if (assistantMsg.message_id || assistantMsg.id) {
-                        messagesToDelete.push(assistantMsg.message_id || assistantMsg.id);
-                    }
-                }
-
-                console.log('[RESEND] Messages to delete:', messagesToDelete);
-
-                // Delete from database
-                for (const msgId of messagesToDelete) {
-                    try {
-                        const result = await window.api.deleteMessage({
-                            conversationId,
-                            messageId: msgId
-                        });
-                        console.log('[RESEND] Deleted message:', msgId, 'Result:', result);
-                    } catch (err) {
-                        console.error('[RESEND] Error deleting message:', msgId, err);
-                    }
-                }
-
-                // Remove from local state - keep everything BEFORE the user message
-                activePaneData.chatMessages.allMessages = allMessages.slice(0, userMsgIndex);
-                activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
-                    -(activePaneData.chatMessages.displayedMessageCount || 20)
-                );
-
-                console.log('[RESEND] Messages after deletion:', activePaneData.chatMessages.allMessages.length);
+            // If the user message doesn't have a cellId yet, update it
+            if (userMsgIndex !== -1 && !allMessages[userMsgIndex].cellId) {
+                allMessages[userMsgIndex].cellId = cellId;
             }
 
-            // Now send the new message
+            // Update runCount on the original user message
+            if (userMsgIndex !== -1) {
+                allMessages[userMsgIndex].runCount = newRunNumber;
+            }
+
+            // Also update runCount on all existing assistant responses for this cell
+            allMessages.forEach((m: any) => {
+                if (m.cellId === cellId && m.role === 'assistant') {
+                    m.runCount = newRunNumber;
+                }
+            });
+
+            // Now create the new run (don't delete old messages - keep them as run history)
             newStreamId = generateId();
             streamToPaneRef.current[newStreamId] = activeContentPaneId;
             setIsStreaming(true);
 
             const selectedNpc = availableNPCs.find((npc: any) => npc.value === selectedNPC);
 
-            // Create NEW user message (don't reuse the old one)
-            const newUserMessage = {
-                id: generateId(), // NEW ID
-                role: 'user',
-                content: messageToResend.content,
-                timestamp: new Date().toISOString(),
-                attachments: messageToResend.attachments || [],
-            };
-
+            // Create new assistant placeholder message for this run
             const assistantPlaceholderMessage = {
                 id: newStreamId,
                 role: 'assistant',
@@ -4333,16 +4890,45 @@ ${contextPrompt}`;
                 timestamp: new Date().toISOString(),
                 streamId: newStreamId,
                 model: selectedModel,
+                provider: availableModels.find((m: any) => m.value === selectedModel)?.provider || currentProvider,
                 npc: selectedNPC,
+                // Run tracking fields
+                cellId: cellId,
+                parentMessageId: messageIdToResend,  // Links to original user message
+                runNumber: newRunNumber,
+                runCount: newRunNumber,
             };
 
-            // Add new messages
-            activePaneData.chatMessages.allMessages.push(newUserMessage, assistantPlaceholderMessage);
+            // Insert the new run after the last response for this cell
+            // Find the last assistant message with this cellId
+            let insertIndex = allMessages.length;
+            for (let i = allMessages.length - 1; i >= 0; i--) {
+                if (allMessages[i].cellId === cellId) {
+                    insertIndex = i + 1;
+                    break;
+                }
+            }
+
+            // If no matching cellId found, insert after the user message
+            if (insertIndex === allMessages.length && userMsgIndex !== -1) {
+                insertIndex = userMsgIndex + 1;
+                // Skip past any immediate assistant response
+                while (insertIndex < allMessages.length && allMessages[insertIndex].role === 'assistant') {
+                    // Mark it with cellId if not already
+                    if (!allMessages[insertIndex].cellId) {
+                        allMessages[insertIndex].cellId = cellId;
+                        allMessages[insertIndex].runNumber = 1;
+                        allMessages[insertIndex].runCount = newRunNumber;
+                    }
+                    insertIndex++;
+                }
+            }
+
+            // Insert the new message
+            allMessages.splice(insertIndex, 0, assistantPlaceholderMessage);
             activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
                 -(activePaneData.chatMessages.displayedMessageCount || 20)
             );
-
-            console.log('[RESEND] Added new messages, total now:', activePaneData.chatMessages.allMessages.length);
 
             setRootLayoutNode(prev => ({ ...prev }));
 
@@ -4361,7 +4947,10 @@ ${contextPrompt}`;
                     name: att.name, path: att.path, size: att.size, type: att.type
                 })) || [],
                 streamId: newStreamId,
-                isResend: true
+                isRerun: true,  // Flag this as a re-run
+                cellId: cellId,
+                parentMessageId: messageIdToResend,
+                runNumber: newRunNumber
             });
 
             setResendModal({ isOpen: false, message: null, selectedModel: '', selectedNPC: '' });
@@ -4455,11 +5044,14 @@ ${contextPrompt}`;
             });
 
             // THEN update the content (this will now pass validation)
-            // Use setTimeout to ensure the state update has completed
-            setTimeout(async () => {
-                await updateContentPane(newPaneId, 'chat', conversation.id, skipMessageLoad);
-                setRootLayoutNode(prev => ({ ...prev })); // Force re-render
-            }, 0);
+            // Use a small delay to ensure the state update has completed, but wait for it
+            await new Promise<void>((resolve) => {
+                setTimeout(async () => {
+                    await updateContentPane(newPaneId, 'chat', conversation.id, skipMessageLoad);
+                    setRootLayoutNode(prev => ({ ...prev })); // Force re-render
+                    resolve();
+                }, 10);
+            });
 
             setActiveContentPaneId(newPaneId);
             setActiveConversationId(conversation.id);
@@ -4764,27 +5356,41 @@ ${contextPrompt}`;
         setActiveContentPaneId(newPaneId);
     }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
 
-    const createNewTextFile = () => {
-        setPromptModalValue('untitled.py');
+    const createNewTextFile = useCallback((defaultFilename?: string) => {
+        const filename = defaultFilename || localStorage.getItem('npcStudio_defaultCodeFileType') || 'untitled.py';
+        const finalDefault = filename.includes('.') ? filename : `untitled.${filename}`;
+        setPromptModalValue(finalDefault);
         setPromptModal({
             isOpen: true,
             title: 'Create New File',
             message: 'Enter filename with extension (e.g., script.py, index.js, notes.md)',
-            defaultValue: 'untitled.py',
-            onConfirm: async (filename) => {
+            defaultValue: finalDefault,
+            onConfirm: async (inputFilename) => {
                 try {
-                    if (!filename || filename.trim() === '') return;
-                    const cleanName = filename.trim();
+                    if (!inputFilename || inputFilename.trim() === '') return;
+                    const cleanName = inputFilename.trim();
                     const filepath = normalizePath(`${currentPath}/${cleanName}`);
                     await window.api.writeFileContent(filepath, '');
                     await loadDirectoryStructure(currentPath);
-                    await handleFileClick(filepath);
+                    // Use ref to avoid forward reference issue
+                    if (handleFileClickRef.current) {
+                        handleFileClickRef.current(filepath);
+                    }
                 } catch (err) {
                     setError(err.message);
                 }
             }
         });
-    };
+    }, [currentPath, loadDirectoryStructure, normalizePath, setError, setPromptModal, setPromptModalValue]);
+
+    // Listen for custom event to create file with specific name
+    useEffect(() => {
+        const handleCreateNewFileWithName = (e: CustomEvent<{ filename: string }>) => {
+            createNewTextFile(e.detail.filename);
+        };
+        window.addEventListener('createNewFileWithName', handleCreateNewFileWithName as EventListener);
+        return () => window.removeEventListener('createNewFileWithName', handleCreateNewFileWithName as EventListener);
+    }, [createNewTextFile]);
 
     const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx' | 'mapx') => {
         try {
@@ -4872,12 +5478,8 @@ ${contextPrompt}`;
             }
         }
 
-        console.log('Parsed agent changes:', changes);
         return changes;
     }, []);
-
-    // Set up streaming listeners
-    console.log('[DEBUG] Setting up stream listeners. Config:', config, 'config.stream:', config?.stream);
 
     // Build studioContext for agent-controlled UI actions
     const studioContext: StudioContext = useMemo(() => ({
@@ -5182,18 +5784,12 @@ ${contextPrompt}`;
             initialLoadComplete.current = true;
 
             // CRITICAL: Try to load workspace FIRST, before anything else
-            console.log(`[INIT] Attempting to load workspace for ${currentPath}`);
             setIsLoadingWorkspace(true);
-            
+
             let workspaceRestored = false;
             try {
                 const savedWorkspace = loadWorkspaceFromStorage(currentPath);
                 if (savedWorkspace) {
-                    console.log(`[INIT] Found saved workspace for ${currentPath}`, {
-                        paneCount: Object.keys(savedWorkspace.contentData).length,
-                        layoutExists: !!savedWorkspace.layoutNode
-                    });
-                    
                     // Load directory structure WITHOUT triggering conversation selection
                     await loadDirectoryStructureWithoutConversationLoad(currentPath);
 
@@ -5206,37 +5802,20 @@ ${contextPrompt}`;
                         generateId,
                         getConversationStats
                     );
-                    
-                    if (workspaceRestored) {
-                        console.log(`[INIT] Successfully restored workspace with ${Object.keys(contentDataRef.current).length} panes`);
-                    } else {
-                        console.log(`[INIT] Workspace restoration failed`);
-                    }
-                } else {
-                    console.log(`[INIT] No saved workspace found for ${currentPath}`);
                 }
             } catch (error) {
-                console.error(`[INIT] Error loading workspace:`, error);
+                console.error(`Error loading workspace:`, error);
             } finally {
                 setIsLoadingWorkspace(false);
             }
 
             // Now check if workspace was restored
             const workspaceAlreadyLoaded = workspaceRestored && rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
-            
-            console.log('[INIT] Workspace check after restoration attempt:', {
-                workspaceRestored,
-                workspaceAlreadyLoaded,
-                rootLayoutNode: !!rootLayoutNode,
-                contentDataCount: Object.keys(contentDataRef.current).length
-            });
 
             // Only load directory structure if workspace wasn't restored
             if (!workspaceAlreadyLoaded) {
-                console.log('[INIT] No workspace loaded, loading directory structure normally');
                 await loadDirectoryStructure(currentPath);
             } else {
-                console.log('[INIT] Workspace already loaded, just loading conversations list');
                 await loadConversationsWithoutAutoSelect(currentPath);
             }
 
@@ -5310,22 +5889,11 @@ ${contextPrompt}`;
             setCurrentProvider(providerToSet);
             setCurrentNPC(npcToSet);
 
-            // Final check - use workspaceRestored flag (not rootLayoutNode state which may not be updated yet)
-            console.log('[INIT] Final workspace check:', {
-                workspaceRestored,
-                contentDataCount: Object.keys(contentDataRef.current).length
-            });
-
             if (!workspaceRestored) {
-                console.log('[INIT] No workspace was restored, creating default panes');
-
                 if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
-                    console.log('[INIT] Creating pane for stored conversation:', targetConvoId);
                     await handleConversationSelect(targetConvoId, false, false);
                 }
             } else {
-                console.log('[INIT] Workspace was restored, skipping pane creation');
-
                 if (targetConvoId) {
                     setActiveConversationId(targetConvoId);
                 }
@@ -6649,6 +7217,109 @@ const getChatInputProps = useCallback((paneId: string) => ({
             performSplit(nodePath, 'right', contentType, path);
         }
     },
+    // Broadcast new message to multiple models/NPCs
+    onBroadcast: async (models: string[], npcs: string[]) => {
+        const activePaneData = contentDataRef.current[paneId];
+        if (!activePaneData || activePaneData.contentType !== 'chat' || !activePaneData.contentId) {
+            setError("Cannot broadcast: The active pane is not a valid chat window.");
+            return;
+        }
+        if (isStreaming || !input.trim()) return;
+
+        const conversationId = activePaneData.contentId;
+        const allMessages = activePaneData.chatMessages?.allMessages || [];
+
+        // Create user message
+        const userMessageId = generateId();
+        const cellId = userMessageId;
+        const userMessage = {
+            id: userMessageId,
+            role: 'user',
+            content: input,
+            timestamp: new Date().toISOString(),
+            attachments: uploadedFiles.map(f => ({ name: f.name, path: f.path, size: f.size, type: f.type })),
+            cellId: cellId,
+        };
+        allMessages.push(userMessage);
+
+        // Create combinations
+        const combinations: Array<{model: string, npc: string}> = [];
+        for (const model of models) {
+            for (const npc of npcs) {
+                combinations.push({ model, npc });
+            }
+        }
+
+        setIsStreaming(true);
+        const newStreamIds: string[] = [];
+
+        for (let i = 0; i < combinations.length; i++) {
+            const { model, npc } = combinations[i];
+            const newStreamId = generateId();
+            newStreamIds.push(newStreamId);
+            streamToPaneRef.current[newStreamId] = paneId;
+
+            const selectedModelObj = availableModels.find((m: any) => m.value === model);
+            const selectedNpc = availableNPCs.find((n: any) => n.value === npc);
+            const providerToUse = selectedModelObj?.provider || currentProvider;
+
+            const assistantPlaceholder = {
+                id: newStreamId,
+                role: 'assistant',
+                content: '',
+                isStreaming: true,
+                timestamp: new Date().toISOString(),
+                streamId: newStreamId,
+                model: model,
+                provider: providerToUse,
+                npc: npc,
+                cellId: cellId,
+                parentMessageId: userMessageId,
+                runNumber: i + 1,
+                runCount: combinations.length,
+            };
+            allMessages.push(assistantPlaceholder);
+        }
+
+        // Update runCount on user message
+        userMessage.runCount = combinations.length;
+
+        activePaneData.chatMessages.allMessages = allMessages;
+        activePaneData.chatMessages.messages = allMessages.slice(-(activePaneData.chatMessages.displayedMessageCount || 20));
+        setInput('');
+        setUploadedFiles([]);
+        setRootLayoutNode(prev => ({ ...prev }));
+
+        // Execute all in parallel
+        const executePromises = combinations.map(async ({ model, npc }, i) => {
+            const newStreamId = newStreamIds[i];
+            const selectedModelObj = availableModels.find((m: any) => m.value === model);
+            const selectedNpc = availableNPCs.find((n: any) => n.value === npc);
+            const providerToUse = selectedModelObj?.provider || currentProvider;
+
+            try {
+                await window.api.executeCommandStream({
+                    commandstr: input,
+                    currentPath,
+                    conversationId,
+                    model,
+                    provider: providerToUse,
+                    npc: selectedNpc?.name || npc,
+                    npcSource: selectedNpc?.source || 'global',
+                    attachments: uploadedFiles.map(f => ({ name: f.name, path: f.path, size: f.size, type: f.type })),
+                    streamId: newStreamId,
+                    isRerun: false,
+                    cellId: cellId,
+                    parentMessageId: userMessageId,
+                    runNumber: i + 1
+                });
+            } catch (err: any) {
+                console.error('[BROADCAST NEW] Error for', model, npc, err);
+            }
+        });
+
+        await Promise.all(executePromises);
+    },
 }), [
     input, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
@@ -6684,6 +7355,7 @@ const layoutComponentApi = useMemo(() => ({
     renderPptxViewer,
     renderLatexViewer,
     renderNotebookViewer,
+    renderExpViewer,
     renderPicViewer,
     renderMindMapViewer,
     renderZipViewer,
@@ -6703,6 +7375,7 @@ const layoutComponentApi = useMemo(() => ({
     renderDiskUsagePane,
     renderMarkdownPreviewPane,
     renderTileJinxPane,
+    renderBranchComparisonPane,
     setPaneContextMenu,
     // Chat-specific props:
     autoScrollEnabled, setAutoScrollEnabled,
@@ -6733,6 +7406,7 @@ const layoutComponentApi = useMemo(() => ({
     renderPptxViewer,
     renderLatexViewer,
     renderNotebookViewer,
+    renderExpViewer,
     renderPicViewer,
     renderMindMapViewer,
     renderZipViewer,
@@ -6752,6 +7426,7 @@ const layoutComponentApi = useMemo(() => ({
     renderDiskUsagePane,
     renderMarkdownPreviewPane,
     renderTileJinxPane,
+    renderBranchComparisonPane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
     autoScrollEnabled, setAutoScrollEnabled,
@@ -6770,18 +7445,16 @@ const handleConversationSelect = async (conversationId: string, skipMessageLoad 
 
     // CRITICAL: Don't create/update panes if workspace is being restored
     if (isLoadingWorkspace) {
-        console.log('[SELECT_CONVO] Skipping pane update - currently restoring workspace');
         return null;
     }
 
-    // NEW: Check if this conversation is already open in a pane
+    // Check if this conversation is already open in a pane
     const existingPaneId = Object.keys(contentDataRef.current).find(paneId => {
         const paneData = contentDataRef.current[paneId];
         return paneData?.contentType === 'chat' && paneData?.contentId === conversationId;
     });
 
     if (existingPaneId) {
-        console.log('[SELECT_CONVO] Conversation already open in pane:', existingPaneId);
         setActiveContentPaneId(existingPaneId);
         return existingPaneId;
     }
@@ -6840,12 +7513,11 @@ const handleFileClick = useCallback(async (filePath: string) => {
     else if (extension === 'pptx') contentType = 'pptx';
     else if (extension === 'tex') contentType = 'latex';
     else if (extension === 'ipynb') contentType = 'notebook';
+    else if (extension === 'exp') contentType = 'exp';
     else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
     else if (extension === 'mapx') contentType = 'mindmap';
     else if (extension === 'zip') contentType = 'zip';
     else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
-
-    console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
 
     // Check for empty pane to reuse first
     const emptyPaneId = findEmptyPaneId();
@@ -6908,7 +7580,6 @@ const handleFileClick = useCallback(async (filePath: string) => {
     });
 
     setTimeout(async () => {
-        console.log('[FILE_CLICK] Updating content pane:', newPaneId, contentType, filePath);
         await updateContentPane(newPaneId, contentType, filePath);
         setRootLayoutNode(prev => ({ ...prev }));
     }, 0);
@@ -7281,6 +7952,7 @@ const renderMainContent = () => {
                             else if (extension === 'pptx') contentType = 'pptx';
                             else if (extension === 'tex') contentType = 'latex';
                             else if (extension === 'ipynb') contentType = 'notebook';
+    else if (extension === 'exp') contentType = 'exp';
                             else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
                             else if (extension === 'mapx') contentType = 'mindmap';
                             else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
@@ -7502,6 +8174,8 @@ const renderMainContent = () => {
         handleCreateNewFolder={handleCreateNewFolder}
         createNewTextFile={createNewTextFile}
         createNewTerminal={createNewTerminal}
+        createNewNotebook={createNewJupyterNotebook}
+        createNewExperiment={createNewExperiment}
         createNewDocument={createNewDocument}
         handleOpenNpcTeamMenu={handleOpenNpcTeamMenu}
         renderSearchResults={renderSearchResults}
@@ -7587,6 +8261,8 @@ const renderMainContent = () => {
                                     return renderMindMapViewer({ nodeId: zenModePaneId });
                                 case 'notebook':
                                     return renderNotebookViewer({ nodeId: zenModePaneId });
+                                case 'exp':
+                                    return renderExpViewer({ nodeId: zenModePaneId });
                                 case 'data-labeler':
                                     return renderDataLabelerPane({ nodeId: zenModePaneId });
                                 case 'graph-viewer':
