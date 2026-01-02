@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Check, AlertCircle, Terminal, Folder, ChevronDown } from 'lucide-react';
+import { RefreshCw, Check, AlertCircle, Terminal, Folder, ChevronDown, Package, Plus, Trash2, Download } from 'lucide-react';
 
 interface PythonEnv {
     type: 'system' | 'venv' | 'pyenv' | 'conda' | 'uv' | 'custom';
@@ -22,11 +22,25 @@ interface PythonEnvConfig {
     customPath?: string;
 }
 
+interface InstalledPackage {
+    name: string;
+    version: string;
+}
+
 interface PythonEnvSettingsProps {
     currentPath: string;
     onClose?: () => void;
     compact?: boolean;
 }
+
+// Common ML package bundles
+const PACKAGE_BUNDLES = {
+    'torch-cpu': { name: 'PyTorch (CPU)', packages: ['torch', 'torchvision', 'torchaudio'] },
+    'torch-cuda': { name: 'PyTorch (CUDA)', packages: ['torch', 'torchvision', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu121'] },
+    'diffusers': { name: 'Diffusers (Image Gen)', packages: ['diffusers', 'transformers', 'accelerate', 'safetensors'] },
+    'transformers': { name: 'Transformers (LLM)', packages: ['transformers', 'accelerate', 'safetensors', 'sentencepiece'] },
+    'whisper': { name: 'Whisper (Speech)', packages: ['openai-whisper'] },
+};
 
 const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onClose, compact = false }) => {
     const [detectedEnvs, setDetectedEnvs] = useState<PythonEnv[]>([]);
@@ -41,6 +55,14 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
     const [customPath, setCustomPath] = useState('');
     const [newVenvName, setNewVenvName] = useState('.venv');
 
+    // Package management state
+    const [showPackages, setShowPackages] = useState(false);
+    const [installedPackages, setInstalledPackages] = useState<InstalledPackage[]>([]);
+    const [loadingPackages, setLoadingPackages] = useState(false);
+    const [installingPackage, setInstallingPackage] = useState(false);
+    const [newPackageName, setNewPackageName] = useState('');
+    const [packageFilter, setPackageFilter] = useState('');
+
     const loadConfig = useCallback(async () => {
         if (!currentPath) return;
         try {
@@ -54,6 +76,84 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
             console.error('Error loading python env config:', err);
         }
     }, [currentPath]);
+
+    const loadPackages = useCallback(async () => {
+        if (!currentPath) return;
+        setLoadingPackages(true);
+        try {
+            const packages = await (window as any).api?.pythonEnvListPackages?.(currentPath);
+            setInstalledPackages(packages || []);
+        } catch (err) {
+            console.error('Error loading packages:', err);
+        } finally {
+            setLoadingPackages(false);
+        }
+    }, [currentPath]);
+
+    const installPackage = async (packageName: string, extraArgs: string[] = []) => {
+        if (!currentPath || !packageName.trim()) return;
+        setInstallingPackage(true);
+        setError(null);
+        setSuccess(null);
+        try {
+            const result = await (window as any).api?.pythonEnvInstallPackage?.(currentPath, packageName.trim(), extraArgs);
+            if (result?.success) {
+                setSuccess(`Installed ${packageName} successfully`);
+                setNewPackageName('');
+                await loadPackages();
+            } else {
+                setError(result?.error || `Failed to install ${packageName}`);
+            }
+        } catch (err) {
+            console.error('Error installing package:', err);
+            setError(`Failed to install ${packageName}`);
+        } finally {
+            setInstallingPackage(false);
+        }
+    };
+
+    const installBundle = async (bundleKey: string) => {
+        const bundle = PACKAGE_BUNDLES[bundleKey as keyof typeof PACKAGE_BUNDLES];
+        if (!bundle) return;
+
+        setInstallingPackage(true);
+        setError(null);
+        setSuccess(null);
+        try {
+            const result = await (window as any).api?.pythonEnvInstallPackage?.(currentPath, bundle.packages.join(' '), []);
+            if (result?.success) {
+                setSuccess(`Installed ${bundle.name} successfully`);
+                await loadPackages();
+            } else {
+                setError(result?.error || `Failed to install ${bundle.name}`);
+            }
+        } catch (err) {
+            console.error('Error installing bundle:', err);
+            setError(`Failed to install ${bundle.name}`);
+        } finally {
+            setInstallingPackage(false);
+        }
+    };
+
+    const uninstallPackage = async (packageName: string) => {
+        if (!currentPath || !packageName) return;
+        setInstallingPackage(true);
+        setError(null);
+        try {
+            const result = await (window as any).api?.pythonEnvUninstallPackage?.(currentPath, packageName);
+            if (result?.success) {
+                setSuccess(`Uninstalled ${packageName}`);
+                await loadPackages();
+            } else {
+                setError(result?.error || `Failed to uninstall ${packageName}`);
+            }
+        } catch (err) {
+            console.error('Error uninstalling package:', err);
+            setError(`Failed to uninstall ${packageName}`);
+        } finally {
+            setInstallingPackage(false);
+        }
+    };
 
     const detectEnvs = useCallback(async () => {
         if (!currentPath) return;
@@ -73,7 +173,8 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
     useEffect(() => {
         loadConfig();
         detectEnvs();
-    }, [loadConfig, detectEnvs]);
+        loadPackages(); // Load package count on mount
+    }, [loadConfig, detectEnvs, loadPackages]);
 
     const selectEnv = async (env: PythonEnv) => {
         if (!currentPath || env.notInstalled) return;
@@ -90,6 +191,8 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
             await (window as any).api?.pythonEnvSave?.(currentPath, config);
             setCurrentConfig(config);
             setShowCustomInput(false);
+            // Reload packages for the newly selected environment
+            await loadPackages();
         } catch (err) {
             console.error('Error saving python env config:', err);
             setError('Failed to save configuration');
@@ -109,6 +212,8 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
             };
             await (window as any).api?.pythonEnvSave?.(currentPath, config);
             setCurrentConfig(config);
+            // Reload packages for the custom Python path
+            await loadPackages();
         } catch (err) {
             console.error('Error saving custom python path:', err);
             setError('Failed to save configuration');
@@ -125,6 +230,8 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
             setCurrentConfig(null);
             setShowCustomInput(false);
             setCustomPath('');
+            // Reload packages (will use fallback/system Python)
+            await loadPackages();
         } catch (err) {
             console.error('Error clearing python env config:', err);
         } finally {
@@ -142,9 +249,10 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
             if (result?.success) {
                 setSuccess(result.message || 'Virtual environment created successfully!');
                 setShowCreateVenv(false);
-                // Refresh detected envs and config
+                // Refresh detected envs, config, and packages for new env
                 await detectEnvs();
                 await loadConfig();
+                await loadPackages();
             } else {
                 setError(result?.error || 'Failed to create virtual environment');
             }
@@ -354,6 +462,111 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
                 )}
             </div>
 
+            {/* Package Management - always show when we have a path */}
+            {currentPath && (
+                <div className="pt-2 border-t theme-border">
+                    <button
+                        onClick={() => {
+                            setShowPackages(!showPackages);
+                            if (!showPackages) loadPackages();
+                        }}
+                        className="flex items-center gap-2 text-xs text-purple-400 hover:text-purple-300"
+                    >
+                        <Package size={12} />
+                        <ChevronDown size={12} className={showPackages ? 'rotate-180' : ''} />
+                        Installed Packages ({loadingPackages ? '...' : installedPackages.length})
+                    </button>
+                    {showPackages && (
+                        <div className="mt-2 space-y-3">
+                            {/* Quick Install Bundles */}
+                            <div className="space-y-1">
+                                <div className="text-xs text-gray-500">Quick Install:</div>
+                                <div className="flex flex-wrap gap-1">
+                                    {Object.entries(PACKAGE_BUNDLES).map(([key, bundle]) => (
+                                        <button
+                                            key={key}
+                                            onClick={() => installBundle(key)}
+                                            disabled={installingPackage}
+                                            className="px-2 py-1 text-xs bg-purple-600/30 text-purple-300 rounded hover:bg-purple-600/50 disabled:opacity-50 flex items-center gap-1"
+                                            title={bundle.packages.filter(p => !p.startsWith('--')).join(', ')}
+                                        >
+                                            <Download size={10} />
+                                            {bundle.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Install Custom Package */}
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={newPackageName}
+                                    onChange={(e) => setNewPackageName(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && installPackage(newPackageName)}
+                                    placeholder="package-name"
+                                    className="flex-1 px-2 py-1 text-xs theme-bg-tertiary theme-border border rounded outline-none focus:ring-1 focus:ring-purple-500"
+                                />
+                                <button
+                                    onClick={() => installPackage(newPackageName)}
+                                    disabled={!newPackageName.trim() || installingPackage}
+                                    className="px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1"
+                                >
+                                    {installingPackage ? <RefreshCw size={12} className="animate-spin" /> : <Plus size={12} />}
+                                    Install
+                                </button>
+                            </div>
+
+                            {/* Package List */}
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        value={packageFilter}
+                                        onChange={(e) => setPackageFilter(e.target.value)}
+                                        placeholder="Filter packages..."
+                                        className="flex-1 px-2 py-1 text-xs theme-bg-tertiary theme-border border rounded outline-none"
+                                    />
+                                    <button
+                                        onClick={loadPackages}
+                                        disabled={loadingPackages}
+                                        className="p-1 theme-hover rounded"
+                                    >
+                                        <RefreshCw size={12} className={loadingPackages ? 'animate-spin' : ''} />
+                                    </button>
+                                </div>
+                                <div className="max-h-48 overflow-y-auto space-y-1">
+                                    {loadingPackages ? (
+                                        <div className="text-xs text-gray-500 py-2">Loading packages...</div>
+                                    ) : installedPackages.length === 0 ? (
+                                        <div className="text-xs text-gray-500 py-2">No packages installed</div>
+                                    ) : (
+                                        installedPackages
+                                            .filter(pkg => !packageFilter || pkg.name.toLowerCase().includes(packageFilter.toLowerCase()))
+                                            .map((pkg, idx) => (
+                                                <div key={idx} className="flex items-center justify-between px-2 py-1 text-xs theme-bg-tertiary rounded group">
+                                                    <span>
+                                                        <span className="theme-text-primary">{pkg.name}</span>
+                                                        <span className="text-gray-500 ml-2">{pkg.version}</span>
+                                                    </span>
+                                                    <button
+                                                        onClick={() => uninstallPackage(pkg.name)}
+                                                        disabled={installingPackage}
+                                                        className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:text-red-300 transition-opacity"
+                                                        title="Uninstall"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Current Config Display */}
             {currentConfig && (
                 <div className="pt-2 border-t theme-border">
@@ -381,6 +594,27 @@ const PythonEnvSettings: React.FC<PythonEnvSettingsProps> = ({ currentPath, onCl
                     </div>
                 </div>
             )}
+
+            {/* Re-run Setup Wizard */}
+            <div className="pt-2 border-t theme-border">
+                <button
+                    onClick={async () => {
+                        try {
+                            await (window as any).api?.setupReset?.();
+                            window.location.reload();
+                        } catch (err) {
+                            console.error('Error resetting setup:', err);
+                        }
+                    }}
+                    className="flex items-center gap-2 text-xs text-orange-400 hover:text-orange-300"
+                >
+                    <RefreshCw size={12} />
+                    Re-run Setup Wizard
+                </button>
+                <div className="text-xs text-gray-500 mt-1">
+                    Reconfigure Python environment and reinstall npcpy packages
+                </div>
+            </div>
         </div>
     );
 };

@@ -21,31 +21,44 @@ const MemoryManagement: React.FC<MemoryManagementProps> = ({ isModal = false, on
     const [memoryLoading, setMemoryLoading] = useState(false);
     const [memoryFilter, setMemoryFilter] = useState('all');
     const [memorySearchTerm, setMemorySearchTerm] = useState('');
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     const loadMemories = async () => {
         setMemoryLoading(true);
+        setLoadError(null);
         try {
             console.log('[MemoryManagement] Loading memories...');
-            const result = await (window as any).api?.executeSQL?.({
+            const apiResult = await (window as any).api?.executeSQL?.({
                 query: `SELECT id, memory_id, initial_memory, final_memory, status, npc, timestamp FROM memory_lifecycle ORDER BY timestamp DESC LIMIT 500`
             });
-            console.log('[MemoryManagement] Raw SQL result:', result);
-            // Handle both array result and object with rows property
+            console.log('[MemoryManagement] Raw SQL result:', apiResult);
+
+            // Handle error from API
+            if (apiResult?.error) {
+                console.error('[MemoryManagement] SQL error:', apiResult.error);
+                setLoadError(apiResult.error);
+                setMemories([]);
+                return;
+            }
+
+            // executeSQL returns { result: rows, error: null }
             let memoriesArray: Memory[] = [];
-            if (Array.isArray(result)) {
-                memoriesArray = result;
-            } else if (result?.rows) {
-                memoriesArray = result.rows;
-            } else if (result?.data) {
-                memoriesArray = result.data;
-            } else if (result && typeof result === 'object') {
-                // Maybe it's a single object or has a different structure
-                console.log('[MemoryManagement] Result keys:', Object.keys(result));
+            if (Array.isArray(apiResult?.result)) {
+                memoriesArray = apiResult.result;
+            } else if (Array.isArray(apiResult)) {
+                memoriesArray = apiResult;
+            } else if (apiResult?.rows) {
+                memoriesArray = apiResult.rows;
+            } else if (apiResult?.data) {
+                memoriesArray = apiResult.data;
+            } else if (apiResult && typeof apiResult === 'object') {
+                console.log('[MemoryManagement] Result keys:', Object.keys(apiResult));
             }
             console.log('[MemoryManagement] Parsed memories:', memoriesArray.length);
             setMemories(Array.isArray(memoriesArray) ? memoriesArray : []);
-        } catch (err) {
+        } catch (err: any) {
             console.error('[MemoryManagement] Error loading memories:', err);
+            setLoadError(err.message || 'Unknown error');
             setMemories([]);
         } finally {
             setMemoryLoading(false);
@@ -162,6 +175,18 @@ const MemoryManagement: React.FC<MemoryManagementProps> = ({ isModal = false, on
                 </div>
             </div>
 
+            {loadError && (
+                <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-lg text-red-300 text-sm">
+                    <div className="font-semibold mb-1">Error loading memories:</div>
+                    <div className="text-xs text-red-400">{loadError}</div>
+                    {loadError.includes('no such table') && (
+                        <div className="mt-2 text-xs text-gray-400">
+                            The memory_lifecycle table doesn't exist yet. This table is created when you use NPC memory features via npcsh/npcpy.
+                        </div>
+                    )}
+                </div>
+            )}
+
             {memoryLoading ? (
                 <div className="flex items-center justify-center p-8">
                     <Loader className="animate-spin text-orange-400" />
@@ -255,7 +280,13 @@ const MemoryManagement: React.FC<MemoryManagementProps> = ({ isModal = false, on
                     </table>
                     {filteredMemories.length === 0 && (
                         <div className="text-center p-8 theme-text-muted">
-                            No memories found matching the current filters.
+                            <div className="mb-2">No memories found matching the current filters.</div>
+                            <div className="text-xs text-gray-500">
+                                {memories.length === 0
+                                    ? 'The memory_lifecycle table may be empty or not created yet. Memories are generated when using NPCs with memory features enabled.'
+                                    : `${memories.length} total memories exist, but none match current filter.`
+                                }
+                            </div>
                         </div>
                     )}
                 </div>

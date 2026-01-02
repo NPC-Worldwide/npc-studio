@@ -1,1295 +1,1497 @@
-// PptxViewerFull.jsx - FIXED RENDERING
-import React, { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
+// PptxViewer - Enhanced PowerPoint-like Editor
+import React, { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import JSZip from 'jszip';
 import {
   Save, X, ChevronLeft, ChevronRight, Plus, Copy, Trash2, Image as ImageIcon,
-  AlignLeft, AlignCenter, AlignRight, List, IndentIncrease, IndentDecrease, Type,
-  Square, Circle
+  AlignLeft, AlignCenter, AlignRight, Type, Square, Circle, Bold, Italic,
+  Underline, Strikethrough, ZoomIn, ZoomOut, Play, ChevronDown, Palette,
+  LayoutGrid, Grid, Maximize2, MousePointer, Move, RotateCcw, Layers,
+  FileDown, Printer, MoreHorizontal, Triangle, Pentagon, Star, Minus,
+  ArrowRight, Hexagon, Heart, Diamond, PaintBucket, Sparkles, Layout,
+  Undo, Redo, List, ListOrdered, Highlighter
 } from 'lucide-react';
 
+// Constants
+const FONTS = [
+  'Arial', 'Calibri', 'Times New Roman', 'Georgia', 'Verdana',
+  'Tahoma', 'Trebuchet MS', 'Impact', 'Helvetica', 'Century Gothic',
+  'Roboto', 'Open Sans', 'Montserrat', 'Lato', 'Poppins'
+];
+
+const FONT_SIZES = ['8', '10', '12', '14', '16', '18', '20', '24', '28', '32', '36', '44', '54', '72', '96'];
+
+const THEME_COLORS = [
+  '#000000', '#ffffff', '#1f497d', '#4f81bd', '#c0504d', '#9bbb59',
+  '#8064a2', '#4bacc6', '#f79646', '#ffff00', '#ff0000', '#00ff00',
+  '#2c3e50', '#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#f39c12',
+  '#1abc9c', '#e91e63', '#00bcd4', '#ff5722', '#795548', '#607d8b',
+];
+
+const BACKGROUND_COLORS = [
+  '#ffffff', '#f8f9fa', '#e9ecef', '#dee2e6', '#ced4da',
+  '#1a1a2e', '#16213e', '#0f3460', '#533483', '#e94560',
+  '#2d3436', '#636e72', '#b2bec3', '#dfe6e9', '#00cec9',
+  '#fdcb6e', '#e17055', '#d63031', '#74b9ff', '#a29bfe',
+];
+
+const GRADIENT_PRESETS = [
+  { name: 'Sunset', colors: ['#ff7e5f', '#feb47b'] },
+  { name: 'Ocean', colors: ['#2193b0', '#6dd5ed'] },
+  { name: 'Purple', colors: ['#667eea', '#764ba2'] },
+  { name: 'Green', colors: ['#11998e', '#38ef7d'] },
+  { name: 'Dark', colors: ['#232526', '#414345'] },
+  { name: 'Fire', colors: ['#f12711', '#f5af19'] },
+  { name: 'Pink', colors: ['#ff6a88', '#ff99ac'] },
+  { name: 'Blue', colors: ['#4facfe', '#00f2fe'] },
+];
+
+const SHAPE_PRESETS = [
+  { type: 'rect', icon: Square, name: 'Rectangle' },
+  { type: 'roundRect', icon: Square, name: 'Rounded Rect' },
+  { type: 'ellipse', icon: Circle, name: 'Ellipse' },
+  { type: 'triangle', icon: Triangle, name: 'Triangle' },
+  { type: 'diamond', icon: Diamond, name: 'Diamond' },
+  { type: 'hexagon', icon: Hexagon, name: 'Hexagon' },
+  { type: 'star', icon: Star, name: 'Star' },
+  { type: 'arrow', icon: ArrowRight, name: 'Arrow' },
+  { type: 'line', icon: Minus, name: 'Line' },
+];
+
+const SLIDE_LAYOUTS = [
+  { name: 'Title Slide', shapes: [{ type: 'text', x: 10, y: 35, w: 80, h: 20, text: 'Title', size: 44 }, { type: 'text', x: 10, y: 55, w: 80, h: 10, text: 'Subtitle', size: 24 }] },
+  { name: 'Title + Content', shapes: [{ type: 'text', x: 5, y: 5, w: 90, h: 15, text: 'Title', size: 36 }, { type: 'text', x: 5, y: 25, w: 90, h: 65, text: 'Content', size: 18 }] },
+  { name: 'Two Columns', shapes: [{ type: 'text', x: 5, y: 5, w: 90, h: 15, text: 'Title', size: 36 }, { type: 'text', x: 5, y: 25, w: 42, h: 65, text: 'Left', size: 18 }, { type: 'text', x: 52, y: 25, w: 42, h: 65, text: 'Right', size: 18 }] },
+  { name: 'Blank', shapes: [] },
+];
+
 const NS = {
-  p:  'http://schemas.openxmlformats.org/presentationml/2006/main',
-  a:  'http://schemas.openxmlformats.org/drawingml/2006/main',
-  r:  'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+  p: 'http://schemas.openxmlformats.org/presentationml/2006/main',
+  a: 'http://schemas.openxmlformats.org/drawingml/2006/main',
+  r: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
   pkgRels: 'http://schemas.openxmlformats.org/package/2006/relationships',
-  ct: 'http://schemas.openxmlformats.org/package/2006/content-types'
 };
 
-// Helper functions (unchanged)
-function qNS(doc, nsUri, localName) {
+// Helper functions
+function qNS(doc: any, nsUri: string, localName: string) {
   if (!doc || !nsUri || !localName) return null;
   const elements = doc.getElementsByTagNameNS(nsUri, localName);
   return elements.length > 0 ? elements[0] : null;
 }
 
-function qaNS(doc, nsUri, localName) {
+function qaNS(doc: any, nsUri: string, localName: string) {
   if (!doc || !nsUri || !localName) return [];
   return Array.from(doc.getElementsByTagNameNS(nsUri, localName));
 }
 
-function escapeHtml(text) {
+function escapeHtml(text: string) {
   if (typeof text !== 'string') return '';
-  if (text.length === 0) return '';
-  const escapeMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-  return text.replace(/[&<>"]|[']/g, (match) => escapeMap[match] || match);
+  const escapeMap: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+  return text.replace(/[&<>"']/g, (m) => escapeMap[m] || m);
 }
 
-// Add this near the top after your NS definitions
-async function loadThemeColors(zip) {
+// Theme color extraction - handles both PowerPoint and Google Slides
+async function extractThemeColors(zip: JSZip): Promise<Record<string, string>> {
   const themeFile = zip.file('ppt/theme/theme1.xml');
   if (!themeFile) return {};
-  
+
   try {
-    const themeXml = await themeFile.async('string');
-    const themeDoc = new DOMParser().parseFromString(themeXml, 'application/xml');
-    
-    const colorScheme = qNS(themeDoc, NS.a, 'clrScheme');
+    const xml = await themeFile.async('string');
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const colorScheme = qNS(doc, NS.a, 'clrScheme');
     if (!colorScheme) return {};
-    
-    const colors = {};
-    
-    // Extract accent1-6, dk1, dk2, lt1, lt2
-    const colorNames = ['accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'dk1', 'dk2', 'lt1', 'lt2'];
-    
-    for (const name of colorNames) {
+
+    const colors: Record<string, string> = {};
+    const names = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'];
+
+    for (const name of names) {
       const elem = colorScheme.getElementsByTagNameNS(NS.a, name)[0];
       if (elem) {
-        const srgbClr = qNS(elem, NS.a, 'srgbClr');
-        if (srgbClr) {
-          colors[name] = `#${srgbClr.getAttribute('val')}`;
-        }
+        const srgb = qNS(elem, NS.a, 'srgbClr');
+        const sys = qNS(elem, NS.a, 'sysClr');
+        if (srgb) colors[name] = `#${srgb.getAttribute('val')}`;
+        else if (sys) colors[name] = sys.getAttribute('lastClr') ? `#${sys.getAttribute('lastClr')}` : '#000000';
       }
     }
-    
-    console.log('[PPTX] Theme colors loaded:', colors);
+
+    // Google Slides uses tx1/tx2/bg1/bg2 which map to dk1/lt1/dk2/lt2
+    colors['tx1'] = colors['dk1'] || '#000000';
+    colors['tx2'] = colors['dk2'] || '#000000';
+    colors['bg1'] = colors['lt1'] || '#ffffff';
+    colors['bg2'] = colors['lt2'] || '#ffffff';
+
     return colors;
   } catch (e) {
-    console.error('[PPTX] Error loading theme colors:', e);
+    console.error('[PPTX] Theme extraction error:', e);
     return {};
   }
 }
-function htmlForRuns(runs, doc) {
-  if (!runs || !Array.isArray(runs)) {
-    console.warn('[PPTX] htmlForRuns: invalid runs input');
-    return '';
-  }
-  
-  const htmlParts = [];
-  const MAX_RUNS = 1000;
-  
-  try {
-    for (let i = 0; i < Math.min(runs.length, MAX_RUNS); i++) {
-      const r = runs[i];
-      if (!r) continue;
-      
-      const textNode = qNS(r, NS.a, 't');
-      const textContent = textNode ? (textNode.textContent || '') : '';
-      
-      if (textContent.length === 0 && !textContent.includes('\n')) continue;
-      
-      const rp = qNS(r, NS.a, 'rPr');
-      let html = escapeHtml(textContent).replace(/\n/g, '<br/>');
-      
-      // THIS IS THE FIX: Declare styles HERE
-      let styles = [];
-      
-      if (rp) {
-        console.log('[PPTX] FULL rPr XML:', new XMLSerializer().serializeToString(rp));
-        
-        // Font size
-        const sz = rp.getAttribute('sz');
-        if (sz) {
-          const fontSize = Math.round(parseInt(sz) / 100);
-          styles.push(`font-size: ${fontSize}pt`);
+
+// Parse color from solidFill element with luminance modifiers
+function parseColor(fillEl: Element | null, themeColors: Record<string, string>): string | null {
+  if (!fillEl) return null;
+
+  const srgb = qNS(fillEl, NS.a, 'srgbClr');
+  const scheme = qNS(fillEl, NS.a, 'schemeClr');
+
+  let color: string | null = null;
+
+  if (srgb) {
+    color = `#${srgb.getAttribute('val')}`;
+  } else if (scheme) {
+    const val = scheme.getAttribute('val');
+    color = themeColors[val || ''] || null;
+
+    // Handle luminance modifiers (lumMod, lumOff, tint, shade)
+    if (color) {
+      const lumMod = qNS(scheme, NS.a, 'lumMod');
+      const lumOff = qNS(scheme, NS.a, 'lumOff');
+      const tint = qNS(scheme, NS.a, 'tint');
+      const shade = qNS(scheme, NS.a, 'shade');
+
+      // Apply basic luminance adjustments
+      if (lumMod || lumOff || tint || shade) {
+        // Convert to RGB, apply modifier, convert back
+        const hex = color.replace('#', '');
+        let r = parseInt(hex.substr(0, 2), 16);
+        let g = parseInt(hex.substr(2, 2), 16);
+        let b = parseInt(hex.substr(4, 2), 16);
+
+        if (lumMod) {
+          const mod = parseInt(lumMod.getAttribute('val') || '100000') / 100000;
+          r = Math.round(r * mod);
+          g = Math.round(g * mod);
+          b = Math.round(b * mod);
         }
-        
-        // Text color - handle BOTH srgbClr AND schemeClr
-        const solidFill = qNS(rp, NS.a, 'solidFill');
-        if (solidFill) {
-          console.log('[PPTX] FULL solidFill XML:', new XMLSerializer().serializeToString(solidFill));
-          
-          // Direct RGB color
-          const srgbClr = qNS(solidFill, NS.a, 'srgbClr');
-          if (srgbClr) {
-            const color = `#${srgbClr.getAttribute('val')}`;
-            styles.push(`color: ${color}`);
-          }
-          
-          // Scheme color (Google Slides uses this!)
-          const schemeClr = qNS(solidFill, NS.a, 'schemeClr');
-          if (schemeClr) {
-            const val = schemeClr.getAttribute('val');
-            // Map Google Slides theme colors
-            const colorMap = {
-              'accent1': '#4285F4',  // Google Blue
-              'dk1': '#000000',      // Black
-              'lt1': '#FFFFFF',      // White  
-              'lt2': '#F1F3F4',      // Light Gray
-              'accent2': '#EA4335',  // Red
-              'accent3': '#FBBC04',  // Yellow
-              'accent4': '#34A853',  // Green
-            };
-            if (colorMap[val]) {
-              styles.push(`color: ${colorMap[val]}`);
-            }
-          }
+        if (lumOff) {
+          const off = parseInt(lumOff.getAttribute('val') || '0') / 100000 * 255;
+          r = Math.round(Math.min(255, r + off));
+          g = Math.round(Math.min(255, g + off));
+          b = Math.round(Math.min(255, b + off));
         }
-        
-        // Font family
-        const latin = qNS(rp, NS.a, 'latin');
-        if (latin) {
-          const typeface = latin.getAttribute('typeface');
-          if (typeface) {
-            styles.push(`font-family: "${typeface}", sans-serif`);
-          }
+        if (tint) {
+          const t = parseInt(tint.getAttribute('val') || '100000') / 100000;
+          r = Math.round(r + (255 - r) * (1 - t));
+          g = Math.round(g + (255 - g) * (1 - t));
+          b = Math.round(b + (255 - b) * (1 - t));
         }
-        
-        // Bold, Italic, Underline
-        if (rp.getAttribute('b') === '1') styles.push('font-weight: bold');
-        if (rp.getAttribute('i') === '1') styles.push('font-style: italic');
-        if (rp.getAttribute('u') && rp.getAttribute('u') !== 'none') styles.push('text-decoration: underline');
+        if (shade) {
+          const s = parseInt(shade.getAttribute('val') || '100000') / 100000;
+          r = Math.round(r * s);
+          g = Math.round(g * s);
+          b = Math.round(b * s);
+        }
+
+        color = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
       }
-      
-      if (styles.length > 0) {
-        html = `<span style="${styles.join('; ')}">${html}</span>`;
-      }
-      
-      htmlParts.push(html);
     }
-  } catch (e) {
-    console.error(`[PPTX] htmlForRuns CRITICAL error: ${e.message}`);
-    return 'Error rendering text';
   }
-  
-  return htmlParts.join('');
-}
-// Force PPTX text rendering styles
-const style = document.createElement('style');
-style.textContent = `
-  .pptx-slide-content {
-    color: #000000 !important;
-  }
-  .pptx-slide-content * {
-    color: inherit;
-    font-weight: inherit;
-    font-family: inherit;
-    font-size: inherit;
-  }
-  .pptx-slide-content [contenteditable] {
-    color: #000000 !important;
-  }
-`;
-document.head.appendChild(style);
 
-function runsFromHTML(html, doc) {
-  if (!html || !doc) return [];
-  const runs = [];
-  
-  try {
-    const container = document.createElement('div');
-    container.innerHTML = html;
-    const textContent = container.textContent || container.innerText || '';
-    if (textContent.trim().length === 0) return [];
-    
-    const r = doc.createElementNS(NS.a, 'a:r');
-    const rPr = doc.createElementNS(NS.a, 'a:rPr');
-    const t = doc.createElementNS(NS.a, 'a:t');
-    t.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
-    t.textContent = textContent;
-    r.appendChild(rPr);
-    r.appendChild(t);
-    runs.push(r);
-  } catch (e) {
-    console.error('[PPTX] runsFromHTML error:', e);
-  }
-  
-  return runs;
+  return color;
 }
 
-function nextRelationshipId(relsDoc) {
+// Build style string from run properties
+function buildStyleFromRPr(rPr: Element | null, defaultRPr: Element | null, themeColors: Record<string, string>): string[] {
+  const styles: string[] = [];
+
+  // Get properties from run, falling back to default if not specified
+  const runSize = rPr?.getAttribute('sz');
+  const defaultSize = defaultRPr?.getAttribute('sz');
+  const runBold = rPr?.getAttribute('b');
+  const defaultBold = defaultRPr?.getAttribute('b');
+  const runItalic = rPr?.getAttribute('i');
+  const defaultItalic = defaultRPr?.getAttribute('i');
+  const runUnderline = rPr?.getAttribute('u');
+  const defaultUnderline = defaultRPr?.getAttribute('u');
+
+  // Font size (in hundredths of a point)
+  const sz = runSize || defaultSize;
+  if (sz) {
+    const ptSize = Math.round(parseInt(sz) / 100);
+    styles.push(`font-size: ${ptSize}pt`);
+  }
+
+  // Font family - check run first, then default
+  const runLatin = rPr ? qNS(rPr, NS.a, 'latin') : null;
+  const defaultLatin = defaultRPr ? qNS(defaultRPr, NS.a, 'latin') : null;
+  const latin = runLatin || defaultLatin;
+  const runEa = rPr ? qNS(rPr, NS.a, 'ea') : null;
+  const defaultEa = defaultRPr ? qNS(defaultRPr, NS.a, 'ea') : null;
+  const ea = runEa || defaultEa;
+  const runCs = rPr ? qNS(rPr, NS.a, 'cs') : null;
+  const defaultCs = defaultRPr ? qNS(defaultRPr, NS.a, 'cs') : null;
+  const cs = runCs || defaultCs;
+
+  const typeface = latin?.getAttribute('typeface') || ea?.getAttribute('typeface') || cs?.getAttribute('typeface');
+  if (typeface && typeface !== '+mn-lt' && typeface !== '+mj-lt') {
+    // Map common Google Slides font names
+    const fontMap: Record<string, string> = {
+      'Arial': 'Arial, sans-serif',
+      'Roboto': 'Roboto, Arial, sans-serif',
+      'Open Sans': '"Open Sans", Arial, sans-serif',
+      'Lato': 'Lato, Arial, sans-serif',
+      'Montserrat': 'Montserrat, Arial, sans-serif',
+      'Oswald': 'Oswald, Arial, sans-serif',
+      'Playfair Display': '"Playfair Display", Georgia, serif',
+      'Times New Roman': '"Times New Roman", Times, serif',
+      'Georgia': 'Georgia, serif',
+    };
+    styles.push(`font-family: ${fontMap[typeface] || `"${typeface}", sans-serif`}`);
+  }
+
+  // Bold - check for explicit value
+  const bold = runBold !== null ? runBold : defaultBold;
+  if (bold === '1' || bold === 'true') styles.push('font-weight: bold');
+
+  // Italic
+  const italic = runItalic !== null ? runItalic : defaultItalic;
+  if (italic === '1' || italic === 'true') styles.push('font-style: italic');
+
+  // Underline
+  const underline = runUnderline !== null ? runUnderline : defaultUnderline;
+  if (underline && underline !== 'none') styles.push('text-decoration: underline');
+
+  // Strikethrough
+  const runStrike = rPr?.getAttribute('strike');
+  const defaultStrike = defaultRPr?.getAttribute('strike');
+  const strike = runStrike !== null ? runStrike : defaultStrike;
+  if (strike && strike !== 'noStrike') styles.push('text-decoration: line-through');
+
+  // Baseline (superscript/subscript)
+  const baseline = rPr?.getAttribute('baseline') || defaultRPr?.getAttribute('baseline');
+  if (baseline) {
+    const bl = parseInt(baseline);
+    if (bl > 0) styles.push('vertical-align: super; font-size: 0.7em');
+    else if (bl < 0) styles.push('vertical-align: sub; font-size: 0.7em');
+  }
+
+  // Color from solidFill - check run first then default
+  const runFill = rPr ? qNS(rPr, NS.a, 'solidFill') : null;
+  const defaultFill = defaultRPr ? qNS(defaultRPr, NS.a, 'solidFill') : null;
+  const solidFill = runFill || defaultFill;
+  const color = parseColor(solidFill, themeColors);
+  if (color) {
+    styles.push(`color: ${color}`);
+  }
+
+  // Letter spacing (spc attribute in hundredths of a point)
+  const spc = rPr?.getAttribute('spc') || defaultRPr?.getAttribute('spc');
+  if (spc) {
+    const spacing = parseInt(spc) / 100;
+    styles.push(`letter-spacing: ${spacing}pt`);
+  }
+
+  return styles;
+}
+
+// Parse entire paragraph including runs, fields, and breaks
+function parseParagraph(p: Element, themeColors: Record<string, string>, defaultRPr?: Element | null): string {
+  const parts: string[] = [];
+
+  // Get all text runs using namespace query (more reliable than childNodes iteration)
+  const runs = qaNS(p, NS.a, 'r') as Element[];
+  const fields = qaNS(p, NS.a, 'fld') as Element[];
+  const breaks = qaNS(p, NS.a, 'br') as Element[];
+
+  // Combine and sort by document order
+  const allElements: { el: Element; type: string }[] = [
+    ...runs.map(el => ({ el, type: 'r' })),
+    ...fields.map(el => ({ el, type: 'fld' })),
+    ...breaks.map(el => ({ el, type: 'br' })),
+  ];
+
+  // Sort by document position
+  allElements.sort((a, b) => {
+    const pos = a.el.compareDocumentPosition(b.el);
+    if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+    if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+    return 0;
+  });
+
+  for (const { el, type } of allElements) {
+    if (type === 'r' || type === 'fld') {
+      // Text run or field
+      const t = qNS(el, NS.a, 't');
+      const text = t?.textContent || '';
+      if (!text) continue;
+
+      const rPr = qNS(el, NS.a, 'rPr');
+      const styles = buildStyleFromRPr(rPr, defaultRPr, themeColors);
+
+      const html = escapeHtml(text).replace(/\n/g, '<br/>');
+      if (styles.length > 0) {
+        parts.push(`<span style="${styles.join('; ')}">${html}</span>`);
+      } else {
+        parts.push(html);
+      }
+    } else if (type === 'br') {
+      parts.push('<br/>');
+    }
+  }
+
+  // If no runs found, try to get any text content directly
+  if (parts.length === 0) {
+    const directText = p.textContent?.trim();
+    if (directText) {
+      // Apply default styles if available
+      const styles = buildStyleFromRPr(null, defaultRPr, themeColors);
+      const html = escapeHtml(directText).replace(/\n/g, '<br/>');
+      if (styles.length > 0) {
+        parts.push(`<span style="${styles.join('; ')}">${html}</span>`);
+      } else {
+        parts.push(html);
+      }
+    }
+  }
+
+  return parts.join('');
+}
+
+// Parse text runs with proper styling (legacy function for compatibility)
+function parseRuns(runs: Element[], themeColors: Record<string, string>, defaultRPr?: Element | null): string {
+  const parts: string[] = [];
+
+  for (const r of runs) {
+    const t = qNS(r, NS.a, 't');
+    const text = t?.textContent || '';
+    if (!text) continue;
+
+    const rPr = qNS(r, NS.a, 'rPr');
+    const styles = buildStyleFromRPr(rPr, defaultRPr, themeColors);
+
+    const html = escapeHtml(text).replace(/\n/g, '<br/>');
+    if (styles.length > 0) {
+      parts.push(`<span style="${styles.join('; ')}">${html}</span>`);
+    } else {
+      parts.push(html);
+    }
+  }
+
+  return parts.join('');
+}
+
+function nextRelationshipId(relsDoc: Document | null): string {
   if (!relsDoc) return 'rId1';
-  try {
-    const relationships = qaNS(relsDoc, NS.pkgRels, 'Relationship');
-    const ids = relationships.map(r => r.getAttribute('Id')).filter(id => id && id.startsWith('rId')).map(id => Number(id.replace('rId','')) || 0);
-    return 'rId' + (Math.max(0, ...ids) + 1);
-  } catch (e) {
-    return 'rId1';
-  }
+  const rels = qaNS(relsDoc, NS.pkgRels, 'Relationship') as Element[];
+  const ids = rels.map(r => parseInt(r.getAttribute('Id')?.replace('rId', '') || '0'));
+  return 'rId' + (Math.max(0, ...ids) + 1);
 }
 
-function nextShapeId(slideDoc) {
-  if (!slideDoc) return 1;
-  try {
-    const cNvPrs = qaNS(slideDoc, NS.p, 'cNvPr');
-    const ids = cNvPrs.map(n => Number(n.getAttribute('id')) || 0).filter(id => id > 0);
-    return Math.max(0, ...ids) + 1;
-  } catch (e) {
-    return 1;
-  }
+interface ParaData {
+  html: string;
+  align: string;
+  level: number;
+  bullet: boolean;
+  lineSpacing?: number;  // In percentage (e.g., 150 for 1.5x)
+  spaceBefore?: number;  // In points
+  spaceAfter?: number;   // In points
 }
 
-function nextMediaName(zip) {
-  if (!zip) return 'ppt/media/image1.png';
-  try {
-    const names = Object.keys(zip.files).filter(n => n.startsWith('ppt/media/'));
-    let i = 1;
-    while (names.includes(`ppt/media/image${i}.png`)) i++;
-    return `ppt/media/image${i}.png`;
-  } catch (e) {
-    return 'ppt/media/image1.png';
-  }
+interface Shape {
+  type: 'text' | 'image' | 'shape';
+  xfrm: { x: number; y: number; cx: number; cy: number };
+  paras?: ParaData[];
+  imgDataUrl?: string;
+  fillColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  shapeType?: string;
+  name?: string;
+  spNode?: Element | null;
+}
+
+interface Slide {
+  name: string;
+  doc: Document | null;
+  relsDoc: Document | null;
+  shapes: Shape[];
+  background?: string;
 }
 
 const PptxViewer = ({
-    nodeId,
-    contentDataRef,
-    findNodePath,
-    rootLayoutNode,
-    setDraggedItem,
-    setPaneContextMenu,
-    closeContentPane
-}) => {
-    const [zip, setZip] = useState(null);
-    const [presDoc, setPresDoc] = useState(null);
-    const [presRelsDoc, setPresRelsDoc] = useState(null);
-    const [slideOrder, setSlideOrder] = useState([]);
-    const [slides, setSlides] = useState([]);
-    const [notesBySlide, setNotesBySlide] = useState({});
-    const [idx, setIdx] = useState(0);
-    const [hasChanges, setHasChanges] = useState(false);
-    const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState(null);
-    const activeSlide = slides[idx];
+  nodeId,
+  contentDataRef,
+  findNodePath,
+  rootLayoutNode,
+  setDraggedItem,
+  setPaneContextMenu,
+  closeContentPane
+}: any) => {
+  const [zip, setZip] = useState<JSZip | null>(null);
+  const [presDoc, setPresDoc] = useState<Document | null>(null);
+  const [presRelsDoc, setPresRelsDoc] = useState<Document | null>(null);
+  const [slides, setSlides] = useState<Slide[]>([]);
+  const [slideOrder, setSlideOrder] = useState<any[]>([]);
+  const [themeColors, setThemeColors] = useState<Record<string, string>>({});
+  const [idx, setIdx] = useState(0);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
-    const paneData = contentDataRef.current[nodeId];
-    const filePath = paneData?.contentId;
+  const paneData = contentDataRef.current[nodeId];
+  const filePath = paneData?.contentId;
 
-    const [slideDisplayWidth, setSlideDisplayWidth] = useState(960);
-    const [slideDisplayHeight, setSlideDisplayHeight] = useState(540);
-    const [pxPerEmu, setPxPerEmu] = useState(0.00010498687664041995);
+  // Display settings
+  const [slideWidth, setSlideWidth] = useState(960);
+  const [slideHeight, setSlideHeight] = useState(540);
+  const [pxPerEmu, setPxPerEmu] = useState(0.0001);
+  const [zoom, setZoom] = useState(100);
 
-    const emuToPx = useCallback((emu) => {
-        if (typeof emu !== 'number' || isNaN(emu)) return 0;
-        return emu * pxPerEmu;
-    }, [pxPerEmu]);
+  // Toolbar state
+  const [showFontPicker, setShowFontPicker] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showShapePicker, setShowShapePicker] = useState(false);
+  const [showBgPicker, setShowBgPicker] = useState(false);
+  const [showLayoutPicker, setShowLayoutPicker] = useState(false);
+  const [currentFont, setCurrentFont] = useState('Arial');
+  const [currentFontSize, setCurrentFontSize] = useState('24');
+  const [selectedTool, setSelectedTool] = useState<'select' | 'text' | 'shape'>('select');
+  const [selectedShapeColor, setSelectedShapeColor] = useState('#4285f4');
 
-    // Load PPTX (your existing code - unchanged, it works)
-    useEffect(() => {
-        let isCancelled = false;
+  // Presentation mode
+  const [isPresentationMode, setIsPresentationMode] = useState(false);
+  const presentationRef = useRef<HTMLDivElement>(null);
 
-        const loadPptx = async () => {
-            if (!filePath) return;
+  const activeSlide = slides[idx];
 
-            console.log('[PPTX] Starting load for:', filePath);
-            setLoading(true);
-            setErr(null);
+  const emuToPx = useCallback((emu: number) => {
+    if (typeof emu !== 'number' || isNaN(emu)) return 0;
+    return emu * pxPerEmu;
+  }, [pxPerEmu]);
 
+  // Load PPTX
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      if (!filePath) return;
+      setLoading(true);
+      setErr(null);
+
+      try {
+        const buffer = await window.api.readFileBuffer(filePath);
+        if (cancelled) return;
+
+        if (!buffer || buffer.length === 0) {
+          setSlides([{ name: 'slide1', doc: null, relsDoc: null, shapes: [], background: '#ffffff' }]);
+          setLoading(false);
+          return;
+        }
+
+        const z = await JSZip.loadAsync(buffer);
+        if (cancelled) return;
+
+        // Extract theme colors
+        const colors = await extractThemeColors(z);
+        setThemeColors(colors);
+
+        const presFile = z.file('ppt/presentation.xml');
+        if (!presFile) throw new Error('Invalid PPTX file');
+
+        const presXml = await presFile.async('string');
+        const pres = new DOMParser().parseFromString(presXml, 'application/xml');
+
+        const presRelsFile = z.file('ppt/_rels/presentation.xml.rels');
+        const presRelsXml = presRelsFile ? await presRelsFile.async('string') : '<Relationships/>';
+        const presRels = new DOMParser().parseFromString(presRelsXml, 'application/xml');
+
+        // Get slide size
+        const sldSz = qNS(pres, NS.p, 'sldSz');
+        const widthEmu = Number(sldSz?.getAttribute('cx')) || 9144000;
+        const heightEmu = Number(sldSz?.getAttribute('cy')) || 6858000;
+        const maxWidth = 800;
+        const scale = maxWidth / widthEmu;
+        setSlideWidth(maxWidth);
+        setSlideHeight(heightEmu * scale);
+        setPxPerEmu(scale);
+
+        // Get slide order
+        const sldIdLst = qNS(pres, NS.p, 'sldIdLst');
+        const sldIds = sldIdLst ? qaNS(sldIdLst, NS.p, 'sldId') as Element[] : [];
+        const rels = qaNS(presRels, NS.pkgRels, 'Relationship') as Element[];
+
+        const order: any[] = [];
+        for (const sldId of sldIds) {
+          const rId = sldId.getAttributeNS(NS.r, 'id');
+          const rel = rels.find(r => r.getAttribute('Id') === rId);
+          if (rel) {
+            const target = rel.getAttribute('Target') || '';
+            order.push({ rId, target, name: `ppt/${target}` });
+          }
+        }
+
+        // Load slides
+        const loadedSlides: Slide[] = [];
+        for (const s of order) {
+          if (cancelled) return;
+
+          const slideFile = z.file(s.name);
+          if (!slideFile) continue;
+
+          const xml = await slideFile.async('string');
+          const doc = new DOMParser().parseFromString(xml, 'application/xml');
+
+          const relsPath = `ppt/slides/_rels/${s.name.split('/').pop()}.rels`;
+          const relsFile = z.file(relsPath);
+          const relsXml = relsFile ? await relsFile.async('string') : '<Relationships/>';
+          const relsDoc = new DOMParser().parseFromString(relsXml, 'application/xml');
+
+          const shapes: Shape[] = [];
+
+          // Parse text shapes
+          const spNodes = qaNS(doc, NS.p, 'sp') as Element[];
+          for (const sp of spNodes) {
+            const txBody = qNS(sp, NS.p, 'txBody');
+            if (!txBody) continue;
+
+            const spPr = qNS(sp, NS.p, 'spPr');
+            const xfrm = spPr ? qNS(spPr, NS.a, 'xfrm') : null;
+            const off = xfrm ? qNS(xfrm, NS.a, 'off') : null;
+            const ext = xfrm ? qNS(xfrm, NS.a, 'ext') : null;
+
+            const xfrmData = {
+              x: Number(off?.getAttribute('x')) || 0,
+              y: Number(off?.getAttribute('y')) || 0,
+              cx: Number(ext?.getAttribute('cx')) || 1000000,
+              cy: Number(ext?.getAttribute('cy')) || 500000,
+            };
+
+            const paras: Shape['paras'] = [];
+            const pNodes = qaNS(txBody, NS.a, 'p') as Element[];
+
+            for (const p of pNodes) {
+              const pPr = qNS(p, NS.a, 'pPr');
+              // Get default run properties from paragraph properties (used by Google Slides)
+              const defRPr = pPr ? qNS(pPr, NS.a, 'defRPr') : null;
+
+              // Also check for endParaRPr as fallback for paragraph-level defaults
+              const endParaRPr = qNS(p, NS.a, 'endParaRPr');
+              const defaultProps = defRPr || endParaRPr;
+
+              // Use parseParagraph for full support of runs, fields, and breaks
+              const html = parseParagraph(p, colors, defaultProps);
+
+              const align = pPr?.getAttribute('algn') || 'l';
+              const level = Number(pPr?.getAttribute('lvl')) || 0;
+              const hasBullet = !!(pPr && (qNS(pPr, NS.a, 'buChar') || qNS(pPr, NS.a, 'buAutoNum')));
+
+              // Extract line spacing
+              let lineSpacing: number | undefined;
+              const lnSpc = pPr ? qNS(pPr, NS.a, 'lnSpc') : null;
+              if (lnSpc) {
+                const spcPct = qNS(lnSpc, NS.a, 'spcPct');
+                if (spcPct) {
+                  const val = spcPct.getAttribute('val');
+                  if (val) lineSpacing = parseInt(val) / 1000; // val is in 1/1000 percent
+                }
+              }
+
+              // Extract paragraph spacing (spaceBefore, spaceAfter)
+              let spaceBefore: number | undefined;
+              let spaceAfter: number | undefined;
+              const spcBef = pPr ? qNS(pPr, NS.a, 'spcBef') : null;
+              const spcAft = pPr ? qNS(pPr, NS.a, 'spcAft') : null;
+              if (spcBef) {
+                const spcPts = qNS(spcBef, NS.a, 'spcPts');
+                if (spcPts) spaceBefore = parseInt(spcPts.getAttribute('val') || '0') / 100;
+              }
+              if (spcAft) {
+                const spcPts = qNS(spcAft, NS.a, 'spcPts');
+                if (spcPts) spaceAfter = parseInt(spcPts.getAttribute('val') || '0') / 100;
+              }
+
+              paras.push({ html, align, level, bullet: hasBullet, lineSpacing, spaceBefore, spaceAfter });
+            }
+
+            // Extract text box fill and border from spPr
+            let fillColor: string | undefined;
+            let borderColor: string | undefined;
+            let borderWidth: number | undefined;
+
+            if (spPr) {
+              const solidFill = qNS(spPr, NS.a, 'solidFill');
+              if (solidFill) {
+                const color = parseColor(solidFill, colors);
+                if (color) fillColor = color;
+              }
+
+              const ln = qNS(spPr, NS.a, 'ln');
+              if (ln) {
+                const lnFill = qNS(ln, NS.a, 'solidFill');
+                if (lnFill) {
+                  borderColor = parseColor(lnFill, colors) || undefined;
+                }
+                const w = ln.getAttribute('w');
+                if (w) borderWidth = parseInt(w) / 12700; // EMUs to points
+              }
+            }
+
+            shapes.push({ type: 'text', xfrm: xfrmData, paras, spNode: sp, fillColor, borderColor, borderWidth });
+          }
+
+          // Parse images
+          const picNodes = qaNS(doc, NS.p, 'pic') as Element[];
+          for (const pic of picNodes) {
             try {
-                const buffer = await window.api.readFileBuffer(filePath);
-                if (isCancelled) return;
+              const blipFill = qNS(pic, NS.p, 'blipFill');
+              const blip = blipFill ? qNS(blipFill, NS.a, 'blip') : null;
+              const embedId = blip?.getAttributeNS(NS.r, 'embed');
 
-                console.log('[PPTX] Buffer loaded, size:', buffer?.length || buffer?.byteLength);
-
-                // Handle empty/new pptx files
-                if (!buffer || buffer.length === 0) {
-                    // Create a blank presentation state with proper structure
-                    setSlides([{
-                        index: 0,
-                        name: 'ppt/slides/slide1.xml',
-                        shapes: [],
-                        background: '#ffffff',
-                        doc: null,
-                        relsDoc: null,
-                        isNew: true
-                    }]);
-                    setIdx(0);
-                    setLoading(false);
-                    return;
-                }
-
-                const z = await JSZip.loadAsync(buffer);
-                if (isCancelled) return;
-
-                // Load theme colors
-                const themeColors = await loadThemeColors(z);
-                if (isCancelled) return;
-                console.log('[PPTX] Zip loaded, files:', Object.keys(z.files).length);
-                
-                const presFile = z.file('ppt/presentation.xml');
-                if (!presFile) throw new Error('No ppt/presentation.xml found in file');
-                
-                const presXml = await presFile.async('string');
-                if (isCancelled) return;
-                
-                const pres = new DOMParser().parseFromString(presXml, 'application/xml');
-                const parserError = pres.querySelector('parsererror');
-                if (parserError) throw new Error('Invalid XML in presentation.xml: ' + parserError.textContent);
-                
-                console.log('[PPTX] Parsed presentation.xml successfully');
-                
-                const presRelsFile = z.file('ppt/_rels/presentation.xml.rels');
-                if (!presRelsFile) throw new Error('No ppt/_rels/presentation.xml.rels found in file');
-                
-                const presRelsXml = await presRelsFile.async('string');
-                if (isCancelled) return;
-                
-                const presRels = new DOMParser().parseFromString(presRelsXml, 'application/xml');
-                
-                const sldSz = qNS(pres, NS.p, 'sldSz');
-                let slideWidthEmu = 9144000;
-                let slideHeightEmu = 6858000;
-
-                if (sldSz) {
-                  slideWidthEmu = Number(sldSz.getAttribute('cx')) || slideWidthEmu;
-                  slideHeightEmu = Number(sldSz.getAttribute('cy')) || slideHeightEmu;
-                }
-
-                const MAX_CANVAS_WIDTH = 960;
-                const calculatedPxPerEmu = MAX_CANVAS_WIDTH / slideWidthEmu;
-
-                setSlideDisplayWidth(MAX_CANVAS_WIDTH);
-                setSlideDisplayHeight(slideHeightEmu * calculatedPxPerEmu);
-                setPxPerEmu(calculatedPxPerEmu);
-
-                const sldIdLst = qNS(pres, NS.p, 'sldIdLst');
-                const sldIds = sldIdLst ? qaNS(sldIdLst, NS.p, 'sldId') : [];
-                
-                console.log(`[PPTX] Found ${sldIds.length} slides in presentation`);
-                
-                const order = [];
-                const relationships = qaNS(presRels, NS.pkgRels, 'Relationship');
-                
-                for (const sldId of sldIds) {
-                  if (isCancelled) return;
-                  
-                  const rId = sldId.getAttributeNS(NS.r, 'id');
-                  if (!rId) continue;
-                  
-                  const rel = relationships.find(r => r.getAttribute('Id') === rId);
-                  if (!rel) continue;
-                  
-                  const target = rel.getAttribute('Target');
-                  if (!target) continue;
-                  
-                  const name = `ppt/${target}`;
-                  order.push({ rId, target, name });
-                }
-                
-                console.log(`[PPTX] Processing ${order.length} slides`);
-                
-                const loadedSlides = [];
-                const MAX_SLIDES = 100;
-                
-                for (let i = 0; i < Math.min(order.length, MAX_SLIDES); i++) {
-                  if (isCancelled) return;
-                  
-                  const s = order[i];
-                  console.log(`[PPTX] Loading slide ${i + 1}: ${s.name}`);
-                  
-                  try {
-                    const slideFile = z.file(s.name);
-                    if (!slideFile) {
-                      console.warn(`[PPTX] Slide file not found: ${s.name}`);
-                      continue;
-                    }
-                    
-                    const xml = await slideFile.async('string');
-                    const doc = new DOMParser().parseFromString(xml, 'application/xml');
-                    
-                    const relsName = `ppt/slides/_rels/${s.name.split('/').pop()}.rels`;
-                    let rels;
-                    const relsFile = z.file(relsName);
-                    if (relsFile) {
-                      const relsXml = await relsFile.async('string');
-                      rels = new DOMParser().parseFromString(relsXml, 'application/xml');
-                    } else {
-                      rels = new DOMParser().parseFromString('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>', 'application/xml');
-                    }
-                    
-                    const shapes = [];
-                    const MAX_SHAPES = 50;
-                    
-                    // Text shapes
-                    const spNodes = qaNS(doc, NS.p, 'sp').filter(sp => qNS(sp, NS.p, 'txBody'));
-                    console.log(`[PPTX] Found ${spNodes.length} text shapes`);
-                    
-                    for (let j = 0; j < Math.min(spNodes.length, MAX_SHAPES); j++) {
-                      if (isCancelled) return;
-                      
-                      const sp = spNodes[j];
-                      const txBody = qNS(sp, NS.p, 'txBody');
-                      if (!txBody) continue;
-
-                      const spPr = qNS(sp, NS.p, 'spPr');
-                      let xfrmData = { x: 0, y: 0, cx: 1000000, cy: 500000 };
-                      
-                      if (spPr) {
-                        const xfrm = qNS(spPr, NS.a, 'xfrm');
-                        if (xfrm) {
-                          const off = qNS(xfrm, NS.a, 'off');
-                          const ext = qNS(xfrm, NS.a, 'ext');
-                          if (off && ext) {
-                            xfrmData = {
-                              x: Number(off.getAttribute('x')) || 0,
-                              y: Number(off.getAttribute('y')) || 0,
-                              cx: Number(ext.getAttribute('cx')) || 1000000,
-                              cy: Number(ext.getAttribute('cy')) || 500000,
-                            };
-                          }
-                        }
-                      }
-                      
-                      const paraNodes = qaNS(txBody, NS.a, 'p');
-                      const MAX_PARAS = 20;
-                      const paras = [];
-                      
-                      for (let k = 0; k < Math.min(paraNodes.length, MAX_PARAS); k++) {
-                        if (isCancelled) return;
-                        
-                        const p = paraNodes[k];
-                        const runs = qaNS(p, NS.a, 'r');
-                        
-                        console.log(`[PPTX] Processing paragraph ${k} with ${runs.length} runs`);
-                        
-                        let html = '';
-                        try {
-                          html = htmlForRuns(runs, doc);
-                        } catch (e) {
-                          console.error(`[PPTX] Error processing runs for paragraph ${k}:`, e);
-                          html = 'Text processing error';
-                        }
-                        
-                        const pPr = qNS(p, NS.a, 'pPr');
-                        const align = pPr ? (pPr.getAttribute('algn') || 'l') : 'l';
-                        const level = pPr?.getAttribute('lvl') ? Number(pPr.getAttribute('lvl')) : 0;
-                        const hasBullet = !!(pPr && (qNS(pPr, NS.a, 'buChar') || qNS(pPr, NS.a, 'buAutoNum')));
-                        
-                        paras.push({ 
-                          level: Math.max(0, Math.min(8, level)),
-                          align, 
-                          html: html || '', 
-                          bullet: hasBullet 
-                        });
-                      }
-                      
-                      shapes.push({ 
-                        spNode: sp, 
-                        paras, 
-                        xfrm: xfrmData, 
-                        type: 'text' 
-                      });
-                    }
-
-                    // Picture shapes
-                    const picNodes = qaNS(doc, NS.p, 'pic');
-                    console.log(`[PPTX] Found ${picNodes.length} picture shapes`);
-                    
-                    for (let j = 0; j < Math.min(picNodes.length, MAX_SHAPES); j++) {
-                      if (isCancelled) return;
-                      
-                      const pic = picNodes[j];
-                      
-                      try {
-                        const nvPicPr = qNS(pic, NS.p, 'nvPicPr');
-                        const cNvPr = qNS(nvPicPr, NS.p, 'cNvPr');
-                        const name = cNvPr?.getAttribute('name') || 'Picture';
-
-                        const blipFill = qNS(pic, NS.p, 'blipFill');
-                        const blip = qNS(blipFill, NS.a, 'blip');
-                        const embedRId = blip?.getAttributeNS(NS.r, 'embed');
-
-                        let imgDataUrl = '';
-                        if (embedRId) {
-                          const slideRelationships = qaNS(rels, NS.pkgRels, 'Relationship');
-                          const imgRel = slideRelationships.find(r => r.getAttribute('Id') === embedRId);
-                          if (imgRel) {
-                            const target = imgRel.getAttribute('Target');
-                            const mediaPath = `ppt/${target.replace(/^..\//, '')}`;
-                            const imgFile = z.file(mediaPath);
-                            if (imgFile) {
-                              const imgBuf = await imgFile.async('uint8array');
-                              const fileExtension = mediaPath.split('.').pop().toLowerCase();
-                              let mimeType = `image/${fileExtension}`;
-                              if (fileExtension === 'jpg') mimeType = 'image/jpeg';
-                              else if (fileExtension === 'svg') mimeType = 'image/svg+xml';
-
-                              const base64Image = btoa(
-                                Array.from(new Uint8Array(imgBuf))
-                                  .map(byte => String.fromCharCode(byte))
-                                  .join('')
-                              );
-                              imgDataUrl = `data:${mimeType};base64,${base64Image}`;
-                            }
-                          }
-                        }
-
-                        const spPr = qNS(pic, NS.p, 'spPr');
-                        let xfrmData = { x: 0, y: 0, cx: 1000000, cy: 1000000 };
-                        
-                        if (spPr) {
-                          const xfrm = qNS(spPr, NS.a, 'xfrm');
-                          if (xfrm) {
-                            const off = qNS(xfrm, NS.a, 'off');
-                            const ext = qNS(xfrm, NS.a, 'ext');
-                            if (off && ext) {
-                              xfrmData = {
-                                x: Number(off.getAttribute('x')) || 0,
-                                y: Number(off.getAttribute('y')) || 0,
-                                cx: Number(ext.getAttribute('cx')) || 1000000,
-                                cy: Number(ext.getAttribute('cy')) || 1000000,
-                              };
-                            }
-                          }
-                        }
-                        
-                        shapes.push({ 
-                          name, 
-                          imgDataUrl, 
-                          xfrm: xfrmData, 
-                          type: 'image' 
-                        });
-                      } catch (e) {
-                        console.error(`[PPTX] Error processing picture ${j}:`, e);
-                      }
-                    }
-                    // Background shapes
-                    const cSld = qNS(doc, NS.p, 'cSld');
-                    const spTree = cSld ? qNS(cSld, NS.p, 'spTree') : null;
-
-                    if (spTree) {
-                      const allSpElements = qaNS(spTree, NS.p, 'sp');
-                      
-                      for (const el of allSpElements) {
-                        if (isCancelled) return;
-                        
-                        const txBody = qNS(el, NS.p, 'txBody');
-                        if (txBody && shapes.some(s => s.spNode === el)) continue;
-                        
-                        const spPr = qNS(el, NS.p, 'spPr');
-                        if (!spPr) continue;
-                        
-                        const xfrm = qNS(spPr, NS.a, 'xfrm');
-                        if (!xfrm) continue;
-                        
-                        const off = qNS(xfrm, NS.a, 'off');
-                        const ext = qNS(xfrm, NS.a, 'ext');
-                        if (!off || !ext) continue;
-                        
-                        const xfrmData = {
-                          x: Number(off.getAttribute('x')) || 0,
-                          y: Number(off.getAttribute('y')) || 0,
-                          cx: Number(ext.getAttribute('cx')) || 1000000,
-                          cy: Number(ext.getAttribute('cy')) || 500000,
-                        };
-                        
-                        const solidFill = qNS(spPr, NS.a, 'solidFill');
-                        if (solidFill) {
-                          const srgbClr = qNS(solidFill, NS.a, 'srgbClr');
-                          if (srgbClr) {
-                            const fillColor = `#${srgbClr.getAttribute('val')}`;
-                            shapes.push({
-                              spNode: el,
-                              xfrm: xfrmData,
-                              fillColor,
-                              type: 'shape'
-                            });
-                          }
-                        }
-                      }
-                    }
-
-                    shapes.sort((a, b) => {
-                      const order = { 'shape': 0, 'image': 1, 'text': 2 };
-                      return (order[a.type] || 999) - (order[b.type] || 999);
-                    });
-                    loadedSlides.push({ 
-                      name: s.name, 
-                      doc, 
-                      relsDoc: rels, 
-                      shapes 
-                    });
-                    
-                  } catch (e) {
-                    console.error(`[PPTX] Error loading slide ${s.name}:`, e);
+              let imgDataUrl = '';
+              if (embedId) {
+                const slideRels = qaNS(relsDoc, NS.pkgRels, 'Relationship') as Element[];
+                const imgRel = slideRels.find(r => r.getAttribute('Id') === embedId);
+                if (imgRel) {
+                  const target = imgRel.getAttribute('Target') || '';
+                  const mediaPath = `ppt/${target.replace(/^\.\.\//, '')}`;
+                  const imgFile = z.file(mediaPath);
+                  if (imgFile) {
+                    const buf = await imgFile.async('uint8array');
+                    const ext = mediaPath.split('.').pop()?.toLowerCase() || 'png';
+                    const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+                    const b64 = btoa(Array.from(buf).map(b => String.fromCharCode(b)).join(''));
+                    imgDataUrl = `data:${mime};base64,${b64}`;
                   }
                 }
-
-                if (isCancelled) return;
-
-                console.log(`[PPTX] Successfully loaded ${loadedSlides.length} slides`);
-                
-                setZip(z);
-                setPresDoc(pres);
-                setPresRelsDoc(presRels);
-                setSlideOrder(order);
-                setSlides(loadedSlides);
-                setNotesBySlide({});
-                setIdx(0);
-                setHasChanges(false);
-                
-              } catch (e) {
-                if (!isCancelled) {
-                  console.error('[PPTX] Load error:', e);
-                  setErr(e.message || String(e));
-                }
-              } finally {
-                if (!isCancelled) {
-                  setLoading(false);
-                }
-              }
-            };
-
-            loadPptx();
-            
-            return () => {
-              isCancelled = true;
-            };
-          }, [filePath]);
-
-          const markDirty = useCallback(() => setHasChanges(true), []);
-
-          const updateParaHTML = useCallback((shapeIdx, paraIdx, newHTML) => {
-            if (!activeSlide || shapeIdx >= activeSlide.shapes.length) return;
-            
-            setSlides(prev => {
-              const next = [...prev];
-              const s = { ...next[idx] };
-              const shapes = [...s.shapes];
-              const sh = { ...shapes[shapeIdx] };
-              const paras = [...sh.paras];
-              
-              if (paraIdx < paras.length) {
-                paras[paraIdx] = { ...paras[paraIdx], html: newHTML };
-                sh.paras = paras;
-                shapes[shapeIdx] = sh;
-                s.shapes = shapes;
-                next[idx] = s;
-              }
-              
-              return next;
-            });
-            markDirty();
-          }, [idx, activeSlide, markDirty]);
-
-          const setParaProp = useCallback((shapeIdx, paraIdx, prop, value) => {
-            if (!activeSlide || shapeIdx >= activeSlide.shapes.length) return;
-            
-            setSlides(prev => {
-              const next = [...prev];
-              const s = { ...next[idx] };
-              const shapes = [...s.shapes];
-              const sh = { ...shapes[shapeIdx] };
-              const paras = [...sh.paras];
-              
-              if (paraIdx < paras.length) {
-                paras[paraIdx] = { ...paras[paraIdx], [prop]: value };
-                sh.paras = paras;
-                shapes[shapeIdx] = sh;
-                s.shapes = shapes;
-                next[idx] = s;
-              }
-              
-              return next;
-            });
-            markDirty();
-          }, [idx, activeSlide, markDirty]);
-
-          const addTextBox = useCallback(() => {
-            if (!activeSlide) return;
-
-            try {
-              // For slides with XML doc, add to XML
-              if (activeSlide.doc) {
-                const doc = activeSlide.doc;
-                const cSld = qNS(doc, NS.p, 'cSld');
-                const spTree = cSld ? qNS(cSld, NS.p, 'spTree') : null;
-
-                if (!spTree) {
-                  console.error('[PPTX] Cannot add text box: p:spTree not found');
-                  return;
-                }
-
-                const shapeId = nextShapeId(doc);
-
-                const sp = doc.createElementNS(NS.p, 'p:sp');
-
-                const nvSpPr = doc.createElementNS(NS.p, 'p:nvSpPr');
-                const cNvPr = doc.createElementNS(NS.p, 'p:cNvPr');
-                cNvPr.setAttribute('id', String(shapeId));
-                cNvPr.setAttribute('name', `TextBox ${shapeId}`);
-                const cNvSpPr = doc.createElementNS(NS.p, 'p:cNvSpPr');
-                const nvPr = doc.createElementNS(NS.p, 'p:nvPr');
-                nvSpPr.appendChild(cNvPr);
-                nvSpPr.appendChild(cNvSpPr);
-                nvSpPr.appendChild(nvPr);
-
-                const spPr = doc.createElementNS(NS.p, 'p:spPr');
-                const xfrm = doc.createElementNS(NS.a, 'a:xfrm');
-                const off = doc.createElementNS(NS.a, 'a:off');
-                off.setAttribute('x','1524000');
-                off.setAttribute('y','1524000');
-                const ext = doc.createElementNS(NS.a, 'a:ext');
-                ext.setAttribute('cx','4000000');
-                ext.setAttribute('cy','1000000');
-                xfrm.appendChild(off);
-                xfrm.appendChild(ext);
-
-                const prstGeom = doc.createElementNS(NS.a, 'a:prstGeom');
-                prstGeom.setAttribute('prst','rect');
-                prstGeom.appendChild(doc.createElementNS(NS.a,'a:avLst'));
-
-                spPr.appendChild(xfrm);
-                spPr.appendChild(prstGeom);
-
-                const txBody = doc.createElementNS(NS.p, 'p:txBody');
-                const bodyPr = doc.createElementNS(NS.a, 'a:bodyPr');
-                const lstStyle = doc.createElementNS(NS.a, 'a:lstStyle');
-                const p = doc.createElementNS(NS.a, 'a:p');
-                const r = doc.createElementNS(NS.a, 'a:r');
-                const rPr = doc.createElementNS(NS.a, 'a:rPr');
-                const t = doc.createElementNS(NS.a, 'a:t');
-                t.setAttributeNS('http://www.w3.org/XML/1998/namespace', 'xml:space', 'preserve');
-                t.textContent = 'New text';
-
-                r.appendChild(rPr);
-                r.appendChild(t);
-                p.appendChild(r);
-                txBody.appendChild(bodyPr);
-                txBody.appendChild(lstStyle);
-                txBody.appendChild(p);
-
-                sp.appendChild(nvSpPr);
-                sp.appendChild(spPr);
-                sp.appendChild(txBody);
-                spTree.appendChild(sp);
               }
 
-              // Add to shapes for display
-              setSlides(prev => {
-                const next = [...prev];
-                const s = { ...next[idx] };
-                const shapes = [...(s.shapes || [])];
-                shapes.push({
-                  spNode: null,
-                  paras: [{ level: 0, align: 'l', bullet: false, html: 'Click to edit text' }],
-                  xfrm: { x: 1524000, y: 1524000, cx: 4000000, cy: 1000000 },
-                  type: 'text'
-                });
-                s.shapes = shapes;
-                next[idx] = s;
-                return next;
-              });
+              const spPr = qNS(pic, NS.p, 'spPr');
+              const xfrm = spPr ? qNS(spPr, NS.a, 'xfrm') : null;
+              const off = xfrm ? qNS(xfrm, NS.a, 'off') : null;
+              const ext = xfrm ? qNS(xfrm, NS.a, 'ext') : null;
 
-              markDirty();
-            } catch (e) {
-              console.error('[PPTX] Error adding text box:', e);
-            }
-          }, [activeSlide, idx, markDirty]);
-
-          const addImage = useCallback(() => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.onchange = async (e) => {
-              const file = (e.target as HTMLInputElement).files?.[0];
-              if (!file) return;
-
-              const reader = new FileReader();
-              reader.onload = (ev) => {
-                const dataUrl = ev.target?.result as string;
-
-                setSlides(prev => {
-                  const next = [...prev];
-                  const s = { ...next[idx] };
-                  const shapes = [...(s.shapes || [])];
-                  shapes.push({
-                    type: 'image',
-                    imgDataUrl: dataUrl,
-                    name: file.name,
-                    xfrm: { x: 1000000, y: 1000000, cx: 3000000, cy: 2000000 }
-                  });
-                  s.shapes = shapes;
-                  next[idx] = s;
-                  return next;
-                });
-
-                markDirty();
-              };
-              reader.readAsDataURL(file);
-            };
-            input.click();
-          }, [idx, markDirty]);
-
-          const addShape = useCallback((shapeType: 'rect' | 'ellipse') => {
-            setSlides(prev => {
-              const next = [...prev];
-              const s = { ...next[idx] };
-              const shapes = [...(s.shapes || [])];
               shapes.push({
-                type: 'shape',
-                shapeType,
-                fillColor: shapeType === 'rect' ? '#3b82f6' : '#10b981',
-                xfrm: { x: 2000000, y: 2000000, cx: 2000000, cy: 1500000 }
+                type: 'image',
+                imgDataUrl,
+                xfrm: {
+                  x: Number(off?.getAttribute('x')) || 0,
+                  y: Number(off?.getAttribute('y')) || 0,
+                  cx: Number(ext?.getAttribute('cx')) || 1000000,
+                  cy: Number(ext?.getAttribute('cy')) || 1000000,
+                },
               });
-              s.shapes = shapes;
-              next[idx] = s;
-              return next;
-            });
-            markDirty();
-          }, [idx, markDirty]);
-
-          const applyToolbar = useCallback((cmd) => {
-            try {
-              document.execCommand(cmd, false, null);
             } catch (e) {
-              console.error('[PPTX] Toolbar command error:', e);
+              console.error('[PPTX] Image parse error:', e);
             }
-          }, []);
+          }
 
-          const saveDeck = useCallback(async () => {
-            if (!zip || !presDoc || !presRelsDoc || !hasChanges) return;
-            
-            try {
-              console.log('[PPTX] Starting save...');
-              
-              for (const slide of slides) {
-                if (!slide.doc || !slide.relsDoc) continue;
-                
-                try {
-                  const slideXml = new XMLSerializer().serializeToString(slide.doc);
-                  const relsXml = new XMLSerializer().serializeToString(slide.relsDoc);
-                  const relsName = `ppt/slides/_rels/${slide.name.split('/').pop()}.rels`;
-                  
-                  zip.file(slide.name, slideXml);
-                  zip.file(relsName, relsXml);
-                } catch (e) {
-                  console.error(`[PPTX] Error saving slide ${slide.name}:`, e);
+          // Extract slide background
+          let background = '#ffffff';
+          const cSld = qNS(doc, NS.p, 'cSld');
+          const bgElement = cSld ? qNS(cSld, NS.p, 'bg') : null;
+          if (bgElement) {
+            const bgPr = qNS(bgElement, NS.p, 'bgPr');
+            if (bgPr) {
+              const solidFill = qNS(bgPr, NS.a, 'solidFill');
+              const gradFill = qNS(bgPr, NS.a, 'gradFill');
+
+              if (solidFill) {
+                const bgColor = parseColor(solidFill, colors);
+                if (bgColor) background = bgColor;
+              } else if (gradFill) {
+                // Extract gradient colors
+                const gsLst = qNS(gradFill, NS.a, 'gsLst');
+                if (gsLst) {
+                  const gsNodes = qaNS(gsLst, NS.a, 'gs') as Element[];
+                  const gradientColors: string[] = [];
+                  for (const gs of gsNodes) {
+                    const gradColor = parseColor(gs, colors);
+                    if (gradColor) gradientColors.push(gradColor);
+                  }
+                  if (gradientColors.length >= 2) {
+                    background = `linear-gradient(135deg, ${gradientColors.join(', ')})`;
+                  }
                 }
               }
-
-              zip.file('ppt/presentation.xml', new XMLSerializer().serializeToString(presDoc));
-              zip.file('ppt/_rels/presentation.xml.rels', new XMLSerializer().serializeToString(presRelsDoc));
-
-              const output = await zip.generateAsync({
-                type: 'uint8array',
-                compression: 'DEFLATE',
-                compressionOptions: { level: 6 }
-              });
-              
-              await window.api.writeFileBuffer(filePath, output);
-              setHasChanges(false);
-              console.log('[PPTX] Save completed successfully');
-              
-            } catch (e) {
-              console.error('[PPTX] Save error:', e);
-              setErr(`Save failed: ${e.message}`);
             }
-          }, [zip, presDoc, presRelsDoc, slides, filePath, hasChanges]);
+            // Check for bgRef (references theme background)
+            const bgRef = qNS(bgElement, NS.p, 'bgRef');
+            if (bgRef) {
+              const refColor = parseColor(bgRef, colors);
+              if (refColor) background = refColor;
+            }
+          }
 
-          const addSlide = useCallback(() => {
-            if (!slides.length || !zip || !presDoc || !presRelsDoc) return;
-            
-            try {
-              const base = slides[idx];
-              const nextNum = 1 + Math.max(0, ...Object.keys(zip.files)
-                .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
-                .map(n => Number(n.match(/slide(\d+)\.xml$/)?.[1]) || 0));
+          loadedSlides.push({ name: s.name, doc, relsDoc, shapes, background });
+        }
 
-              const newSlideName = `ppt/slides/slide${nextNum}.xml`;
-              const newRelsName = `ppt/slides/_rels/slide${nextNum}.xml.rels`;
+        if (cancelled) return;
 
-              const cloned = base.doc.cloneNode(true);
-              const textNodes = qaNS(cloned, NS.a, 't');
-              textNodes.forEach(t => { t.textContent = ''; });
+        setZip(z);
+        setPresDoc(pres);
+        setPresRelsDoc(presRels);
+        setSlideOrder(order);
+        setSlides(loadedSlides);
+        setIdx(0);
+        setHasChanges(false);
+        setLoading(false);
+      } catch (e: any) {
+        if (!cancelled) {
+          console.error('[PPTX] Load error:', e);
+          setErr(e.message || String(e));
+          setLoading(false);
+        }
+      }
+    };
 
-              zip.file(newSlideName, new XMLSerializer().serializeToString(cloned));
-              zip.file(newRelsName, new XMLSerializer().serializeToString(base.relsDoc));
+    load();
+    return () => { cancelled = true; };
+  }, [filePath]);
 
-              const rid = nextRelationshipId(presRelsDoc);
-              const rel = presRelsDoc.createElementNS(NS.pkgRels, 'Relationship');
-              rel.setAttribute('Id', rid);
-              rel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide');
-              rel.setAttribute('Target', `slides/slide${nextNum}.xml`);
-              presRelsDoc.documentElement.appendChild(rel);
+  // Update paragraph HTML
+  const updateParaHTML = useCallback((shapeIdx: number, paraIdx: number, newHTML: string) => {
+    if (!activeSlide) return;
+    setSlides(prev => {
+      const next = [...prev];
+      const s = { ...next[idx] };
+      const shapes = [...s.shapes];
+      const sh = { ...shapes[shapeIdx] };
+      if (sh.paras && paraIdx < sh.paras.length) {
+        const paras = [...sh.paras];
+        paras[paraIdx] = { ...paras[paraIdx], html: newHTML };
+        sh.paras = paras;
+      }
+      shapes[shapeIdx] = sh;
+      s.shapes = shapes;
+      next[idx] = s;
+      return next;
+    });
+    setHasChanges(true);
+  }, [idx, activeSlide]);
 
-              const sldIdLst = qNS(presDoc, NS.p, 'sldIdLst');
-              if (sldIdLst) {
-                const sldId = presDoc.createElementNS(NS.p, 'p:sldId');
-                const usedIds = qaNS(sldIdLst, NS.p, 'sldId').map(s => Number(s.getAttribute('id')) || 256);
-                sldId.setAttribute('id', String(Math.max(255, ...usedIds) + 1));
-                sldId.setAttributeNS(NS.r, 'r:id', rid);
-                sldIdLst.appendChild(sldId);
-              }
+  // Add text box
+  const addTextBox = useCallback(() => {
+    setSlides(prev => {
+      const next = [...prev];
+      const s = { ...next[idx] };
+      const shapes = [...s.shapes];
+      shapes.push({
+        type: 'text',
+        paras: [{ html: 'Click to edit', align: 'l', level: 0, bullet: false }],
+        xfrm: { x: 1500000, y: 1500000, cx: 4000000, cy: 800000 },
+        spNode: null,
+      });
+      s.shapes = shapes;
+      next[idx] = s;
+      return next;
+    });
+    setHasChanges(true);
+  }, [idx]);
 
-              const newSlide = {
-                name: newSlideName,
-                doc: cloned,
-                relsDoc: base.relsDoc.cloneNode(true),
-                shapes: base.shapes.map(sh => ({
-                  ...sh,
-                  spNode: null,
-                  paras: sh.type === 'text' ? [{ level: 0, align: 'l', bullet: false, html: '' }] : sh.paras
-                }))
+  // Add image
+  const addImage = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        setSlides(prev => {
+          const next = [...prev];
+          const s = { ...next[idx] };
+          const shapes = [...s.shapes];
+          shapes.push({
+            type: 'image',
+            imgDataUrl: dataUrl,
+            xfrm: { x: 1000000, y: 1000000, cx: 3000000, cy: 2000000 },
+          });
+          s.shapes = shapes;
+          next[idx] = s;
+          return next;
+        });
+        setHasChanges(true);
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }, [idx]);
+
+  // Add shape
+  const addShape = useCallback((shapeType: string, color: string = '#4285f4') => {
+    setSlides(prev => {
+      const next = [...prev];
+      const s = { ...next[idx] };
+      const shapes = [...s.shapes];
+      shapes.push({
+        type: 'shape',
+        shapeType,
+        fillColor: color,
+        xfrm: { x: 2000000, y: 2000000, cx: 2000000, cy: 1500000 },
+      });
+      s.shapes = shapes;
+      next[idx] = s;
+      return next;
+    });
+    setHasChanges(true);
+    setShowShapePicker(false);
+  }, [idx]);
+
+  // Set slide background
+  const setSlideBackground = useCallback((bg: string) => {
+    setSlides(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], background: bg };
+      return next;
+    });
+    setHasChanges(true);
+    setShowBgPicker(false);
+  }, [idx]);
+
+  // Set slide gradient
+  const setSlideGradient = useCallback((colors: string[]) => {
+    const gradient = `linear-gradient(135deg, ${colors[0]}, ${colors[1]})`;
+    setSlides(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], background: gradient };
+      return next;
+    });
+    setHasChanges(true);
+    setShowBgPicker(false);
+  }, [idx]);
+
+  // Apply slide layout
+  const applyLayout = useCallback((layout: typeof SLIDE_LAYOUTS[0]) => {
+    const newShapes: Shape[] = layout.shapes.map((s: any) => ({
+      type: 'text' as const,
+      paras: [{ html: s.text, align: 'ctr', level: 0, bullet: false }],
+      xfrm: {
+        x: (s.x / 100) * 9144000,
+        y: (s.y / 100) * 6858000,
+        cx: (s.w / 100) * 9144000,
+        cy: (s.h / 100) * 6858000,
+      },
+      spNode: null,
+    }));
+    setSlides(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], shapes: newShapes };
+      return next;
+    });
+    setHasChanges(true);
+    setShowLayoutPicker(false);
+  }, [idx]);
+
+  // Add slide
+  const addSlide = useCallback(() => {
+    if (!slides.length || !zip || !presDoc || !presRelsDoc) return;
+
+    const base = slides[idx];
+    const nextNum = 1 + Math.max(0, ...Object.keys(zip.files)
+      .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+      .map(n => Number(n.match(/slide(\d+)\.xml$/)?.[1]) || 0));
+
+    const newSlide: Slide = {
+      name: `ppt/slides/slide${nextNum}.xml`,
+      doc: base.doc?.cloneNode(true) as Document || null,
+      relsDoc: base.relsDoc?.cloneNode(true) as Document || null,
+      shapes: [],
+    };
+
+    setSlides(prev => [...prev, newSlide]);
+    setIdx(slides.length);
+    setHasChanges(true);
+  }, [slides, idx, zip, presDoc, presRelsDoc]);
+
+  // Delete slide
+  const deleteSlide = useCallback(() => {
+    if (slides.length <= 1) return;
+    setSlides(prev => prev.filter((_, i) => i !== idx));
+    setIdx(Math.max(0, idx - 1));
+    setHasChanges(true);
+  }, [slides.length, idx]);
+
+  // Duplicate slide
+  const duplicateSlide = useCallback(() => {
+    if (!activeSlide) return;
+    const cloned: Slide = {
+      ...activeSlide,
+      name: `slide${slides.length + 1}`,
+      shapes: activeSlide.shapes.map(sh => ({
+        ...sh,
+        paras: sh.paras ? sh.paras.map(p => ({ ...p })) : undefined,
+      })),
+    };
+    setSlides(prev => [...prev.slice(0, idx + 1), cloned, ...prev.slice(idx + 1)]);
+    setIdx(idx + 1);
+    setHasChanges(true);
+  }, [activeSlide, slides.length, idx]);
+
+  // Save
+  const save = useCallback(async () => {
+    if (!zip || !presDoc || !presRelsDoc || !hasChanges) return;
+    try {
+      for (const slide of slides) {
+        if (slide.doc && slide.relsDoc) {
+          zip.file(slide.name, new XMLSerializer().serializeToString(slide.doc));
+          const relsPath = `ppt/slides/_rels/${slide.name.split('/').pop()}.rels`;
+          zip.file(relsPath, new XMLSerializer().serializeToString(slide.relsDoc));
+        }
+      }
+      zip.file('ppt/presentation.xml', new XMLSerializer().serializeToString(presDoc));
+      zip.file('ppt/_rels/presentation.xml.rels', new XMLSerializer().serializeToString(presRelsDoc));
+
+      const output = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+      await window.api.writeFileBuffer(filePath, output);
+      setHasChanges(false);
+    } catch (e: any) {
+      console.error('[PPTX] Save error:', e);
+      setErr(`Save failed: ${e.message}`);
+    }
+  }, [zip, presDoc, presRelsDoc, slides, filePath, hasChanges]);
+
+  // Presentation mode
+  const enterPresentation = useCallback(() => {
+    setIsPresentationMode(true);
+    presentationRef.current?.requestFullscreen?.();
+  }, []);
+
+  const exitPresentation = useCallback(() => {
+    setIsPresentationMode(false);
+    document.exitFullscreen?.();
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        save();
+      }
+      if (isPresentationMode) {
+        if (e.key === 'Escape') exitPresentation();
+        else if (e.key === 'ArrowRight' || e.key === ' ') {
+          if (idx < slides.length - 1) setIdx(idx + 1);
+        } else if (e.key === 'ArrowLeft') {
+          if (idx > 0) setIdx(idx - 1);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [save, isPresentationMode, idx, slides.length, exitPresentation]);
+
+  // Fullscreen change
+  useEffect(() => {
+    const handler = () => {
+      if (!document.fullscreenElement) setIsPresentationMode(false);
+    };
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+
+  // Close dropdowns on click outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.dropdown-container')) {
+        setShowFontPicker(false);
+        setShowColorPicker(false);
+        setShowShapePicker(false);
+        setShowBgPicker(false);
+        setShowLayoutPicker(false);
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
+  // Render slide content
+  const renderSlideContent = useCallback((slide: Slide, scale: number = 1, editable: boolean = true) => {
+    return slide.shapes.map((shape, si) => {
+      const style: React.CSSProperties = {
+        position: 'absolute',
+        left: emuToPx(shape.xfrm.x) * scale,
+        top: emuToPx(shape.xfrm.y) * scale,
+        width: emuToPx(shape.xfrm.cx) * scale,
+        height: emuToPx(shape.xfrm.cy) * scale,
+        zIndex: shape.type === 'shape' ? 0 : shape.type === 'image' ? 1 : 2,
+      };
+
+      if (shape.type === 'text') {
+        // Build text box styles
+        const textBoxStyle: React.CSSProperties = {
+          ...style,
+          padding: 4 * scale,
+          boxSizing: 'border-box' as const,
+        };
+        if (shape.fillColor) {
+          textBoxStyle.backgroundColor = shape.fillColor;
+        }
+        if (shape.borderColor || shape.borderWidth) {
+          textBoxStyle.border = `${(shape.borderWidth || 1) * scale}px solid ${shape.borderColor || '#000000'}`;
+        }
+
+        return (
+          <div key={si} style={textBoxStyle}>
+            {shape.paras?.map((p, pi) => {
+              // Build paragraph styles
+              const paraStyle: React.CSSProperties = {
+                textAlign: p.align === 'ctr' ? 'center' : p.align === 'r' ? 'right' : p.align === 'just' ? 'justify' : 'left',
+                paddingLeft: p.level * 20 * scale,
+                outline: 'none',
+                minHeight: '1em',
+                color: '#000000', // Default text color (can be overridden by inline styles)
+                fontSize: `${18 * scale}px`, // Default font size
+                fontFamily: 'Arial, sans-serif', // Default font
               };
-              
-              setSlideOrder(prev => [...prev, { rId: rid, target: `slides/slide${nextNum}.xml`, name: newSlideName }]);
-              setSlides(prev => [...prev, newSlide]);
-              setIdx(slides.length);
-              markDirty();
-              
-            } catch (e) {
-              console.error('[PPTX] Error adding slide:', e);
-            }
-          }, [slides, idx, zip, presDoc, presRelsDoc, markDirty]);
 
-          const deleteSlide = useCallback(() => {
-            if (slides.length <= 1 || !slideOrder[idx] || !presDoc || !presRelsDoc) return;
-            
-            try {
-              const toRemove = slideOrder[idx];
-              
-              const sldIdLst = qNS(presDoc, NS.p, 'sldIdLst');
-              if (sldIdLst) {
-                const sldIds = qaNS(sldIdLst, NS.p, 'sldId');
-                const sldId = sldIds.find(s => s.getAttributeNS(NS.r, 'id') === toRemove.rId);
-                if (sldId) sldId.parentNode.removeChild(sldId);
+              // Apply line spacing
+              if (p.lineSpacing) {
+                paraStyle.lineHeight = `${p.lineSpacing}%`;
               }
 
-              const relationships = qaNS(presRelsDoc, NS.pkgRels, 'Relationship');
-              const rel = relationships.find(r => r.getAttribute('Id') === toRemove.rId);
-              if (rel) rel.parentNode.removeChild(rel);
-
-              if (zip) {
-                zip.remove(toRemove.name);
-                zip.remove(`ppt/slides/_rels/${toRemove.name.split('/').pop()}.rels`);
+              // Apply paragraph spacing
+              if (p.spaceBefore) {
+                paraStyle.marginTop = `${p.spaceBefore * scale}pt`;
+              }
+              if (p.spaceAfter) {
+                paraStyle.marginBottom = `${p.spaceAfter * scale}pt`;
               }
 
-              setSlides(prev => prev.filter((_, i) => i !== idx));
-              setSlideOrder(prev => prev.filter((_, i) => i !== idx));
-              setIdx(Math.max(0, idx - 1));
-              markDirty();
-              
-            } catch (e) {
-              console.error('[PPTX] Error deleting slide:', e);
-            }
-          }, [slides.length, slideOrder, idx, presDoc, presRelsDoc, zip, markDirty]);
-
-          useEffect(() => {
-            const handleKeyDown = (e) => {
-              const isCtrl = e.ctrlKey || e.metaKey;
-              if (isCtrl && e.key === 's') {
-                e.preventDefault();
-                e.stopPropagation();
-                if (hasChanges) saveDeck();
-              }
-              // Block browser shortcuts when in presentation
-              if (isCtrl && (e.key === 'b' || e.key === 'i' || e.key === 'u')) {
-                e.preventDefault();
-                e.stopPropagation();
-              }
-            };
-
-            window.addEventListener('keydown', handleKeyDown);
-            return () => window.removeEventListener('keydown', handleKeyDown);
-          }, [hasChanges, saveDeck]);
-
-          console.log('[PPTX] Render, slides:', slides.length, 'activeIdx:', idx, 'hasChanges:', hasChanges);
-          console.log('[PPTX] Active slide shapes:', activeSlide?.shapes?.length || 0);
-          console.log('[PPTX] Zip files:', zip ? Object.keys(zip.files).length : 'n/a');
-
-          if (err) {
-            return (
-              <div className="h-full flex flex-col theme-bg-secondary">
-                <div className="p-4 text-red-500">
-                  <h3 className="font-bold mb-2">PPTX Error</h3>
-                  <p className="text-sm">{err}</p>
-                  <button 
-                    onClick={() => { setErr(null); setLoading(true); }}
-                    className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
-                  >
-                    Retry
-                  </button>
-                </div>
-              </div>
-            );
-          }
-
-          if (loading) {
-            return (
-              <div className="h-full flex items-center justify-center theme-bg-secondary">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
-                  <p className="text-sm theme-text-muted">Loading presentation...</p>
-                </div>
-              </div>
-            );
-          }
-
-          if (!slides || slides.length === 0) {
-            return (
-              <div className="h-full flex items-center justify-center theme-bg-secondary">
-                <div className="text-center theme-text-muted">
-                  <p>No slides found in presentation.</p>
-                </div>
-              </div>
-            );
-          }
-
-          if (!activeSlide) {
-            return (
-              <div className="h-full flex items-center justify-center theme-bg-secondary">
-                <div className="text-center theme-text-muted">
-                  <p>No active slide.</p>
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <div className="h-full flex flex-col theme-bg-secondary overflow-hidden">
-              {/* Header */}
-              <div
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.effectAllowed = 'move';
-                  const nodePath = findNodePath?.(rootLayoutNode, nodeId) || [];
-                  e.dataTransfer.setData('application/json', JSON.stringify({
-                    type: 'pane',
-                    id: nodeId,
-                    nodePath
-                  }));
-                  setTimeout(() => setDraggedItem?.({ type: 'pane', id: nodeId, nodePath }), 0);
-                }}
-                onDragEnd={() => setDraggedItem?.(null)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const nodePath = findNodePath?.(rootLayoutNode, nodeId) || [];
-                  setPaneContextMenu?.({
-                    isOpen: true,
-                    x: e.clientX,
-                    y: e.clientY,
-                    nodeId,
-                    nodePath
-                  });
-                }}
-                className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
-              >
-                <div className="flex justify-between items-center">
-                  <span className="truncate font-semibold">
-                    {filePath?.split('/').pop() || 'Presentation'}{hasChanges ? ' *' : ''}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button 
-                      onClick={addSlide} 
-                      className="p-1 theme-hover rounded" 
-                      title="Add slide"
-                    >
-                      <Plus size={14}/>
-                    </button>
-                    <button 
-                      onClick={deleteSlide} 
-                      disabled={slides.length <= 1} 
-                      className="p-1 theme-hover rounded disabled:opacity-50"
-                      title="Delete slide"
-                    >
-                      <Trash2 size={14}/>
-                    </button>
-                    <button 
-                      onClick={saveDeck} 
-                      disabled={!hasChanges} 
-                      className="p-1 theme-hover rounded disabled:opacity-50"
-                      title="Save (Ctrl+S)"
-                    >
-                      <Save size={14}/>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const nodePath = findNodePath?.(rootLayoutNode, nodeId) || [];
-                        closeContentPane?.(nodeId, nodePath);
-                      }}
-                      className="p-1 theme-hover rounded-full"
-                      title="Close"
-                    >
-                      <X size={14}/>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Toolbar */}
-              <div className="p-2 border-b theme-border flex items-center gap-2 flex-wrap theme-bg-tertiary">
-                <button 
-                  onClick={() => applyToolbar('bold')} 
-                  className="p-2 theme-hover rounded"
-                  title="Bold"
-                >
-                  <Type size={16} style={{fontWeight: 700}}/>
-                </button>
-                <button 
-                  onClick={() => applyToolbar('italic')} 
-                  className="p-2 theme-hover rounded"
-                  title="Italic"
-                >
-                  <i>I</i>
-                </button>
-                <button 
-                  onClick={() => applyToolbar('underline')} 
-                  className="p-2 theme-hover rounded"
-                  title="Underline"
-                >
-                  <u>U</u>
-                </button>
-                <div className="w-px h-6 bg-gray-600 mx-1"/>
-                <button
-                  onClick={addTextBox}
-                  className="p-1 theme-hover rounded"
-                  title="Add text box"
-                >
-                  <Type size={16}/>
-                </button>
-                <button
-                  onClick={addImage}
-                  className="p-1 theme-hover rounded"
-                  title="Add image"
-                >
-                  <ImageIcon size={16}/>
-                </button>
-                <button
-                  onClick={() => addShape('rect')}
-                  className="p-1 theme-hover rounded"
-                  title="Add rectangle"
-                >
-                  <Square size={16}/>
-                </button>
-                <button
-                  onClick={() => addShape('ellipse')}
-                  className="p-1 theme-hover rounded"
-                  title="Add circle"
-                >
-                  <Circle size={16}/>
-                </button>
-              </div>
-
-              {/* Body */}
-              <div className="flex-1 flex min-h-0">
-                {/* Slide list */}
-                <div className="w-52 border-r theme-border overflow-auto theme-bg-tertiary">
-                  {slides.map((s, i) => (
-                    <button
-                      key={s.name}
-                      onClick={() => setIdx(i)}
-                      className={`w-full text-left px-3 py-2 text-xs ${i === idx ? 'theme-button-primary' : 'theme-button theme-hover'}`}
-                    >
-                      Slide {i + 1}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Editor */}
-                <div className="flex-1 flex flex-col min-h-0 p-6 theme-bg-primary overflow-auto">
-                  {/* Slide Canvas */}
-                  <div
-                    className="relative border theme-border rounded shadow-lg mb-4 flex-shrink-0 bg-white"
-                    style={{
-                      width: `${slideDisplayWidth}px`,
-                      height: `${slideDisplayHeight}px`,
-                      margin: '0 auto',
-                    }}
-                  >
-                    {activeSlide.shapes?.map((shape, si) => {
-                      const shapeStyle = {
-                        position: 'absolute',
-                        left: `${emuToPx(shape.xfrm?.x || 0)}px`,
-                        top: `${emuToPx(shape.xfrm?.y || 0)}px`,
-                        width: `${emuToPx(shape.xfrm?.cx || 0)}px`,
-                        height: `${emuToPx(shape.xfrm?.cy || 0)}px`,
-                        boxSizing: 'border-box',
-                        zIndex: shape.type === 'shape' ? 0 : (shape.type === 'image' ? 1 : 2),
-                        backgroundColor: shape.fillColor || 'transparent',
-                      };
-
-                      return (
-                        <div key={`${activeSlide.name}-${si}`} style={shapeStyle}> 
-
-
-{shape.type === 'text' && (
-  <div
-    className="w-full h-full pptx-slide-content"
-    style={{ overflow: 'visible' }}
-  >
-    {shape.paras?.map((p, pIndex) => (
-      <div
-        key={pIndex}
-        contentEditable
-        suppressContentEditableWarning
-        style={{
-          textAlign: p.align === 'ctr' ? 'center' : p.align === 'r' ? 'right' : 'left',
-          color: '#000000',
-          outline: 'none',
-          minHeight: '1em',
-          cursor: 'text',
-        }}
-        onBlur={(e) => {
-          const newText = e.currentTarget.innerHTML;
-          updateParaHTML(si, pIndex, newText);
-        }}
-        dangerouslySetInnerHTML={{ __html: p.html }}
-      />
-    ))}
-  </div>
-)}
-
-             {shape.type === 'image' && shape.imgDataUrl && (
-                    <img
-                      src={shape.imgDataUrl}
-                      alt={shape.name || 'Image'}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'contain'
-                      }}
-                    />
-                  )}
-                  {shape.type === 'shape' && (
-                    <div
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        backgroundColor: shape.fillColor || '#3b82f6',
-                        borderRadius: shape.shapeType === 'ellipse' ? '50%' : '0',
-                      }}
-                    />
-                  )}
-                </div>
+              return (
+                <div
+                  key={pi}
+                  contentEditable={editable}
+                  suppressContentEditableWarning
+                  style={paraStyle}
+                  onBlur={editable ? (e) => updateParaHTML(si, pi, e.currentTarget.innerHTML) : undefined}
+                  dangerouslySetInnerHTML={{ __html: (p.bullet ? '<span style="margin-right:4px">•</span>' : '') + p.html }}
+                />
               );
             })}
           </div>
+        );
+      }
 
-          {/* Notes Section */}
-          <div className="theme-bg-secondary rounded border theme-border shadow-sm flex-shrink-0">
-            <div className="px-3 py-1 text-[11px] theme-text-muted border-b theme-border">
-              Speaker notes
+      if (shape.type === 'image' && shape.imgDataUrl) {
+        return (
+          <div key={si} style={style}>
+            <img src={shape.imgDataUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
+        );
+      }
+
+      if (shape.type === 'shape') {
+        const shapeStyle: React.CSSProperties = {
+          width: '100%',
+          height: '100%',
+          backgroundColor: shape.fillColor || '#4285f4',
+        };
+
+        // Apply shape-specific styling
+        if (shape.shapeType === 'ellipse') {
+          shapeStyle.borderRadius = '50%';
+        } else if (shape.shapeType === 'roundRect') {
+          shapeStyle.borderRadius = '12px';
+        } else if (shape.shapeType === 'diamond') {
+          shapeStyle.transform = 'rotate(45deg)';
+          shapeStyle.width = '70%';
+          shapeStyle.height = '70%';
+          shapeStyle.margin = '15%';
+        } else if (shape.shapeType === 'triangle') {
+          shapeStyle.backgroundColor = 'transparent';
+          shapeStyle.borderLeft = `${emuToPx(shape.xfrm.cx) * scale / 2}px solid transparent`;
+          shapeStyle.borderRight = `${emuToPx(shape.xfrm.cx) * scale / 2}px solid transparent`;
+          shapeStyle.borderBottom = `${emuToPx(shape.xfrm.cy) * scale}px solid ${shape.fillColor || '#4285f4'}`;
+        } else if (shape.shapeType === 'star') {
+          shapeStyle.clipPath = 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)';
+        } else if (shape.shapeType === 'hexagon') {
+          shapeStyle.clipPath = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
+        } else if (shape.shapeType === 'arrow') {
+          shapeStyle.clipPath = 'polygon(0% 20%, 60% 20%, 60% 0%, 100% 50%, 60% 100%, 60% 80%, 0% 80%)';
+        } else if (shape.shapeType === 'line') {
+          shapeStyle.height = '4px';
+          shapeStyle.marginTop = `${emuToPx(shape.xfrm.cy) * scale / 2}px`;
+        }
+
+        return <div key={si} style={{ ...style, ...shapeStyle }} />;
+      }
+
+      return null;
+    });
+  }, [emuToPx, updateParaHTML]);
+
+  // Error state
+  if (err) {
+    return (
+      <div className="h-full flex flex-col theme-bg-secondary p-4">
+        <div className="text-red-500">
+          <h3 className="font-bold mb-2">Error loading presentation</h3>
+          <p className="text-sm mb-4">{err}</p>
+          <button onClick={() => { setErr(null); setLoading(true); }} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center theme-bg-secondary">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2" />
+          <p className="text-sm theme-text-muted">Loading presentation...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // No slides
+  if (!slides.length || !activeSlide) {
+    return (
+      <div className="h-full flex items-center justify-center theme-bg-secondary">
+        <p className="theme-text-muted">No slides found</p>
+      </div>
+    );
+  }
+
+  // Presentation mode
+  if (isPresentationMode) {
+    const scale = Math.min(window.innerWidth / slideWidth, window.innerHeight / slideHeight);
+    return (
+      <div
+        ref={presentationRef}
+        className="fixed inset-0 bg-black z-[9999] flex items-center justify-center"
+        onClick={(e) => {
+          const x = e.clientX;
+          if (x > window.innerWidth / 2) {
+            if (idx < slides.length - 1) setIdx(idx + 1);
+          } else {
+            if (idx > 0) setIdx(idx - 1);
+          }
+        }}
+      >
+        <div
+          className="relative bg-white"
+          style={{ width: slideWidth * scale, height: slideHeight * scale }}
+        >
+          {renderSlideContent(activeSlide, scale, false)}
+        </div>
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/50 text-sm">
+          {idx + 1} / {slides.length}
+        </div>
+        <div className="absolute top-4 right-4 text-white/30 text-xs">ESC to exit</div>
+      </div>
+    );
+  }
+
+  // Main editor
+  return (
+    <div className="h-full flex flex-col theme-bg-secondary overflow-hidden">
+      {/* Header */}
+      <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = 'move';
+          const nodePath = findNodePath?.(rootLayoutNode, nodeId) || [];
+          e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
+          setTimeout(() => setDraggedItem?.({ type: 'pane', id: nodeId, nodePath }), 0);
+        }}
+        onDragEnd={() => setDraggedItem?.(null)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setPaneContextMenu?.({ isOpen: true, x: e.clientX, y: e.clientY, nodeId, nodePath: findNodePath?.(rootLayoutNode, nodeId) || [] });
+        }}
+        className="px-3 py-2 border-b theme-border theme-bg-secondary cursor-move flex items-center justify-between"
+      >
+        <span className="text-sm font-medium truncate">
+          {filePath?.split('/').pop() || 'Presentation'}{hasChanges ? ' *' : ''}
+        </span>
+        <div className="flex items-center gap-1">
+          <button onClick={addSlide} className="p-1.5 theme-hover rounded" title="Add slide"><Plus size={14} /></button>
+          <button onClick={duplicateSlide} className="p-1.5 theme-hover rounded" title="Duplicate"><Copy size={14} /></button>
+          <button onClick={deleteSlide} disabled={slides.length <= 1} className="p-1.5 theme-hover rounded disabled:opacity-30" title="Delete"><Trash2 size={14} /></button>
+          <div className="w-px h-4 bg-gray-600 mx-1" />
+          <button onClick={enterPresentation} className="p-1.5 theme-hover rounded" title="Present"><Play size={14} /></button>
+          <button onClick={save} disabled={!hasChanges} className="p-1.5 theme-hover rounded disabled:opacity-30" title="Save"><Save size={14} /></button>
+          <button onClick={() => closeContentPane?.(nodeId, findNodePath?.(rootLayoutNode, nodeId) || [])} className="p-1.5 theme-hover rounded-full" title="Close"><X size={14} /></button>
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className="px-2 py-1.5 border-b theme-border theme-bg-tertiary flex items-center gap-1 flex-wrap">
+        {/* Font */}
+        <div className="relative dropdown-container">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowFontPicker(!showFontPicker); }}
+            className="px-2 py-1 text-[11px] theme-hover rounded flex items-center gap-1 min-w-[90px] border border-white/10"
+          >
+            <Type size={12} />
+            <span className="truncate">{currentFont}</span>
+            <ChevronDown size={10} />
+          </button>
+          {showFontPicker && (
+            <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-50 max-h-48 overflow-y-auto">
+              {FONTS.map(font => (
+                <button
+                  key={font}
+                  onClick={() => { setCurrentFont(font); setShowFontPicker(false); document.execCommand('fontName', false, font); }}
+                  className="w-full px-3 py-1.5 text-left text-xs hover:bg-gray-700"
+                  style={{ fontFamily: font }}
+                >
+                  {font}
+                </button>
+              ))}
             </div>
-            <textarea
-              className="w-full p-3 bg-transparent outline-none min-h-[120px] font-mono text-xs theme-text-primary resize-none"
-              placeholder="Add speaker notes for this slide..."
-              defaultValue=""
-              onBlur={(e) => {
-                console.log('[PPTX] Notes updated:', e.target.value);
+          )}
+        </div>
+
+        {/* Font size */}
+        <select
+          value={currentFontSize}
+          onChange={(e) => { setCurrentFontSize(e.target.value); document.execCommand('fontSize', false, e.target.value); }}
+          className="px-1.5 py-1 rounded theme-bg-secondary border border-white/10 text-[11px] w-14"
+        >
+          {FONT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+
+        <div className="w-px h-5 bg-gray-600 mx-0.5" />
+
+        {/* Formatting */}
+        <button onClick={() => document.execCommand('bold')} className="p-1.5 theme-hover rounded" title="Bold"><Bold size={14} /></button>
+        <button onClick={() => document.execCommand('italic')} className="p-1.5 theme-hover rounded" title="Italic"><Italic size={14} /></button>
+        <button onClick={() => document.execCommand('underline')} className="p-1.5 theme-hover rounded" title="Underline"><Underline size={14} /></button>
+
+        <div className="w-px h-5 bg-gray-600 mx-0.5" />
+
+        {/* Color */}
+        <div className="relative dropdown-container">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowColorPicker(!showColorPicker); }}
+            className="p-1.5 theme-hover rounded"
+            title="Text Color"
+          >
+            <Palette size={14} />
+          </button>
+          {showColorPicker && (
+            <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-50 p-2">
+              <div className="grid grid-cols-6 gap-1">
+                {THEME_COLORS.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => { document.execCommand('foreColor', false, c); setShowColorPicker(false); }}
+                    className="w-5 h-5 rounded border border-gray-600 hover:scale-110"
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="w-px h-5 bg-gray-600 mx-0.5" />
+
+        {/* Alignment */}
+        <button onClick={() => document.execCommand('justifyLeft')} className="p-1.5 theme-hover rounded" title="Left"><AlignLeft size={14} /></button>
+        <button onClick={() => document.execCommand('justifyCenter')} className="p-1.5 theme-hover rounded" title="Center"><AlignCenter size={14} /></button>
+        <button onClick={() => document.execCommand('justifyRight')} className="p-1.5 theme-hover rounded" title="Right"><AlignRight size={14} /></button>
+
+        <div className="w-px h-5 bg-gray-600 mx-0.5" />
+
+        {/* Insert */}
+        <button onClick={addTextBox} className="p-1.5 theme-hover rounded" title="Text Box"><Type size={14} /></button>
+        <button onClick={addImage} className="p-1.5 theme-hover rounded" title="Image"><ImageIcon size={14} /></button>
+
+        <div className="relative dropdown-container">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowShapePicker(!showShapePicker); }}
+            className="p-1.5 theme-hover rounded"
+            title="Shapes"
+          >
+            <Square size={14} />
+          </button>
+          {showShapePicker && (
+            <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-50 p-2">
+              <div className="text-[10px] text-gray-400 mb-1 px-1">Shape color</div>
+              <div className="grid grid-cols-6 gap-1 mb-2 pb-2 border-b border-gray-700">
+                {THEME_COLORS.slice(0, 12).map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setSelectedShapeColor(c)}
+                    className={`w-5 h-5 rounded border ${selectedShapeColor === c ? 'border-white' : 'border-gray-600'} hover:scale-110`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {SHAPE_PRESETS.map(s => (
+                  <button
+                    key={s.type}
+                    onClick={() => addShape(s.type, selectedShapeColor)}
+                    className="p-2 theme-hover rounded flex items-center gap-2 text-xs"
+                  >
+                    <s.icon size={14} />
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="w-px h-5 bg-gray-600 mx-0.5" />
+
+        {/* Background */}
+        <div className="relative dropdown-container">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowBgPicker(!showBgPicker); }}
+            className="p-1.5 theme-hover rounded"
+            title="Slide Background"
+          >
+            <PaintBucket size={14} />
+          </button>
+          {showBgPicker && (
+            <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-50 p-2 min-w-[200px]">
+              <div className="text-[10px] text-gray-400 mb-1">Solid Colors</div>
+              <div className="grid grid-cols-5 gap-1 mb-2">
+                {BACKGROUND_COLORS.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setSlideBackground(c)}
+                    className="w-7 h-7 rounded border border-gray-600 hover:scale-110"
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+              <div className="text-[10px] text-gray-400 mb-1">Gradients</div>
+              <div className="grid grid-cols-4 gap-1">
+                {GRADIENT_PRESETS.map(g => (
+                  <button
+                    key={g.name}
+                    onClick={() => setSlideGradient(g.colors)}
+                    className="w-10 h-6 rounded border border-gray-600 hover:scale-110"
+                    style={{ background: `linear-gradient(135deg, ${g.colors[0]}, ${g.colors[1]})` }}
+                    title={g.name}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Layout */}
+        <div className="relative dropdown-container">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowLayoutPicker(!showLayoutPicker); }}
+            className="p-1.5 theme-hover rounded"
+            title="Slide Layout"
+          >
+            <Layout size={14} />
+          </button>
+          {showLayoutPicker && (
+            <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-50 py-1 min-w-[130px]">
+              {SLIDE_LAYOUTS.map(layout => (
+                <button
+                  key={layout.name}
+                  onClick={() => applyLayout(layout)}
+                  className="w-full px-3 py-1.5 text-left text-xs hover:bg-gray-700"
+                >
+                  {layout.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1" />
+
+        {/* Navigation */}
+        <span className="text-[10px] text-gray-400 px-2">Slide {idx + 1}/{slides.length}</span>
+        <button onClick={() => idx > 0 && setIdx(idx - 1)} disabled={idx === 0} className="p-1.5 theme-hover rounded disabled:opacity-30"><ChevronLeft size={14} /></button>
+        <button onClick={() => idx < slides.length - 1 && setIdx(idx + 1)} disabled={idx === slides.length - 1} className="p-1.5 theme-hover rounded disabled:opacity-30"><ChevronRight size={14} /></button>
+
+        <div className="w-px h-5 bg-gray-600 mx-1" />
+
+        {/* Zoom */}
+        <button onClick={() => setZoom(z => Math.max(50, z - 10))} className="p-1.5 theme-hover rounded"><ZoomOut size={14} /></button>
+        <span className="text-[10px] text-gray-400 w-10 text-center">{zoom}%</span>
+        <button onClick={() => setZoom(z => Math.min(200, z + 10))} className="p-1.5 theme-hover rounded"><ZoomIn size={14} /></button>
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 flex min-h-0">
+        {/* Slide panel */}
+        <div className="w-48 border-r theme-border overflow-y-auto theme-bg-tertiary p-2 space-y-2">
+          {slides.map((slide, i) => (
+            <button
+              key={slide.name + i}
+              onClick={() => setIdx(i)}
+              className={`w-full relative rounded overflow-hidden border-2 transition-colors ${
+                i === idx ? 'border-blue-500' : 'border-transparent hover:border-gray-600'
+              }`}
+            >
+              {/* Thumbnail */}
+              <div
+                className="relative"
+                style={{
+                  width: '100%',
+                  paddingBottom: `${(slideHeight / slideWidth) * 100}%`,
+                  background: slide.background || '#ffffff',
+                }}
+              >
+                <div
+                  className="absolute inset-0"
+                  style={{ transform: `scale(${160 / slideWidth})`, transformOrigin: 'top left' }}
+                >
+                  <div style={{ width: slideWidth, height: slideHeight, position: 'relative', background: slide.background || '#ffffff' }}>
+                    {renderSlideContent(slide, 1, false)}
+                  </div>
+                </div>
+              </div>
+              {/* Slide number */}
+              <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[9px] px-1 rounded">
+                {i + 1}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Editor canvas */}
+        <div className="flex-1 flex flex-col overflow-auto theme-bg-primary p-6">
+          <div
+            className="relative shadow-2xl mx-auto flex-shrink-0 rounded overflow-hidden"
+            style={{
+              width: slideWidth * (zoom / 100),
+              height: slideHeight * (zoom / 100),
+              background: activeSlide.background || '#ffffff',
+            }}
+          >
+            <div
+              style={{
+                width: slideWidth,
+                height: slideHeight,
+                transform: `scale(${zoom / 100})`,
+                transformOrigin: 'top left',
+                position: 'relative',
+                background: activeSlide.background || '#ffffff',
               }}
+            >
+              {renderSlideContent(activeSlide, 1, true)}
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div className="mt-4 theme-bg-secondary rounded border theme-border shadow-sm mx-auto" style={{ width: slideWidth * (zoom / 100) }}>
+            <div className="px-3 py-1 text-[11px] theme-text-muted border-b theme-border">Speaker notes</div>
+            <textarea
+              className="w-full p-3 bg-transparent outline-none min-h-[80px] text-xs theme-text-primary resize-none"
+              placeholder="Add notes..."
             />
           </div>
         </div>
       </div>
 
       {/* Status bar */}
-      <div className="p-2 border-t theme-border text-xs theme-text-muted flex items-center justify-between theme-bg-secondary">
+      <div className="px-3 py-1 border-t theme-border theme-bg-tertiary text-[10px] text-gray-500 flex items-center justify-between">
         <span>Slide {idx + 1} of {slides.length}</span>
-        <span>{hasChanges ? 'Unsaved changes' : 'Saved'}</span>
+        <span>{hasChanges ? '● Unsaved changes' : 'Saved'}</span>
       </div>
     </div>
   );
 };
+
 export default memo(PptxViewer);

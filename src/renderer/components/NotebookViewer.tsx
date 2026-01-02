@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, memo } from 'react';
-import { Save, Play, Plus, Trash2, ChevronDown, ChevronRight, X, Loader, Code2, FileText, Edit3, Circle, Zap, Square, Power } from 'lucide-react';
+import { Save, Play, Plus, Trash2, ChevronDown, ChevronRight, X, Loader, Code2, FileText, Edit3, Circle, Zap, Square, Power, MessageSquare, Bot, BookOpen, Paperclip, Eye, EyeOff, Archive, Sparkles } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { python } from '@codemirror/lang-python';
 import { markdown } from '@codemirror/lang-markdown';
@@ -32,12 +32,56 @@ const editorTheme = EditorView.theme({
     '.cm-activeLine': { backgroundColor: 'rgba(137, 180, 250, 0.08)' },
 });
 
+// Cell types: standard ipynb + incognb extensions
+type CellType = 'code' | 'markdown' | 'raw' | 'chat' | 'jinx' | 'latex' | 'data';
+
+// Paper state for incognb format
+type PaperState = 'in_paper' | 'exploration' | 'discarded';
+
 interface NotebookCell {
-    cell_type: 'code' | 'markdown' | 'raw';
+    cell_type: CellType;
     source: string[];
     outputs?: any[];
     execution_count?: number | null;
-    metadata?: any;
+    metadata?: {
+        // Standard metadata
+        collapsed?: boolean;
+        scrolled?: boolean;
+        // Incognb extensions
+        paper_state?: PaperState;
+        paper_order?: number;
+        paper_section?: string;
+        decision_note?: string;
+        // Chat cell metadata
+        chat?: {
+            model?: string;
+            provider?: string;
+            npc?: string;
+            temperature?: number;
+            maxTokens?: number;
+        };
+        // Jinx cell metadata
+        jinx?: {
+            name?: string;
+            inputs?: Record<string, any>;
+        };
+        // Data cell metadata
+        data?: {
+            files?: Array<{
+                name: string;
+                hash: string;
+                version: number;
+                path: string;
+                size: number;
+                mime_type: string;
+            }>;
+        };
+        // Timestamps
+        created_at?: string;
+        modified_at?: string;
+        // Any other metadata
+        [key: string]: any;
+    };
 }
 
 interface Notebook {
@@ -75,8 +119,15 @@ const NotebookViewer = ({
     const [isInstalling, setIsInstalling] = useState(false);
     const [pythonPath, setPythonPath] = useState<string>('python3');
 
+    // Incognb state - models, NPCs, jinxs for chat/jinx cells
+    const [availableModels, setAvailableModels] = useState<any[]>([]);
+    const [availableNPCs, setAvailableNPCs] = useState<any[]>([]);
+    const [availableJinxs, setAvailableJinxs] = useState<any[]>([]);
+    const [showAddCellMenu, setShowAddCellMenu] = useState<number | null>(null);
+
     const paneData = contentDataRef.current[nodeId];
     const filePath = paneData?.contentId;
+    const isIncognb = filePath?.endsWith('.incognb');
 
     // Get workspace path from file path
     const workspacePath = filePath ? filePath.substring(0, filePath.lastIndexOf('/')) : null;
@@ -140,6 +191,35 @@ const NotebookViewer = ({
             }
         };
         checkAndLoadKernels();
+    }, [workspacePath]);
+
+    // Load models, NPCs, and jinxs for chat/jinx cells (all notebooks)
+    useEffect(() => {
+        const loadNotebookResources = async () => {
+            if (!workspacePath) return;
+            try {
+                // Load models
+                const modelsResult = await (window as any).api.getAvailableModels?.(workspacePath);
+                if (modelsResult && !modelsResult.error) {
+                    setAvailableModels(modelsResult);
+                }
+
+                // Load NPCs
+                const npcsResult = await (window as any).api.loadNPCs?.({ currentPath: workspacePath });
+                if (npcsResult?.npcs) {
+                    setAvailableNPCs(npcsResult.npcs);
+                }
+
+                // Load jinxs
+                const jinxsResult = await (window as any).api.loadJinxs?.({ currentPath: workspacePath });
+                if (jinxsResult?.jinxs) {
+                    setAvailableJinxs(jinxsResult.jinxs);
+                }
+            } catch (e) {
+                console.error('Failed to load notebook resources:', e);
+            }
+        };
+        loadNotebookResources();
     }, [workspacePath]);
 
     // Install Jupyter
@@ -284,20 +364,47 @@ const NotebookViewer = ({
     }, [notebook]);
 
     // Add new cell
-    const addCell = useCallback((afterIndex: number, type: 'code' | 'markdown') => {
+    const addCell = useCallback((afterIndex: number, type: CellType) => {
         if (!notebook) return;
+
+        const defaultModel = availableModels.length > 0 ? availableModels[0].value : '';
+        const defaultNPC = availableNPCs.length > 0 ? availableNPCs[0].value : 'agent';
+
         const newCell: NotebookCell = {
             cell_type: type,
             source: [''],
-            outputs: type === 'code' ? [] : undefined,
+            outputs: ['code', 'chat', 'jinx'].includes(type) ? [] : undefined,
             execution_count: type === 'code' ? null : undefined,
-            metadata: {}
+            metadata: {
+                created_at: new Date().toISOString(),
+                paper_state: 'exploration',
+                // Type-specific metadata
+                ...(type === 'chat' && {
+                    chat: {
+                        model: defaultModel,
+                        npc: defaultNPC,
+                        temperature: 0.7
+                    }
+                }),
+                ...(type === 'jinx' && {
+                    jinx: {
+                        name: '',
+                        inputs: {}
+                    }
+                }),
+                ...(type === 'data' && {
+                    data: {
+                        files: []
+                    }
+                })
+            }
         };
         const newCells = [...notebook.cells];
         newCells.splice(afterIndex + 1, 0, newCell);
         setNotebook({ ...notebook, cells: newCells });
         setHasChanges(true);
-    }, [notebook]);
+        setShowAddCellMenu(null);
+    }, [notebook, availableModels, availableNPCs]);
 
     // Delete cell
     const deleteCell = useCallback((index: number) => {
@@ -308,18 +415,55 @@ const NotebookViewer = ({
     }, [notebook]);
 
     // Change cell type
-    const changeCellType = useCallback((index: number, newType: 'code' | 'markdown') => {
+    const changeCellType = useCallback((index: number, newType: CellType) => {
         if (!notebook) return;
+        const defaultModel = availableModels.length > 0 ? availableModels[0].value : '';
+        const defaultNPC = availableNPCs.length > 0 ? availableNPCs[0].value : 'agent';
+
         const newCells = [...notebook.cells];
         newCells[index] = {
             ...newCells[index],
             cell_type: newType,
-            outputs: newType === 'code' ? [] : undefined,
-            execution_count: newType === 'code' ? null : undefined
+            outputs: ['code', 'chat', 'jinx'].includes(newType) ? (newCells[index].outputs || []) : undefined,
+            execution_count: newType === 'code' ? (newCells[index].execution_count || null) : undefined,
+            metadata: {
+                ...newCells[index].metadata,
+                modified_at: new Date().toISOString(),
+                ...(newType === 'chat' && !newCells[index].metadata?.chat && {
+                    chat: { model: defaultModel, npc: defaultNPC, temperature: 0.7 }
+                }),
+                ...(newType === 'jinx' && !newCells[index].metadata?.jinx && {
+                    jinx: { name: '', inputs: {} }
+                }),
+                ...(newType === 'data' && !newCells[index].metadata?.data && {
+                    data: { files: [] }
+                })
+            }
+        };
+        setNotebook({ ...notebook, cells: newCells });
+        setHasChanges(true);
+    }, [notebook, availableModels, availableNPCs]);
+
+    // Update cell metadata (for chat/jinx config changes)
+    const updateCellMetadata = useCallback((index: number, metadataUpdate: Partial<NotebookCell['metadata']>) => {
+        if (!notebook) return;
+        const newCells = [...notebook.cells];
+        newCells[index] = {
+            ...newCells[index],
+            metadata: { ...newCells[index].metadata, ...metadataUpdate, modified_at: new Date().toISOString() }
         };
         setNotebook({ ...notebook, cells: newCells });
         setHasChanges(true);
     }, [notebook]);
+
+    // Toggle paper state for incognb
+    const togglePaperState = useCallback((index: number) => {
+        if (!notebook) return;
+        const states: PaperState[] = ['exploration', 'in_paper', 'discarded'];
+        const currentState = notebook.cells[index].metadata?.paper_state || 'exploration';
+        const nextIndex = (states.indexOf(currentState) + 1) % states.length;
+        updateCellMetadata(index, { paper_state: states[nextIndex] });
+    }, [notebook, updateCellMetadata]);
 
     // Toggle cell collapse
     const toggleCollapse = useCallback((index: number) => {
@@ -400,6 +544,167 @@ const NotebookViewer = ({
             setKernelStatus('connected');
         }
     }, [notebook, kernelId, kernelStatus, startKernel]);
+
+    // Execute chat cell - send prompt to LLM
+    const executeChatCell = useCallback(async (index: number, targetModels?: string[]) => {
+        if (!notebook) return;
+
+        const cell = notebook.cells[index];
+        if (cell.cell_type !== 'chat') return;
+
+        setIsExecuting(index);
+        const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source;
+        const chatMeta = cell.metadata?.chat || {};
+
+        // If targetModels provided, run on multiple models (matrix run)
+        const modelsToRun = targetModels || [chatMeta.model];
+
+        try {
+            const outputs: any[] = [];
+
+            for (const modelValue of modelsToRun) {
+                const selectedModel = availableModels.find((m: any) => m.value === modelValue);
+                const selectedNpc = availableNPCs.find((n: any) => n.value === chatMeta.npc);
+
+                // Use the LLM API
+                const response = await fetch('http://localhost:5337/api/llm/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: source,
+                        model: modelValue,
+                        provider: selectedModel?.provider || 'openai',
+                        npc: selectedNpc?.name || chatMeta.npc,
+                        temperature: chatMeta.temperature || 0.7,
+                        stream: false
+                    })
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    outputs.push({
+                        output_type: 'error',
+                        ename: 'ChatError',
+                        evalue: errText,
+                        traceback: [errText],
+                        metadata: { model: modelValue, npc: chatMeta.npc }
+                    });
+                    continue;
+                }
+
+                const result = await response.json();
+                outputs.push({
+                    output_type: 'execute_result',
+                    data: {
+                        'text/markdown': [result.response || result.content || ''],
+                        'text/plain': [result.response || result.content || '']
+                    },
+                    metadata: {
+                        model: modelValue,
+                        npc: chatMeta.npc,
+                        provider: selectedModel?.provider,
+                        execution_time: new Date().toISOString()
+                    }
+                });
+            }
+
+            const newCells = [...notebook.cells];
+            newCells[index] = {
+                ...newCells[index],
+                outputs,
+                metadata: {
+                    ...newCells[index].metadata,
+                    modified_at: new Date().toISOString()
+                }
+            };
+            setNotebook({ ...notebook, cells: newCells });
+            setHasChanges(true);
+        } catch (e: any) {
+            const newCells = [...notebook.cells];
+            newCells[index] = {
+                ...newCells[index],
+                outputs: [{
+                    output_type: 'error',
+                    ename: 'Error',
+                    evalue: e.message || 'Chat execution failed',
+                    traceback: [e.message || 'Chat execution failed']
+                }]
+            };
+            setNotebook({ ...notebook, cells: newCells });
+        } finally {
+            setIsExecuting(null);
+        }
+    }, [notebook, availableModels, availableNPCs]);
+
+    // Execute jinx cell - run jinx workflow
+    const executeJinxCell = useCallback(async (index: number) => {
+        if (!notebook) return;
+
+        const cell = notebook.cells[index];
+        if (cell.cell_type !== 'jinx') return;
+
+        setIsExecuting(index);
+        const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source;
+        const jinxMeta = cell.metadata?.jinx || {};
+
+        try {
+            // Execute via jinx API
+            const response = await fetch('http://localhost:5337/api/jinx/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    jinxContent: source,
+                    jinxName: jinxMeta.name,
+                    inputs: jinxMeta.inputs || {},
+                    workingDir: workspacePath
+                })
+            });
+
+            const result = await response.json();
+
+            const newCells = [...notebook.cells];
+            if (result.success) {
+                newCells[index] = {
+                    ...newCells[index],
+                    outputs: [{
+                        output_type: 'execute_result',
+                        data: {
+                            'text/plain': [typeof result.output === 'string' ? result.output : JSON.stringify(result.output, null, 2)],
+                            ...(result.html && { 'text/html': [result.html] })
+                        },
+                        metadata: { execution_time: new Date().toISOString() }
+                    }],
+                    metadata: { ...newCells[index].metadata, modified_at: new Date().toISOString() }
+                };
+            } else {
+                newCells[index] = {
+                    ...newCells[index],
+                    outputs: [{
+                        output_type: 'error',
+                        ename: 'JinxError',
+                        evalue: result.error || 'Jinx execution failed',
+                        traceback: [result.error || 'Jinx execution failed']
+                    }]
+                };
+            }
+            setNotebook({ ...notebook, cells: newCells });
+            setHasChanges(true);
+        } catch (e: any) {
+            const newCells = [...notebook.cells];
+            newCells[index] = {
+                ...newCells[index],
+                outputs: [{
+                    output_type: 'error',
+                    ename: 'Error',
+                    evalue: e.message || 'Jinx execution failed',
+                    traceback: [e.message || 'Jinx execution failed']
+                }]
+            };
+            setNotebook({ ...notebook, cells: newCells });
+        } finally {
+            setIsExecuting(null);
+        }
+    }, [notebook, workspacePath]);
 
     // Keyboard shortcuts
     const onKeyDown = useCallback((e: KeyboardEvent) => {
@@ -590,13 +895,43 @@ const NotebookViewer = ({
                         >
                             <Save size={14} />
                         </button>
-                        <button
-                            onClick={() => addCell(notebook.cells.length - 1, 'code')}
-                            className="p-1 theme-hover rounded"
-                            title="Add Code Cell"
-                        >
-                            <Plus size={14} />
-                        </button>
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowAddCellMenu(showAddCellMenu === -1 ? null : -1)}
+                                className="p-1 theme-hover rounded flex items-center gap-1"
+                                title="Add Cell"
+                            >
+                                <Plus size={14} />
+                                <ChevronDown size={10} />
+                            </button>
+                            {showAddCellMenu === -1 && (
+                                <div className="absolute top-full right-0 mt-1 w-32 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 py-1">
+                                    {/* Standard cell types for regular .ipynb, extended types for .incognb */}
+                                    {(isIncognb ? ['code', 'markdown', 'chat', 'jinx', 'latex', 'data'] : ['code', 'markdown']).map(type => {
+                                        const cellTypeStyles: Record<string, { text: string; icon: any; label: string }> = {
+                                            code: { text: 'text-blue-400', icon: Code2, label: 'Code' },
+                                            markdown: { text: 'text-green-400', icon: FileText, label: 'Markdown' },
+                                            chat: { text: 'text-purple-400', icon: MessageSquare, label: 'Chat' },
+                                            jinx: { text: 'text-orange-400', icon: Zap, label: 'Jinx' },
+                                            latex: { text: 'text-red-400', icon: BookOpen, label: 'LaTeX' },
+                                            data: { text: 'text-cyan-400', icon: Paperclip, label: 'Data' }
+                                        };
+                                        const s = cellTypeStyles[type];
+                                        const Icon = s.icon;
+                                        return (
+                                            <button
+                                                key={type}
+                                                onClick={() => addCell(notebook.cells.length - 1, type as CellType)}
+                                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 flex items-center gap-2 ${s.text}`}
+                                            >
+                                                <Icon size={12} />
+                                                {s.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -613,57 +948,165 @@ const NotebookViewer = ({
 
             {/* Cells */}
             <div className="flex-1 overflow-auto p-4 space-y-4">
-                {notebook.cells.map((cell, index) => {
+                {(notebook.cells || []).map((cell, index) => {
                     const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source;
                     const isCollapsed = collapsedCells.has(index);
-                    const isCode = cell.cell_type === 'code';
+                    const cellType = cell.cell_type;
+                    const paperState = cell.metadata?.paper_state || 'exploration';
+
+                    // Cell type styling
+                    const cellTypeStyles: Record<string, { bg: string; text: string; icon: any; label: string }> = {
+                        code: { bg: 'bg-blue-500/20', text: 'text-blue-400', icon: Code2, label: 'Code' },
+                        markdown: { bg: 'bg-green-500/20', text: 'text-green-400', icon: FileText, label: 'Markdown' },
+                        chat: { bg: 'bg-purple-500/20', text: 'text-purple-400', icon: MessageSquare, label: 'Chat' },
+                        jinx: { bg: 'bg-orange-500/20', text: 'text-orange-400', icon: Zap, label: 'Jinx' },
+                        latex: { bg: 'bg-red-500/20', text: 'text-red-400', icon: BookOpen, label: 'LaTeX' },
+                        data: { bg: 'bg-cyan-500/20', text: 'text-cyan-400', icon: Paperclip, label: 'Data' },
+                        raw: { bg: 'bg-gray-500/20', text: 'text-gray-400', icon: FileText, label: 'Raw' }
+                    };
+                    const style = cellTypeStyles[cellType] || cellTypeStyles.raw;
+                    const CellIcon = style.icon;
+
+                    // Paper state styling for incognb
+                    const paperStateStyles: Record<PaperState, { border: string; opacity: string; icon: any }> = {
+                        in_paper: { border: 'border-l-4 border-l-green-500', opacity: '', icon: Eye },
+                        exploration: { border: '', opacity: '', icon: Sparkles },
+                        discarded: { border: 'border-l-4 border-l-red-500', opacity: 'opacity-50', icon: Archive }
+                    };
+                    const paperStyle = isIncognb ? paperStateStyles[paperState] : { border: '', opacity: '', icon: null };
 
                     return (
-                        <div key={index} className="border border-gray-700 rounded-lg overflow-hidden">
+                        <div key={index} className={`border border-gray-700 rounded-lg overflow-hidden ${paperStyle.border} ${paperStyle.opacity}`}>
                             {/* Cell header */}
                             <div className="flex items-center gap-2 px-2 py-1 bg-gray-800 border-b border-gray-700">
-                                <button onClick={() => toggleCollapse(index)} className="text-gray-400">
+                                <button onClick={() => toggleCollapse(index)} className="text-gray-400 hover:text-gray-200">
                                     {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                                 </button>
-                                <span className={`text-xs px-2 py-0.5 rounded ${isCode ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
-                                    {isCode ? 'Code' : 'Markdown'}
+
+                                {/* Cell type badge */}
+                                <span className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${style.bg} ${style.text}`}>
+                                    <CellIcon size={10} />
+                                    {style.label}
                                 </span>
-                                {isCode && cell.execution_count != null && (
+
+                                {/* Execution count for code cells */}
+                                {cellType === 'code' && cell.execution_count != null && (
                                     <span className="text-xs text-gray-500">[{cell.execution_count}]</span>
                                 )}
-                                <div className="flex-1" />
-                                {isCode ? (
+
+                                {/* Chat cell config display */}
+                                {cellType === 'chat' && cell.metadata?.chat && (
+                                    <div className="flex items-center gap-1">
+                                        <select
+                                            value={cell.metadata.chat.model || ''}
+                                            onChange={(e) => updateCellMetadata(index, { chat: { ...cell.metadata?.chat, model: e.target.value } })}
+                                            className="text-[10px] bg-gray-700 border-none rounded px-1 py-0.5 text-purple-300"
+                                        >
+                                            {availableModels.map(m => (
+                                                <option key={m.value} value={m.value}>{m.display_name?.slice(0, 20) || m.value}</option>
+                                            ))}
+                                        </select>
+                                        <select
+                                            value={cell.metadata.chat.npc || 'agent'}
+                                            onChange={(e) => updateCellMetadata(index, { chat: { ...cell.metadata?.chat, npc: e.target.value } })}
+                                            className="text-[10px] bg-gray-700 border-none rounded px-1 py-0.5 text-green-300"
+                                        >
+                                            {availableNPCs.map(n => (
+                                                <option key={n.value} value={n.value}>{n.display_name || n.value}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {/* Jinx cell config display */}
+                                {cellType === 'jinx' && (
+                                    <select
+                                        value={cell.metadata?.jinx?.name || ''}
+                                        onChange={(e) => updateCellMetadata(index, { jinx: { ...cell.metadata?.jinx, name: e.target.value } })}
+                                        className="text-[10px] bg-gray-700 border-none rounded px-1 py-0.5 text-orange-300"
+                                    >
+                                        <option value="">Select jinx...</option>
+                                        {availableJinxs.map(j => (
+                                            <option key={j.name} value={j.name}>{j.name}</option>
+                                        ))}
+                                    </select>
+                                )}
+
+                                {/* Paper state toggle for incognb */}
+                                {isIncognb && (
                                     <button
-                                        onClick={() => executeCell(index)}
+                                        onClick={() => togglePaperState(index)}
+                                        className={`p-1 rounded text-[10px] flex items-center gap-1 ${
+                                            paperState === 'in_paper' ? 'bg-green-600/20 text-green-400' :
+                                            paperState === 'discarded' ? 'bg-red-600/20 text-red-400' :
+                                            'bg-gray-600/20 text-gray-400'
+                                        }`}
+                                        title={`State: ${paperState}`}
+                                    >
+                                        {paperStyle.icon && <paperStyle.icon size={10} />}
+                                        <span className="hidden sm:inline">{paperState}</span>
+                                    </button>
+                                )}
+
+                                <div className="flex-1" />
+
+                                {/* Execute button - varies by cell type */}
+                                {(cellType === 'code' || cellType === 'chat' || cellType === 'jinx') && (
+                                    <button
+                                        onClick={() => {
+                                            if (cellType === 'code') executeCell(index);
+                                            else if (cellType === 'chat') executeChatCell(index);
+                                            else if (cellType === 'jinx') executeJinxCell(index);
+                                        }}
                                         disabled={isExecuting === index}
                                         className="p-1 text-green-400 hover:bg-green-500/20 rounded disabled:opacity-50"
                                         title="Run Cell"
                                     >
                                         {isExecuting === index ? <Loader size={12} className="animate-spin" /> : <Play size={12} />}
                                     </button>
-                                ) : (
+                                )}
+
+                                {/* Markdown/LaTeX edit button */}
+                                {(cellType === 'markdown' || cellType === 'latex') && (
                                     <button
                                         onClick={() => setEditingMarkdownCell(editingMarkdownCell === index ? null : index)}
                                         className={`p-1 hover:bg-gray-700 rounded ${editingMarkdownCell === index ? 'text-blue-400' : 'text-gray-400'}`}
-                                        title={editingMarkdownCell === index ? "Done Editing" : "Edit Markdown"}
+                                        title={editingMarkdownCell === index ? "Done Editing" : "Edit"}
                                     >
                                         <Edit3 size={12} />
                                     </button>
                                 )}
-                                <button
-                                    onClick={() => changeCellType(index, isCode ? 'markdown' : 'code')}
-                                    className="p-1 text-gray-400 hover:bg-gray-700 rounded"
-                                    title={`Convert to ${isCode ? 'Markdown' : 'Code'}`}
-                                >
-                                    {isCode ? <FileText size={12} /> : <Code2 size={12} />}
-                                </button>
-                                <button
-                                    onClick={() => addCell(index, 'code')}
-                                    className="p-1 text-gray-400 hover:bg-gray-700 rounded"
-                                    title="Add Cell Below"
-                                >
-                                    <Plus size={12} />
-                                </button>
+
+                                {/* Add cell menu */}
+                                <div className="relative">
+                                    <button
+                                        onClick={() => setShowAddCellMenu(showAddCellMenu === index ? null : index)}
+                                        className="p-1 text-gray-400 hover:bg-gray-700 rounded"
+                                        title="Add Cell Below"
+                                    >
+                                        <Plus size={12} />
+                                    </button>
+                                    {showAddCellMenu === index && (
+                                        <div className="absolute top-full right-0 mt-1 w-32 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 py-1">
+                                            {/* Standard cell types for regular .ipynb, extended types for .incognb */}
+                                            {(isIncognb ? ['code', 'markdown', 'chat', 'jinx', 'latex', 'data'] : ['code', 'markdown']).map(type => {
+                                                const s = cellTypeStyles[type];
+                                                const Icon = s.icon;
+                                                return (
+                                                    <button
+                                                        key={type}
+                                                        onClick={() => addCell(index, type as CellType)}
+                                                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 flex items-center gap-2 ${s.text}`}
+                                                    >
+                                                        <Icon size={12} />
+                                                        {s.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
                                 <button
                                     onClick={() => deleteCell(index)}
                                     disabled={notebook.cells.length <= 1}
@@ -677,7 +1120,8 @@ const NotebookViewer = ({
                             {/* Cell content */}
                             {!isCollapsed && (
                                 <div className="bg-gray-900">
-                                    {isCode ? (
+                                    {/* Code cell */}
+                                    {cellType === 'code' && (
                                         <CodeMirror
                                             value={source}
                                             onChange={(value) => updateCellSource(index, value)}
@@ -685,37 +1129,159 @@ const NotebookViewer = ({
                                             basicSetup={false}
                                             className="text-sm"
                                         />
-                                    ) : editingMarkdownCell === index ? (
-                                        <div onBlur={() => setEditingMarkdownCell(null)}>
-                                            <CodeMirror
+                                    )}
+
+                                    {/* Markdown cell */}
+                                    {cellType === 'markdown' && (
+                                        editingMarkdownCell === index ? (
+                                            <div onBlur={() => setEditingMarkdownCell(null)}>
+                                                <CodeMirror
+                                                    value={source}
+                                                    onChange={(value) => updateCellSource(index, value)}
+                                                    extensions={markdownExtensions}
+                                                    basicSetup={false}
+                                                    className="text-sm"
+                                                    autoFocus
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div
+                                                className="p-4 cursor-pointer hover:bg-gray-800/50 min-h-[40px] prose prose-invert prose-sm max-w-none"
+                                                onClick={() => setEditingMarkdownCell(index)}
+                                                title="Click to edit"
+                                            >
+                                                {source.trim() ? (
+                                                    <MarkdownRenderer content={source} />
+                                                ) : (
+                                                    <span className="text-gray-500 italic">Click to add markdown...</span>
+                                                )}
+                                            </div>
+                                        )
+                                    )}
+
+                                    {/* Chat cell */}
+                                    {cellType === 'chat' && (
+                                        <div className="p-3">
+                                            <textarea
                                                 value={source}
-                                                onChange={(value) => updateCellSource(index, value)}
-                                                extensions={markdownExtensions}
-                                                basicSetup={false}
-                                                className="text-sm"
-                                                autoFocus
+                                                onChange={(e) => updateCellSource(index, e.target.value)}
+                                                placeholder="Enter your prompt here..."
+                                                className="w-full bg-gray-800 border border-gray-700 rounded p-3 text-sm text-gray-200 min-h-[80px] resize-y"
                                             />
+                                            {/* Matrix run button */}
+                                            <div className="mt-2 flex items-center gap-2">
+                                                <button
+                                                    onClick={() => {
+                                                        // Run on all available models (matrix run)
+                                                        const allModelValues = availableModels.slice(0, 4).map(m => m.value);
+                                                        executeChatCell(index, allModelValues);
+                                                    }}
+                                                    className="text-[10px] px-2 py-1 bg-purple-600/20 text-purple-300 rounded hover:bg-purple-600/30 flex items-center gap-1"
+                                                    title="Run on multiple models"
+                                                >
+                                                    <Bot size={10} />
+                                                    Matrix Run
+                                                </button>
+                                            </div>
                                         </div>
-                                    ) : (
-                                        <div
-                                            className="p-4 cursor-pointer hover:bg-gray-800/50 min-h-[40px] prose prose-invert prose-sm max-w-none"
-                                            onClick={() => setEditingMarkdownCell(index)}
-                                            title="Click to edit"
-                                        >
-                                            {source.trim() ? (
-                                                <MarkdownRenderer content={source} />
-                                            ) : (
-                                                <span className="text-gray-500 italic">Click to add markdown...</span>
-                                            )}
+                                    )}
+
+                                    {/* Jinx cell */}
+                                    {cellType === 'jinx' && (
+                                        <CodeMirror
+                                            value={source}
+                                            onChange={(value) => updateCellSource(index, value)}
+                                            extensions={markdownExtensions}
+                                            basicSetup={false}
+                                            className="text-sm"
+                                            placeholder="Enter jinx YAML or command..."
+                                        />
+                                    )}
+
+                                    {/* LaTeX cell */}
+                                    {cellType === 'latex' && (
+                                        editingMarkdownCell === index ? (
+                                            <div onBlur={() => setEditingMarkdownCell(null)}>
+                                                <CodeMirror
+                                                    value={source}
+                                                    onChange={(value) => updateCellSource(index, value)}
+                                                    extensions={markdownExtensions}
+                                                    basicSetup={false}
+                                                    className="text-sm"
+                                                    autoFocus
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div
+                                                className="p-4 cursor-pointer hover:bg-gray-800/50 min-h-[40px] prose prose-invert prose-sm max-w-none"
+                                                onClick={() => setEditingMarkdownCell(index)}
+                                                title="Click to edit"
+                                            >
+                                                {source.trim() ? (
+                                                    <MarkdownRenderer content={`$$${source}$$`} />
+                                                ) : (
+                                                    <span className="text-gray-500 italic">Click to add LaTeX...</span>
+                                                )}
+                                            </div>
+                                        )
+                                    )}
+
+                                    {/* Data cell */}
+                                    {cellType === 'data' && (
+                                        <div className="p-3">
+                                            <div className="border-2 border-dashed border-gray-700 rounded-lg p-4 text-center">
+                                                <Paperclip size={24} className="mx-auto mb-2 text-gray-500" />
+                                                <p className="text-sm text-gray-400">Drag files here or click to upload</p>
+                                                {cell.metadata?.data?.files?.length > 0 && (
+                                                    <div className="mt-3 space-y-1">
+                                                        {cell.metadata.data.files.map((file, i) => (
+                                                            <div key={i} className="text-xs bg-gray-800 rounded px-2 py-1 flex items-center gap-2">
+                                                                <Paperclip size={10} />
+                                                                <span>{file.name}</span>
+                                                                <span className="text-gray-500">v{file.version}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
+                                    )}
+
+                                    {/* Raw cell */}
+                                    {cellType === 'raw' && (
+                                        <CodeMirror
+                                            value={source}
+                                            onChange={(value) => updateCellSource(index, value)}
+                                            basicSetup={false}
+                                            className="text-sm"
+                                        />
                                     )}
                                 </div>
                             )}
 
-                            {/* Cell outputs */}
-                            {!isCollapsed && isCode && cell.outputs && cell.outputs.length > 0 && (
+                            {/* Cell outputs - for code, chat, jinx cells */}
+                            {!isCollapsed && ['code', 'chat', 'jinx'].includes(cellType) && cell.outputs && cell.outputs.length > 0 && (
                                 <div className="border-t border-gray-700 p-2 space-y-2 bg-gray-850">
-                                    {cell.outputs.map((output, outputIndex) => renderOutput(output, outputIndex))}
+                                    {cell.outputs.map((output, outputIndex) => (
+                                        <div key={outputIndex}>
+                                            {/* Output metadata (model/npc for chat cells) */}
+                                            {output.metadata && (output.metadata.model || output.metadata.npc) && (
+                                                <div className="flex items-center gap-1 mb-1">
+                                                    {output.metadata.model && (
+                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-300">
+                                                            {output.metadata.model}
+                                                        </span>
+                                                    )}
+                                                    {output.metadata.npc && (
+                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600/20 text-green-300">
+                                                            {output.metadata.npc}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                            {renderOutput(output, outputIndex)}
+                                        </div>
+                                    ))}
                                 </div>
                             )}
                         </div>
@@ -726,7 +1292,7 @@ const NotebookViewer = ({
             {/* Status bar */}
             <div className="p-2 border-t theme-border text-xs theme-text-muted flex items-center justify-between theme-bg-secondary">
                 <div className="flex items-center gap-3">
-                    <span>{notebook.cells.length} cells</span>
+                    <span>{(notebook.cells || []).length} cells</span>
                     <span className="text-gray-600">|</span>
                     <span className="flex items-center gap-1">
                         {kernelStatus === 'connected' && <Circle size={6} className="fill-green-400 text-green-400" />}

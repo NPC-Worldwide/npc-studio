@@ -12,14 +12,6 @@ export const PredictiveTextOverlay = ({
     const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
     const shouldShow = predictionSuggestion && predictionTargetElement && isPredictiveTextEnabled && cursorPosition;
 
-    console.log('[PRED-OVERLAY] Render:', {
-        suggestion: predictionSuggestion?.substring?.(0, 50),
-        hasTarget: !!predictionTargetElement,
-        enabled: isPredictiveTextEnabled,
-        cursorPosition,
-        shouldShow: !!shouldShow
-    });
-
     // Get cursor position from the target element
     useEffect(() => {
         if (!predictionTargetElement) {
@@ -68,7 +60,6 @@ export const PredictiveTextOverlay = ({
                 pos.y = Math.max(10, Math.min(pos.y, window.innerHeight - 100));
             }
 
-            console.log('[PRED-OVERLAY] Calculated cursor position:', pos);
             setCursorPosition(pos);
         };
 
