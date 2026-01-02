@@ -517,9 +517,7 @@ ${htmlContent}
                             </div>
                         )}
                     </div>
-                    <button onClick={() => closeContentPane(nodeId, findNodePath(rootLayoutNode, nodeId))} className="p-1.5 theme-hover rounded-full" title="Close">
-                        <X size={14} />
-                    </button>
+                    {/* Close button removed - PaneHeader already handles closing */}
                 </div>
             </div>
 

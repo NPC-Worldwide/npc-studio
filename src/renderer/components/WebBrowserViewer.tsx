@@ -1146,7 +1146,7 @@ const WebBrowserViewer = memo(({
                             </>
                         )}
                     </div>
-                    <button onClick={(e) => { e.stopPropagation(); const p = findNodePath(rootLayoutNode, nodeId); if (p) closeContentPane(nodeId, p); }} className="p-1 theme-hover rounded hover:text-red-400" title="Close"><X size={16} /></button>
+                    {/* Close button removed - PaneTabBar or minimal header already handles closing */}
                 </div>
             </div>
 

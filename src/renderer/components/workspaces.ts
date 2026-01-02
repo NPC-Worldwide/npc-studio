@@ -17,13 +17,26 @@ export const serializeWorkspace = (
         // SKIP panes without contentType - never save empty panes
         if (!paneData?.contentType) return;
 
+        // Serialize tabs if present (strip fileContent to save space)
+        const serializedTabs = paneData.tabs?.map((tab: any) => ({
+            id: tab.id,
+            contentType: tab.contentType,
+            contentId: tab.contentId,
+            browserUrl: tab.browserUrl,
+            title: tab.title,
+            fileChanged: tab.fileChanged
+            // Note: fileContent is NOT saved - will be reloaded on restore
+        }));
+
         serializedContentData[paneId] = {
             contentType: paneData.contentType,
             contentId: paneData.contentId,
             displayedMessageCount: paneData.chatMessages?.displayedMessageCount,
             browserUrl: paneData.browserUrl,
             fileChanged: paneData.fileChanged,
-            jinxFile: paneData.jinxFile  // Preserve jinxFile for tilejinx panes
+            jinxFile: paneData.jinxFile,  // Preserve jinxFile for tilejinx panes
+            tabs: serializedTabs,  // Preserve tabs
+            activeTabIndex: paneData.activeTabIndex  // Preserve active tab index
         };
     });
 
@@ -99,12 +112,14 @@ export const deserializeWorkspace = async (
 
         // Populate contentDataRef synchronously BEFORE any async operations
         // Only create panes that have valid content data
+        const validPaneIds = new Set<string>();
         paneIdsInLayout.forEach(paneId => {
             const paneData = workspaceData.contentData[paneId];
             // SKIP panes without a valid contentType - don't create empty panes
             if (!paneData?.contentType) {
                 return;
             }
+            validPaneIds.add(paneId);
             // For tilejinx panes, jinxFile === contentId, so use contentId as fallback
             const jinxFile = paneData?.jinxFile ||
                 (paneData?.contentType === 'tilejinx' ? paneData?.contentId : undefined);
@@ -119,12 +134,39 @@ export const deserializeWorkspace = async (
                 displayedMessageCount: paneData.displayedMessageCount,
                 browserUrl: paneData.browserUrl,
                 fileChanged: paneData.fileChanged || false,
-                jinxFile: jinxFile  // Restore jinxFile for tilejinx panes
+                jinxFile: jinxFile,  // Restore jinxFile for tilejinx panes
+                tabs: paneData.tabs,  // Restore tabs
+                activeTabIndex: paneData.activeTabIndex || 0  // Restore active tab index
             };
         });
 
-        // Set the layout
-        setRootLayoutNode(newRootLayout);
+        // Clean the layout to remove any pane IDs without valid content
+        const cleanLayout = (node: any): any => {
+            if (!node) return null;
+            if (node.type === 'content') {
+                // Remove this pane if it doesn't have valid content
+                return validPaneIds.has(node.id) ? node : null;
+            }
+            if (node.type === 'split') {
+                const cleanedChildren = node.children
+                    .map((child: any) => cleanLayout(child))
+                    .filter((child: any) => child !== null);
+                if (cleanedChildren.length === 0) return null;
+                if (cleanedChildren.length === 1) return cleanedChildren[0];
+                return { ...node, children: cleanedChildren, sizes: new Array(cleanedChildren.length).fill(100 / cleanedChildren.length) };
+            }
+            return node;
+        };
+        const cleanedLayout = cleanLayout(newRootLayout);
+
+        // If no valid panes remain, don't set the layout (let default workspace creation handle it)
+        if (!cleanedLayout) {
+            setIsLoadingWorkspace(false);
+            return false;
+        }
+
+        // Set the cleaned layout
+        setRootLayoutNode(cleanedLayout);
         setActiveContentPaneId(workspaceData.activeContentPaneId);
 
         // Load actual content asynchronously

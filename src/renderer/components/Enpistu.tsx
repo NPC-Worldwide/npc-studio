@@ -103,7 +103,7 @@ import {
 import { BranchingUI, createBranchPoint } from './BranchingUI';
 import BranchOptionsModal, { BranchOptions } from './BranchOptionsModal';
 import BranchVisualizer from './BranchVisualizer';
-import { syncLayoutWithContentData } from './LayoutNode';
+import { syncLayoutWithContentData, addPaneToLayout, collectPaneIds } from './LayoutNode';
 // Note: Sidebar.tsx, ChatViewer.tsx are code fragments, not proper modules yet
 import PaneHeader from './PaneHeader';
 import { LayoutNode } from './LayoutNode';
@@ -1986,26 +1986,8 @@ const handleRunScript = useCallback(async (scriptPath: string) => {
         terminalId: newPaneId
     };
 
-    // Add pane to layout
-    setRootLayoutNode((prev) => {
-        if (!prev) {
-            return { id: newPaneId, type: 'content' };
-        }
-        if (prev.type === 'content') {
-            return {
-                id: `split-${Date.now()}`,
-                type: 'split',
-                direction: 'horizontal',
-                children: [prev, { id: newPaneId, type: 'content' }],
-                sizes: [50, 50]
-            };
-        }
-        const newRoot = JSON.parse(JSON.stringify(prev));
-        newRoot.children.push({ id: newPaneId, type: 'content' });
-        const equalSize = 100 / newRoot.children.length;
-        newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-        return newRoot;
-    });
+    // Add pane to layout using balanced grid
+    setRootLayoutNode((prev) => addPaneToLayout(prev, newPaneId));
 
     setActiveContentPaneId(newPaneId);
 
@@ -2553,48 +2535,8 @@ const handleOpenDocumentFromLibrary = useCallback(async (path: string, type: 'pd
         contentId: path
     };
 
-    setRootLayoutNode(oldRoot => {
-
-        if (!oldRoot) {
-            return { id: newPaneId, type: 'content' };
-        }
-
-        let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-        if (activeContentPaneId) {
-            const pathToActive = findNodePath(newRoot, activeContentPaneId);
-            if (pathToActive && pathToActive.length > 0) {
-                const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                const targetIndex = pathToActive[pathToActive.length - 1];
-
-                if (targetParent && targetParent.type === 'split') {
-                    const newChildren = [...targetParent.children];
-                    newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                    const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                    targetParent.children = newChildren;
-                    targetParent.sizes = newSizes;
-                    return newRoot;
-                }
-            }
-        }
-
-        if (newRoot.type === 'content') {
-            return {
-                id: generateId(),
-                type: 'split',
-                direction: 'horizontal',
-                children: [newRoot, { id: newPaneId, type: 'content' }],
-                sizes: [50, 50],
-            };
-        } else if (newRoot.type === 'split') {
-            newRoot.children.push({ id: newPaneId, type: 'content' });
-            const equalSize = 100 / newRoot.children.length;
-            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-            return newRoot;
-        }
-
-        return { id: newPaneId, type: 'content' };
-    });
+    // Use balanced grid layout
+    setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
 
     setTimeout(async () => {
         await updateContentPane(newPaneId, type, path);
@@ -2602,7 +2544,7 @@ const handleOpenDocumentFromLibrary = useCallback(async (path: string, type: 'pd
     }, 0);
 
     setActiveContentPaneId(newPaneId);
-}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+}, [updateContentPane]);
 
 // Render LibraryViewer pane (for pane-based viewing)
 const renderLibraryViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -2921,7 +2863,7 @@ useEffect(() => {
         }
     }, [currentPath, loadWebsiteHistory]);
 
-    // Track open browsers
+    // Track open browsers - only update if actually changed
     useEffect(() => {
         const browsers = Object.entries(contentDataRef.current)
             .filter(([_, data]) => data.contentType === 'browser')
@@ -2931,7 +2873,12 @@ useEffect(() => {
                 viewId: data.contentId,
                 title: data.browserTitle || 'Loading...'
             }));
-        setOpenBrowsers(browsers);
+        // Only update if browser list actually changed (compare by stringifying)
+        setOpenBrowsers(prev => {
+            const prevStr = JSON.stringify(prev);
+            const newStr = JSON.stringify(browsers);
+            return prevStr === newStr ? prev : browsers;
+        });
     }, [rootLayoutNode]); // Re-check when layout changes
 
 
@@ -3012,59 +2959,81 @@ const renderMessageContextMenu = () => (
   };
 
   setRootLayoutNode(oldRoot => {
-    
     if (!oldRoot) {
       return { id: newPaneId, type: 'content' };
     }
 
-    let newRoot = JSON.parse(JSON.stringify(oldRoot));
-    let targetParent = null;
-    let targetIndex = -1;
-    let pathToTarget = [];
-
-    if (activeContentPaneId) {
-      pathToTarget = findNodePath(newRoot, activeContentPaneId);
-      if (pathToTarget && pathToTarget.length > 0) {
-        targetParent = findNodeByPath(newRoot, pathToTarget.slice(0, -1));
-        targetIndex = pathToTarget[pathToTarget.length - 1];
+    // Collect all existing pane IDs from the layout
+    const collectPaneIds = (node: any): string[] => {
+      if (!node) return [];
+      if (node.type === 'content') return [node.id];
+      if (node.type === 'split') {
+        return node.children.flatMap((child: any) => collectPaneIds(child));
       }
-    }
+      return [];
+    };
 
-    if (!targetParent || targetIndex === -1) {
-      if (newRoot.type === 'content') {
-        const newSplitNode = {
-          id: generateId(),
-          type: 'split',
-          direction: 'horizontal',
-          children: [newRoot, { id: newPaneId, type: 'content' }],
-          sizes: [50, 50],
-        };
-        return newSplitNode;
-      } else if (newRoot.type === 'split') {
-        const newChildren = [...newRoot.children, { id: newPaneId, type: 'content' }];
-        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-        return { ...newRoot, children: newChildren, sizes: newSizes };
+    const existingPaneIds = collectPaneIds(oldRoot);
+    const allPaneIds = [...existingPaneIds, newPaneId];
+    const totalPanes = allPaneIds.length;
+
+    // Calculate balanced grid dimensions (rows and cols differ by at most 1)
+    const cols = Math.ceil(Math.sqrt(totalPanes));
+    const rows = Math.ceil(totalPanes / cols);
+
+    // Build a balanced grid layout
+    // Structure: vertical split of rows, each row is horizontal split of columns
+    const buildGridLayout = (paneIds: string[], numRows: number, numCols: number): any => {
+      if (paneIds.length === 0) return null;
+      if (paneIds.length === 1) {
+        return { id: paneIds[0], type: 'content' };
       }
-    } else {
-      if (targetParent.type === 'split') {
-        const newChildren = [...targetParent.children];
-        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-        const actualTargetParentInNewRoot = findNodeByPath(newRoot, pathToTarget.slice(0, -1));
-        if (actualTargetParentInNewRoot) {
-          actualTargetParentInNewRoot.children = newChildren;
-          actualTargetParentInNewRoot.sizes = newSizes;
+
+      // Create rows
+      const rowNodes: any[] = [];
+      let paneIndex = 0;
+
+      for (let r = 0; r < numRows && paneIndex < paneIds.length; r++) {
+        // Calculate how many panes in this row (distribute evenly)
+        const panesInThisRow = Math.min(numCols, paneIds.length - paneIndex);
+        const rowPaneIds = paneIds.slice(paneIndex, paneIndex + panesInThisRow);
+        paneIndex += panesInThisRow;
+
+        if (rowPaneIds.length === 1) {
+          // Single pane in row - just the content node
+          rowNodes.push({ id: rowPaneIds[0], type: 'content' });
+        } else {
+          // Multiple panes in row - horizontal split
+          rowNodes.push({
+            id: generateId(),
+            type: 'split',
+            direction: 'horizontal',
+            children: rowPaneIds.map(id => ({ id, type: 'content' })),
+            sizes: new Array(rowPaneIds.length).fill(100 / rowPaneIds.length)
+          });
         }
-        return newRoot;
       }
-    }
 
-    return { id: newPaneId, type: 'content' };
+      if (rowNodes.length === 1) {
+        return rowNodes[0];
+      }
+
+      // Multiple rows - vertical split
+      return {
+        id: generateId(),
+        type: 'split',
+        direction: 'vertical',
+        children: rowNodes,
+        sizes: new Array(rowNodes.length).fill(100 / rowNodes.length)
+      };
+    };
+
+    return buildGridLayout(allPaneIds, rows, cols);
   });
 
   setActiveContentPaneId(newPaneId);
   return newPaneId;
-}, [activeContentPaneId, findNodePath, findNodeByPath]);
+}, []);
   
   
    
@@ -3077,16 +3046,16 @@ const renderMessageContextMenu = () => (
         if (rootLayoutNode) {
             // Create a temporary object to hold the synchronized content data.
             const synchronizedContentData = { ...contentDataRef.current };
-            
+
             // Call the sync function. It will modify synchronizedContentData in place.
             const originalContentDataKeys = Object.keys(contentDataRef.current);
-            
+
             const updatedLayoutNode = syncLayoutWithContentData(rootLayoutNode, synchronizedContentData);
-            
+
             const newContentDataKeys = Object.keys(synchronizedContentData);
 
             // Check if contentDataRef.current actually changed (added/removed keys)
-            if (originalContentDataKeys.length !== newContentDataKeys.length || 
+            if (originalContentDataKeys.length !== newContentDataKeys.length ||
                 !originalContentDataKeys.every(key => synchronizedContentData.hasOwnProperty(key)) ||
                 !newContentDataKeys.every(key => contentDataRef.current.hasOwnProperty(key))
             ) {
@@ -3096,9 +3065,12 @@ const renderMessageContextMenu = () => (
                 setRootLayoutNode(prev => ({ ...prev }));
             }
 
-            // If the layoutNode itself was changed by syncLayoutWithContentData (e.g., from null to a node)
-            // then update the state.
-            if (updatedLayoutNode !== rootLayoutNode) {
+            // Only update layout if the NUMBER of panes actually changed
+            // (Don't overwrite based on reference inequality alone - that causes issues)
+            const originalPaneCount = collectPaneIds(rootLayoutNode).length;
+            const updatedPaneCount = collectPaneIds(updatedLayoutNode).length;
+            if (updatedPaneCount !== originalPaneCount) {
+                console.log('[EFFECT] Layout pane count changed, updating layout:', originalPaneCount, '->', updatedPaneCount);
                 setRootLayoutNode(updatedLayoutNode);
             }
 
@@ -3197,50 +3169,11 @@ const renderMessageContextMenu = () => (
 
         const newPaneId = generateId();
 
-        // Create layout first
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = { shellType };
+        // Set content data first
+        contentDataRef.current[newPaneId] = { shellType };
 
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
+        // Use balanced grid layout
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
 
         // Then update content (shellType is already in paneData from above)
         setTimeout(async () => {
@@ -3251,7 +3184,7 @@ const renderMessageContextMenu = () => (
         setActiveContentPaneId(newPaneId);
         setActiveConversationId(null);
         setCurrentFile(null);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, [updateContentPane, findEmptyPaneId]);
 
     // Create a new experiment (.exp)
     const createNewExperiment = useCallback(async () => {
@@ -3296,54 +3229,11 @@ const renderMessageContextMenu = () => (
 
             const newPaneId = generateId();
 
-            setRootLayoutNode(oldRoot => {
-                contentDataRef.current[newPaneId] = {};
+            // Set content BEFORE layout to prevent empty pane
+            contentDataRef.current[newPaneId] = { contentType: 'exp', contentId: notebookPath };
 
-                if (!oldRoot) {
-                    return { id: newPaneId, type: 'content' };
-                }
-
-                let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-                if (activeContentPaneId) {
-                    const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                    if (pathToActive && pathToActive.length > 0) {
-                        const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                        const targetIndex = pathToActive[pathToActive.length - 1];
-
-                        if (targetParent && targetParent.type === 'split') {
-                            const newChildren = [...targetParent.children];
-                            newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                            const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                            targetParent.children = newChildren;
-                            targetParent.sizes = newSizes;
-                            return newRoot;
-                        }
-                    }
-                }
-
-                if (newRoot.type === 'content') {
-                    return {
-                        id: generateId(),
-                        type: 'split',
-                        direction: 'horizontal',
-                        children: [newRoot, { id: newPaneId, type: 'content' }],
-                        sizes: [50, 50],
-                    };
-                } else if (newRoot.type === 'split') {
-                    newRoot.children.push({ id: newPaneId, type: 'content' });
-                    const equalSize = 100 / newRoot.children.length;
-                    newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                    return newRoot;
-                }
-
-                return { id: newPaneId, type: 'content' };
-            });
-
-            setTimeout(async () => {
-                await updateContentPane(newPaneId, 'exp', notebookPath);
-                setRootLayoutNode(prev => ({ ...prev }));
-            }, 0);
+            // Use balanced grid layout
+            setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
 
             setActiveContentPaneId(newPaneId);
             setActiveConversationId(null);
@@ -3351,566 +3241,95 @@ const renderMessageContextMenu = () => (
         } catch (err: any) {
             setError(`Failed to create notebook: ${err.message}`);
         }
-    }, [currentPath, activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, [currentPath, updateContentPane, findEmptyPaneId]);
 
     // Create DataLabeler pane
     const createDataLabelerPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'data-labeler', 'data-labeler');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'data-labeler', contentId: 'data-labeler' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create GraphViewer pane
     const createGraphViewerPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'graph-viewer', 'graph-viewer');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'graph-viewer', contentId: 'graph-viewer' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create BrowserHistoryWeb pane (browser navigation graph)
     const createBrowserGraphPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'browsergraph', 'browsergraph');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'browsergraph', contentId: 'browsergraph' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create DataDash pane
     const createDataDashPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'datadash', 'datadash');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'datadash', contentId: 'datadash' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create DBTool pane
     const createDBToolPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
+        contentDataRef.current[newPaneId] = { contentType: 'dbtool', contentId: 'dbtool' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setTimeout(async () => {
             await updateContentPane(newPaneId, 'dbtool', 'dbtool');
             setRootLayoutNode(prev => ({ ...prev }));
         }, 0);
-
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, [updateContentPane]);
 
     // Create Tile Jinx pane - loads and runs a jinx file at runtime
     const createTileJinxPane = useCallback(async (jinxFile: string) => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {
-                contentType: 'tilejinx',
-                contentId: jinxFile,
-                jinxFile: jinxFile,
-            };
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
+        contentDataRef.current[newPaneId] = {
+            contentType: 'tilejinx',
+            contentId: jinxFile,
+            jinxFile: jinxFile,
+        };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath]);
+    }, []);
 
     // Create PhotoViewer pane
     const createPhotoViewerPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'photoviewer', 'photoviewer');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'photoviewer', contentId: 'photoviewer' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create LibraryViewer pane
     const createLibraryViewerPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'library', 'library');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'library', contentId: 'library' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create ProjectEnv pane
     const createProjectEnvPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'projectenv', 'projectenv');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'projectenv', contentId: 'projectenv' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create DiskUsage pane
     const createDiskUsagePane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'diskusage', 'diskusage');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'diskusage', contentId: 'diskusage' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     const handleGlobalDragStart = useCallback((e, item) => {
     Object.values(contentDataRef.current).forEach(paneData => {
@@ -3988,64 +3407,16 @@ const handleGlobalDragEnd = () => {
 
     const newPaneId = generateId();
 
-    // Create layout first
-    setRootLayoutNode(oldRoot => {
-        contentDataRef.current[newPaneId] = {};
+    // Set content BEFORE layout to prevent empty pane
+    contentDataRef.current[newPaneId] = { contentType: 'browser', contentId: newBrowserId, browserUrl: targetUrl };
 
-        if (!oldRoot) {
-            return { id: newPaneId, type: 'content' };
-        }
-
-        let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-        if (activeContentPaneId) {
-            const pathToActive = findNodePath(newRoot, activeContentPaneId);
-            if (pathToActive && pathToActive.length > 0) {
-                const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                const targetIndex = pathToActive[pathToActive.length - 1];
-
-                if (targetParent && targetParent.type === 'split') {
-                    const newChildren = [...targetParent.children];
-                    newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                    const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                    targetParent.children = newChildren;
-                    targetParent.sizes = newSizes;
-                    return newRoot;
-                }
-            }
-        }
-
-        if (newRoot.type === 'content') {
-            return {
-                id: generateId(),
-                type: 'split',
-                direction: 'horizontal',
-                children: [newRoot, { id: newPaneId, type: 'content' }],
-                sizes: [50, 50],
-            };
-        } else if (newRoot.type === 'split') {
-            newRoot.children.push({ id: newPaneId, type: 'content' });
-            const equalSize = 100 / newRoot.children.length;
-            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-            return newRoot;
-        }
-
-        return { id: newPaneId, type: 'content' };
-    });
-
-    // Then update content
-    setTimeout(async () => {
-        await updateContentPane(newPaneId, 'browser', newBrowserId);
-        if (contentDataRef.current[newPaneId]) {
-            contentDataRef.current[newPaneId].browserUrl = targetUrl;
-        }
-        setRootLayoutNode(prev => ({ ...prev }));
-    }, 0);
+    // Use balanced grid layout
+    setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
 
     setActiveContentPaneId(newPaneId);
     setActiveConversationId(null);
     setCurrentFile(null);
-}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+}, [currentPath, updateContentPane, findEmptyPaneId]);
 
 // Handle opening a new browser tab/pane with a URL
 const handleNewBrowserTab = useCallback((url: string) => {
@@ -4280,56 +3651,8 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
             }
 
             const newPaneId = generateId();
-
-            setRootLayoutNode(oldRoot => {
-                contentDataRef.current[newPaneId] = {};
-
-                if (!oldRoot) {
-                    return { id: newPaneId, type: 'content' };
-                }
-
-                let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-                if (activeContentPaneId) {
-                    const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                    if (pathToActive && pathToActive.length > 0) {
-                        const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                        const targetIndex = pathToActive[pathToActive.length - 1];
-
-                        if (targetParent && targetParent.type === 'split') {
-                            const newChildren = [...targetParent.children];
-                            newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                            const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                            targetParent.children = newChildren;
-                            targetParent.sizes = newSizes;
-                            return newRoot;
-                        }
-                    }
-                }
-
-                if (newRoot.type === 'content') {
-                    return {
-                        id: generateId(),
-                        type: 'split',
-                        direction: 'horizontal',
-                        children: [newRoot, { id: newPaneId, type: 'content' }],
-                        sizes: [50, 50],
-                    };
-                } else if (newRoot.type === 'split') {
-                    newRoot.children.push({ id: newPaneId, type: 'content' });
-                    const equalSize = 100 / newRoot.children.length;
-                    newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                    return newRoot;
-                }
-
-                return { id: newPaneId, type: 'content' };
-            });
-
-            setTimeout(async () => {
-                await updateContentPane(newPaneId, 'notebook', notebookPath);
-                setRootLayoutNode(prev => ({ ...prev }));
-            }, 0);
-
+            contentDataRef.current[newPaneId] = { contentType: 'notebook', contentId: notebookPath };
+            setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
             setActiveContentPaneId(newPaneId);
             setActiveConversationId(null);
             setCurrentFile(null);
@@ -4338,7 +3661,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
             console.error('Error creating notebook:', err);
             setError(err.message);
         }
-    }, [currentPath, activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, [currentPath, updateContentPane, findEmptyPaneId]);
 
     // File drag and drop handler
     const handleDrop = async (e: React.DragEvent) => {
@@ -4995,63 +4318,16 @@ ${contextPrompt}`;
 
             // CRITICAL: Create pane and layout synchronously in one step
             const newPaneId = generateId();
-            
-            // First, update the layout with the new pane
-            setRootLayoutNode(oldRoot => {
-                // Initialize contentData entry INSIDE the state update
-                contentDataRef.current[newPaneId] = {};
-                
-                if (!oldRoot) {
-                    return { id: newPaneId, type: 'content' };
-                }
 
-                let newRoot = JSON.parse(JSON.stringify(oldRoot));
-                
-                if (activeContentPaneId) {
-                    const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                    if (pathToActive && pathToActive.length > 0) {
-                        const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                        const targetIndex = pathToActive[pathToActive.length - 1];
-                        
-                        if (targetParent && targetParent.type === 'split') {
-                            const newChildren = [...targetParent.children];
-                            newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                            const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                            targetParent.children = newChildren;
-                            targetParent.sizes = newSizes;
-                            return newRoot;
-                        }
-                    }
-                }
-                
-                // Fallback: create split with existing root
-                if (newRoot.type === 'content') {
-                    return {
-                        id: generateId(),
-                        type: 'split',
-                        direction: 'horizontal',
-                        children: [newRoot, { id: newPaneId, type: 'content' }],
-                        sizes: [50, 50],
-                    };
-                } else if (newRoot.type === 'split') {
-                    newRoot.children.push({ id: newPaneId, type: 'content' });
-                    const equalSize = 100 / newRoot.children.length;
-                    newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                    return newRoot;
-                }
-                
-                return { id: newPaneId, type: 'content' };
-            });
+            // Set content BEFORE layout to prevent empty pane
+            contentDataRef.current[newPaneId] = {
+                contentType: 'chat',
+                contentId: conversation.id,
+                chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+            };
 
-            // THEN update the content (this will now pass validation)
-            // Use a small delay to ensure the state update has completed, but wait for it
-            await new Promise<void>((resolve) => {
-                setTimeout(async () => {
-                    await updateContentPane(newPaneId, 'chat', conversation.id, skipMessageLoad);
-                    setRootLayoutNode(prev => ({ ...prev })); // Force re-render
-                    resolve();
-                }, 10);
-            });
+            // Update the layout with the new pane using balanced grid
+            setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
 
             setActiveContentPaneId(newPaneId);
             setActiveConversationId(conversation.id);
@@ -5093,58 +4369,10 @@ ${contextPrompt}`;
     // Create NPC Team pane
     const createNPCTeamPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'npcteam', 'npcteam');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'npcteam', contentId: 'npcteam' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
+    }, []);
 
     // Render Jinx Menu pane (embedded version for pane layout)
     const renderJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -5161,58 +4389,10 @@ ${contextPrompt}`;
     // Create Jinx pane
     const createJinxPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'jinx', 'jinx');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'jinx', contentId: 'jinx' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Render Team Management pane (embedded version for pane layout)
     const renderTeamManagementPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -5233,58 +4413,10 @@ ${contextPrompt}`;
     // Create Team Management pane
     const createTeamManagementPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'teammanagement', 'teammanagement');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'teammanagement', contentId: 'teammanagement' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
+    }, []);
 
     // Render Settings pane (embedded version for pane layout)
     const renderSettingsPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -5303,58 +4435,10 @@ ${contextPrompt}`;
     // Create Settings pane
     const createSettingsPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'settings', 'settings');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'settings', contentId: 'settings' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     const createNewTextFile = useCallback((defaultFilename?: string) => {
         const filename = defaultFilename || localStorage.getItem('npcStudio_defaultCodeFileType') || 'untitled.py';
@@ -7530,62 +6614,81 @@ const handleFileClick = useCallback(async (filePath: string) => {
 
     const newPaneId = generateId();
 
-    setRootLayoutNode(oldRoot => {
-        contentDataRef.current[newPaneId] = {};
+    // Set content BEFORE layout to prevent empty pane
+    contentDataRef.current[newPaneId] = { contentType: contentType, contentId: filePath };
 
+    setRootLayoutNode(oldRoot => {
         if (!oldRoot) {
             return { id: newPaneId, type: 'content' };
         }
 
-        let newRoot = JSON.parse(JSON.stringify(oldRoot));
+        // Collect all existing pane IDs from the layout
+        const collectPaneIds = (node: any): string[] => {
+            if (!node) return [];
+            if (node.type === 'content') return [node.id];
+            if (node.type === 'split') {
+                return node.children.flatMap((child: any) => collectPaneIds(child));
+            }
+            return [];
+        };
 
-        if (activeContentPaneId) {
-            const pathToActive = findNodePath(newRoot, activeContentPaneId);
-            if (pathToActive && pathToActive.length > 0) {
-                const targetParent = findNodeByPath(newRoot,
-                    pathToActive.slice(0, -1)
-                );
-                const targetIndex = pathToActive[pathToActive.length - 1];
+        const existingPaneIds = collectPaneIds(oldRoot);
+        const allPaneIds = [...existingPaneIds, newPaneId];
+        const totalPanes = allPaneIds.length;
 
-                if (targetParent && targetParent.type === 'split') {
-                    const newChildren = [...targetParent.children];
-                    newChildren.splice(targetIndex + 1, 0,
-                        { id: newPaneId, type: 'content' }
-                    );
-                    const newSizes = new Array(newChildren.length)
-                        .fill(100 / newChildren.length);
-                    targetParent.children = newChildren;
-                    targetParent.sizes = newSizes;
-                    return newRoot;
+        // Calculate balanced grid dimensions (rows and cols differ by at most 1)
+        const cols = Math.ceil(Math.sqrt(totalPanes));
+        const rows = Math.ceil(totalPanes / cols);
+
+        // Build a balanced grid layout
+        const buildGridLayout = (paneIds: string[], numRows: number, numCols: number): any => {
+            if (paneIds.length === 0) return null;
+            if (paneIds.length === 1) {
+                return { id: paneIds[0], type: 'content' };
+            }
+
+            const rowNodes: any[] = [];
+            let paneIndex = 0;
+
+            for (let r = 0; r < numRows && paneIndex < paneIds.length; r++) {
+                const panesInThisRow = Math.min(numCols, paneIds.length - paneIndex);
+                const rowPaneIds = paneIds.slice(paneIndex, paneIndex + panesInThisRow);
+                paneIndex += panesInThisRow;
+
+                if (rowPaneIds.length === 1) {
+                    rowNodes.push({ id: rowPaneIds[0], type: 'content' });
+                } else {
+                    rowNodes.push({
+                        id: generateId(),
+                        type: 'split',
+                        direction: 'horizontal',
+                        children: rowPaneIds.map(id => ({ id, type: 'content' })),
+                        sizes: new Array(rowPaneIds.length).fill(100 / rowPaneIds.length)
+                    });
                 }
             }
-        }
 
-        if (newRoot.type === 'content') {
+            if (rowNodes.length === 1) {
+                return rowNodes[0];
+            }
+
             return {
                 id: generateId(),
                 type: 'split',
-                direction: 'horizontal',
-                children: [newRoot, { id: newPaneId, type: 'content' }],
-                sizes: [50, 50],
+                direction: 'vertical',
+                children: rowNodes,
+                sizes: new Array(rowNodes.length).fill(100 / rowNodes.length)
             };
-        } else if (newRoot.type === 'split') {
-            newRoot.children.push({ id: newPaneId, type: 'content' });
-            const equalSize = 100 / newRoot.children.length;
-            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-            return newRoot;
-        }
+        };
 
-        return { id: newPaneId, type: 'content' };
+        return buildGridLayout(allPaneIds, rows, cols);
     });
 
-    setTimeout(async () => {
-        await updateContentPane(newPaneId, contentType, filePath);
-        setRootLayoutNode(prev => ({ ...prev }));
-    }, 0);
-
     setActiveContentPaneId(newPaneId);
-}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+
+    // Load the actual file content after layout is set
+    await updateContentPane(newPaneId, contentType, filePath);
+}, [updateContentPane, findEmptyPaneId]);
 
 // Update ref for keyboard handler access
 handleFileClickRef.current = handleFileClick;
@@ -7961,8 +7064,8 @@ const renderMainContent = () => {
                             contentType = 'editor';
                         }
 
-                        contentDataRef.current[newPaneId] = {};
-                        await updateContentPane(newPaneId, contentType, draggedItem.id);
+                        // Set content BEFORE layout to prevent empty pane
+                        contentDataRef.current[newPaneId] = { contentType: contentType, contentId: draggedItem.id };
 
                         setRootLayoutNode(newLayout);
                         setActiveContentPaneId(newPaneId);

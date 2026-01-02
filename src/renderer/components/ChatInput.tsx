@@ -812,7 +812,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
         <div
             ref={containerRef}
             className="border-t theme-border theme-bg-secondary flex-shrink-0 relative"
-            style={{ height: `${inputHeight}px`, minHeight: isJinxMode ? `${jinxMinHeight}px` : '140px', maxHeight: '600px' }}
+            style={{ height: `${inputHeight}px`, minHeight: isJinxMode ? `${jinxMinHeight}px` : '200px', maxHeight: '600px' }}
             onFocus={onFocus}
         >
             {/* Resize handle */}

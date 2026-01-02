@@ -86,6 +86,11 @@ const Sidebar = (props: any) => {
 
     // Local state for disk usage panel
     const [diskUsageCollapsed, setDiskUsageCollapsed] = useState(true);
+    // State for bottom grid collapse
+    const [bottomGridCollapsed, setBottomGridCollapsed] = useState<boolean>(() => {
+        const stored = localStorage.getItem('npcStudio_bottomGridCollapsed');
+        return stored === 'true';
+    });
     // Search state for sidebar sections
     const [convoSearch, setConvoSearch] = useState('');
     const [fileSearch, setFileSearch] = useState('');
@@ -118,6 +123,10 @@ const Sidebar = (props: any) => {
     useEffect(() => {
         localStorage.setItem('npcStudio_convoDateTo', convoDateTo);
     }, [convoDateTo]);
+    // Persist bottom grid collapsed state
+    useEffect(() => {
+        localStorage.setItem('npcStudio_bottomGridCollapsed', String(bottomGridCollapsed));
+    }, [bottomGridCollapsed]);
 
     // Memory and Knowledge Graph sections
     const [memoriesCollapsed, setMemoriesCollapsed] = useState(true);
@@ -3957,8 +3966,15 @@ return (
 
         {sidebarCollapsed && <div className="flex-1"></div>}
 
-        {/* Delete button */}
-        <div className={`flex justify-center ${sidebarCollapsed ? 'hidden' : ''}`}>
+        {/* Edit + Delete + Collapse toggle buttons - always visible when sidebar expanded */}
+        <div className={`flex justify-center items-center gap-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
+            <button
+                onClick={() => setBottomGridEditMode(!bottomGridEditMode)}
+                className={`p-2 rounded-full transition-all ${bottomGridEditMode ? 'bg-purple-600 text-white' : 'theme-hover text-gray-400 hover:text-purple-400'}`}
+                title="Edit tiles"
+            >
+                <Edit size={20} />
+            </button>
             <button
                 onClick={deleteSelectedConversations}
                 className="p-2 theme-hover rounded-full text-red-400 transition-all"
@@ -3966,8 +3982,17 @@ return (
             >
                 <Trash size={24} />
             </button>
+            <button
+                onClick={() => setBottomGridCollapsed(!bottomGridCollapsed)}
+                className="p-2 theme-hover rounded-full text-gray-400 hover:text-white transition-all"
+                title={bottomGridCollapsed ? "Show quick actions" : "Hide quick actions"}
+            >
+                {bottomGridCollapsed ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
         </div>
 
+        {/* Bottom grid section - collapsible */}
+        {!bottomGridCollapsed && (
         <div className="p-4 border-t theme-border flex-shrink-0">
             {/* Bottom Grid Edit Mode - uses jinx tiles when loaded */}
             {!sidebarCollapsed && bottomGridEditMode && (
@@ -4171,29 +4196,22 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                 </div>
             )}
 
-            {/* Bottom row: Edit tiles button + Collapse */}
-            <div className={`flex items-center gap-2 ${!sidebarCollapsed ? 'mt-2' : ''}`}>
-                {!sidebarCollapsed && (
-                    <button
-                        onClick={() => setBottomGridEditMode(!bottomGridEditMode)}
-                        className={`px-2 py-2 text-xs rounded-lg ${bottomGridEditMode ? 'bg-purple-600 text-white' : 'theme-bg-tertiary theme-border border hover:bg-gray-700'}`}
-                        title="Edit tiles"
-                    >
-                        <Edit size={14} />
-                    </button>
-                )}
-                <button
-                    onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                    className="flex-1 p-2 theme-button theme-hover rounded-lg transition-all group"
-                    title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                >
-                    <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
-                        <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                        <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
-                        <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                    </div>
-                </button>
-            </div>
+        </div>
+        )}
+
+        {/* Sidebar collapse button - always visible at bottom */}
+        <div className={`flex items-center gap-2 p-2 ${sidebarCollapsed ? '' : ''}`}>
+            <button
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                className="flex-1 p-2 theme-button theme-hover rounded-lg transition-all group"
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+                <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
+                    <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                    <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
+                    <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                </div>
+            </button>
         </div>
     </div>
 

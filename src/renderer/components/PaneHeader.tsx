@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Check, Play, Plus, MessageSquare, Terminal, Globe, BookOpen, Code2, FlaskConical } from 'lucide-react';
+import { Check, Play, Plus, MessageSquare, Terminal, Globe, BookOpen, Code2, FlaskConical, X, Maximize2, Minimize2 } from 'lucide-react';
 
 export const PaneHeader = React.memo(({
     nodeId,
@@ -21,7 +21,10 @@ export const PaneHeader = React.memo(({
     filePath,
     onRunScript,
     onAddTab,
-    hasMultipleTabs
+    hasMultipleTabs,
+    onClose,
+    onToggleZen,
+    isZenMode
 }) => {
     const isPythonFile = filePath?.endsWith('.py');
     const nodePath = findNodePath(rootLayoutNode, nodeId);
@@ -86,8 +89,18 @@ export const PaneHeader = React.memo(({
             }}
             className="theme-bg-secondary theme-border theme-text-muted"
         >
-            {/* Content - can shrink, left padding accounts for expand button overlay */}
-            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '4px 8px 4px 40px', gap: '8px' }}>
+            {/* Expand/Zen button - left side, always visible */}
+            <button
+                onClick={(e) => { e.stopPropagation(); onToggleZen?.(); }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className={`p-1.5 theme-hover rounded flex-shrink-0 ${isZenMode ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
+                title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
+            >
+                {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+
+            {/* Content - can shrink */}
+            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '4px 8px', gap: '8px' }}>
                 <span style={{ flexShrink: 0 }}>{icon}</span>
 
                 {isRenaming && filePath ? (
@@ -188,6 +201,16 @@ export const PaneHeader = React.memo(({
 
                 </div>
             </div>
+
+            {/* Close button - right side, always visible */}
+            <button
+                onClick={(e) => { e.stopPropagation(); onClose?.(); }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="p-1.5 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-red-400"
+                title="Close pane"
+            >
+                <X size={14} />
+            </button>
 
         </div>
     );
