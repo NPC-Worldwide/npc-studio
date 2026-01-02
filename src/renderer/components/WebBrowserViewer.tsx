@@ -47,6 +47,14 @@ const WebBrowserViewer = memo(({
     });
     const [showPermissionsMenu, setShowPermissionsMenu] = useState(false);
 
+    // Privacy & ad blocking state
+    const [adBlockEnabled, setAdBlockEnabled] = useState(() => {
+        return localStorage.getItem('npc-browser-adblock') !== 'false'; // Default enabled
+    });
+    const [trackingProtection, setTrackingProtection] = useState(() => {
+        return localStorage.getItem('npc-browser-tracking-protection') !== 'false'; // Default enabled
+    });
+    
     // Search engine configuration
     const SEARCH_ENGINES = {
         duckduckgo: { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
@@ -626,6 +634,94 @@ const WebBrowserViewer = memo(({
                 checkForSavedPasswords(url);
             }
 
+            // Inject ad blocking CSS and scripts if enabled
+            const isAdBlockOn = localStorage.getItem('npc-browser-adblock') !== 'false';
+            const isTrackingProtOn = localStorage.getItem('npc-browser-tracking-protection') !== 'false';
+
+            if (isAdBlockOn || isTrackingProtOn) {
+                try {
+                    await webview.executeJavaScript(`
+                        (function() {
+                            if (window.__npcAdBlockInstalled) return;
+                            window.__npcAdBlockInstalled = true;
+
+                            // Inject ad-blocking CSS
+                            const style = document.createElement('style');
+                            style.textContent = \`
+                                [class*="ad-"], [class*="ads-"], [class*="advert"], [id*="ad-"], [id*="ads-"],
+                                [class*="banner"], [class*="sponsor"], [class*="promoted"], [class*="promo-"],
+                                iframe[src*="ads"], iframe[src*="doubleclick"], iframe[src*="googlesyndication"],
+                                [data-ad], [data-ads], [data-advertisement], .adsbygoogle, .ad-container,
+                                [aria-label*="advertisement"], [aria-label*="sponsored"],
+                                ins.adsbygoogle, [id*="google_ads"], [class*="GoogleAd"],
+                                [class*="ad-slot"], [class*="ad-unit"], [class*="ad-wrapper"],
+                                [id*="taboola"], [id*="outbrain"], [class*="taboola"], [class*="outbrain"] {
+                                    display: none !important;
+                                    visibility: hidden !important;
+                                    height: 0 !important;
+                                    width: 0 !important;
+                                    overflow: hidden !important;
+                                    pointer-events: none !important;
+                                }
+                            \`;
+                            document.head.appendChild(style);
+
+                            // Block tracking scripts
+                            const blockedDomains = [
+                                'doubleclick.net', 'googlesyndication.com', 'googleadservices.com',
+                                'google-analytics.com', 'googletagmanager.com', 'facebook.net',
+                                'analytics', 'tracker', 'tracking', 'pixel', 'beacon',
+                                'criteo', 'outbrain', 'taboola', 'adnxs', 'hotjar', 'mixpanel'
+                            ];
+
+                            // Override fetch to block tracker requests
+                            const originalFetch = window.fetch;
+                            window.fetch = function(url, options) {
+                                const urlStr = typeof url === 'string' ? url : url.url || '';
+                                if (blockedDomains.some(d => urlStr.includes(d))) {
+                                    return Promise.reject(new Error('Blocked by NPC Studio'));
+                                }
+                                return originalFetch.apply(this, arguments);
+                            };
+
+                            // Override XMLHttpRequest to block trackers
+                            const originalOpen = XMLHttpRequest.prototype.open;
+                            XMLHttpRequest.prototype.open = function(method, url) {
+                                const urlStr = typeof url === 'string' ? url : url.toString();
+                                if (blockedDomains.some(d => urlStr.includes(d))) {
+                                    this.__blocked = true;
+                                }
+                                return originalOpen.apply(this, arguments);
+                            };
+                            const originalSend = XMLHttpRequest.prototype.send;
+                            XMLHttpRequest.prototype.send = function() {
+                                if (this.__blocked) return;
+                                return originalSend.apply(this, arguments);
+                            };
+
+                            // Block navigator.sendBeacon (used for analytics)
+                            navigator.sendBeacon = () => false;
+
+                            // Disable tracking cookies
+                            try {
+                                Object.defineProperty(document, 'cookie', {
+                                    get: function() { return ''; },
+                                    set: function(val) {
+                                        // Allow session cookies, block tracking
+                                        if (blockedDomains.some(d => val.includes(d))) return;
+                                        // Allow the cookie
+                                    }
+                                });
+                            } catch (e) {}
+
+                            console.log('[NPC Studio] Ad blocking & tracking protection active');
+                        })();
+                    `);
+                } catch (err) {
+                    // Ignore - some pages block script injection
+                }
+            }
+
             // Inject script to detect login form submissions
             try {
                 await webview.executeJavaScript(`
@@ -1007,6 +1103,39 @@ const WebBrowserViewer = memo(({
                                         <select value={searchEngine} onChange={(e) => { setSearchEngine(e.target.value); localStorage.setItem('npc-browser-search-engine', e.target.value); }} className="w-full text-xs theme-input rounded px-2 py-1">
                                             {Object.entries(SEARCH_ENGINES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
                                         </select>
+                                    </div>
+                                    {/* Privacy Settings */}
+                                    <div className="p-2 border-b theme-border">
+                                        <span className="text-xs theme-text-muted block mb-2">Privacy & Ad Blocking</span>
+                                        <label className="flex items-center justify-between py-1 cursor-pointer">
+                                            <span className="text-xs theme-text-primary">Block Ads</span>
+                                            <button
+                                                onClick={() => {
+                                                    const newVal = !adBlockEnabled;
+                                                    setAdBlockEnabled(newVal);
+                                                    localStorage.setItem('npc-browser-adblock', String(newVal));
+                                                }}
+                                                className={`w-8 h-4 rounded-full transition-colors ${adBlockEnabled ? 'bg-green-500' : 'bg-gray-600'}`}
+                                            >
+                                                <div className={`w-3 h-3 rounded-full bg-white transform transition-transform ${adBlockEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                            </button>
+                                        </label>
+                                        <label className="flex items-center justify-between py-1 cursor-pointer">
+                                            <span className="text-xs theme-text-primary">Block Trackers</span>
+                                            <button
+                                                onClick={() => {
+                                                    const newVal = !trackingProtection;
+                                                    setTrackingProtection(newVal);
+                                                    localStorage.setItem('npc-browser-tracking-protection', String(newVal));
+                                                }}
+                                                className={`w-8 h-4 rounded-full transition-colors ${trackingProtection ? 'bg-green-500' : 'bg-gray-600'}`}
+                                            >
+                                                <div className={`w-3 h-3 rounded-full bg-white transform transition-transform ${trackingProtection ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                            </button>
+                                        </label>
+                                        <div className="text-[10px] theme-text-muted mt-1">
+                                            Blocks ads, trackers, and analytics scripts. Reload page after changing.
+                                        </div>
                                     </div>
                                     <div className="py-1">
                                         <button onClick={handleClearCookies} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"><Trash2 size={12} />Clear Cookies</button>

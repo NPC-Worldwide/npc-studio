@@ -149,11 +149,7 @@ const Sidebar = (props: any) => {
     const [defaultCodeFileType, setDefaultCodeFileType] = useState<string>(() =>
         localStorage.getItem('npcStudio_defaultCodeFileType') || 'py'
     );
-    // Refs to track button positions for fixed dropdowns
-    const terminalDropdownRef = useRef<HTMLButtonElement>(null);
-    const codeFileDropdownRef = useRef<HTMLButtonElement>(null);
-    const docDropdownRef = useRef<HTMLButtonElement>(null);
-
+    
     // Persist default code file type
     useEffect(() => {
         localStorage.setItem('npcStudio_defaultCodeFileType', defaultCodeFileType);
@@ -3462,7 +3458,7 @@ return (
                                     );
                                 case 'terminal':
                                     return (
-                                        <div key={tile.id} className="relative flex">
+                                        <div key={tile.id} className="relative flex" data-dropdown="terminal">
                                             <button onClick={() => createNewTerminal?.(defaultNewTerminalType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Terminal" title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal (Ctrl+Shift+T)`}>
                                                 {defaultNewTerminalType === 'system' && <Terminal size={16} className="text-green-400" />}
                                                 {defaultNewTerminalType === 'npcsh' && <Sparkles size={16} className="text-purple-400" />}
@@ -3470,13 +3466,36 @@ return (
                                                 <span className="text-[10px] ml-1.5">{defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType}</span>
                                             </button>
                                             <button
-                                                ref={terminalDropdownRef}
                                                 onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)}
                                                 className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700"
                                                 aria-label="Terminal options"
                                             >
                                                 <ChevronDown size={10} />
                                             </button>
+                                            {terminalDropdownOpen && (
+                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1 min-w-[140px]">
+                                                    <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Terminal size={14} className="text-green-400" /><span>Bash</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Sparkles size={14} className="text-purple-400" /><span>npcsh</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Code2 size={14} className="text-yellow-400" /><span>guac</span>
+                                                    </button>
+                                                    <div className="border-t border-gray-700 my-1" />
+                                                    <button onClick={() => { createNewTerminal?.('python3'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Code2 size={14} className="text-blue-400" /><span>Python</span>
+                                                    </button>
+                                                    <div className="border-t border-gray-700 my-1" />
+                                                    <button onClick={() => { createNewNotebook?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <FileText size={14} className="text-orange-400" /><span>Notebook (.ipynb)</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewExperiment?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <FlaskConical size={14} className="text-purple-400" /><span>Experiment (.exp)</span>
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 case 'code':
@@ -3487,18 +3506,46 @@ return (
                                                 <Code2 size={16} /><span className="text-[10px] ml-1.5">.{defaultCodeFileType}</span>
                                             </button>
                                             <button
-                                                ref={codeFileDropdownRef}
                                                 onClick={() => setCodeFileDropdownOpen(!codeFileDropdownOpen)}
                                                 className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700"
                                                 aria-label="File type options"
                                             >
                                                 <ChevronDown size={10} />
                                             </button>
+                                            {codeFileDropdownOpen && (
+                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1 min-w-[180px] max-h-80 overflow-y-auto">
+                                                    <div className="px-3 py-1.5 border-b border-gray-700">
+                                                        <div className="text-[9px] text-gray-500">Click to create, right-click to set default</div>
+                                                    </div>
+                                                    {commonFileTypes.map(type => (
+                                                        <button
+                                                            key={type.ext}
+                                                            onClick={() => { createFileWithExtension(type.ext); setCodeFileDropdownOpen(false); }}
+                                                            onContextMenu={(e) => { e.preventDefault(); setDefaultCodeFileType(type.ext); setCodeFileDropdownOpen(false); }}
+                                                            className={`flex items-center gap-2 w-full px-3 py-1.5 text-left text-[11px] hover:bg-gray-700 ${defaultCodeFileType === type.ext ? 'bg-blue-900/30 text-blue-300' : 'text-gray-200'}`}
+                                                        >
+                                                            <span className="w-4 text-center">{type.icon}</span>
+                                                            <span className="flex-1">{type.label}</span>
+                                                            <span className="text-[9px] text-gray-500">.{type.ext}</span>
+                                                            {defaultCodeFileType === type.ext && <Star size={10} className="text-yellow-400" />}
+                                                        </button>
+                                                    ))}
+                                                    <div className="border-t border-gray-700">
+                                                        <button
+                                                            onClick={() => { setCodeFileDropdownOpen(false); createNewTextFile?.(); }}
+                                                            className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] text-gray-400 hover:bg-gray-700"
+                                                        >
+                                                            <span className="w-4 text-center">✏️</span>
+                                                            <span>Custom filename...</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 case 'document':
                                     return (
-                                        <div key={tile.id} className="relative flex">
+                                        <div key={tile.id} className="relative flex" data-dropdown="doc">
                                             <button onClick={() => createNewDocument?.(defaultNewDocumentType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Document" title={`New ${defaultNewDocumentType.toUpperCase()} Document`}>
                                                 {defaultNewDocumentType === 'docx' && <FileText size={16} className="text-blue-300" />}
                                                 {defaultNewDocumentType === 'xlsx' && <FileJson size={16} className="text-green-300" />}
@@ -3506,9 +3553,26 @@ return (
                                                 {defaultNewDocumentType === 'mapx' && <Share2 size={16} className="text-pink-300" />}
                                                 <span className="text-[10px] ml-1.5">{defaultNewDocumentType === 'mapx' ? 'Map' : defaultNewDocumentType.slice(0, -1).toUpperCase()}</span>
                                             </button>
-                                            <button ref={docDropdownRef} onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
+                                            <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
                                                 <ChevronDown size={10} />
                                             </button>
+                                            {docDropdownOpen && (
+                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1 min-w-[150px]">
+                                                    <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">New Document</div>
+                                                    <button onClick={() => { createNewDocument?.('docx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <FileText size={16} className="text-blue-300" /><span>Word (.docx)</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewDocument?.('xlsx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <FileJson size={16} className="text-green-300" /><span>Excel (.xlsx)</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewDocument?.('pptx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <BarChart3 size={16} className="text-orange-300" /><span>PowerPoint (.pptx)</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewDocument?.('mapx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 case 'workspace':
@@ -4133,8 +4197,8 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
         </div>
     </div>
 
-    {/* Chat Plus Dropdown - rendered outside sidebar to avoid clipping */}
-    {chatPlusDropdownOpen && (
+    {/* Chat Plus Dropdown - using portal to render to body */}
+    {chatPlusDropdownOpen && createPortal(
         <>
             <div className="fixed inset-0 z-[9998]" onClick={() => setChatPlusDropdownOpen(false)} />
             <div className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-2xl py-2 z-[9999]" style={{ top: '80px', left: '10px', minWidth: '180px' }}>
@@ -4177,94 +4241,10 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                     <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
                 </button>
             </div>
-        </>
+        </>,
+        document.body
     )}
 
-    {/* Doc Dropdown - rendered outside sidebar to avoid clipping from overflow-hidden */}
-    {docDropdownOpen && docDropdownRef.current && (
-        <>
-            <div className="fixed inset-0 z-[9998]" onClick={() => setDocDropdownOpen(false)} />
-            <div className="fixed theme-bg-secondary border theme-border rounded-lg shadow-2xl py-2 z-[9999]" style={{ top: docDropdownRef.current.getBoundingClientRect().bottom + 4, left: docDropdownRef.current.getBoundingClientRect().left, minWidth: '150px' }}>
-                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">New Document</div>
-                <button onClick={() => { createNewDocument?.('docx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <FileText size={16} className="text-blue-300" /><span>Word (.docx)</span>
-                </button>
-                <button onClick={() => { createNewDocument?.('xlsx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <FileJson size={16} className="text-green-300" /><span>Excel (.xlsx)</span>
-                </button>
-                <button onClick={() => { createNewDocument?.('pptx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <BarChart3 size={16} className="text-orange-300" /><span>PowerPoint (.pptx)</span>
-                </button>
-                <button onClick={() => { createNewDocument?.('mapx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
-                </button>
-            </div>
-        </>
-    )}
-
-    {/* Terminal Dropdown - rendered outside to avoid clipping */}
-    {terminalDropdownOpen && terminalDropdownRef.current && (
-        <>
-            <div className="fixed inset-0 z-[9998]" onClick={() => setTerminalDropdownOpen(false)} />
-            <div className="fixed theme-bg-secondary border theme-border rounded-lg shadow-2xl py-1 z-[9999]" style={{ top: terminalDropdownRef.current.getBoundingClientRect().bottom + 4, left: terminalDropdownRef.current.getBoundingClientRect().left, minWidth: '140px' }}>
-                <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <Terminal size={14} className="text-green-400" /><span>Bash</span>
-                </button>
-                <button onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <Sparkles size={14} className="text-purple-400" /><span>npcsh</span>
-                </button>
-                <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <Code2 size={14} className="text-yellow-400" /><span>guac</span>
-                </button>
-                <div className="border-t theme-border my-1" />
-                <button onClick={() => { createNewTerminal?.('python3'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <Code2 size={14} className="text-blue-400" /><span>Python</span>
-                </button>
-                <div className="border-t theme-border my-1" />
-                <button onClick={() => { createNewNotebook?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <FileText size={14} className="text-orange-400" /><span>Notebook (.ipynb)</span>
-                </button>
-                <button onClick={() => { createNewExperiment?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <FlaskConical size={14} className="text-purple-400" /><span>Experiment (.exp)</span>
-                </button>
-            </div>
-        </>
-    )}
-
-    {/* Code File Dropdown - rendered outside to avoid clipping */}
-    {codeFileDropdownOpen && codeFileDropdownRef.current && (
-        <>
-            <div className="fixed inset-0 z-[9998]" onClick={() => setCodeFileDropdownOpen(false)} />
-            <div className="fixed theme-bg-secondary border theme-border rounded-lg shadow-2xl py-1 z-[9999] max-h-80 overflow-y-auto" style={{ top: codeFileDropdownRef.current.getBoundingClientRect().bottom + 4, left: codeFileDropdownRef.current.getBoundingClientRect().left, minWidth: '180px' }}>
-                <div className="px-3 py-1.5 border-b theme-border">
-                    <div className="text-[9px] text-gray-500">Click to create, right-click to set default</div>
-                </div>
-                {commonFileTypes.map(type => (
-                    <button
-                        key={type.ext}
-                        onClick={() => { createFileWithExtension(type.ext); setCodeFileDropdownOpen(false); }}
-                        onContextMenu={(e) => { e.preventDefault(); setDefaultCodeFileType(type.ext); setCodeFileDropdownOpen(false); }}
-                        className={`flex items-center gap-2 w-full px-3 py-1.5 text-left text-[11px] theme-hover ${defaultCodeFileType === type.ext ? 'bg-blue-900/30 text-blue-300' : 'theme-text-primary'}`}
-                        title="Click to create, right-click to set as default"
-                    >
-                        <span className="w-4 text-center">{type.icon}</span>
-                        <span className="flex-1">{type.label}</span>
-                        <span className="text-[9px] text-gray-500">.{type.ext}</span>
-                        {defaultCodeFileType === type.ext && <Star size={10} className="text-yellow-400" />}
-                    </button>
-                ))}
-                <div className="border-t theme-border">
-                    <button
-                        onClick={() => { setCodeFileDropdownOpen(false); createNewTextFile?.(); }}
-                        className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] text-gray-400 theme-hover"
-                    >
-                        <span className="w-4 text-center">✏️</span>
-                        <span>Custom filename...</span>
-                    </button>
-                </div>
-            </div>
-        </>
-    )}
 </>
 );
 
