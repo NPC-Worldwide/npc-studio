@@ -3456,7 +3456,8 @@ const renderMessageContextMenu = () => (
         // Check for empty pane to reuse first
         const emptyPaneId = findEmptyPaneId();
         if (emptyPaneId) {
-            contentDataRef.current[emptyPaneId] = { shellType };
+            // Set contentType immediately to prevent sync from removing pane
+            contentDataRef.current[emptyPaneId] = { shellType, contentType: 'terminal', contentId: newTerminalId };
             await updateContentPane(emptyPaneId, 'terminal', newTerminalId);
             setActiveContentPaneId(emptyPaneId);
             setRootLayoutNode(prev => ({ ...prev }));
@@ -3465,8 +3466,8 @@ const renderMessageContextMenu = () => (
 
         const newPaneId = generateId();
 
-        // Set content data first
-        contentDataRef.current[newPaneId] = { shellType };
+        // Set content data with contentType BEFORE layout update to prevent sync removal
+        contentDataRef.current[newPaneId] = { shellType, contentType: 'terminal', contentId: newTerminalId };
 
         // Use balanced grid layout
         setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
@@ -7596,6 +7597,7 @@ const renderMainContent = () => {
                     setAutoScrollEnabled={setAutoScrollEnabled}
                     isPredictiveTextEnabled={isPredictiveTextEnabled}
                     setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
+                    createHelpPane={createHelpPane}
                 />
             </main>
         );
@@ -7640,6 +7642,7 @@ const renderMainContent = () => {
                 setAutoScrollEnabled={setAutoScrollEnabled}
                 isPredictiveTextEnabled={isPredictiveTextEnabled}
                 setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
+                createHelpPane={createHelpPane}
             />
         </main>
     );

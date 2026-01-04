@@ -6994,13 +6994,20 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) =>
     }
   }
 
+  // Create clean env without VS Code artifacts
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.PYTHONSTARTUP;  // Remove VS Code Python extension startup
+  delete cleanEnv.VSCODE_PID;
+  delete cleanEnv.VSCODE_CWD;
+  delete cleanEnv.VSCODE_NLS_CONFIG;
+
   try {
     const ptyProcess = pty.spawn(shell, args, {
       name: 'xterm-256color',
       cols: 80,
       rows: 24,
       cwd: workingDir,
-      env: process.env
+      env: cleanEnv
     });
 
     // Store both the ptyProcess and the webContents that created it
@@ -7032,7 +7039,7 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) =>
           cols: 80,
           rows: 24,
           cwd: workingDir,
-          env: process.env
+          env: cleanEnv
         });
 
         ptySessions.set(id, { ptyProcess, webContents: senderWebContents, shellType: 'ipython' });

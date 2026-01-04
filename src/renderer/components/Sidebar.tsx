@@ -96,6 +96,42 @@ const Sidebar = (props: any) => {
     const [convoSearch, setConvoSearch] = useState('');
     const [fileSearch, setFileSearch] = useState('');
     const [fileTypeFilter, setFileTypeFilter] = useState<string>(() => localStorage.getItem('npcStudio_fileTypeFilter') || '');
+
+    // Drag state for section reordering
+    const [draggedSection, setDraggedSection] = useState<string | null>(null);
+
+    // Section drag handlers
+    const handleSectionDragStart = (sectionId: string) => (e: React.DragEvent) => {
+        setDraggedSection(sectionId);
+        e.dataTransfer.setData('text/plain', sectionId);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleSectionDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+
+    const handleSectionDrop = (targetSectionId: string) => (e: React.DragEvent) => {
+        e.preventDefault();
+        const draggedId = e.dataTransfer.getData('text/plain');
+        setDraggedSection(null);
+        if (draggedId === targetSectionId || !setSidebarSectionOrder) return;
+
+        const currentOrder = sidebarSectionOrder || ['websites', 'files', 'conversations'];
+        const newOrder = [...currentOrder];
+        const draggedIndex = newOrder.indexOf(draggedId);
+        const targetIndex = newOrder.indexOf(targetSectionId);
+
+        newOrder.splice(draggedIndex, 1);
+        newOrder.splice(targetIndex, 0, draggedId);
+        setSidebarSectionOrder(newOrder);
+    };
+
+    const handleSectionDragEnd = () => {
+        setDraggedSection(null);
+    };
+
     const [showFileTypeFilter, setShowFileTypeFilter] = useState(false);
     const [websiteSearch, setWebsiteSearch] = useState('');
 
@@ -1484,28 +1520,44 @@ const renderWebsiteList = () => {
         : allWebsites;
 
     const header = (
-        <div className="mx-1 mt-3">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-purple-900/20 to-indigo-900/20 rounded-t-lg border-b border-purple-500/20">
-                <div className="flex items-center gap-1.5">
-                    <Globe size={12} className="text-purple-400" />
-                    <span className="text-[11px] text-purple-300 font-medium">Websites</span>
-                    <span className="text-[10px] text-gray-500">({openBrowsers.length + allWebsites.length})</span>
+        <div
+            className="mx-1 mt-3"
+            onDragOver={handleSectionDragOver}
+            onDrop={handleSectionDrop('websites')}
+        >
+            <div className="group/header flex items-center bg-gradient-to-r from-purple-900/20 to-indigo-900/20 rounded-t-lg border-b border-purple-500/20">
+                {/* Drag handle - appears on hover */}
+                <div
+                    draggable
+                    onDragStart={handleSectionDragStart('websites')}
+                    onDragEnd={handleSectionDragEnd}
+                    className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
+                    title="Drag to reorder"
+                >
+                    <GripVertical size={10} className="text-gray-500" />
                 </div>
-                <div className="flex items-center gap-0.5">
-                    <button
-                        onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
-                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
-                        title="Refresh"
-                    >
-                        <RefreshCw size={12} />
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setWebsitesCollapsed(!websitesCollapsed); }}
-                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
-                        title={websitesCollapsed ? "Expand" : "Collapse"}
-                    >
-                        <ChevronRight size={14} className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`} />
-                    </button>
+                <div className="flex-1 flex items-center justify-between px-2 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                        <Globe size={12} className="text-purple-400" />
+                        <span className="text-[11px] text-purple-300 font-medium">Websites</span>
+                        <span className="text-[10px] text-gray-500">({openBrowsers.length + allWebsites.length})</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                            title="Refresh"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setWebsitesCollapsed(!websitesCollapsed); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                            title={websitesCollapsed ? "Expand" : "Collapse"}
+                        >
+                            <ChevronRight size={14} className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`} />
+                        </button>
+                    </div>
                 </div>
             </div>
             {!websitesCollapsed && allWebsites.length > 0 && (
@@ -2535,40 +2587,63 @@ const renderFolderList = (structure) => {
     }
 
     const header = (
-        <div className="mx-1 mt-3">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-yellow-900/20 to-orange-900/20 rounded-t-lg border-b border-yellow-500/20">
-                <div className="flex items-center gap-1.5">
-                    <FolderOpen size={12} className="text-yellow-400" />
-                    <span className="text-[11px] text-yellow-300 font-medium">Files</span>
-                    <span className="text-[10px] text-gray-500">({fileCount})</span>
-                    {activeTypeFilters.length > 0 && (
-                        <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
-                            {activeTypeFilters.length} filter{activeTypeFilters.length !== 1 ? 's' : ''}
-                        </span>
-                    )}
+        <div
+            className="mx-1 mt-3"
+            onDragOver={handleSectionDragOver}
+            onDrop={handleSectionDrop('files')}
+        >
+            <div className="group/header flex items-center bg-gradient-to-r from-yellow-900/20 to-orange-900/20 rounded-t-lg border-b border-yellow-500/20">
+                {/* Drag handle - appears on hover */}
+                <div
+                    draggable
+                    onDragStart={handleSectionDragStart('files')}
+                    onDragEnd={handleSectionDragEnd}
+                    className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
+                    title="Drag to reorder"
+                >
+                    <GripVertical size={10} className="text-gray-500" />
                 </div>
-                <div className="flex items-center gap-0.5">
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setShowFileTypeFilter(!showFileTypeFilter); }}
-                        className={`p-1 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
-                        title="Filter by file type"
-                    >
-                        <Filter size={12} />
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
-                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
-                        title="Refresh files"
-                    >
-                        <RefreshCw size={12} />
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setFilesCollapsed(!filesCollapsed); }}
-                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
-                        title={filesCollapsed ? "Expand" : "Collapse"}
-                    >
-                        <ChevronRight size={14} className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`} />
-                    </button>
+                <div className="flex-1 flex items-center justify-between px-2 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                        <FolderOpen size={12} className="text-yellow-400" />
+                        <span className="text-[11px] text-yellow-300 font-medium">Files</span>
+                        <span className="text-[10px] text-gray-500">({fileCount})</span>
+                        {activeTypeFilters.length > 0 && (
+                            <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                                {activeTypeFilters.length} filter{activeTypeFilters.length !== 1 ? 's' : ''}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (showFileTypeFilter) {
+                                    // Closing filter - clear the filter value
+                                    setFileTypeFilter('');
+                                }
+                                setShowFileTypeFilter(!showFileTypeFilter);
+                            }}
+                            className={`p-1 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                            title="Filter by file type"
+                        >
+                            <Filter size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                            title="Refresh files"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setFilesCollapsed(!filesCollapsed); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                            title={filesCollapsed ? "Expand" : "Collapse"}
+                        >
+                            <ChevronRight size={14} className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`} />
+                        </button>
+                    </div>
                 </div>
             </div>
             {!filesCollapsed && (
@@ -2907,40 +2982,66 @@ const renderFolderList = (structure) => {
         const uniqueModels = [...new Set(sortedConversations.map(c => c.model || c.provider).filter(Boolean))];
 
         const header = (
-            <div className="mx-1 mt-3">
-                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-green-900/20 to-emerald-900/20 rounded-t-lg border-b border-green-500/20">
-                    <div className="flex items-center gap-1.5">
-                        <MessageSquare size={12} className="text-green-400" />
-                        <span className="text-[11px] text-green-300 font-medium">Conversations</span>
-                        <span className="text-[10px] text-gray-500">({filteredConversations.length})</span>
-                        {activeFilterCount > 0 && (
-                            <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full">
-                                {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
-                            </span>
-                        )}
+            <div
+                className="mx-1 mt-3"
+                onDragOver={handleSectionDragOver}
+                onDrop={handleSectionDrop('conversations')}
+            >
+                <div className="group/header flex items-center bg-gradient-to-r from-green-900/20 to-emerald-900/20 rounded-t-lg border-b border-green-500/20">
+                    {/* Drag handle - appears on hover */}
+                    <div
+                        draggable
+                        onDragStart={handleSectionDragStart('conversations')}
+                        onDragEnd={handleSectionDragEnd}
+                        className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
+                        title="Drag to reorder"
+                    >
+                        <GripVertical size={10} className="text-gray-500" />
                     </div>
-                    <div className="flex items-center gap-0.5">
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setShowConvoFilters(!showConvoFilters); }}
-                            className={`p-1 hover:bg-white/10 rounded transition-all ${activeFilterCount > 0 || showConvoFilters ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
-                            title="Filter conversations"
-                        >
-                            <Filter size={12} />
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
-                            title="Refresh conversations"
-                        >
-                            <RefreshCw size={12} />
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setConversationsCollapsed(!conversationsCollapsed); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
-                            title={conversationsCollapsed ? "Expand" : "Collapse"}
-                        >
-                            <ChevronRight size={14} className={`transform transition-transform ${conversationsCollapsed ? "" : "rotate-90"}`} />
-                        </button>
+                    <div className="flex-1 flex items-center justify-between px-2 py-1.5">
+                        <div className="flex items-center gap-1.5">
+                            <MessageSquare size={12} className="text-green-400" />
+                            <span className="text-[11px] text-green-300 font-medium">Conversations</span>
+                            <span className="text-[10px] text-gray-500">({filteredConversations.length})</span>
+                            {activeFilterCount > 0 && (
+                                <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full">
+                                    {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (showConvoFilters) {
+                                        // Closing filter - clear all filter values
+                                        setConvoNpcFilter('');
+                                        setConvoModelFilter('');
+                                        setConvoDateFrom('');
+                                        setConvoDateTo('');
+                                    }
+                                    setShowConvoFilters(!showConvoFilters);
+                                }}
+                                className={`p-1 hover:bg-white/10 rounded transition-all ${activeFilterCount > 0 || showConvoFilters ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
+                                title="Filter conversations"
+                            >
+                                <Filter size={12} />
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
+                                className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
+                                title="Refresh conversations"
+                            >
+                                <RefreshCw size={12} />
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setConversationsCollapsed(!conversationsCollapsed); }}
+                                className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                                title={conversationsCollapsed ? "Expand" : "Collapse"}
+                            >
+                                <ChevronRight size={14} className={`transform transition-transform ${conversationsCollapsed ? "" : "rotate-90"}`} />
+                            </button>
+                        </div>
                     </div>
                 </div>
                 {!conversationsCollapsed && (
@@ -3653,62 +3754,15 @@ return (
                 renderSearchResults()
             ) : (
                 <>
-                    {/* Render sections in user-defined order with drag-and-drop */}
-                    {(sidebarSectionOrder || ['websites', 'files', 'conversations']).map((sectionId: string, index: number) => {
-                        const handleDragStart = (e: React.DragEvent) => {
-                            e.dataTransfer.setData('text/plain', sectionId);
-                            e.dataTransfer.effectAllowed = 'move';
-                        };
-
-                        const handleDragOver = (e: React.DragEvent) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = 'move';
-                        };
-
-                        const handleDrop = (e: React.DragEvent) => {
-                            e.preventDefault();
-                            const draggedId = e.dataTransfer.getData('text/plain');
-                            if (draggedId === sectionId || !setSidebarSectionOrder) return;
-
-                            const currentOrder = sidebarSectionOrder || ['websites', 'files', 'conversations'];
-                            const newOrder = [...currentOrder];
-                            const draggedIndex = newOrder.indexOf(draggedId);
-                            const targetIndex = newOrder.indexOf(sectionId);
-
-                            newOrder.splice(draggedIndex, 1);
-                            newOrder.splice(targetIndex, 0, draggedId);
-                            setSidebarSectionOrder(newOrder);
-                        };
-
-                        const renderSectionWithDrag = (content: React.ReactNode) => (
-                            <div
-                                key={sectionId}
-                                className="group/section flex"
-                                onDragOver={handleDragOver}
-                                onDrop={handleDrop}
-                            >
-                                {/* Drag handle - appears on hover, pushes content right */}
-                                <div
-                                    draggable
-                                    onDragStart={handleDragStart}
-                                    className="w-0 group-hover/section:w-4 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/section:opacity-100"
-                                    title="Drag to reorder"
-                                >
-                                    <GripVertical size={10} className="text-gray-500 hover:text-gray-300" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    {content}
-                                </div>
-                            </div>
-                        );
-
+                    {/* Render sections in user-defined order */}
+                    {(sidebarSectionOrder || ['websites', 'files', 'conversations']).map((sectionId: string) => {
                         switch (sectionId) {
                             case 'websites':
-                                return renderSectionWithDrag(renderWebsiteList());
+                                return <div key={sectionId}>{renderWebsiteList()}</div>;
                             case 'files':
-                                return renderSectionWithDrag(renderFolderList(folderStructure));
+                                return <div key={sectionId}>{renderFolderList(folderStructure)}</div>;
                             case 'conversations':
-                                return renderSectionWithDrag(renderConversationList(directoryConversations));
+                                return <div key={sectionId}>{renderConversationList(directoryConversations)}</div>;
                             default:
                                 return null;
                         }

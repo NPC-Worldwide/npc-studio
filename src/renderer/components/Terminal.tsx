@@ -133,6 +133,9 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             resizeObserver.observe(terminalRef.current);
 
             term.attachCustomKeyEventHandler((event) => {
+                // Only handle keydown, not keyup (prevents double-firing)
+                if (event.type !== 'keydown') return true;
+
                 const isMeta = event.ctrlKey || event.metaKey;
                 const key = event.key.toLowerCase();
 
