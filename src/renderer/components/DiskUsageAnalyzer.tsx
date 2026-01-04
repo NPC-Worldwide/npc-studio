@@ -17,7 +17,7 @@ interface DiskUsageAnalyzerProps {
   isPane?: boolean; // When true, renders as pane content (fills container)
 }
 
-const DiskUsageAnalyzer: React.FC<DiskUsageAnalyzerProps> = ({ path = '/', isDarkMode = false, isPane = false }) => {
+const DiskUsageAnalyzer: React.FC<DiskUsageAnalyzerProps> = ({ path, isDarkMode = false, isPane = false }) => {
   const [folderTree, setFolderTree] = useState(null);
   const [expandedFolders, setExpandedFolders] = useState({});
   const [loading, setLoading] = useState(true);
@@ -25,7 +25,11 @@ const DiskUsageAnalyzer: React.FC<DiskUsageAnalyzerProps> = ({ path = '/', isDar
   const [selectedPath, setSelectedPath] = useState(null);
 
   useEffect(() => {
-    analyzeFolder(path);
+    if (path) {
+      analyzeFolder(path);
+    } else {
+      setLoading(false);
+    }
   }, [path]);
 
   const analyzeFolder = async (folderPath) => {

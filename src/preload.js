@@ -10,6 +10,7 @@ readFileBuffer: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
 readDocxContent: (filePath) => 
   ipcRenderer.invoke('read-docx-content', filePath),
     getDefaultConfig: () => ipcRenderer.invoke('getDefaultConfig'),
+    getProjectCtx: (currentPath) => ipcRenderer.invoke('getProjectCtx', currentPath),
     readDirectoryStructure: (dirPath) => ipcRenderer.invoke('readDirectoryStructure', dirPath),
     goUpDirectory: (currentPath) => ipcRenderer.invoke('goUpDirectory', currentPath),
     readDirectory: (dirPath) => ipcRenderer.invoke('readDirectory', dirPath),
@@ -64,6 +65,8 @@ readDocxContent: (filePath) =>
    
     readFileContent: (filePath) => ipcRenderer.invoke('read-file-content', filePath),
     writeFileContent: (filePath, content) => ipcRenderer.invoke('write-file-content', filePath, content),
+    executeCode: (args) => ipcRenderer.invoke('executeCode', args),
+    saveTempFile: (args) => ipcRenderer.invoke('save-temp-file', args),
     createDirectory: (path) => ipcRenderer.invoke('create-directory', path),
     deleteDirectory: (path) => ipcRenderer.invoke('delete-directory', path),
     getDirectoryContentsRecursive: (path) => ipcRenderer.invoke('get-directory-contents-recursive', path),
@@ -136,6 +139,13 @@ readDocxContent: (filePath) =>
         return () => ipcRenderer.removeListener('browser-download-requested', handler);
     },
 
+    // Listen for new tab requests from main process (ctrl+click, middle-click on links)
+    onBrowserOpenInNewTab: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-open-in-new-tab', handler);
+        return () => ipcRenderer.removeListener('browser-open-in-new-tab', handler);
+    },
+
     onDownloadProgress: (callback) => {
         const handler = (_, data) => callback(data);
         ipcRenderer.on('download-progress', handler);
@@ -184,6 +194,16 @@ readDocxContent: (filePath) =>
     tilesConfigReset: () => ipcRenderer.invoke('tiles-config-reset'),
     tilesConfigAddCustom: (tile) => ipcRenderer.invoke('tiles-config-add-custom', tile),
     tilesConfigRemoveCustom: (tileId) => ipcRenderer.invoke('tiles-config-remove-custom', tileId),
+
+    // Tile Jinx system
+    tileJinxList: () => ipcRenderer.invoke('tile-jinx-list'),
+    tileJinxRead: (filename) => ipcRenderer.invoke('tile-jinx-read', filename),
+    tileJinxWrite: (filename, content) => ipcRenderer.invoke('tile-jinx-write', filename, content),
+    tileJinxDelete: (filename) => ipcRenderer.invoke('tile-jinx-delete', filename),
+    tileJinxReset: () => ipcRenderer.invoke('tile-jinx-reset'),
+    tileJinxCompiled: (filename) => ipcRenderer.invoke('tile-jinx-compiled', filename),
+    tileJinxRecompile: () => ipcRenderer.invoke('tile-jinx-recompile'),
+    transformTsx: (code) => ipcRenderer.invoke('transformTsx', code),
 
     getGlobalContext: () => ipcRenderer.invoke('get-global-context'),
     saveGlobalContext: (contextData) => ipcRenderer.invoke('save-global-context', contextData),
@@ -385,6 +405,25 @@ onTerminalClosed: (callback) => {
     pythonEnvResolve: (workspacePath) => ipcRenderer.invoke('python-env-resolve', { workspacePath }),
     pythonEnvCreate: (workspacePath, venvName, pythonPath) => ipcRenderer.invoke('python-env-create', { workspacePath, venvName, pythonPath }),
     pythonEnvCheckConfigured: (workspacePath) => ipcRenderer.invoke('python-env-check-configured', { workspacePath }),
+    pythonEnvListPackages: (workspacePath) => ipcRenderer.invoke('python-env-list-packages', workspacePath),
+    pythonEnvInstallPackage: (workspacePath, packageName, extraArgs) => ipcRenderer.invoke('python-env-install-package', workspacePath, packageName, extraArgs),
+    pythonEnvUninstallPackage: (workspacePath, packageName) => ipcRenderer.invoke('python-env-uninstall-package', workspacePath, packageName),
+
+    // First-run setup
+    setupCheckNeeded: () => ipcRenderer.invoke('setup:checkNeeded'),
+    setupGetBackendPythonPath: () => ipcRenderer.invoke('setup:getBackendPythonPath'),
+    setupDetectPython: () => ipcRenderer.invoke('setup:detectPython'),
+    setupCreateVenv: () => ipcRenderer.invoke('setup:createVenv'),
+    setupInstallNpcpy: (pythonPath, extras) => ipcRenderer.invoke('setup:installNpcpy', { pythonPath, extras }),
+    setupComplete: (pythonPath) => ipcRenderer.invoke('setup:complete', { pythonPath }),
+    setupSkip: () => ipcRenderer.invoke('setup:skip'),
+    setupReset: () => ipcRenderer.invoke('setup:reset'),
+    setupRestartBackend: () => ipcRenderer.invoke('setup:restartBackend'),
+    onSetupInstallProgress: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('setup:installProgress', handler);
+        return () => ipcRenderer.removeListener('setup:installProgress', handler);
+    },
 
     generativeFill: async (params) => {
     return ipcRenderer.invoke('generative-fill', params);

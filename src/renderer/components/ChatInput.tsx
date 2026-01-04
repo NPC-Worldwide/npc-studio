@@ -1,8 +1,31 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-    Send, Paperclip, Maximize2, ChevronDown, Star, ListFilter, FolderTree, Minimize2, Mic, MicOff, Volume2
+    Send, Paperclip, Maximize2, ChevronDown, Star, ListFilter, FolderTree, Minimize2, Mic, MicOff, Volume2, GitBranch, SlidersHorizontal, Save, Trash2, Zap, X
 } from 'lucide-react';
 import ContextFilesPanel from './ContextFilesPanel';
+
+// Blue-white-red color interpolation based on relative value position
+const getParamColor = (value: number, min: number, max: number): string => {
+    // Normalize value to 0-1 range
+    const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
+
+    // Blue (low) -> White (mid) -> Red (high)
+    if (t <= 0.5) {
+        // Blue to White: interpolate from blue (59, 130, 246) to white (255, 255, 255)
+        const factor = t * 2; // 0 to 1 for first half
+        const r = Math.round(59 + (255 - 59) * factor);
+        const g = Math.round(130 + (255 - 130) * factor);
+        const b = Math.round(246 + (255 - 246) * factor);
+        return `rgb(${r}, ${g}, ${b})`;
+    } else {
+        // White to Red: interpolate from white (255, 255, 255) to red (239, 68, 68)
+        const factor = (t - 0.5) * 2; // 0 to 1 for second half
+        const r = Math.round(255 + (239 - 255) * factor);
+        const g = Math.round(255 + (68 - 255) * factor);
+        const b = Math.round(255 + (68 - 255) * factor);
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+};
 
 interface ChatInputProps {
     paneId: string;
@@ -60,6 +83,14 @@ interface ChatInputProps {
     npcsError: any;
     currentNPC: string;
     setCurrentNPC: (val: string) => void;
+    // Multi-select for broadcast
+    selectedModels: string[];
+    setSelectedModels: React.Dispatch<React.SetStateAction<string[]>>;
+    selectedNPCs: string[];
+    setSelectedNPCs: React.Dispatch<React.SetStateAction<string[]>>;
+    // Broadcast mode toggle
+    broadcastMode: boolean;
+    setBroadcastMode: (val: boolean) => void;
     // MCP
     availableMcpServers: any[];
     mcpServerPath: string;
@@ -80,6 +111,8 @@ interface ChatInputProps {
     onFocus?: () => void;
     // Open file in pane
     onOpenFile?: (path: string) => void;
+    // Multi-model broadcast
+    onBroadcast?: (models: string[], npcs: string[]) => void;
 }
 
 const ChatInput: React.FC<ChatInputProps> = (props) => {
@@ -98,11 +131,13 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
         currentProvider, setCurrentProvider, favoriteModels, toggleFavoriteModel,
         showAllModels, setShowAllModels, modelsToDisplay, ollamaToolModels, setError,
         availableNPCs, npcsLoading, npcsError, currentNPC, setCurrentNPC,
+        selectedModels, setSelectedModels, selectedNPCs, setSelectedNPCs,
+        broadcastMode, setBroadcastMode,
         availableMcpServers, mcpServerPath, setMcpServerPath,
         selectedMcpTools, setSelectedMcpTools, availableMcpTools, setAvailableMcpTools,
         mcpToolsLoading, setMcpToolsLoading, mcpToolsError, setMcpToolsError,
         showMcpServersDropdown, setShowMcpServersDropdown,
-        activeConversationId, onFocus, onOpenFile
+        activeConversationId, onFocus, onOpenFile, onBroadcast
     } = props;
 
     const [isHovering, setIsHovering] = useState(false);
@@ -113,6 +148,91 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
     const audioChunksRef = useRef<Blob[]>([]);
     const containerRef = useRef<HTMLDivElement>(null);
     const mcpDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Multi-select dropdowns for broadcasting to multiple models/NPCs
+    // selectedModels and selectedNPCs now come from props (persisted at Enpistu level)
+    const [showModelsDropdown, setShowModelsDropdown] = useState(false);
+    const [showNpcsDropdown, setShowNpcsDropdown] = useState(false);
+    const modelsDropdownRef = useRef<HTMLDivElement>(null);
+    // Search filters for dropdowns
+    const [modelSearch, setModelSearch] = useState('');
+    const [npcSearch, setNpcSearch] = useState('');
+    const [jinxSearch, setJinxSearch] = useState('');
+    const modelSearchRef = useRef<HTMLInputElement>(null);
+    const npcSearchRef = useRef<HTMLInputElement>(null);
+    const jinxSearchRef = useRef<HTMLInputElement>(null);
+
+    // Generation parameters
+    const [genParams, setGenParams] = useState({
+        temperature: 0.7,
+        top_p: 0.9,
+        top_k: 40,
+        max_tokens: 4096
+    });
+    const [showParamsDropdown, setShowParamsDropdown] = useState(false);
+    const paramsDropdownRef = useRef<HTMLDivElement>(null);
+    const [showJinxConfigDropdown, setShowJinxConfigDropdown] = useState(false);
+    const jinxConfigDropdownRef = useRef<HTMLDivElement>(null);
+    const [customPresets, setCustomPresets] = useState<{name: string, params: typeof genParams}[]>(() => {
+        try {
+            const saved = localStorage.getItem('incognide-gen-presets');
+            return saved ? JSON.parse(saved) : [];
+        } catch { return []; }
+    });
+    const [newPresetName, setNewPresetName] = useState('');
+    const npcsDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Jinx auto-detection when typing /jinxname
+    const [detectedJinx, setDetectedJinx] = useState<any>(null);
+    const [showJinxSuggestion, setShowJinxSuggestion] = useState(false);
+    const firstJinxInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+
+    // Detect /jinxname pattern in input and suggest loading it
+    useEffect(() => {
+        const isCurrentlyJinxMode = executionMode !== 'chat' && executionMode !== 'tool_agent' && selectedJinx;
+        if (!input || isCurrentlyJinxMode) {
+            setDetectedJinx(null);
+            setShowJinxSuggestion(false);
+            return;
+        }
+
+        // Check if input starts with /something
+        const match = input.match(/^\/(\S+)/);
+        if (match) {
+            const jinxName = match[1].toLowerCase();
+            // Find a matching jinx
+            const foundJinx = jinxsToDisplay.find((j: any) =>
+                j.name.toLowerCase() === jinxName ||
+                j.name.toLowerCase().startsWith(jinxName)
+            );
+            if (foundJinx && foundJinx.name !== executionMode) {
+                setDetectedJinx(foundJinx);
+                setShowJinxSuggestion(true);
+            } else {
+                setDetectedJinx(null);
+                setShowJinxSuggestion(false);
+            }
+        } else {
+            setDetectedJinx(null);
+            setShowJinxSuggestion(false);
+        }
+    }, [input, jinxsToDisplay, executionMode, selectedJinx]);
+
+    // Focus first jinx input after loading a jinx
+    useEffect(() => {
+        const isCurrentlyJinxMode = executionMode !== 'chat' && executionMode !== 'tool_agent' && selectedJinx;
+        if (isCurrentlyJinxMode) {
+            // Wait for DOM to render the inputs, then focus
+            const timer = setTimeout(() => {
+                if (firstJinxInputRef.current) {
+                    firstJinxInputRef.current.focus();
+                }
+            }, 150);
+            return () => clearTimeout(timer);
+        }
+    }, [executionMode, selectedJinx]);
+
+    // Note: selectedModels/selectedNPCs sync is now handled at Enpistu level
 
     // Close MCP dropdown on ESC or click outside
     useEffect(() => {
@@ -138,9 +258,174 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
         };
     }, [showMcpServersDropdown, setShowMcpServersDropdown]);
 
-    const isJinxMode = executionMode !== 'chat' && selectedJinx;
+    // Close model/NPC dropdowns on ESC or click outside
+    useEffect(() => {
+        if (!showModelsDropdown && !showNpcsDropdown && !showParamsDropdown && !showJinxConfigDropdown) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setShowModelsDropdown(false);
+                setShowNpcsDropdown(false);
+                setShowParamsDropdown(false);
+                setShowJinxConfigDropdown(false);
+            }
+        };
+
+        const handleClickOutside = (e: MouseEvent) => {
+            if (showModelsDropdown && modelsDropdownRef.current && !modelsDropdownRef.current.contains(e.target as Node)) {
+                setShowModelsDropdown(false);
+            }
+            if (showNpcsDropdown && npcsDropdownRef.current && !npcsDropdownRef.current.contains(e.target as Node)) {
+                setShowNpcsDropdown(false);
+            }
+            if (showParamsDropdown && paramsDropdownRef.current && !paramsDropdownRef.current.contains(e.target as Node)) {
+                setShowParamsDropdown(false);
+            }
+            if (showJinxConfigDropdown && jinxConfigDropdownRef.current && !jinxConfigDropdownRef.current.contains(e.target as Node)) {
+                setShowJinxConfigDropdown(false);
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showModelsDropdown, showNpcsDropdown, showParamsDropdown, showJinxConfigDropdown]);
+
+    const isJinxMode = executionMode !== 'chat' && executionMode !== 'tool_agent' && selectedJinx;
     const jinxInputsForSelected = isJinxMode ? (jinxInputValues[selectedJinx.name] || {}) : {};
     const hasJinxContent = isJinxMode && Object.values(jinxInputsForSelected).some((val: any) => val !== null && String(val).trim());
+
+    // Filtered lists for searchable dropdowns
+    const filteredModels = useMemo(() => {
+        if (!modelSearch.trim()) return modelsToDisplay;
+        const q = modelSearch.toLowerCase();
+        return modelsToDisplay.filter((m: any) =>
+            m.display_name?.toLowerCase().includes(q) || m.value?.toLowerCase().includes(q) || m.provider?.toLowerCase().includes(q)
+        );
+    }, [modelsToDisplay, modelSearch]);
+
+    const filteredNPCs = useMemo(() => {
+        if (!npcSearch.trim()) return availableNPCs;
+        const q = npcSearch.toLowerCase();
+        return availableNPCs.filter((n: any) =>
+            n.display_name?.toLowerCase().includes(q) || n.value?.toLowerCase().includes(q)
+        );
+    }, [availableNPCs, npcSearch]);
+
+    const filteredJinxs = useMemo(() => {
+        if (!jinxSearch.trim()) return jinxsToDisplay;
+        const q = jinxSearch.toLowerCase();
+        return jinxsToDisplay.filter((j: any) =>
+            j.name?.toLowerCase().includes(q) || j.group?.toLowerCase().includes(q) || j.description?.toLowerCase().includes(q)
+        );
+    }, [jinxsToDisplay, jinxSearch]);
+
+    // Auto-focus search inputs when dropdowns open
+    useEffect(() => {
+        if (showModelsDropdown) {
+            setModelSearch('');
+            setTimeout(() => modelSearchRef.current?.focus(), 50);
+        }
+    }, [showModelsDropdown]);
+
+    useEffect(() => {
+        if (showNpcsDropdown) {
+            setNpcSearch('');
+            setTimeout(() => npcSearchRef.current?.focus(), 50);
+        }
+    }, [showNpcsDropdown]);
+
+    useEffect(() => {
+        if (showJinxDropdown) {
+            setJinxSearch('');
+            setTimeout(() => jinxSearchRef.current?.focus(), 50);
+        }
+    }, [showJinxDropdown]);
+
+    // Parse jinx inputs and separate into config (has defaults) vs required (no defaults)
+    const { jinxConfigInputs, jinxRequiredInputs } = useMemo(() => {
+        if (!isJinxMode || !selectedJinx?.inputs) return { jinxConfigInputs: [], jinxRequiredInputs: [] };
+
+        const config: any[] = [];
+        const required: any[] = [];
+
+        selectedJinx.inputs.forEach((rawDef: any, idx: number) => {
+            let name: string;
+            let defaultVal: string;
+
+            if (typeof rawDef === 'string') {
+                name = rawDef;
+                defaultVal = '';
+            } else {
+                name = Object.keys(rawDef)[0] || `input_${idx}`;
+                const rawVal = rawDef[name];
+                // Convert to string safely - handles numbers, objects, etc.
+                defaultVal = rawVal != null ? String(rawVal) : '';
+            }
+
+            const inp = { name, defaultVal };
+            if (defaultVal && defaultVal.trim() !== '') {
+                config.push(inp);
+            } else {
+                required.push(inp);
+            }
+        });
+
+        return { jinxConfigInputs: config, jinxRequiredInputs: required };
+    }, [isJinxMode, selectedJinx]);
+
+    // Helper to get placeholder hints for jinx inputs
+    const getInputPlaceholder = (name: string): string => {
+        const n = name.toLowerCase();
+        if (n.includes('path') || n.includes('file') || n.includes('dir')) return `e.g. ~/documents/file.txt`;
+        if (n.includes('url') || n.includes('link')) return `e.g. https://example.com`;
+        if (n.includes('model')) return `e.g. gpt-4, llama3.2`;
+        if (n.includes('query') || n.includes('sql')) return `e.g. SELECT * FROM table`;
+        if (n.includes('prompt') || n.includes('text') || n.includes('content')) return `Enter ${name}...`;
+        if (n.includes('code')) return `# Enter code here...`;
+        if (n.includes('json')) return `{ "key": "value" }`;
+        if (n.includes('regex') || n.includes('pattern')) return `e.g. ^[a-z]+$`;
+        if (n.includes('email')) return `e.g. user@example.com`;
+        if (n.includes('name')) return `e.g. my_${n}`;
+        if (n.includes('id')) return `e.g. abc123`;
+        if (n.includes('num') || n.includes('count') || n.includes('limit')) return `e.g. 10`;
+        if (n.includes('date')) return `e.g. 2024-01-15`;
+        if (n.includes('time')) return `e.g. 14:30`;
+        if (n.includes('tag') || n.includes('label')) return `e.g. tag1, tag2`;
+        if (n.includes('schema')) return `e.g. public, main`;
+        if (n.includes('table')) return `e.g. users, orders`;
+        if (n.includes('column') || n.includes('field')) return `e.g. id, name, email`;
+        if (n.includes('db') || n.includes('database')) return `e.g. mydb.sqlite`;
+        return `Enter ${name}`;
+    };
+
+    // Calculate minimum height for jinx inputs - use 2 cols max, scrollable for many inputs
+    const jinxMinHeight = useMemo(() => {
+        if (!isJinxMode) return 140; // Chat mode base
+        if (jinxRequiredInputs.length === 0) return 140; // No required inputs
+        const hasTextArea = jinxRequiredInputs.some((inp: any) =>
+            ['code', 'prompt', 'query', 'content', 'text', 'command', 'description'].includes(inp.name.toLowerCase())
+        );
+        const inputCount = jinxRequiredInputs.length;
+        // Max 2 columns for readability
+        const cols = inputCount <= 3 ? 1 : 2;
+        const rows = Math.ceil(inputCount / cols);
+        // 90px per input row (label + input + gap), 120px for textarea
+        const inputsHeight = (rows * 90) + (hasTextArea ? 120 : 0);
+        // 100px base for selector rows + padding
+        return Math.min(100 + inputsHeight, 550);
+    }, [isJinxMode, jinxRequiredInputs]);
+
+    // Auto-adjust height when jinx mode changes or inputs change
+    useEffect(() => {
+        if (jinxMinHeight > inputHeight) {
+            setInputHeight(jinxMinHeight);
+        }
+    }, [jinxMinHeight]);
+
     const inputStr = typeof input === 'string' ? input : '';
     const hasContextFiles = contextFiles.length > 0;
     const hasInputContent = inputStr.trim() || uploadedFiles.length > 0 || hasJinxContent || hasContextFiles;
@@ -308,6 +593,97 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
         }
     };
 
+    // Handle paste - images and large text become file attachments
+    const handlePaste = async (e: React.ClipboardEvent) => {
+        const clipboardData = e.clipboardData;
+        if (!clipboardData) return;
+
+        // Check for images in clipboard
+        const items = Array.from(clipboardData.items);
+        const imageItem = items.find(item => item.type.startsWith('image/'));
+
+        if (imageItem) {
+            e.preventDefault();
+            const blob = imageItem.getAsFile();
+            if (blob) {
+                const timestamp = Date.now();
+                const ext = imageItem.type.split('/')[1] || 'png';
+                const fileName = `pasted-image-${timestamp}.${ext}`;
+
+                // Create object URL for preview
+                const preview = URL.createObjectURL(blob);
+
+                // Save to temp file via API and get path
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64 = (reader.result as string).split(',')[1];
+                    try {
+                        const result = await (window as any).api?.saveTempFile?.({
+                            name: fileName,
+                            data: base64,
+                            encoding: 'base64'
+                        });
+
+                        setUploadedFiles((prev: any[]) => [...prev, {
+                            id: Math.random().toString(36).substr(2, 9),
+                            name: fileName,
+                            type: imageItem.type,
+                            path: result?.path || null,
+                            size: blob.size,
+                            preview: preview
+                        }]);
+                    } catch (err) {
+                        console.error('Failed to save pasted image:', err);
+                        // Still add with blob URL even if temp save fails
+                        setUploadedFiles((prev: any[]) => [...prev, {
+                            id: Math.random().toString(36).substr(2, 9),
+                            name: fileName,
+                            type: imageItem.type,
+                            path: null,
+                            size: blob.size,
+                            preview: preview,
+                            blob: blob
+                        }]);
+                    }
+                };
+                reader.readAsDataURL(blob);
+            }
+            return;
+        }
+
+        // Check for large text paste (>500 chars)
+        const text = clipboardData.getData('text/plain');
+        if (text && text.length > 500) {
+            e.preventDefault();
+            const timestamp = Date.now();
+            const fileName = `pasted-text-${timestamp}.txt`;
+
+            try {
+                const result = await (window as any).api?.saveTempFile?.({
+                    name: fileName,
+                    data: text,
+                    encoding: 'utf8'
+                });
+
+                setUploadedFiles((prev: any[]) => [...prev, {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name: fileName,
+                    type: 'text/plain',
+                    path: result?.path || null,
+                    size: text.length,
+                    preview: null
+                }]);
+            } catch (err) {
+                console.error('Failed to save pasted text:', err);
+                // Fallback: just paste inline if temp save fails
+                setInput(input + text);
+            }
+            return;
+        }
+
+        // For small text, let default paste behavior happen
+    };
+
     const handleAttachFileClick = async () => {
         try {
             const fileData = await (window as any).api.showOpenDialog({
@@ -401,11 +777,18 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             onKeyDown={(e) => {
                                 if (!isStreaming && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                                     e.preventDefault();
-                                    handleInputSubmit(e, { voiceInput: usedVoiceInput });
-                                    setUsedVoiceInput(false);
+                                    // Auto-broadcast if multiple models/NPCs selected
+                                    const shouldBroadcast = onBroadcast && selectedModels.length > 0 && selectedNPCs.length > 0 && (selectedModels.length > 1 || selectedNPCs.length > 1);
+                                    if (shouldBroadcast) {
+                                        onBroadcast(selectedModels, selectedNPCs);
+                                    } else {
+                                        handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                        setUsedVoiceInput(false);
+                                    }
                                     setIsInputExpanded(false);
                                 }
                             }}
+                            onPaste={handlePaste}
                             placeholder={isStreaming ? "Streaming..." : "Type a message... (Ctrl+Enter to send)"}
                             className="w-full h-full theme-input text-base rounded-lg p-4 focus:outline-none border-0 resize-none bg-transparent"
                             disabled={isStreaming}
@@ -419,7 +802,16 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 Stop
                             </button>
                         ) : (
-                            <button onClick={(e) => { handleInputSubmit(e, { voiceInput: usedVoiceInput }); setUsedVoiceInput(false); setIsInputExpanded(false); }} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center gap-1 disabled:opacity-50">
+                            <button onClick={(e) => {
+                                const shouldBroadcast = onBroadcast && selectedModels.length > 0 && selectedNPCs.length > 0 && (selectedModels.length > 1 || selectedNPCs.length > 1);
+                                if (shouldBroadcast) {
+                                    onBroadcast(selectedModels, selectedNPCs);
+                                } else {
+                                    handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                    setUsedVoiceInput(false);
+                                }
+                                setIsInputExpanded(false);
+                            }} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center gap-1 disabled:opacity-50">
                                 <Send size={16}/> Send
                             </button>
                         )}
@@ -433,7 +825,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
         <div
             ref={containerRef}
             className="border-t theme-border theme-bg-secondary flex-shrink-0 relative"
-            style={{ height: `${inputHeight}px`, minHeight: '80px', maxHeight: '400px' }}
+            style={{ height: `${inputHeight}px`, minHeight: isJinxMode ? `${jinxMinHeight}px` : '200px', maxHeight: '600px' }}
             onFocus={onFocus}
         >
             {/* Resize handle */}
@@ -456,6 +848,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     </div>
                 )}
 
+                {/* Input area - moved above selectors */}
                 <div className="flex-1 overflow-hidden flex flex-col">
                     <ContextFilesPanel
                         isCollapsed={contextFilesCollapsed}
@@ -469,60 +862,133 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     <div className="flex-1 flex items-stretch p-2 gap-2">
                         <div className="flex-grow relative h-full">
                             {isJinxMode ? (
-                                <div className="flex flex-col gap-2 w-full">
-                                    {selectedJinx.inputs?.map((rawInputDef: any, idx: number) => {
-                                        const inputDef = typeof rawInputDef === 'string' ? { [rawInputDef]: "" } : rawInputDef;
-                                        const inputName = Object.keys(inputDef)[0] || `input_${idx}`;
-                                        const inputPlaceholder = inputDef[inputName] || '';
-                                        const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command'].includes(inputName.toLowerCase());
+                                <div className="flex flex-col h-full">
+                                    {/* Required inputs only (no defaults) - config inputs are in the settings dropdown */}
+                                    <div className="flex-1 p-2 overflow-y-auto">
+                                        {jinxRequiredInputs.length > 0 ? (
+                                            <div className={`grid gap-4 ${
+                                                jinxRequiredInputs.length <= 3 ? 'grid-cols-1' : 'grid-cols-2'
+                                            }`}>
+                                                {jinxRequiredInputs.map((inp: any, idx: number) => {
+                                                    const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command', 'description'].includes(inp.name.toLowerCase());
+                                                    const isFirst = idx === 0;
+                                                    const placeholder = getInputPlaceholder(inp.name);
 
-                                        return (
-                                            <div key={`${selectedJinx.name}-${inputName}`} className="flex flex-col">
-                                                <label className="text-xs theme-text-muted mb-1 capitalize">{inputName}:</label>
-                                                {isTextArea ? (
-                                                    <textarea
-                                                        value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                        onChange={(e) => setJinxInputValues((prev: any) => ({
-                                                            ...prev,
-                                                            [selectedJinx.name]: { ...prev[selectedJinx.name], [inputName]: e.target.value }
-                                                        }))}
-                                                        placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                        className="theme-input text-sm rounded px-2 py-1 border min-h-[40px] resize-vertical"
-                                                        rows={2}
-                                                        disabled={isStreaming}
-                                                    />
-                                                ) : (
-                                                    <input
-                                                        type="text"
-                                                        value={jinxInputValues[selectedJinx.name]?.[inputName] || ''}
-                                                        onChange={(e) => setJinxInputValues((prev: any) => ({
-                                                            ...prev,
-                                                            [selectedJinx.name]: { ...prev[selectedJinx.name], [inputName]: e.target.value }
-                                                        }))}
-                                                        placeholder={inputPlaceholder || `Enter ${inputName}...`}
-                                                        className="theme-input text-sm rounded px-2 py-1 border"
-                                                        disabled={isStreaming}
-                                                    />
-                                                )}
+                                                    return (
+                                                        <div key={`${selectedJinx.name}-${inp.name}`} className={`relative ${isTextArea ? 'col-span-full' : ''}`}>
+                                                            <label className="text-[10px] text-purple-400 uppercase mb-1 block font-medium tracking-wide">{inp.name}</label>
+                                                            {isTextArea ? (
+                                                                <textarea
+                                                                    ref={isFirst ? firstJinxInputRef as any : undefined}
+                                                                    tabIndex={idx + 1}
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inp.name] || ''}
+                                                                    onChange={(e) => setJinxInputValues((prev: any) => ({
+                                                                        ...prev,
+                                                                        [selectedJinx.name]: { ...prev[selectedJinx.name], [inp.name]: e.target.value }
+                                                                    }))}
+                                                                    placeholder={placeholder}
+                                                                    className="w-full text-sm bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all resize-none placeholder-gray-500"
+                                                                    rows={3}
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            ) : (
+                                                                <input
+                                                                    ref={isFirst ? firstJinxInputRef as any : undefined}
+                                                                    tabIndex={idx + 1}
+                                                                    type="text"
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inp.name] || ''}
+                                                                    onChange={(e) => setJinxInputValues((prev: any) => ({
+                                                                        ...prev,
+                                                                        [selectedJinx.name]: { ...prev[selectedJinx.name], [inp.name]: e.target.value }
+                                                                    }))}
+                                                                    placeholder={placeholder}
+                                                                    className="w-full text-sm bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all placeholder-gray-500"
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
-                                        );
-                                    })}
+                                        ) : (
+                                            <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                                                {jinxConfigInputs.length > 0 ? 'Configure defaults above ↑' : 'No inputs'}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             ) : (
-                                <textarea
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleInputSubmit(e, { voiceInput: usedVoiceInput });
-                                            setUsedVoiceInput(false);
-                                        }
-                                    }}
-                                    placeholder={isStreaming ? "Streaming..." : "Type a message..."}
-                                    className={`w-full h-full theme-input text-sm rounded-lg pl-3 pr-16 py-2 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70' : ''}`}
-                                    disabled={isStreaming}
-                                />
+                                <div className="relative h-full">
+                                    <textarea
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            // Handle Enter to load suggested jinx
+                                            if (showJinxSuggestion && detectedJinx && e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                setExecutionMode(detectedJinx.name);
+                                                setSelectedJinx(detectedJinx);
+                                                setInput('');
+                                                setShowJinxSuggestion(false);
+                                                setDetectedJinx(null);
+                                                return;
+                                            }
+                                            if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                // Auto-broadcast if multiple models/NPCs selected
+                                                const shouldBroadcast = onBroadcast && selectedModels.length > 0 && selectedNPCs.length > 0 && (selectedModels.length > 1 || selectedNPCs.length > 1);
+                                                if (shouldBroadcast) {
+                                                    onBroadcast(selectedModels, selectedNPCs);
+                                                } else {
+                                                    handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                                    setUsedVoiceInput(false);
+                                                }
+                                            }
+                                            // Escape to dismiss suggestion
+                                            if (e.key === 'Escape' && showJinxSuggestion) {
+                                                setShowJinxSuggestion(false);
+                                                setDetectedJinx(null);
+                                            }
+                                        }}
+                                        onPaste={handlePaste}
+                                        placeholder={isStreaming ? "Streaming..." : "Type a message... (use /jinx to run a jinx)"}
+                                        className={`w-full h-full theme-input text-sm rounded-lg pl-3 pr-16 py-2 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70' : ''}`}
+                                        disabled={isStreaming}
+                                    />
+                                    {/* Jinx suggestion popup */}
+                                    {showJinxSuggestion && detectedJinx && (
+                                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-gradient-to-r from-purple-900/95 to-pink-900/95 backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden z-50">
+                                            <button
+                                                onClick={() => {
+                                                    setExecutionMode(detectedJinx.name);
+                                                    setSelectedJinx(detectedJinx);
+                                                    setInput('');
+                                                    setShowJinxSuggestion(false);
+                                                    setDetectedJinx(null);
+                                                }}
+                                                className="w-full px-3 py-2 flex items-center gap-3 hover:bg-white/10 transition-colors"
+                                            >
+                                                <div className="w-8 h-8 rounded-lg bg-purple-500/30 flex items-center justify-center flex-shrink-0">
+                                                    <Zap size={16} className="text-purple-300" />
+                                                </div>
+                                                <div className="flex-1 text-left">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-medium text-purple-100">{detectedJinx.name}</span>
+                                                        {detectedJinx.group && (
+                                                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300">{detectedJinx.group}</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-[10px] text-purple-300/70">
+                                                        {detectedJinx.inputs?.length || 0} input{(detectedJinx.inputs?.length || 0) !== 1 ? 's' : ''} • Press Enter to load
+                                                    </div>
+                                                </div>
+                                                <div className="text-[10px] text-purple-400 bg-purple-500/20 px-2 py-1 rounded">
+                                                    ↵ Enter
+                                                </div>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             )}
 
                             <div className="absolute top-1 right-1 flex gap-1">
@@ -558,14 +1024,471 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
                             </button>
                         ) : (
-                            <button onClick={(e) => { handleInputSubmit(e, { voiceInput: usedVoiceInput }); setUsedVoiceInput(false); }} disabled={!canSend} className="theme-button-success text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end disabled:opacity-50">
-                                <Send size={16}/>
+                            <button
+                                onClick={(e) => {
+                                    // Auto-broadcast if multiple models/NPCs selected
+                                    const shouldBroadcast = onBroadcast && selectedModels.length > 0 && selectedNPCs.length > 0 && (selectedModels.length > 1 || selectedNPCs.length > 1);
+                                    if (shouldBroadcast && canSend) {
+                                        onBroadcast(selectedModels, selectedNPCs);
+                                    } else {
+                                        handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                        setUsedVoiceInput(false);
+                                    }
+                                }}
+                                disabled={!canSend}
+                                className={`text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end disabled:opacity-50 ${
+                                    selectedModels.length > 1 || selectedNPCs.length > 1
+                                        ? 'bg-purple-600 hover:bg-purple-500'
+                                        : 'theme-button-success'
+                                }`}
+                                title={selectedModels.length > 1 || selectedNPCs.length > 1
+                                    ? `Send to ${selectedModels.length * selectedNPCs.length} combinations`
+                                    : 'Send message'}
+                            >
+                                {selectedModels.length > 1 || selectedNPCs.length > 1 ? (
+                                    <>
+                                        <GitBranch size={14} />
+                                        <span className="text-xs">{selectedModels.length * selectedNPCs.length}</span>
+                                    </>
+                                ) : (
+                                    <Send size={16}/>
+                                )}
                             </button>
                         )}
                     </div>
                 </div>
 
-                {/* MCP tools for tool_agent mode */}
+                {/* Compact selector strip - now below input */}
+                <div className={`px-1.5 py-1 relative z-30 ${isStreaming ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className="flex items-center gap-1">
+                    {/* Mode tile */}
+                    <div className="relative flex-1">
+                        <button
+                            className={`w-full h-9 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+                                executionMode === 'chat'
+                                    ? 'bg-gradient-to-br from-cyan-500/20 to-blue-600/20 text-cyan-300 border border-cyan-500/30 hover:from-cyan-500/30 hover:to-blue-600/30'
+                                    : executionMode === 'tool_agent'
+                                    ? 'bg-gradient-to-br from-amber-500/20 to-orange-600/20 text-amber-300 border border-amber-500/30 hover:from-amber-500/30 hover:to-orange-600/30'
+                                    : 'bg-gradient-to-br from-purple-500/20 to-pink-600/20 text-pink-300 border border-purple-500/30 hover:from-purple-500/30 hover:to-pink-600/30'
+                            }`}
+                            onClick={() => { setShowJinxDropdown(!showJinxDropdown); setShowModelsDropdown(false); setShowNpcsDropdown(false); }}
+                        >
+                            <span className="truncate">
+                                {executionMode === 'chat' ? '💬 Chat' : executionMode === 'tool_agent' ? '🛠 Agent' : (selectedJinx?.name || executionMode)}
+                            </span>
+                            <ChevronDown size={12} className={`transition-transform flex-shrink-0 ${showJinxDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+                        {showJinxDropdown && (
+                            <div className="absolute z-50 left-0 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-64">
+                                <div className="px-2 py-1.5 border-b border-white/5">
+                                    <input
+                                        ref={jinxSearchRef}
+                                        type="text"
+                                        value={jinxSearch}
+                                        onChange={(e) => setJinxSearch(e.target.value)}
+                                        placeholder="Search modes & jinxs..."
+                                        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                    />
+                                </div>
+                                <div className="max-h-64 overflow-y-auto">
+                                    {!jinxSearch.trim() && (
+                                        <div className="p-1 border-b border-white/5">
+                                            <div className="px-2 py-1.5 text-xs rounded cursor-pointer flex items-center gap-2 hover:bg-cyan-500/20 transition-colors" onClick={() => { setExecutionMode('chat'); setSelectedJinx(null); setShowJinxDropdown(false); }}>
+                                                <span>💬</span><span>Chat</span>
+                                            </div>
+                                            <div className="px-2 py-1.5 text-xs rounded cursor-pointer flex items-center gap-2 hover:bg-amber-500/20 transition-colors" onClick={() => { setExecutionMode('tool_agent'); setSelectedJinx(null); setShowJinxDropdown(false); }}>
+                                                <span>🛠</span><span>Agent</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {jinxSearch.trim() ? (
+                                        <div className="p-1">
+                                            {filteredJinxs.length > 0 ? filteredJinxs.map((jinx: any) => (
+                                                <div key={jinx.name} className="px-2 py-1.5 text-xs hover:bg-purple-500/20 rounded cursor-pointer transition-colors flex items-center justify-between" onClick={() => { setExecutionMode(jinx.name); setSelectedJinx(jinx); setShowJinxDropdown(false); }}>
+                                                    <span>{jinx.name}</span>
+                                                    <span className="text-[9px] text-gray-600">{jinx.group}</span>
+                                                </div>
+                                            )) : (
+                                                <div className="px-2 py-3 text-xs text-gray-500 text-center">No matches for "{jinxSearch}"</div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        ['project', 'global'].map(origin => {
+                                            const originJinxs = jinxsToDisplay.filter((j: any) => (j.origin || 'unknown') === origin);
+                                            if (!originJinxs.length) return null;
+                                            const grouped = originJinxs.reduce((acc: any, j: any) => { const g = j.group || 'root'; if (!acc[g]) acc[g] = []; acc[g].push(j); return acc; }, {});
+                                            return (
+                                                <div key={origin} className="border-t border-white/5">
+                                                    <div className="px-2 py-1 text-[9px] uppercase text-gray-500">{origin === 'project' ? '📁 Project' : '🌐 Global'}</div>
+                                                    {Object.entries(grouped).filter(([g]) => g.toLowerCase() !== 'modes').sort(([a], [b]) => a.localeCompare(b)).map(([gName, jinxs]: [string, any]) => (
+                                                        <details key={`${origin}-${gName}`} className="px-1">
+                                                            <summary className="px-2 py-1 text-xs cursor-pointer flex items-center gap-1 hover:bg-white/5 rounded"><FolderTree size={10} className="text-purple-400" /> {gName}</summary>
+                                                            <div className="pl-4 pb-1">
+                                                                {jinxs.sort((a: any, b: any) => a.name.localeCompare(b.name)).map((jinx: any) => (
+                                                                    <div key={jinx.name} className="px-2 py-1 text-xs hover:bg-purple-500/20 rounded cursor-pointer transition-colors" onClick={() => { setExecutionMode(jinx.name); setSelectedJinx(jinx); setShowJinxDropdown(false); }}>{jinx.name}</div>
+                                                                ))}
+                                                            </div>
+                                                        </details>
+                                                    ))}
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Model tile - multi-select */}
+                    <div className="relative flex-1" ref={modelsDropdownRef}>
+                        <button
+                            className={`w-full h-9 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+                                selectedModels.length > 1
+                                    ? 'bg-gradient-to-br from-blue-500/30 to-indigo-600/30 text-blue-200 border border-blue-400/40'
+                                    : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10'
+                            }`}
+                            disabled={modelsLoading || !!modelsError}
+                            onClick={() => { setShowModelsDropdown(!showModelsDropdown); setShowNpcsDropdown(false); setShowJinxDropdown(false); }}
+                        >
+                            {selectedModels.length > 1 && (
+                                <span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-bold flex-shrink-0">{selectedModels.length}</span>
+                            )}
+                            <span className="truncate">
+                                {modelsLoading ? '...' : modelsError ? 'Error' :
+                                    selectedModels.length === 1 ? ((modelsToDisplay.find((m: any) => m.value === selectedModels[0])?.display_name || selectedModels[0]).split(' | ')[0]) : selectedModels.length === 0 ? 'Model' : 'Models'
+                                }
+                            </span>
+                            <ChevronDown size={12} className={`transition-transform flex-shrink-0 ${showModelsDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+                        {showModelsDropdown && !modelsLoading && !modelsError && (
+                            <div className="absolute z-50 left-0 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-72">
+                                <div className="px-2 py-1.5 border-b border-white/5">
+                                    <input
+                                        ref={modelSearchRef}
+                                        type="text"
+                                        value={modelSearch}
+                                        onChange={(e) => setModelSearch(e.target.value)}
+                                        placeholder="Search models..."
+                                        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500/50"
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                    />
+                                </div>
+                                <div className="px-2 py-1 border-b border-white/5 flex items-center justify-between">
+                                    <button
+                                        onClick={() => setBroadcastMode(!broadcastMode)}
+                                        className={`text-[9px] px-1.5 py-0.5 rounded ${broadcastMode ? 'bg-purple-500/30 text-purple-300' : 'bg-white/5 text-gray-500 hover:text-gray-300'}`}
+                                    >
+                                        {broadcastMode ? '● Multi' : '○ Single'}
+                                    </button>
+                                    <div className="flex gap-2">
+                                        {broadcastMode && <button onClick={() => setSelectedModels(filteredModels.map((m: any) => m.value))} className="text-[9px] text-blue-400 hover:text-blue-300">All</button>}
+                                        <button onClick={() => setSelectedModels(currentModel ? [currentModel] : [])} className="text-[9px] text-gray-400 hover:text-gray-300">Reset</button>
+                                        <button onClick={() => toggleFavoriteModel(currentModel)} className={`${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'text-gray-500 hover:text-yellow-400'}`}><Star size={10} /></button>
+                                        <button onClick={() => setShowAllModels(!showAllModels)} className={`${!showAllModels && favoriteModels.size > 0 ? 'text-blue-400' : 'text-gray-500'}`}><ListFilter size={10} /></button>
+                                    </div>
+                                </div>
+                                <div className="max-h-64 overflow-y-auto p-1">
+                                    {filteredModels.map((m: any, idx: number) => {
+                                        const checked = selectedModels.includes(m.value);
+                                        return (
+                                            <div key={`${m.value}-${idx}`} className={`px-2 py-1.5 text-xs rounded cursor-pointer flex items-center gap-2 transition-all ${checked ? 'bg-blue-500/20 text-blue-200' : 'hover:bg-white/5'}`}
+                                                onClick={() => {
+                                                    if (broadcastMode) {
+                                                        // Multi-select: toggle
+                                                        setSelectedModels(prev => prev.includes(m.value) ? (prev.length === 1 ? prev : prev.filter(x => x !== m.value)) : [...prev, m.value]);
+                                                    } else {
+                                                        // Single-select: replace
+                                                        setSelectedModels([m.value]);
+                                                    }
+                                                    if (!checked) { setCurrentModel(m.value); if (m.provider) setCurrentProvider(m.provider); }
+                                                }}>
+                                                <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'bg-blue-500 border-blue-500' : 'border-gray-600'}`}>
+                                                    {checked && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                                                </div>
+                                                <span className="truncate flex-1">{m.display_name}</span>
+                                                {m.provider && <span className="text-[9px] text-gray-600 flex-shrink-0">{m.provider}</span>}
+                                                {favoriteModels.has(m.value) && <Star size={9} className="text-yellow-400 flex-shrink-0" />}
+                                            </div>
+                                        );
+                                    })}
+                                    {filteredModels.length === 0 && (
+                                        <div className="px-2 py-3 text-xs text-gray-500 text-center">No models match "{modelSearch}"</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* NPC tile - multi-select */}
+                    <div className="relative flex-1" ref={npcsDropdownRef}>
+                        <button
+                            className={`w-full h-9 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+                                selectedNPCs.length > 1
+                                    ? 'bg-gradient-to-br from-green-500/30 to-emerald-600/30 text-green-200 border border-green-400/40'
+                                    : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10'
+                            }`}
+                            disabled={npcsLoading || !!npcsError}
+                            onClick={() => { setShowNpcsDropdown(!showNpcsDropdown); setShowModelsDropdown(false); setShowJinxDropdown(false); }}
+                        >
+                            {selectedNPCs.length > 1 && (
+                                <span className="w-5 h-5 rounded bg-green-500 text-white text-[10px] flex items-center justify-center font-bold flex-shrink-0">{selectedNPCs.length}</span>
+                            )}
+                            <span className="truncate">
+                                {npcsLoading ? '...' : npcsError ? 'Error' :
+                                    selectedNPCs.length === 1 ? ((availableNPCs.find((n: any) => n.value === selectedNPCs[0])?.display_name || selectedNPCs[0]).split(' | ')[0]) : selectedNPCs.length === 0 ? 'NPC' : 'NPCs'
+                                }
+                            </span>
+                            <ChevronDown size={12} className={`transition-transform flex-shrink-0 ${showNpcsDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+                        {showNpcsDropdown && !npcsLoading && !npcsError && (
+                            <div className="absolute z-50 left-0 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-64">
+                                <div className="px-2 py-1.5 border-b border-white/5">
+                                    <input
+                                        ref={npcSearchRef}
+                                        type="text"
+                                        value={npcSearch}
+                                        onChange={(e) => setNpcSearch(e.target.value)}
+                                        placeholder="Search NPCs..."
+                                        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-500/50"
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                    />
+                                </div>
+                                <div className="px-2 py-1 border-b border-white/5 flex items-center justify-between">
+                                    <button
+                                        onClick={() => setBroadcastMode(!broadcastMode)}
+                                        className={`text-[9px] px-1.5 py-0.5 rounded ${broadcastMode ? 'bg-purple-500/30 text-purple-300' : 'bg-white/5 text-gray-500 hover:text-gray-300'}`}
+                                    >
+                                        {broadcastMode ? '● Multi' : '○ Single'}
+                                    </button>
+                                    <div className="flex gap-2">
+                                        {broadcastMode && <button onClick={() => setSelectedNPCs(filteredNPCs.map((n: any) => n.value))} className="text-[9px] text-green-400 hover:text-green-300">All</button>}
+                                        <button onClick={() => setSelectedNPCs([])} className="text-[9px] text-gray-400 hover:text-gray-300">Reset</button>
+                                    </div>
+                                </div>
+                                <div className="max-h-64 overflow-y-auto p-1">
+                                    {filteredNPCs.map((npc: any) => {
+                                        const npcKey = npc.value;
+                                        const checked = selectedNPCs.includes(npcKey);
+                                        const teamPath = npc.source === 'project' ? '📁' : npc.source === 'global' ? '🌐' : '';
+                                        return (
+                                            <div key={`${npc.source}-${npc.value}`} className={`px-2 py-1.5 text-xs rounded cursor-pointer flex items-center gap-2 transition-all ${checked ? 'bg-green-500/20 text-green-200' : 'hover:bg-white/5'}`}
+                                                onClick={() => {
+                                                    if (broadcastMode) {
+                                                        // Multi-select: toggle
+                                                        setSelectedNPCs(prev => prev.includes(npcKey) ? (prev.length === 1 ? prev : prev.filter(x => x !== npcKey)) : [...prev, npcKey]);
+                                                    } else {
+                                                        // Single-select: replace
+                                                        setSelectedNPCs([npcKey]);
+                                                    }
+                                                    if (!checked) setCurrentNPC(npc.value);
+                                                }}>
+                                                <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'bg-green-500 border-green-500' : 'border-gray-600'}`}>
+                                                    {checked && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                                                </div>
+                                                <span className="truncate flex-1">{npc.display_name}</span>
+                                                <span className="text-[9px] text-gray-600 flex-shrink-0">{teamPath}</span>
+                                            </div>
+                                        );
+                                    })}
+                                    {filteredNPCs.length === 0 && (
+                                        <div className="px-2 py-3 text-xs text-gray-500 text-center">No NPCs match "{npcSearch}"</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Params tile OR Jinx Config tile when in jinx mode */}
+                    {isJinxMode ? (
+                        <div className="relative flex-1" ref={jinxConfigDropdownRef}>
+                            <button
+                                className="w-full h-8 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 bg-gradient-to-br from-purple-500/20 to-pink-500/20 text-purple-300 border border-purple-500/30 hover:from-purple-500/30 hover:to-pink-500/30 px-2"
+                                onClick={() => { setShowJinxConfigDropdown(!showJinxConfigDropdown); setShowModelsDropdown(false); setShowNpcsDropdown(false); setShowJinxDropdown(false); }}
+                            >
+                                <Zap size={10} className="flex-shrink-0 text-purple-400" />
+                                <span className="text-[10px] text-purple-200 truncate">{selectedJinx.name} settings</span>
+                                <ChevronDown size={10} className={`transition-transform flex-shrink-0 text-purple-400 ${showJinxConfigDropdown ? 'rotate-180' : ''}`} />
+                            </button>
+                            {showJinxConfigDropdown && jinxConfigInputs.length > 0 && (
+                                <div className="absolute z-50 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden w-80">
+                                    <div className="px-3 py-2 border-b border-purple-500/20 flex items-center justify-between bg-gradient-to-r from-purple-900/30 to-pink-900/30">
+                                        <span className="text-[10px] uppercase text-purple-300 font-medium flex items-center gap-1.5">
+                                            <Zap size={10} /> {selectedJinx.name} Defaults
+                                        </span>
+                                        <span className="text-[9px] text-purple-500">{jinxConfigInputs.length} configurable</span>
+                                    </div>
+                                    <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
+                                        {jinxConfigInputs.map((inp: any) => {
+                                            const currentVal = jinxInputValues[selectedJinx.name]?.[inp.name] ?? inp.defaultVal;
+                                            return (
+                                                <div key={inp.name}>
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <label className="text-[11px] text-purple-300 font-medium">{inp.name}</label>
+                                                        <span className="text-[9px] text-gray-600">default: {inp.defaultVal.length > 20 ? inp.defaultVal.slice(0, 18) + '…' : inp.defaultVal}</span>
+                                                    </div>
+                                                    <input
+                                                        type="text"
+                                                        value={currentVal}
+                                                        onChange={(e) => setJinxInputValues((prev: any) => ({
+                                                            ...prev,
+                                                            [selectedJinx.name]: { ...prev[selectedJinx.name], [inp.name]: e.target.value }
+                                                        }))}
+                                                        className="w-full text-xs bg-white/5 border border-purple-500/20 rounded px-2 py-1.5 text-gray-200 focus:border-purple-500/50 focus:outline-none"
+                                                        disabled={isStreaming}
+                                                    />
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="relative flex-1" ref={paramsDropdownRef}>
+                            <button
+                                className="w-full h-8 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 px-2"
+                                onClick={() => { setShowParamsDropdown(!showParamsDropdown); setShowModelsDropdown(false); setShowNpcsDropdown(false); setShowJinxDropdown(false); }}
+                            >
+                                <SlidersHorizontal size={10} className="flex-shrink-0 text-gray-500" />
+                                <div className="flex items-center gap-1 text-[9px]">
+                                    <span style={{ color: getParamColor(genParams.temperature, 0, 2) }}>T{genParams.temperature}</span>
+                                    <span className="text-gray-600">·</span>
+                                    <span style={{ color: getParamColor(genParams.top_p, 0, 1) }}>P{genParams.top_p}</span>
+                                    <span className="text-gray-600">·</span>
+                                    <span style={{ color: getParamColor(genParams.top_k, 1, 100) }}>K{genParams.top_k}</span>
+                                </div>
+                                <ChevronDown size={10} className={`transition-transform flex-shrink-0 text-gray-500 ${showParamsDropdown ? 'rotate-180' : ''}`} />
+                            </button>
+                            {showParamsDropdown && (
+                                <div className="absolute z-50 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-72">
+                                    <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
+                                        <span className="text-[10px] uppercase text-gray-500 font-medium flex items-center gap-1.5">
+                                            <SlidersHorizontal size={10} /> Generation Parameters
+                                        </span>
+                                        <span className="text-[9px] text-gray-600">T:{genParams.temperature} P:{genParams.top_p} K:{genParams.top_k}</span>
+                                    </div>
+                                    <div className="p-3 space-y-3">
+                                        {/* Temperature */}
+                                        <div>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <label className="text-[10px] text-gray-400">Temperature</label>
+                                                <input
+                                                    type="number"
+                                                    value={genParams.temperature}
+                                                    onChange={(e) => setGenParams(p => ({ ...p, temperature: Math.max(0, Math.min(2, parseFloat(e.target.value) || 0)) }))}
+                                                    className="w-14 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-right text-gray-200"
+                                                    step="0.1" min="0" max="2"
+                                                />
+                                            </div>
+                                            <input type="range" value={genParams.temperature} onChange={(e) => setGenParams(p => ({ ...p, temperature: parseFloat(e.target.value) }))}
+                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500" min="0" max="2" step="0.1" />
+                                            <div className="flex justify-between text-[9px] text-gray-600 mt-0.5"><span>Precise</span><span>Creative</span></div>
+                                        </div>
+
+                                        {/* Top P */}
+                                        <div>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <label className="text-[10px] text-gray-400">Top P (nucleus)</label>
+                                                <input type="number" value={genParams.top_p} onChange={(e) => setGenParams(p => ({ ...p, top_p: Math.max(0, Math.min(1, parseFloat(e.target.value) || 0)) }))}
+                                                    className="w-14 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-right text-gray-200" step="0.05" min="0" max="1" />
+                                            </div>
+                                            <input type="range" value={genParams.top_p} onChange={(e) => setGenParams(p => ({ ...p, top_p: parseFloat(e.target.value) }))}
+                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500" min="0" max="1" step="0.05" />
+                                        </div>
+
+                                        {/* Top K */}
+                                        <div>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <label className="text-[10px] text-gray-400">Top K</label>
+                                                <input type="number" value={genParams.top_k} onChange={(e) => setGenParams(p => ({ ...p, top_k: Math.max(1, Math.min(100, parseInt(e.target.value) || 1)) }))}
+                                                    className="w-14 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-right text-gray-200" step="1" min="1" max="100" />
+                                            </div>
+                                            <input type="range" value={genParams.top_k} onChange={(e) => setGenParams(p => ({ ...p, top_k: parseInt(e.target.value) }))}
+                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500" min="1" max="100" step="1" />
+                                        </div>
+
+                                        {/* Max Tokens */}
+                                        <div>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <label className="text-[10px] text-gray-400">Max Tokens</label>
+                                                <input type="number" value={genParams.max_tokens} onChange={(e) => setGenParams(p => ({ ...p, max_tokens: Math.max(1, Math.min(32000, parseInt(e.target.value) || 1)) }))}
+                                                    className="w-16 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-right text-gray-200" step="256" min="1" max="32000" />
+                                            </div>
+                                            <input type="range" value={genParams.max_tokens} onChange={(e) => setGenParams(p => ({ ...p, max_tokens: parseInt(e.target.value) }))}
+                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500" min="256" max="32000" step="256" />
+                                        </div>
+
+                                        {/* Built-in Presets */}
+                                        <div className="pt-2 border-t border-white/5">
+                                            <div className="text-[10px] text-gray-500 uppercase mb-2">Presets</div>
+                                            <div className="flex flex-wrap gap-1 mb-2">
+                                                <button onClick={() => setGenParams({ temperature: 0.3, top_p: 0.9, top_k: 40, max_tokens: 4096 })} className="px-2 py-1 text-[10px] bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30">Precise</button>
+                                                <button onClick={() => setGenParams({ temperature: 0.7, top_p: 0.9, top_k: 40, max_tokens: 4096 })} className="px-2 py-1 text-[10px] bg-gray-500/20 text-gray-300 rounded hover:bg-gray-500/30">Balanced</button>
+                                                <button onClick={() => setGenParams({ temperature: 1.0, top_p: 0.95, top_k: 60, max_tokens: 4096 })} className="px-2 py-1 text-[10px] bg-orange-500/20 text-orange-300 rounded hover:bg-orange-500/30">Creative</button>
+                                                <button onClick={() => setGenParams({ temperature: 1.5, top_p: 1.0, top_k: 80, max_tokens: 8192 })} className="px-2 py-1 text-[10px] bg-pink-500/20 text-pink-300 rounded hover:bg-pink-500/30">Wild</button>
+                                            </div>
+
+                                            {/* Custom Presets */}
+                                            {customPresets.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 mb-2">
+                                                    {customPresets.map((preset, i) => (
+                                                        <div key={i} className="flex items-center gap-0.5 bg-cyan-500/20 rounded overflow-hidden">
+                                                            <button onClick={() => setGenParams(preset.params)} className="px-2 py-1 text-[10px] text-cyan-300 hover:bg-cyan-500/30">{preset.name}</button>
+                                                            <button onClick={() => {
+                                                                const updated = customPresets.filter((_, idx) => idx !== i);
+                                                                setCustomPresets(updated);
+                                                                localStorage.setItem('incognide-gen-presets', JSON.stringify(updated));
+                                                            }} className="px-1 py-1 text-cyan-400 hover:bg-red-500/30 hover:text-red-300">
+                                                                <Trash2 size={10} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {/* Save new preset */}
+                                            <div className="flex gap-1 mt-2">
+                                                <input
+                                                    type="text"
+                                                    value={newPresetName}
+                                                    onChange={(e) => setNewPresetName(e.target.value)}
+                                                    placeholder="Preset name..."
+                                                    className="flex-1 text-[10px] bg-white/5 border border-white/10 rounded px-2 py-1 text-gray-200 placeholder-gray-600"
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && newPresetName.trim()) {
+                                                            const updated = [...customPresets, { name: newPresetName.trim(), params: { ...genParams } }];
+                                                            setCustomPresets(updated);
+                                                            localStorage.setItem('incognide-gen-presets', JSON.stringify(updated));
+                                                            setNewPresetName('');
+                                                        }
+                                                    }}
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        if (newPresetName.trim()) {
+                                                            const updated = [...customPresets, { name: newPresetName.trim(), params: { ...genParams } }];
+                                                            setCustomPresets(updated);
+                                                            localStorage.setItem('incognide-gen-presets', JSON.stringify(updated));
+                                                            setNewPresetName('');
+                                                        }
+                                                    }}
+                                                    disabled={!newPresetName.trim()}
+                                                    className="px-2 py-1 text-[10px] bg-green-500/20 text-green-300 rounded hover:bg-green-500/30 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
+                                                >
+                                                    <Save size={10} /> Save
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+                </div>
+
+{/* MCP tools for tool_agent mode */}
                 {executionMode === 'tool_agent' && (
                     <div className="px-2 pb-1 border-t theme-border overflow-visible">
                         <div className="relative w-1/2" ref={mcpDropdownRef}>
@@ -689,109 +1612,6 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     </div>
                 )}
 
-                {/* Bottom controls */}
-                <div className={`flex items-center gap-2 px-2 pb-2 border-t theme-border ${isStreaming ? 'opacity-50' : ''}`}>
-                    {/* Mode selector */}
-                    <div className="relative min-w-[140px]">
-                        <button
-                            className="theme-input text-xs rounded px-2 py-1 border w-full flex items-center justify-between"
-                            disabled={isStreaming}
-                            onClick={() => setShowJinxDropdown(!showJinxDropdown)}
-                            onMouseDown={(e) => e.stopPropagation()}
-                        >
-                            <span className="truncate">
-                                {executionMode === 'chat' && '💬 Chat'}
-                                {executionMode === 'tool_agent' && '🛠 Agent'}
-                                {executionMode !== 'chat' && executionMode !== 'tool_agent' && (selectedJinx?.name || executionMode)}
-                            </span>
-                            <ChevronDown size={12}/>
-                        </button>
-                        {showJinxDropdown && (
-                            <div className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-72 overflow-y-auto">
-                                <div className="px-2 py-1 text-xs theme-hover cursor-pointer" onClick={() => { setExecutionMode('chat'); setSelectedJinx(null); setShowJinxDropdown(false); }}>
-                                    💬 Chat
-                                </div>
-                                <div className="px-2 py-1 text-xs theme-hover cursor-pointer" onClick={() => {
-                                    setExecutionMode('tool_agent'); setSelectedJinx(null); setShowJinxDropdown(false);
-                                }}>
-                                    🛠 Agent
-                                </div>
-                                {['project', 'global'].map(origin => {
-                                    const originJinxs = jinxsToDisplay.filter((j: any) => (j.origin || 'unknown') === origin);
-                                    if (!originJinxs.length) return null;
-                                    const grouped = originJinxs.reduce((acc: any, j: any) => {
-                                        const g = j.group || 'root';
-                                        if (!acc[g]) acc[g] = [];
-                                        acc[g].push(j);
-                                        return acc;
-                                    }, {});
-                                    return (
-                                        <div key={origin} className="border-t theme-border">
-                                            <div className="px-2 py-1 text-[10px] uppercase theme-text-muted">{origin === 'project' ? 'Project' : 'Global'}</div>
-                                            {Object.entries(grouped)
-                                                .filter(([g]) => g.toLowerCase() !== 'modes')
-                                                .sort(([a], [b]) => a.localeCompare(b))
-                                                .map(([gName, jinxs]: [string, any]) => (
-                                                <details key={`${origin}-${gName}`} className="px-2">
-                                                    <summary className="text-xs theme-text-primary cursor-pointer py-1 flex items-center gap-1">
-                                                        <FolderTree size={10}/> {gName}
-                                                    </summary>
-                                                    <div className="pl-3 pb-1 flex flex-col gap-1">
-                                                        {jinxs.sort((a: any, b: any) => a.name.localeCompare(b.name)).map((jinx: any) => (
-                                                            <div key={jinx.name} className="text-xs theme-hover cursor-pointer" onClick={() => { setExecutionMode(jinx.name); setSelectedJinx(jinx); setShowJinxDropdown(false); }}>
-                                                                {jinx.name}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </details>
-                                            ))}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Model selector - center */}
-                    <div className="flex-1 flex items-center justify-center gap-1">
-                        <select
-                            value={currentModel || ''}
-                            onChange={(e) => {
-                                const model = availableModels.find((m: any) => m.value === e.target.value);
-                                setCurrentModel(e.target.value);
-                                if (model?.provider) setCurrentProvider(model.provider);
-                            }}
-                            className="theme-input text-xs rounded px-1 py-1 border max-w-[240px]"
-                            disabled={modelsLoading || !!modelsError || isStreaming}
-                        >
-                            {modelsLoading && <option value="">...</option>}
-                            {modelsError && <option value="">Err</option>}
-                            {!modelsLoading && !modelsError && modelsToDisplay.map((m: any) => (
-                                <option key={m.value} value={m.value}>{m.display_name}</option>
-                            ))}
-                        </select>
-                        <button onClick={() => toggleFavoriteModel(currentModel)} className={`p-0.5 rounded ${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'theme-text-muted hover:text-yellow-400'}`} disabled={!currentModel}>
-                            <Star size={10}/>
-                        </button>
-                        <button onClick={() => setShowAllModels(!showAllModels)} className="p-0.5 theme-hover rounded theme-text-muted" disabled={favoriteModels.size === 0}>
-                            <ListFilter size={10} className={favoriteModels.size === 0 ? 'opacity-30' : ''} />
-                        </button>
-                    </div>
-
-                    {/* NPC selector - right */}
-                    <select
-                        value={currentNPC || ''}
-                        onChange={e => setCurrentNPC(e.target.value)}
-                        className="theme-input text-xs rounded px-1 py-1 border max-w-[200px] ml-auto"
-                        disabled={npcsLoading || !!npcsError || isStreaming}
-                    >
-                        {npcsLoading && <option value="">...</option>}
-                        {npcsError && <option value="">Err</option>}
-                        {!npcsLoading && !npcsError && availableNPCs.map((npc: any) => (
-                            <option key={`${npc.source}-${npc.value}`} value={npc.value}>{npc.display_name}</option>
-                        ))}
-                    </select>
-                </div>
             </div>
         </div>
     );

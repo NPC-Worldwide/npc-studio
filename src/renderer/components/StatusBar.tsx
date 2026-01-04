@@ -1,7 +1,7 @@
 import React from 'react';
 import {
     Folder, MessageSquare, Terminal, Globe, FileText, File as FileIcon,
-    BrainCircuit, ArrowDown
+    BrainCircuit, ArrowDown, HelpCircle
 } from 'lucide-react';
 
 interface PaneItem {
@@ -27,6 +27,8 @@ interface StatusBarProps {
     setAutoScrollEnabled: (enabled: boolean) => void;
     isPredictiveTextEnabled: boolean;
     setIsPredictiveTextEnabled: (enabled: boolean) => void;
+    // Help pane
+    createHelpPane?: () => void;
 }
 
 const StatusBar: React.FC<StatusBarProps> = ({
@@ -41,6 +43,7 @@ const StatusBar: React.FC<StatusBarProps> = ({
     setAutoScrollEnabled,
     isPredictiveTextEnabled,
     setIsPredictiveTextEnabled,
+    createHelpPane,
 }) => {
     return (
         <div className="h-6 flex-shrink-0 theme-bg-tertiary border-t theme-border flex items-center px-2 text-[10px] theme-text-muted gap-2">
@@ -98,7 +101,7 @@ const StatusBar: React.FC<StatusBarProps> = ({
 
             <div className="flex-1" />
 
-            {/* Right side - Auto-scroll and Predictive text toggles */}
+            {/* Right side - Auto-scroll, Predictive text, and Help */}
             <div className="flex items-center gap-1">
                 <button
                     onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
@@ -123,6 +126,13 @@ const StatusBar: React.FC<StatusBarProps> = ({
                 >
                     <BrainCircuit size={12} />
                     <span className="hidden sm:inline">AI</span>
+                </button>
+                <button
+                    onClick={() => createHelpPane?.()}
+                    className="p-1 rounded flex items-center gap-1 text-[10px] theme-hover theme-text-muted"
+                    title="Open Help Pane"
+                >
+                    <HelpCircle size={12} />
                 </button>
             </div>
         </div>

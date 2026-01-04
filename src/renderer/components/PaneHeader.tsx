@@ -1,22 +1,18 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { X, Maximize2, Minimize2, Check, Play, Plus, MessageSquare, Terminal, Globe, BookOpen, FileText } from 'lucide-react';
+import { Check, Play, Plus, MessageSquare, Terminal, Globe, BookOpen, Code2, FlaskConical, X, Maximize2, Minimize2 } from 'lucide-react';
 
 export const PaneHeader = React.memo(({
     nodeId,
     icon,
     title,
-    children, // This is where extra buttons will be passed
+    children,
     findNodePath,
     rootLayoutNode,
     setDraggedItem,
     setPaneContextMenu,
-    closeContentPane,
     fileChanged,
     onSave,
     onStartRename,
-    isZenMode,
-    onToggleZenMode,
-    // Renaming props
     isRenaming,
     editedFileName,
     setEditedFileName,
@@ -24,9 +20,11 @@ export const PaneHeader = React.memo(({
     onCancelRename,
     filePath,
     onRunScript,
-    // Tab support
     onAddTab,
-    hasMultipleTabs
+    hasMultipleTabs,
+    onClose,
+    onToggleZen,
+    isZenMode
 }) => {
     const isPythonFile = filePath?.endsWith('.py');
     const nodePath = findNodePath(rootLayoutNode, nodeId);
@@ -60,7 +58,6 @@ export const PaneHeader = React.memo(({
                 }
                 e.dataTransfer.effectAllowed = 'move';
                 e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
-
                 setTimeout(() => {
                     setDraggedItem({ type: 'pane', id: nodeId, nodePath });
                 }, 0);
@@ -77,94 +74,112 @@ export const PaneHeader = React.memo(({
                     nodePath
                 });
             }}
-            className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                width: '100%',
+                minWidth: 0,
+                maxWidth: '100%',
+                minHeight: '32px',
+                borderBottom: '1px solid var(--border-color, #374151)',
+                fontSize: '12px',
+                flexShrink: 0,
+                cursor: 'move',
+                boxSizing: 'border-box'
+            }}
+            className="theme-bg-secondary theme-border theme-text-muted"
         >
-            <div className="flex justify-between items-center min-h-[28px] w-full">
-                <div className="flex items-center gap-2 truncate min-w-0">
-                    {icon}
-                    {isRenaming && filePath ? (
-                        <div className="flex items-center gap-1">
-                            <input
-                                ref={inputRef}
-                                type="text"
-                                value={editedFileName}
-                                onChange={(e) => setEditedFileName?.(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                onBlur={() => onCancelRename?.()}
-                                className="px-1 py-0.5 text-xs theme-bg-tertiary theme-border border rounded outline-none focus:ring-1 focus:ring-blue-500 w-40"
-                                onClick={(e) => e.stopPropagation()}
-                            />
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onConfirmRename?.();
-                                }}
-                                onMouseDown={(e) => e.preventDefault()}
-                                className="p-0.5 theme-hover rounded text-green-400"
-                            >
-                                <Check size={12} />
-                            </button>
-                        </div>
-                    ) : (
-                        <span
-                            className="truncate font-semibold cursor-pointer hover:bg-gray-700 px-1 rounded"
-                            title={filePath ? `Double-click to rename: ${title}` : title}
-                            onDoubleClick={(e) => {
-                                e.stopPropagation();
-                                if (onStartRename && filePath) {
-                                    onStartRename();
-                                }
-                            }}
-                        >
-                            {title}{fileChanged ? ' *' : ''}
-                        </span>
-                    )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                    {children} {/* This is where the extra buttons will render */}
+            {/* Expand/Zen button - left side, always visible */}
+            <button
+                onClick={(e) => { e.stopPropagation(); onToggleZen?.(); }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className={`p-1.5 theme-hover rounded flex-shrink-0 ${isZenMode ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
+                title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
+            >
+                {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
 
-                    {/* Add Tab button */}
+            {/* Content - can shrink */}
+            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '4px 8px', gap: '8px' }}>
+                <span style={{ flexShrink: 0 }}>{icon}</span>
+
+                {isRenaming && filePath ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            value={editedFileName}
+                            onChange={(e) => setEditedFileName?.(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onBlur={() => onCancelRename?.()}
+                            className="px-1 py-0.5 text-xs theme-bg-tertiary theme-border border rounded outline-none focus:ring-1 focus:ring-blue-500"
+                            style={{ width: '120px' }}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onConfirmRename?.(); }}
+                            onMouseDown={(e) => e.preventDefault()}
+                            className="p-0.5 theme-hover rounded text-green-400"
+                        >
+                            <Check size={12} />
+                        </button>
+                    </div>
+                ) : (
+                    <span
+                        style={{
+                            flex: '0 1 auto',
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontWeight: 600
+                        }}
+                        title={filePath ? `Double-click to rename: ${title}` : title}
+                        onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            if (onStartRename && filePath) onStartRename();
+                        }}
+                    >
+                        {title}{fileChanged ? ' *' : ''}
+                    </span>
+                )}
+
+                {/* Buttons area - can shrink and hide */}
+                <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+                    {children}
+
                     {onAddTab && (
-                        <div className="relative">
+                        <div style={{ position: 'relative', flexShrink: 0 }}>
                             <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowAddTabMenu(!showAddTabMenu);
-                                }}
+                                onClick={(e) => { e.stopPropagation(); setShowAddTabMenu(!showAddTabMenu); }}
                                 onMouseDown={(e) => e.stopPropagation()}
-                                className="p-1 theme-hover rounded-full flex-shrink-0 transition-all hover:bg-blue-500/20"
-                                aria-label="Add new tab"
-                                title="Add new tab to this pane"
+                                className="p-1 theme-hover rounded-full"
+                                title="Add new tab"
                             >
                                 <Plus size={14} className="text-blue-400" />
                             </button>
                             {showAddTabMenu && (
                                 <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setShowAddTabMenu(false)} />
+                                    <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setShowAddTabMenu(false)} />
                                     <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[140px] py-1">
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); onAddTab('chat'); setShowAddTabMenu(false); }}
-                                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"
-                                        >
+                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('chat'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
                                             <MessageSquare size={12} className="text-blue-400" /> Chat
                                         </button>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); onAddTab('terminal'); setShowAddTabMenu(false); }}
-                                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"
-                                        >
+                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('terminal'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
                                             <Terminal size={12} className="text-green-400" /> Terminal
                                         </button>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); onAddTab('browser'); setShowAddTabMenu(false); }}
-                                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"
-                                        >
+                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('browser'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
                                             <Globe size={12} className="text-cyan-400" /> Browser
                                         </button>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); onAddTab('library'); setShowAddTabMenu(false); }}
-                                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"
-                                        >
+                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('library'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
                                             <BookOpen size={12} className="text-red-400" /> Library
+                                        </button>
+                                        <div className="border-t theme-border my-1" />
+                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('python'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
+                                            <Code2 size={12} className="text-yellow-400" /> Python
+                                        </button>
+                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('notebook'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
+                                            <FlaskConical size={12} className="text-orange-400" /> Notebook
                                         </button>
                                     </div>
                                 </>
@@ -174,47 +189,29 @@ export const PaneHeader = React.memo(({
 
                     {isPythonFile && onRunScript && (
                         <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onRunScript(filePath);
-                            }}
+                            onClick={(e) => { e.stopPropagation(); onRunScript(filePath); }}
                             onMouseDown={(e) => e.stopPropagation()}
-                            className="p-1 theme-hover rounded-full flex-shrink-0 transition-all hover:bg-green-500/20"
-                            aria-label="Run Python script"
+                            className="p-1 theme-hover rounded-full"
                             title="Run Python script"
+                            style={{ flexShrink: 0 }}
                         >
                             <Play size={14} className="text-green-400" />
                         </button>
                     )}
 
-                    {onToggleZenMode && (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onToggleZenMode(nodeId);
-                            }}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            className={`p-1 theme-hover rounded-full flex-shrink-0 transition-all ${isZenMode ? 'bg-blue-500/30 text-blue-400' : 'hover:bg-blue-500/20'}`}
-                            aria-label={isZenMode ? "Exit zen mode" : "Enter zen mode"}
-                            title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
-                        >
-                            {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                        </button>
-                    )}
-
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            closeContentPane(nodeId, nodePath);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        className="p-1 theme-hover rounded-full flex-shrink-0 transition-all hover:bg-red-500/20"
-                        aria-label="Close pane"
-                    >
-                        <X size={14} className="hover:text-red-400" />
-                    </button>
                 </div>
             </div>
+
+            {/* Close button - right side, always visible */}
+            <button
+                onClick={(e) => { e.stopPropagation(); onClose?.(); }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="p-1.5 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-red-400"
+                title="Close pane"
+            >
+                <X size={14} />
+            </button>
+
         </div>
     );
 });

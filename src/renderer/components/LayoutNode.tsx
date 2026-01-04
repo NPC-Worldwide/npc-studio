@@ -5,7 +5,8 @@ import {
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
     Image as ImageIcon, Tag, Folder, Users, Settings, Images, BookOpen,
-    FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2
+    FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2, Maximize2, Minimize2,
+    FlaskConical, HelpCircle
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
@@ -234,7 +235,79 @@ const calculateTokenCost = (tokenCount: number, models: Set<string>): number => 
     return (tokenCount / 1000) * maxCostPer1K;
 };
 
+// Generate a unique ID for layout nodes
+const generateLayoutId = () => `layout-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+// Collect all pane IDs from a layout node
+export const collectPaneIds = (node: any): string[] => {
+    if (!node) return [];
+    if (node.type === 'content') return [node.id];
+    if (node.type === 'split') {
+        return node.children.flatMap((child: any) => collectPaneIds(child));
+    }
+    return [];
+};
+
+// Build a balanced grid layout from pane IDs
+// Returns a layout tree where rows and columns differ by at most 1
+export const buildBalancedGridLayout = (paneIds: string[]): any => {
+    if (paneIds.length === 0) return null;
+    if (paneIds.length === 1) {
+        return { id: paneIds[0], type: 'content' };
+    }
+
+    const totalPanes = paneIds.length;
+    const cols = Math.ceil(Math.sqrt(totalPanes));
+    const rows = Math.ceil(totalPanes / cols);
+
+    const rowNodes: any[] = [];
+    let paneIndex = 0;
+
+    for (let r = 0; r < rows && paneIndex < paneIds.length; r++) {
+        const panesInThisRow = Math.min(cols, paneIds.length - paneIndex);
+        const rowPaneIds = paneIds.slice(paneIndex, paneIndex + panesInThisRow);
+        paneIndex += panesInThisRow;
+
+        if (rowPaneIds.length === 1) {
+            rowNodes.push({ id: rowPaneIds[0], type: 'content' });
+        } else {
+            rowNodes.push({
+                id: generateLayoutId(),
+                type: 'split',
+                direction: 'horizontal',
+                children: rowPaneIds.map(id => ({ id, type: 'content' })),
+                sizes: new Array(rowPaneIds.length).fill(100 / rowPaneIds.length)
+            });
+        }
+    }
+
+    if (rowNodes.length === 1) {
+        return rowNodes[0];
+    }
+
+    return {
+        id: generateLayoutId(),
+        type: 'split',
+        direction: 'vertical',
+        children: rowNodes,
+        sizes: new Array(rowNodes.length).fill(100 / rowNodes.length)
+    };
+};
+
+// Add a new pane to an existing layout using balanced grid
+// This rebuilds the entire layout as a balanced grid
+export const addPaneToLayout = (oldRoot: any, newPaneId: string): any => {
+    if (!oldRoot) {
+        return { id: newPaneId, type: 'content' };
+    }
+
+    const existingPaneIds = collectPaneIds(oldRoot);
+    const allPaneIds = [...existingPaneIds, newPaneId];
+    return buildBalancedGridLayout(allPaneIds);
+};
+
 // Exported utility function for syncing layout with content data
+// IMPORTANT: This function removes layout nodes that don't have valid content to prevent empty panes
 export const syncLayoutWithContentData = (layoutNode: any, contentData: Record<string, any>): any => {
     if (!layoutNode) {
         // If layoutNode is null, ensure contentData is also empty
@@ -247,6 +320,42 @@ export const syncLayoutWithContentData = (layoutNode: any, contentData: Record<s
         return null; // Return null if the layout itself is null
     }
 
+    // First, identify which panes have valid content (have contentType)
+    const validContentPaneIds = new Set(
+        Object.entries(contentData)
+            .filter(([_, data]) => data?.contentType)
+            .map(([id]) => id)
+    );
+
+    // Clean the layout to remove pane nodes without valid content
+    const cleanLayout = (node: any): any => {
+        if (!node) return null;
+        if (node.type === 'content') {
+            // Remove this pane if it doesn't have valid content
+            if (!validContentPaneIds.has(node.id)) {
+                console.warn('[SYNC] Removing pane from layout (no valid content):', node.id);
+                // Also remove from contentData if it exists but is empty
+                if (contentData[node.id] && !contentData[node.id].contentType) {
+                    delete contentData[node.id];
+                }
+                return null;
+            }
+            return node;
+        }
+        if (node.type === 'split') {
+            const cleanedChildren = node.children
+                .map((child: any) => cleanLayout(child))
+                .filter((child: any) => child !== null);
+            if (cleanedChildren.length === 0) return null;
+            if (cleanedChildren.length === 1) return cleanedChildren[0];
+            return { ...node, children: cleanedChildren, sizes: new Array(cleanedChildren.length).fill(100 / cleanedChildren.length) };
+        }
+        return node;
+    };
+
+    const cleanedLayout = cleanLayout(layoutNode);
+
+    // Remove orphaned panes from contentData (not in layout anymore)
     const collectPaneIds = (node: any): Set<string> => {
         if (!node) return new Set();
         if (node.type === 'content') return new Set([node.id]);
@@ -260,26 +369,19 @@ export const syncLayoutWithContentData = (layoutNode: any, contentData: Record<s
         return new Set();
     };
 
-    const paneIdsInLayout = collectPaneIds(layoutNode);
-    const contentDataIds = new Set(Object.keys(contentData));
-
-    // 1. Remove orphaned panes from contentData (not in layout)
-    contentDataIds.forEach(id => {
-        if (!paneIdsInLayout.has(id)) {
-            console.warn('[SYNC] Removing orphaned pane from contentData:', id);
-            delete contentData[id];
+    const paneIdsInCleanedLayout = collectPaneIds(cleanedLayout);
+    Object.keys(contentData).forEach(id => {
+        if (!paneIdsInCleanedLayout.has(id)) {
+            // Only remove if the pane has no valid content
+            // Panes with valid contentType might be pending layout updates (race condition)
+            if (!contentData[id]?.contentType) {
+                console.warn('[SYNC] Removing orphaned empty pane from contentData:', id);
+                delete contentData[id];
+            }
         }
     });
 
-    // 2. Add missing panes to contentData (in layout but not in contentData)
-    paneIdsInLayout.forEach(id => {
-        if (!contentData.hasOwnProperty(id)) { // Use hasOwnProperty to check for actual property
-            console.warn('[SYNC] Adding missing pane to contentData:', id);
-            contentData[id] = {}; // Initialize with an empty object
-        }
-    });
-
-    return layoutNode;
+    return cleanedLayout;
 };
 
 // CODE FRAGMENTS BELOW - These are incomplete code snippets meant to be inside Enpistu.tsx
@@ -355,18 +457,6 @@ const renderPaneContextMenu = () => {
 
 // End of commented-out fragments
 
-const collectPaneIds = (node) => {
-    if (!node) return new Set();
-    if (node.type === 'content') return new Set([node.id]);
-    if (node.type === 'split') {
-        return node.children.reduce((acc, child) => {
-            const childIds = collectPaneIds(child);
-            childIds.forEach(id => acc.add(id));
-            return acc;
-        }, new Set());
-    }
-    return new Set();
-};
 export const LayoutNode = memo(({ node, path, component }) => {
     if (!node) return null;
 
@@ -378,73 +468,68 @@ export const LayoutNode = memo(({ node, path, component }) => {
             const startSizes = [...parentNode.sizes];
             const isHorizontal = parentNode.direction === 'horizontal';
             const startPos = isHorizontal ? e.clientX : e.clientY;
-            const containerSize = isHorizontal ? e.currentTarget.parentElement.offsetWidth : e.currentTarget.parentElement.offsetHeight;
+            const container = e.currentTarget.parentElement;
+            const containerSize = isHorizontal ? container.offsetWidth : container.offsetHeight;
 
-            let rafId: number | null = null;
-            let pendingSizes: number[] | null = null;
+            // Get the child elements for direct DOM manipulation during drag
+            const childElements = Array.from(container.children).filter(
+                (el: Element) => !el.classList.contains('cursor-col-resize') && !el.classList.contains('cursor-row-resize')
+            ) as HTMLElement[];
+
+            let currentSizes = [...startSizes];
 
             const cleanup = () => {
-                if (rafId) cancelAnimationFrame(rafId);
                 document.removeEventListener('mousemove', onMouseMove);
                 document.removeEventListener('mouseup', onMouseUp);
                 document.removeEventListener('keydown', onKeyDown);
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
             };
 
-            const applyResize = () => {
-                if (pendingSizes) {
-                    const sizesToApply = pendingSizes;
-                    pendingSizes = null;
-                    component.setRootLayoutNode(currentRoot => {
-                        const newRoot = JSON.parse(JSON.stringify(currentRoot));
-                        const target = component.findNodeByPath(newRoot, path);
-                        if (target) target.sizes = sizesToApply;
-                        return newRoot;
-                    });
-                }
-                rafId = null;
-            };
-
-            const onMouseMove = (moveEvent) => {
+            const onMouseMove = (moveEvent: MouseEvent) => {
                 const currentPos = isHorizontal ? moveEvent.clientX : moveEvent.clientY;
                 const deltaPercent = ((currentPos - startPos) / containerSize) * 100;
-                let newSizes = [...startSizes];
-                const amount = Math.min(newSizes[index + 1] - 10, Math.max(-(newSizes[index] - 10), deltaPercent));
+                const newSizes = [...startSizes];
+                const amount = Math.min(newSizes[index + 1] - 5, Math.max(-(newSizes[index] - 5), deltaPercent));
                 newSizes[index] += amount;
                 newSizes[index + 1] -= amount;
+                currentSizes = newSizes;
 
-                pendingSizes = newSizes;
-                if (!rafId) {
-                    rafId = requestAnimationFrame(applyResize);
-                }
+                // Direct DOM update for smooth resizing (no React re-render)
+                childElements.forEach((el, i) => {
+                    if (newSizes[i] !== undefined) {
+                        el.style.flexBasis = `${newSizes[i]}%`;
+                    }
+                });
             };
 
-            const onKeyDown = (keyEvent) => {
+            const onKeyDown = (keyEvent: KeyboardEvent) => {
                 if (keyEvent.key === 'Escape') {
                     keyEvent.preventDefault();
-                    // Restore original sizes
-                    component.setRootLayoutNode(currentRoot => {
-                        const newRoot = JSON.parse(JSON.stringify(currentRoot));
-                        const target = component.findNodeByPath(newRoot, path);
-                        if (target) target.sizes = startSizes;
-                        return newRoot;
+                    // Restore original sizes via DOM
+                    childElements.forEach((el, i) => {
+                        if (startSizes[i] !== undefined) {
+                            el.style.flexBasis = `${startSizes[i]}%`;
+                        }
                     });
                     cleanup();
                 }
             };
 
             const onMouseUp = () => {
-                // Apply any pending resize before cleanup
-                if (pendingSizes) {
-                    const sizesToApply = pendingSizes;
-                    component.setRootLayoutNode(currentRoot => {
-                        const newRoot = JSON.parse(JSON.stringify(currentRoot));
-                        const target = component.findNodeByPath(newRoot, path);
-                        if (target) target.sizes = sizesToApply;
-                        return newRoot;
-                    });
-                }
+                // Commit final sizes to React state
+                component.setRootLayoutNode((currentRoot: any) => {
+                    const newRoot = JSON.parse(JSON.stringify(currentRoot));
+                    const target = component.findNodeByPath(newRoot, path);
+                    if (target) target.sizes = currentSizes;
+                    return newRoot;
+                });
                 cleanup();
             };
+
+            // Set cursor for entire document during drag
+            document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize';
+            document.body.style.userSelect = 'none';
 
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp, { once: true });
@@ -460,8 +545,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         </div>
                         {index < node.children.length - 1 && (
                             <div
-                                className={`flex-shrink-0 ${node.direction === 'horizontal' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'} bg-gray-700 hover:bg-blue-500 transition-colors`}
+                                className={`flex-shrink-0 ${node.direction === 'horizontal' ? 'w-1.5 cursor-col-resize' : 'h-1.5 cursor-row-resize'} bg-gray-600 hover:bg-blue-500 active:bg-blue-400 transition-colors`}
                                 onMouseDown={(e) => handleResize(e, index)}
+                                style={{ touchAction: 'none' }}
                             />
                         )}
                     </React.Fragment>
@@ -476,9 +562,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
             updateContentPane, performSplit, setRootLayoutNode,
             renderChatView, renderFileEditor, renderTerminalView,
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
-            renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
+            renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderExpViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
-            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderHelpPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -525,6 +611,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                                 contentType: targetPaneData.contentType,
                                 contentId: targetPaneData.contentId,
                                 browserUrl: targetPaneData.browserUrl, // Preserve browser URL
+                                fileContent: targetPaneData.fileContent, // Preserve file content
+                                fileChanged: targetPaneData.fileChanged, // Preserve file changed state
                                 title: targetTitle
                             }];
                             targetPaneData.activeTabIndex = 0;
@@ -548,6 +636,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                                 contentType: sourcePaneData.contentType,
                                 contentId: sourcePaneData.contentId,
                                 browserUrl: sourcePaneData.browserUrl, // Preserve browser URL
+                                fileContent: sourcePaneData.fileContent, // Preserve file content
+                                fileChanged: sourcePaneData.fileChanged, // Preserve file changed state
                                 title: sourceTitle
                             });
                         }
@@ -617,29 +707,65 @@ export const LayoutNode = memo(({ node, path, component }) => {
                             contentType: paneData.contentType,
                             contentId: paneData.contentId,
                             browserUrl: paneData.browserUrl, // Preserve browser URL
+                            fileContent: paneData.fileContent, // Preserve file content
+                            fileChanged: paneData.fileChanged, // Preserve file changed state
                             title: currentTitle
                         }];
                         paneData.activeTabIndex = 0;
                     }
                     // Add new content as new tab
+                    const browserUrl = draggedItem.url || draggedItem.browserUrl; // Support both property names
                     const newTabTitle = contentType === 'browser'
-                        ? (draggedItem.browserUrl || draggedItem.id || 'Browser')
+                        ? (browserUrl || draggedItem.id || 'Browser')
                         : (draggedItem.id?.split('/').pop() || contentType);
                     const newTab = {
                         id: `tab_${Date.now()}_${paneData.tabs.length}`,
                         contentType,
                         contentId: draggedItem.id,
-                        browserUrl: draggedItem.browserUrl, // Preserve browser URL from dragged item
+                        browserUrl: browserUrl, // Preserve browser URL from dragged item
+                        fileContent: draggedItem.fileContent, // Preserve file content from dragged item
+                        fileChanged: draggedItem.fileChanged, // Preserve file changed state
                         title: newTabTitle
                     };
+                    // Save current tab's content before switching to new tab
+                    const currentTabIndex = paneData.activeTabIndex || 0;
+                    if (paneData.tabs[currentTabIndex]) {
+                        paneData.tabs[currentTabIndex].fileContent = paneData.fileContent;
+                        paneData.tabs[currentTabIndex].fileChanged = paneData.fileChanged;
+                    }
+
                     paneData.tabs.push(newTab);
                     paneData.activeTabIndex = paneData.tabs.length - 1;
                     // Update main paneData to reflect the new active tab
                     paneData.contentType = contentType;
                     paneData.contentId = draggedItem.id;
-                    if (contentType === 'browser' && draggedItem.browserUrl) {
-                        paneData.browserUrl = draggedItem.browserUrl;
+                    // Clear fileContent for new tab (will be loaded below if editor)
+                    paneData.fileContent = null;
+                    paneData.fileChanged = false;
+                    if (contentType === 'browser' && browserUrl) {
+                        paneData.browserUrl = browserUrl;
                     }
+
+                    // For editor files, load the content if not already loaded
+                    if (contentType === 'editor' && !draggedItem.fileContent) {
+                        // Load file content asynchronously
+                        (async () => {
+                            try {
+                                const response = await (window as any).api.readFileContent(draggedItem.id);
+                                const fileContent = response.error ? `Error: ${response.error}` : response.content;
+                                paneData.fileContent = fileContent;
+                                // Also update the tab's fileContent
+                                const tabIndex = paneData.tabs.length - 1;
+                                if (paneData.tabs[tabIndex]) {
+                                    paneData.tabs[tabIndex].fileContent = fileContent;
+                                }
+                                setRootLayoutNode?.(prev => ({ ...prev }));
+                            } catch (err) {
+                                console.error('Error loading file content:', err);
+                            }
+                        })();
+                    }
+
                     setRootLayoutNode?.(prev => ({ ...prev }));
                 } else {
                     // Empty pane - just set content directly
@@ -647,6 +773,21 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 }
             } else {
                 performSplit(path, side, contentType, draggedItem.id);
+                // For browser splits, we need to set the browserUrl after performSplit creates the pane
+                // performSplit sets contentDataRef synchronously, so we can update it immediately
+                if (contentType === 'browser' && browserUrl) {
+                    // Find the newly created pane and set its browserUrl
+                    // performSplit creates a new pane ID, but we don't have access to it here
+                    // We need to update performSplit to accept additional data, or handle this differently
+                    // For now, we'll check all panes for new browser panes without a URL
+                    setTimeout(() => {
+                        Object.entries(contentDataRef.current).forEach(([id, data]) => {
+                            if (data.contentType === 'browser' && data.contentId === draggedItem.id && !data.browserUrl) {
+                                data.browserUrl = browserUrl;
+                            }
+                        });
+                    }, 0);
+                }
             }
             setDraggedItem(null);
             setDropTarget(null);
@@ -667,11 +808,21 @@ export const LayoutNode = memo(({ node, path, component }) => {
         // Tab management handlers
         const handleTabSelect = (index: number) => {
             if (paneData && tabs[index]) {
+                // Save current tab's content before switching
+                const currentTabIndex = paneData.activeTabIndex || 0;
+                if (tabs[currentTabIndex]) {
+                    tabs[currentTabIndex].fileContent = paneData.fileContent;
+                    tabs[currentTabIndex].fileChanged = paneData.fileChanged;
+                }
+
                 paneData.activeTabIndex = index;
                 // Update paneData with the selected tab's content
                 const selectedTab = tabs[index];
                 paneData.contentType = selectedTab.contentType;
                 paneData.contentId = selectedTab.contentId;
+                // Restore fileContent and fileChanged from the selected tab
+                paneData.fileContent = selectedTab.fileContent;
+                paneData.fileChanged = selectedTab.fileChanged || false;
                 // Preserve browserUrl for browser tabs
                 if (selectedTab.contentType === 'browser' && selectedTab.browserUrl) {
                     paneData.browserUrl = selectedTab.browserUrl;
@@ -728,6 +879,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                             id: `tab_${Date.now()}_0`,
                             contentType: paneData.contentType,
                             contentId: paneData.contentId,
+                            fileContent: paneData.fileContent, // Preserve file content
+                            fileChanged: paneData.fileChanged, // Preserve file changed state
                             title: paneData.contentId?.split('/').pop() || paneData.contentType
                         }];
                     } else {
@@ -753,6 +906,12 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 } else if (contentType === 'library') {
                     newContentId = 'library';
                     title = 'Library';
+                } else if (contentType === 'python') {
+                    newContentId = `python_${Date.now()}`;
+                    title = 'Python';
+                } else if (contentType === 'notebook') {
+                    newContentId = `notebook_${Date.now()}`;
+                    title = 'Notebook';
                 }
 
                 const newTab = {
@@ -774,7 +933,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
         };
 
         let headerIcon = <FileIcon size={14} className="text-gray-400" />;
-        let headerTitle = 'Empty Pane';
+        let headerTitle = contentType || 'Pane';
 
         if (contentType === 'chat') {
             headerIcon = <MessageSquare size={14} className="text-blue-400" />;
@@ -815,6 +974,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'library') {
             headerIcon = <BookOpen size={14} className="text-amber-400" />;
             headerTitle = 'Library';
+        } else if (contentType === 'help') {
+            headerIcon = <HelpCircle size={14} className="text-blue-400" />;
+            headerTitle = 'Help';
         } else if (contentType === 'projectenv') {
             headerIcon = <FolderCog size={14} className="text-orange-400" />;
             headerTitle = 'Project Environment';
@@ -835,7 +997,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             headerTitle = 'Data Dashboard';
         } else if (contentType === 'mindmap') {
             headerIcon = <Brain size={14} className="text-rose-400" />;
-            headerTitle = 'Mind Map';
+            headerTitle = 'Map Document';
         } else if (contentType === 'markdown-preview') {
             headerIcon = <FileIcon size={14} className="text-blue-400" />;
             headerTitle = `Preview: ${contentId?.split('/').pop() || 'Markdown'}`;
@@ -857,6 +1019,15 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'zip') {
             headerIcon = <FileIcon size={14} className="text-yellow-500" />;
             headerTitle = contentId?.split('/').pop() || 'Archive';
+        } else if (contentType === 'exp') {
+            headerIcon = <FlaskConical size={14} className="text-purple-400" />;
+            headerTitle = contentId?.split('/').pop() || 'Experiment';
+        } else if (contentType === 'tilejinx') {
+            headerIcon = <Zap size={14} className="text-amber-400" />;
+            headerTitle = contentId?.replace('.jinx', '') || 'Tile';
+        } else if (contentType === 'branches') {
+            headerIcon = <GitBranch size={14} className="text-purple-400" />;
+            headerTitle = 'Branch Comparison';
         } else if (contentId) {
             headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();
@@ -978,9 +1149,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             }
         }, [chatMessages.length, lastMessageContent, lastMessageReasoning, autoScrollEnabled, contentType]);
 
-        const renderPaneContent = () => { // Renamed from renderContent to avoid confusion
-            console.log('[RENDER_CONTENT] NodeId:', node.id, 'ContentType:', contentType);
-
+        const renderPaneContent = () => {
             switch (contentType) {
                 case 'chat':
                     return (
@@ -1015,6 +1184,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderLatexViewer({ nodeId: node.id });
                 case 'notebook':
                     return renderNotebookViewer({ nodeId: node.id });
+                case 'exp':
+                    return renderExpViewer({ nodeId: node.id });
                 case 'image':
                     return renderPicViewer({ nodeId: node.id });
                 case 'mindmap':
@@ -1051,22 +1222,24 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderFolderViewerPane({ nodeId: node.id });
                 case 'markdown-preview':
                     return renderMarkdownPreviewPane({ nodeId: node.id });
+                case 'tilejinx':
+                    return renderTileJinxPane({ nodeId: node.id });
+                case 'python':
+                    // Python REPL - uses terminal with python3 shell
+                    return renderTerminalView({ nodeId: node.id, shell: 'python3' });
+                case 'branches':
+                    return renderBranchComparisonPane({ nodeId: node.id });
+                case 'help':
+                    return renderHelpPane({ nodeId: node.id });
                 default:
-                    // This is the content for an empty pane
-                    return (
-                        <div className="flex-1 flex items-center justify-center theme-text-muted">
-                            <div className="text-center">
-                                <div className="text-lg mb-2">Empty Pane</div>
-                                <div className="text-sm">Drag content here or close this pane</div>
-                            </div>
-                        </div>
-                    );
+                    return null;
             }
         };
 
         return (
             <div
-                className={`flex-1 flex flex-col relative border ${isActive ? 'border-blue-500 ring-1 ring-blue-500' : 'theme-border'}`}
+                className={`flex-1 flex flex-col border ${isActive ? 'border-blue-500 ring-1 ring-blue-500' : 'theme-border'}`}
+                style={{ position: 'relative', overflow: 'hidden' }}
                 onClick={() => setActiveContentPaneId(node.id)}
                 onContextMenu={(e) => {
                     e.preventDefault();
@@ -1092,9 +1265,14 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         onTabClose={handleTabClose}
                         onTabReorder={handleTabReorder}
                         nodeId={node.id}
+                        // Only browser panes need zen/close on tab bar (others have PaneHeader)
+                        onToggleZen={contentType === 'browser' && toggleZenMode ? () => toggleZenMode(node.id) : undefined}
+                        isZenMode={contentType === 'browser' ? zenModePaneId === node.id : undefined}
+                        onClosePane={contentType === 'browser' ? () => closeContentPane(node.id, path) : undefined}
                     />
                 )}
 
+                {/* Header - PaneHeader includes expand and close buttons */}
                 {/* Skip PaneHeader for browser - it has its own integrated toolbar */}
                 {contentType !== 'browser' && (
                     <PaneHeader
@@ -1105,7 +1283,6 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         rootLayoutNode={rootLayoutNode}
                         setDraggedItem={setDraggedItem}
                         setPaneContextMenu={setPaneContextMenu}
-                        closeContentPane={closeContentPane}
                         fileChanged={paneData?.fileChanged || activeTab?.fileChanged}
                         onSave={() => { /* No-op, actual save logic is in renderFileEditor */ }}
                         onStartRename={() => {
@@ -1114,8 +1291,6 @@ export const LayoutNode = memo(({ node, path, component }) => {
                                 setEditedFileName(contentId.split('/').pop() || '');
                             }
                         }}
-                        isZenMode={zenModePaneId === node.id}
-                        onToggleZenMode={toggleZenMode}
                         // Renaming props
                         isRenaming={renamingPaneId === node.id}
                         editedFileName={editedFileName}
@@ -1124,9 +1299,38 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         onCancelRename={() => setRenamingPaneId(null)}
                         filePath={contentId}
                         onRunScript={onRunScript}
+                        // Close and zen mode props
+                        onClose={() => closeContentPane(node.id, path)}
+                        onToggleZen={toggleZenMode ? () => toggleZenMode(node.id) : null}
+                        isZenMode={zenModePaneId === node.id}
+                        // Tab management
+                        onAddTab={handleAddTab}
                     >
                         {paneHeaderChildren} {/* Pass the conditional children here */}
                     </PaneHeader>
+                )}
+                {/* Browser gets a minimal header bar with close/expand - only when no tabs showing */}
+                {contentType === 'browser' && !showTabBar && (
+                    <div
+                        className="flex items-center justify-between px-1 theme-bg-secondary"
+                        style={{ height: '32px', borderBottom: '1px solid var(--border-color)' }}
+                    >
+                        <button
+                            onClick={(e) => { e.stopPropagation(); toggleZenMode?.(node.id); }}
+                            className={`p-1.5 theme-hover rounded flex-shrink-0 ${zenModePaneId === node.id ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
+                            title={zenModePaneId === node.id ? "Exit zen mode (Esc)" : "Enter zen mode"}
+                        >
+                            {zenModePaneId === node.id ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                        </button>
+                        <span className="text-xs text-gray-500 truncate flex-1 px-2">Browser</span>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); closeContentPane(node.id, path); }}
+                            className="p-1.5 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-red-400"
+                            title="Close pane"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
                 )}
 
                 {draggedItem && (

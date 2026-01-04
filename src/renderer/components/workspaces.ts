@@ -14,12 +14,29 @@ export const serializeWorkspace = (
 
     const serializedContentData: Record<string, any> = {};
     Object.entries(contentDataRef).forEach(([paneId, paneData]: [string, any]) => {
+        // SKIP panes without contentType - never save empty panes
+        if (!paneData?.contentType) return;
+
+        // Serialize tabs if present (strip fileContent to save space)
+        const serializedTabs = paneData.tabs?.map((tab: any) => ({
+            id: tab.id,
+            contentType: tab.contentType,
+            contentId: tab.contentId,
+            browserUrl: tab.browserUrl,
+            title: tab.title,
+            fileChanged: tab.fileChanged
+            // Note: fileContent is NOT saved - will be reloaded on restore
+        }));
+
         serializedContentData[paneId] = {
             contentType: paneData.contentType,
             contentId: paneData.contentId,
             displayedMessageCount: paneData.chatMessages?.displayedMessageCount,
             browserUrl: paneData.browserUrl,
-            fileChanged: paneData.fileChanged
+            fileChanged: paneData.fileChanged,
+            jinxFile: paneData.jinxFile,  // Preserve jinxFile for tilejinx panes
+            tabs: serializedTabs,  // Preserve tabs
+            activeTabIndex: paneData.activeTabIndex  // Preserve active tab index
         };
     });
 
@@ -55,25 +72,10 @@ export const saveWorkspaceToStorage = (path: string, workspaceData: any) => {
 
 export const loadWorkspaceFromStorage = (path: string) => {
     try {
-        console.log('[LOAD_WORKSPACE] Attempting to load for path:', path);
-
         const allWorkspaces = JSON.parse(localStorage.getItem(WORKSPACES_STORAGE_KEY) || '{}');
-        console.log('[LOAD_WORKSPACE] All workspace paths in storage:', Object.keys(allWorkspaces));
-
-        const workspace = allWorkspaces[path];
-        console.log('[LOAD_WORKSPACE] Found workspace for path:', !!workspace);
-
-        if (workspace) {
-            console.log('[LOAD_WORKSPACE] Workspace details:', {
-                hasLayout: !!workspace.layoutNode,
-                paneCount: Object.keys(workspace.contentData || {}).length,
-                timestamp: workspace.timestamp
-            });
-        }
-
-        return workspace || null;
+        return allWorkspaces[path] || null;
     } catch (error) {
-        console.error('[LOAD_WORKSPACE] Error loading workspace:', error);
+        console.error('Error loading workspace:', error);
         return null;
     }
 };
@@ -94,11 +96,6 @@ export const deserializeWorkspace = async (
     try {
         const newRootLayout = workspaceData.layoutNode;
 
-        console.log('[DESERIALIZE] Starting workspace restore', {
-            paneCount: Object.keys(workspaceData.contentData).length,
-            layoutExists: !!newRootLayout
-        });
-
         // CRITICAL: Clear contentDataRef COMPLETELY first
         contentDataRef.current = {};
 
@@ -113,33 +110,69 @@ export const deserializeWorkspace = async (
         };
         collectPaneIds(newRootLayout);
 
-        console.log('[DESERIALIZE] Panes in layout:', Array.from(paneIdsInLayout));
-        console.log('[DESERIALIZE] Panes in saved data:', Object.keys(workspaceData.contentData));
-
         // Populate contentDataRef synchronously BEFORE any async operations
+        // Only create panes that have valid content data
+        const validPaneIds = new Set<string>();
         paneIdsInLayout.forEach(paneId => {
             const paneData = workspaceData.contentData[paneId];
+            // SKIP panes without a valid contentType - don't create empty panes
+            if (!paneData?.contentType) {
+                return;
+            }
+            validPaneIds.add(paneId);
+            // For tilejinx panes, jinxFile === contentId, so use contentId as fallback
+            const jinxFile = paneData?.jinxFile ||
+                (paneData?.contentType === 'tilejinx' ? paneData?.contentId : undefined);
+            // Fix content type for .exp files that were saved as 'notebook'
+            let contentType = paneData.contentType;
+            if (contentType === 'notebook' && paneData.contentId?.endsWith('.exp')) {
+                contentType = 'exp';
+            }
             contentDataRef.current[paneId] = {
-                contentType: paneData?.contentType,
-                contentId: paneData?.contentId,
-                displayedMessageCount: paneData?.displayedMessageCount,
-                browserUrl: paneData?.browserUrl,
-                fileChanged: paneData?.fileChanged || false
+                contentType: contentType,
+                contentId: paneData.contentId,
+                displayedMessageCount: paneData.displayedMessageCount,
+                browserUrl: paneData.browserUrl,
+                fileChanged: paneData.fileChanged || false,
+                jinxFile: jinxFile,  // Restore jinxFile for tilejinx panes
+                tabs: paneData.tabs,  // Restore tabs
+                activeTabIndex: paneData.activeTabIndex || 0  // Restore active tab index
             };
         });
 
-        console.log('[DESERIALIZE] Initialized contentDataRef with', Object.keys(contentDataRef.current).length, 'panes');
+        // Clean the layout to remove any pane IDs without valid content
+        const cleanLayout = (node: any): any => {
+            if (!node) return null;
+            if (node.type === 'content') {
+                // Remove this pane if it doesn't have valid content
+                return validPaneIds.has(node.id) ? node : null;
+            }
+            if (node.type === 'split') {
+                const cleanedChildren = node.children
+                    .map((child: any) => cleanLayout(child))
+                    .filter((child: any) => child !== null);
+                if (cleanedChildren.length === 0) return null;
+                if (cleanedChildren.length === 1) return cleanedChildren[0];
+                return { ...node, children: cleanedChildren, sizes: new Array(cleanedChildren.length).fill(100 / cleanedChildren.length) };
+            }
+            return node;
+        };
+        const cleanedLayout = cleanLayout(newRootLayout);
 
-        // Set the layout
-        setRootLayoutNode(newRootLayout);
+        // If no valid panes remain, don't set the layout (let default workspace creation handle it)
+        if (!cleanedLayout) {
+            setIsLoadingWorkspace(false);
+            return false;
+        }
+
+        // Set the cleaned layout
+        setRootLayoutNode(cleanedLayout);
         setActiveContentPaneId(workspaceData.activeContentPaneId);
 
         // Load actual content asynchronously
         const loadPromises = [];
         for (const [paneId, paneData] of Object.entries(workspaceData.contentData)) {
             if (!paneIdsInLayout.has(paneId)) continue;
-
-            console.log('[DESERIALIZE] Loading content for pane:', paneId, (paneData as any).contentType, (paneData as any).contentId);
 
             const loadPromise = (async () => {
                 try {
@@ -167,10 +200,8 @@ export const deserializeWorkspace = async (
                     } else if (pd.contentType === 'browser') {
                         paneDataRef.browserUrl = pd.browserUrl || pd.contentId;
                     }
-
-                    console.log('[DESERIALIZE] Successfully loaded pane:', paneId);
                 } catch (err) {
-                    console.error('[DESERIALIZE] Error loading pane content:', paneId, err);
+                    console.error('Error loading pane content:', paneId, err);
                 }
             })();
 
@@ -182,15 +213,10 @@ export const deserializeWorkspace = async (
         // Force final re-render
         setRootLayoutNode((prev: any) => ({ ...prev }));
 
-        console.log('[DESERIALIZE] Workspace restored successfully', {
-            paneCount: Object.keys(contentDataRef.current).length,
-            layoutPanes: paneIdsInLayout.size
-        });
-
         setIsLoadingWorkspace(false);
         return true;
     } catch (error) {
-        console.error('[DESERIALIZE] Error:', error);
+        console.error('Error deserializing workspace:', error);
         setIsLoadingWorkspace(false);
         return false;
     }
@@ -208,32 +234,33 @@ export const createDefaultWorkspace = async (
 ) => {
     const LAST_ACTIVE_CONVO_ID_KEY = 'npcStudioLastConvoId';
 
-    const initialPaneId = generateId();
-    const initialLayout = { id: initialPaneId, type: 'content' };
-
-    contentDataRef.current[initialPaneId] = {};
-
-    // Try to use stored conversation ID or create new one
+    // Figure out what conversation to use FIRST
     const storedConvoId = localStorage.getItem(LAST_ACTIVE_CONVO_ID_KEY);
-
     let targetConvoId = null;
+
     if (storedConvoId && directoryConversations.find((c: any) => c.id === storedConvoId)) {
         targetConvoId = storedConvoId;
     } else if (directoryConversations.length > 0) {
         targetConvoId = directoryConversations[0].id;
-    }
-
-    if (targetConvoId) {
-        await updateContentPane(initialPaneId, 'chat', targetConvoId);
     } else {
         // Create new conversation if none exist
         const newConversation = await window.api.createConversation({ directory_path: currentPath });
         if (newConversation?.id) {
-            await updateContentPane(initialPaneId, 'chat', newConversation.id, true);
+            targetConvoId = newConversation.id;
             setActiveConversationId(newConversation.id);
         }
     }
 
-    setRootLayoutNode(initialLayout);
-    setActiveContentPaneId(initialPaneId);
+    // Only create pane if we have content
+    if (targetConvoId) {
+        const initialPaneId = generateId();
+        contentDataRef.current[initialPaneId] = {
+            contentType: 'chat',
+            contentId: targetConvoId,
+            chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+        };
+        setRootLayoutNode({ id: initialPaneId, type: 'content' });
+        setActiveContentPaneId(initialPaneId);
+        await updateContentPane(initialPaneId, 'chat', targetConvoId);
+    }
 };

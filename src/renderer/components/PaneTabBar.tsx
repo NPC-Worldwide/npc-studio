@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import {
     X, Plus, MessageSquare, Terminal, Globe, FileText, Image, Book, File, GripVertical, Folder,
     Database, Zap, Users, Settings, Images, BookOpen, FolderCog, HardDrive, Tags, Network,
-    LayoutDashboard, Share2, Brain, Table, Bot
+    LayoutDashboard, Share2, Brain, Table, Bot, Maximize2, Minimize2
 } from 'lucide-react';
 
 interface Tab {
@@ -21,6 +21,10 @@ interface PaneTabBarProps {
     onTabReorder?: (fromIndex: number, toIndex: number) => void;
     onReceiveExternalTab?: (tab: Tab, insertIndex: number) => void;
     nodeId: string;
+    // Zen mode and close pane
+    onToggleZen?: () => void;
+    isZenMode?: boolean;
+    onClosePane?: () => void;
 }
 
 const getTabIcon = (contentType: string) => {
@@ -154,7 +158,10 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
     onTabClose,
     onTabAdd,
     onTabReorder,
-    nodeId
+    nodeId,
+    onToggleZen,
+    isZenMode,
+    onClosePane
 }) => {
     const [draggedTabIndex, setDraggedTabIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -195,12 +202,32 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
         onTabClose(index);
     }, [onTabClose]);
 
+    // Middle-click (auxclick with button 1) to close tab
+    const handleTabAuxClick = useCallback((e: React.MouseEvent, index: number) => {
+        // button 1 = middle mouse button
+        if (e.button === 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            onTabClose(index);
+        }
+    }, [onTabClose]);
+
     return (
         <div
             ref={tabBarRef}
             className="flex items-center gap-0.5 px-1 py-0.5 theme-bg-tertiary border-b theme-border overflow-x-auto"
             style={{ minHeight: '28px' }}
         >
+            {/* Zen mode button - left side */}
+            {onToggleZen && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onToggleZen(); }}
+                    className={`p-1 rounded flex-shrink-0 ${isZenMode ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'} hover:bg-gray-700/50`}
+                    title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
+                >
+                    {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </button>
+            )}
             {tabs.map((tab, index) => (
                 <div
                     key={tab.id}
@@ -210,9 +237,10 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
                     onDragOver={(e) => handleDragOver(e, index)}
                     onDrop={(e) => handleDrop(e, index)}
                     onClick={() => onTabSelect(index)}
+                    onAuxClick={(e) => handleTabAuxClick(e, index)}
                     className={`
-                        flex items-center gap-1.5 px-2 py-1 rounded-t text-xs cursor-pointer
-                        transition-colors group relative flex-shrink-0 max-w-[150px]
+                        flex items-center gap-1.5 pl-2 pr-6 py-1 rounded-t text-xs cursor-pointer
+                        transition-colors group relative min-w-[40px] max-w-[150px]
                         ${index === activeTabIndex
                             ? 'bg-gray-800 text-white border-t border-l border-r theme-border'
                             : 'hover:bg-gray-700/50 text-gray-400'
@@ -225,9 +253,9 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
                     <span className="truncate">{getTabTitle(tab)}</span>
                     <button
                         onClick={(e) => handleTabClose(e, index)}
-                        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-600 transition-opacity ml-auto"
+                        className="absolute top-0.5 right-0.5 p-0.5 rounded bg-gray-600 hover:bg-red-500/50 transition-colors z-10"
                     >
-                        <X size={10} />
+                        <X size={10} className="text-gray-300 hover:text-white" />
                     </button>
                 </div>
             ))}
@@ -239,6 +267,20 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
                     title="New tab"
                 >
                     <Plus size={14} />
+                </button>
+            )}
+
+            {/* Spacer to push close button to right */}
+            <div className="flex-1" />
+
+            {/* Close pane button - right side */}
+            {onClosePane && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onClosePane(); }}
+                    className="p-1 rounded flex-shrink-0 text-gray-400 hover:text-red-400 hover:bg-gray-700/50"
+                    title="Close pane"
+                >
+                    <X size={14} />
                 </button>
             )}
         </div>

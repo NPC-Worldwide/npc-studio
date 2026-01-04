@@ -4,9 +4,40 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
     Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
-    Star, Clock, Activity, Lock, Archive, BookOpen, Sparkles
+    Star, Clock, Activity, Lock, Archive, BookOpen, Sparkles, Box, GripVertical, Play,
+    Search, RefreshCw, Download, Upload, Copy, Check, AlertCircle, Info, Eye, EyeOff,
+    Palette, Code, Save, FolderOpen, Home, ArrowLeft, ArrowRight, Menu, MoreVertical,
+    Loader2, ExternalLink, Link, Unlink, Filter, SortAsc, SortDesc, Table, Grid,
+    List, Maximize2, Minimize2, Move, RotateCcw, ZoomIn, ZoomOut, Layers, Layout,
+    Pause, Server, Mail, Cpu, Wifi, WifiOff, Power, PowerOff, Hash, AtSign, FlaskConical,
+    BrainCircuit
 } from 'lucide-react';
+import CodeMirror from '@uiw/react-codemirror';
+import { javascript } from '@codemirror/lang-javascript';
+import { EditorView } from '@codemirror/view';
+import { LiveProvider, LivePreview, LiveError } from 'react-live';
+import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
+import AutosizeTextarea from './AutosizeTextarea';
+import ForceGraph2D from 'react-force-graph-2d';
+// ALL components used by tile jinxes - for REAL live preview
+import ActivityIntelligence from './ActivityIntelligence';
+import BrowserHistoryWeb from './BrowserHistoryWeb';
+import CtxEditor from './CtxEditor';
+import JinxMenu from './JinxMenu';
+import KnowledgeGraphEditor from './KnowledgeGraphEditor';
+import LabeledDataManager from './LabeledDataManager';
+import McpServerMenu from './McpServerMenu';
+import MemoryManagement from './MemoryManagement';
+import MessageLabeling from './MessageLabeling';
+import NPCTeamMenu from './NPCTeamMenu';
+import PythonEnvSettings from './PythonEnvSettings';
+import DBTool from './DBTool';
+import DataDash from './DataDash';
+import LibraryViewer from './LibraryViewer';
+import GraphViewer from './GraphViewer';
+import PhotoViewer from './PhotoViewer';
+import SettingsMenu from './SettingsMenu';
 import npcLogo from '../../assets/icon.png';
 
 const Sidebar = (props: any) => {
@@ -31,13 +62,14 @@ const Sidebar = (props: any) => {
         setSelectedConvos, setActiveContentPaneId, setCurrentFile, setActiveConversationId,
         setDirectoryConversations, setFolderStructure, setGitCommitMessage, setGitLoading,
         setGitError, setGitStatus, setFilesCollapsed, setConversationsCollapsed, setWebsitesCollapsed,
+        sidebarSectionOrder, setSidebarSectionOrder,
         setInput, setContextMenuPos, setSidebarItemContextMenuPos, setSearchTerm,
         setIsSearching, setDeepSearchResults, setMessageSearchResults,
         setIsEditingPath, setEditedPath, setSettingsOpen, setProjectEnvEditorOpen, setBrowserUrlDialogOpen,
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
         setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed,
         createGraphViewerPane, createBrowserGraphPane, createDataLabelerPane,
-        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane,
+        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane, createHelpPane, createTileJinxPane,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -45,7 +77,7 @@ const Sidebar = (props: any) => {
         handleGlobalDragStart, handleGlobalDragEnd, normalizePath, getFileIcon,
         serializeWorkspace, saveWorkspaceToStorage, handleConversationSelect, handleFileClick,
         handleInputSubmit, toggleTheme, goUpDirectory, switchToPath,
-        handleCreateNewFolder, createNewTextFile, createNewTerminal, createNewDocument,
+        handleCreateNewFolder, createNewTextFile, createNewTerminal, createNewNotebook, createNewExperiment, createNewDocument,
         handleOpenNpcTeamMenu, renderSearchResults,
         createAndAddPaneNodeToLayout, findNodePath, findNodeByPath
     } = props;
@@ -55,6 +87,93 @@ const Sidebar = (props: any) => {
 
     // Local state for disk usage panel
     const [diskUsageCollapsed, setDiskUsageCollapsed] = useState(true);
+    // State for bottom grid collapse
+    const [bottomGridCollapsed, setBottomGridCollapsed] = useState<boolean>(() => {
+        const stored = localStorage.getItem('npcStudio_bottomGridCollapsed');
+        return stored === 'true';
+    });
+    // Search state for sidebar sections
+    const [convoSearch, setConvoSearch] = useState('');
+    const [fileSearch, setFileSearch] = useState('');
+    const [fileTypeFilter, setFileTypeFilter] = useState<string>(() => localStorage.getItem('npcStudio_fileTypeFilter') || '');
+
+    // Drag state for section reordering
+    const [draggedSection, setDraggedSection] = useState<string | null>(null);
+
+    // Section drag handlers
+    const handleSectionDragStart = (sectionId: string) => (e: React.DragEvent) => {
+        setDraggedSection(sectionId);
+        e.dataTransfer.setData('text/plain', sectionId);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleSectionDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+
+    const handleSectionDrop = (targetSectionId: string) => (e: React.DragEvent) => {
+        e.preventDefault();
+        const draggedId = e.dataTransfer.getData('text/plain');
+        setDraggedSection(null);
+        if (draggedId === targetSectionId || !setSidebarSectionOrder) return;
+
+        const currentOrder = sidebarSectionOrder || ['websites', 'files', 'conversations'];
+        const newOrder = [...currentOrder];
+        const draggedIndex = newOrder.indexOf(draggedId);
+        const targetIndex = newOrder.indexOf(targetSectionId);
+
+        newOrder.splice(draggedIndex, 1);
+        newOrder.splice(targetIndex, 0, draggedId);
+        setSidebarSectionOrder(newOrder);
+    };
+
+    const handleSectionDragEnd = () => {
+        setDraggedSection(null);
+    };
+
+    const [showFileTypeFilter, setShowFileTypeFilter] = useState(false);
+    const [websiteSearch, setWebsiteSearch] = useState('');
+
+    // Conversation filters
+    const [showConvoFilters, setShowConvoFilters] = useState(false);
+    const [convoNpcFilter, setConvoNpcFilter] = useState<string>(() => localStorage.getItem('npcStudio_convoNpcFilter') || '');
+    const [convoModelFilter, setConvoModelFilter] = useState<string>(() => localStorage.getItem('npcStudio_convoModelFilter') || '');
+    const [convoDateFrom, setConvoDateFrom] = useState<string>(() => localStorage.getItem('npcStudio_convoDateFrom') || '');
+    const [convoDateTo, setConvoDateTo] = useState<string>(() => localStorage.getItem('npcStudio_convoDateTo') || '');
+
+    // Persist file type filter to localStorage
+    useEffect(() => {
+        localStorage.setItem('npcStudio_fileTypeFilter', fileTypeFilter);
+    }, [fileTypeFilter]);
+
+    // Persist conversation filters to localStorage
+    useEffect(() => {
+        localStorage.setItem('npcStudio_convoNpcFilter', convoNpcFilter);
+    }, [convoNpcFilter]);
+    useEffect(() => {
+        localStorage.setItem('npcStudio_convoModelFilter', convoModelFilter);
+    }, [convoModelFilter]);
+    useEffect(() => {
+        localStorage.setItem('npcStudio_convoDateFrom', convoDateFrom);
+    }, [convoDateFrom]);
+    useEffect(() => {
+        localStorage.setItem('npcStudio_convoDateTo', convoDateTo);
+    }, [convoDateTo]);
+    // Persist bottom grid collapsed state
+    useEffect(() => {
+        localStorage.setItem('npcStudio_bottomGridCollapsed', String(bottomGridCollapsed));
+    }, [bottomGridCollapsed]);
+
+    // Memory and Knowledge Graph sections
+    const [memoriesCollapsed, setMemoriesCollapsed] = useState(true);
+    const [knowledgeCollapsed, setKnowledgeCollapsed] = useState(true);
+    const [memorySearch, setMemorySearch] = useState('');
+    const [knowledgeSearch, setKnowledgeSearch] = useState('');
+    const [memories, setMemories] = useState<any[]>([]);
+    const [knowledgeEntities, setKnowledgeEntities] = useState<any[]>([]);
+    const [loadingMemories, setLoadingMemories] = useState(false);
+    const [loadingKnowledge, setLoadingKnowledge] = useState(false);
     // Local state for header actions expanded/collapsed (persisted)
     const [headerActionsExpanded, setHeaderActionsExpanded] = useState(() => {
         const saved = localStorage.getItem('npcStudio_headerActionsExpanded');
@@ -71,6 +190,71 @@ const Sidebar = (props: any) => {
     const [terminalDropdownOpen, setTerminalDropdownOpen] = useState(false);
     // Chat+ dropdown state (click-based)
     const [chatPlusDropdownOpen, setChatPlusDropdownOpen] = useState(false);
+    // Code file dropdown state
+    const [codeFileDropdownOpen, setCodeFileDropdownOpen] = useState(false);
+    const [defaultCodeFileType, setDefaultCodeFileType] = useState<string>(() =>
+        localStorage.getItem('npcStudio_defaultCodeFileType') || 'py'
+    );
+    
+    // Persist default code file type
+    useEffect(() => {
+        localStorage.setItem('npcStudio_defaultCodeFileType', defaultCodeFileType);
+    }, [defaultCodeFileType]);
+
+    // Common file types for quick access
+    const commonFileTypes = [
+        { ext: 'py', label: 'Python', icon: '🐍' },
+        { ext: 'js', label: 'JavaScript', icon: '📜' },
+        { ext: 'ts', label: 'TypeScript', icon: '📘' },
+        { ext: 'jsx', label: 'React JSX', icon: '⚛️' },
+        { ext: 'tsx', label: 'React TSX', icon: '⚛️' },
+        { ext: 'md', label: 'Markdown', icon: '📝' },
+        { ext: 'txt', label: 'Text', icon: '📄' },
+        { ext: 'sh', label: 'Shell Script', icon: '🖥️' },
+        { ext: 'json', label: 'JSON', icon: '{}' },
+        { ext: 'html', label: 'HTML', icon: '🌐' },
+        { ext: 'css', label: 'CSS', icon: '🎨' },
+        { ext: 'yaml', label: 'YAML', icon: '📋' },
+        { ext: 'sql', label: 'SQL', icon: '🗃️' },
+        { ext: 'go', label: 'Go', icon: '🐹' },
+        { ext: 'rs', label: 'Rust', icon: '🦀' },
+        { ext: 'c', label: 'C', icon: '©️' },
+        { ext: 'cpp', label: 'C++', icon: '➕' },
+        { ext: 'java', label: 'Java', icon: '☕' },
+    ];
+
+    // Create file with specific extension
+    const createFileWithExtension = (ext: string) => {
+        setCodeFileDropdownOpen(false);
+        const filename = `untitled.${ext}`;
+        // Call createNewTextFile with the pre-filled filename
+        if (createNewTextFile) {
+            // We need to trigger the modal with a default filename
+            // For now, just set a global or pass through props
+            window.dispatchEvent(new CustomEvent('createNewFileWithName', { detail: { filename } }));
+        }
+    };
+
+    // Close dropdowns when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            // Close code file dropdown if clicking outside
+            if (codeFileDropdownOpen && !target.closest('[data-dropdown="code-file"]')) {
+                setCodeFileDropdownOpen(false);
+            }
+            // Close doc dropdown if clicking outside
+            if (docDropdownOpen && !target.closest('[data-dropdown="doc"]')) {
+                setDocDropdownOpen(false);
+            }
+            // Close terminal dropdown if clicking outside
+            if (terminalDropdownOpen && !target.closest('[data-dropdown="terminal"]')) {
+                setTerminalDropdownOpen(false);
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [codeFileDropdownOpen, docDropdownOpen, terminalDropdownOpen]);
     // Website context menu state
     const [websiteContextMenu, setWebsiteContextMenu] = useState<{ x: number; y: number; url: string; title: string } | null>(null);
     // Zip modal state
@@ -222,6 +406,41 @@ const Sidebar = (props: any) => {
         customTiles: []
     });
     const [tileEditMode, setTileEditMode] = useState(false);
+    const [bottomGridEditMode, setBottomGridEditMode] = useState(false);
+    // Tile jinx state - loaded from ~/.npcsh/incognide/tiles/*.jinx
+    const [tileJinxes, setTileJinxes] = useState<Array<{
+        filename: string;
+        jinx_name: string;
+        label: string;
+        icon: string;
+        order: number;
+        enabled: boolean;
+        action?: string;
+        rawContent: string;
+    }>>([]);
+    const [tileJinxesLoaded, setTileJinxesLoaded] = useState(false);
+    const [editingTileJinx, setEditingTileJinx] = useState<string | null>(null);
+    const [draggedTileIdx, setDraggedTileIdx] = useState<number | null>(null);
+    const [tileJinxEditContent, setTileJinxEditContent] = useState('');
+    const [showLivePreview, setShowLivePreview] = useState(false);
+    const [livePreviewCode, setLivePreviewCode] = useState('');
+
+    // Fallback config (used until jinxes load)
+    const [bottomGridConfig, setBottomGridConfig] = useState([
+        { id: 'db', label: 'DB Tool', icon: 'Database', enabled: true, order: 0 },
+        { id: 'photo', label: 'Photo', icon: 'Image', enabled: true, order: 1 },
+        { id: 'library', label: 'Library', icon: 'BookOpen', enabled: true, order: 2 },
+        { id: 'datadash', label: 'Data Dash', icon: 'BarChart3', enabled: true, order: 3 },
+        { id: 'graph', label: 'Graph', icon: 'GitBranch', enabled: true, order: 4 },
+        { id: 'browsergraph', label: 'Browser Graph', icon: 'Network', enabled: true, order: 5 },
+        { id: 'team', label: 'Team', icon: 'Users', enabled: true, order: 6 },
+        { id: 'npc', label: 'NPCs', icon: 'Bot', enabled: true, order: 7 },
+        { id: 'jinx', label: 'Jinxs', icon: 'Zap', enabled: true, order: 8 },
+        { id: 'settings', label: 'Settings', icon: 'Settings', enabled: true, order: 9 },
+        { id: 'env', label: 'Env', icon: 'KeyRound', enabled: true, order: 10 },
+        { id: 'disk', label: 'Disk', icon: 'HardDrive', enabled: true, order: 11 },
+    ]);
+    const [draggedBottomTileId, setDraggedBottomTileId] = useState<string | null>(null);
     const [draggedTileId, setDraggedTileId] = useState<string | null>(null);
 
     // Load tile configuration on mount
@@ -238,6 +457,288 @@ const Sidebar = (props: any) => {
         };
         loadTilesConfig();
     }, []);
+
+    // Load tile jinxes on mount
+    useEffect(() => {
+        const loadTileJinxes = async () => {
+            try {
+                const result = await (window as any).api?.tileJinxList?.();
+                if (result?.success && result.tiles) {
+                    const parsed = result.tiles.map((tile: { filename: string; content: string }) => {
+                        const content = tile.content;
+                        let jinx_name = '', label = '', icon = '', order = 0, enabled = true;
+
+                        // Try JSDoc format first: @key value
+                        let jinxMatch = content.match(/@jinx\s+(\S+)/);
+                        let labelMatch = content.match(/@label\s+(.+)/);
+                        let iconMatch = content.match(/@icon\s+(\S+)/);
+                        let orderMatch = content.match(/@order\s+(\d+)/);
+                        let enabledMatch = content.match(/@enabled\s+(\S+)/);
+
+                        // Fallback to old # comment format: # key: value
+                        if (!labelMatch) {
+                            const oldLabel = content.match(/^#\s*label:\s*(.+)/m);
+                            if (oldLabel) label = oldLabel[1].trim();
+                        }
+                        if (!iconMatch) {
+                            const oldIcon = content.match(/^#\s*icon:\s*(\S+)/m);
+                            if (oldIcon) icon = oldIcon[1].trim();
+                        }
+                        if (!orderMatch) {
+                            const oldOrder = content.match(/^#\s*order:\s*(\d+)/m);
+                            if (oldOrder) order = parseInt(oldOrder[1]) || 0;
+                        }
+                        if (!enabledMatch) {
+                            const oldEnabled = content.match(/^#\s*enabled:\s*(\S+)/m);
+                            if (oldEnabled) enabled = oldEnabled[1].trim() !== 'false';
+                        }
+                        if (!jinxMatch) {
+                            const oldJinx = content.match(/^#\s*jinx_name:\s*(\S+)/m);
+                            if (oldJinx) jinx_name = oldJinx[1].trim();
+                        }
+
+                        if (jinxMatch) jinx_name = jinxMatch[1].trim();
+                        if (labelMatch) label = labelMatch[1].trim();
+                        if (iconMatch) icon = iconMatch[1].trim();
+                        if (orderMatch) order = parseInt(orderMatch[1]) || 0;
+                        if (enabledMatch) enabled = enabledMatch[1].trim() !== 'false';
+
+                        // Derive action from filename (db.jinx -> db)
+                        const action = tile.filename.replace('.jinx', '');
+
+                        return {
+                            filename: tile.filename,
+                            jinx_name,
+                            label: label || action,
+                            icon: icon || 'Box',
+                            order,
+                            enabled,
+                            action,
+                            rawContent: tile.content
+                        };
+                    });
+
+                    // Filter out example/disabled and sort
+                    setTileJinxes(parsed.filter((t: any) => !t.filename.startsWith('_')).sort((a: any, b: any) => a.order - b.order));
+                    setTileJinxesLoaded(true);
+                }
+            } catch (err) {
+                console.error('Failed to load tile jinxes:', err);
+            }
+        };
+        loadTileJinxes();
+    }, []);
+
+    // Save a tile jinx after editing
+    const saveTileJinx = useCallback(async (filename: string, content: string) => {
+        try {
+            await (window as any).api?.tileJinxWrite?.(filename, content);
+            // Reload jinxes
+            const result = await (window as any).api?.tileJinxList?.();
+            if (result?.success && result.tiles) {
+                const parsed = result.tiles.map((tile: { filename: string; content: string }) => {
+                    const content = tile.content;
+                    let jinx_name = '', label = '', icon = '', order = 0, enabled = true;
+
+                    // Try JSDoc format: @key value
+                    let m = content.match(/@jinx\s+(\S+)/); if (m) jinx_name = m[1].trim();
+                    m = content.match(/@label\s+(.+)/); if (m) label = m[1].trim();
+                    m = content.match(/@icon\s+(\S+)/); if (m) icon = m[1].trim();
+                    m = content.match(/@order\s+(\d+)/); if (m) order = parseInt(m[1]) || 0;
+                    m = content.match(/@enabled\s+(\S+)/); if (m) enabled = m[1].trim() !== 'false';
+
+                    // Fallback to old # format
+                    if (!label) { m = content.match(/^#\s*label:\s*(.+)/m); if (m) label = m[1].trim(); }
+                    if (!icon) { m = content.match(/^#\s*icon:\s*(\S+)/m); if (m) icon = m[1].trim(); }
+                    if (!order) { m = content.match(/^#\s*order:\s*(\d+)/m); if (m) order = parseInt(m[1]) || 0; }
+                    if (!jinx_name) { m = content.match(/^#\s*jinx_name:\s*(\S+)/m); if (m) jinx_name = m[1].trim(); }
+
+                    const action = tile.filename.replace('.jinx', '');
+                    return { filename: tile.filename, jinx_name, label: label || action, icon: icon || 'Box', order, enabled, action, rawContent: tile.content };
+                });
+                setTileJinxes(parsed.filter((t: any) => !t.filename.startsWith('_')).sort((a: any, b: any) => a.order - b.order));
+            }
+            setEditingTileJinx(null);
+            setTileJinxEditContent('');
+            setBottomGridEditMode(false);
+        } catch (err) {
+            console.error('Failed to save tile jinx:', err);
+        }
+    }, []);
+
+    // Reorder tiles via drag and drop
+    const handleTileReorder = useCallback(async (fromIdx: number, toIdx: number) => {
+        if (fromIdx === toIdx) return;
+        const newTiles = [...tileJinxes];
+        const [moved] = newTiles.splice(fromIdx, 1);
+        newTiles.splice(toIdx, 0, moved);
+
+        // Update order values in each tile's metadata and save
+        for (let i = 0; i < newTiles.length; i++) {
+            const tile = newTiles[i];
+            // Update order in the rawContent header
+            // Update order - try JSDoc format first, then old # format
+            let updatedContent = tile.rawContent;
+            if (/@order\s+\d+/.test(updatedContent)) {
+                updatedContent = updatedContent.replace(/(@order\s+)\d+/, `$1${i}`);
+            } else {
+                updatedContent = updatedContent.replace(/^(#\s*order:\s*)\d+/m, `$1${i}`);
+            }
+            tile.order = i;
+            tile.rawContent = updatedContent;
+            await (window as any).api?.tileJinxWrite?.(tile.filename, updatedContent);
+        }
+        setTileJinxes(newTiles);
+        setDraggedTileIdx(null);
+    }, [tileJinxes]);
+
+    // Compile TSX and prepare for react-live preview
+    const compileForPreview = useCallback(async (code: string): Promise<string> => {
+        try {
+            // Find the EXPORTED component name BEFORE stripping exports
+            // Look for "export default ComponentName" at end of file
+            const exportDefaultMatch = code.match(/export\s+default\s+(\w+)\s*;?\s*$/m);
+            // Or "export default function/const ComponentName"
+            const exportDefaultFuncMatch = code.match(/export\s+default\s+(?:function|const)\s+(\w+)/);
+
+            let componentName = exportDefaultMatch?.[1] || exportDefaultFuncMatch?.[1];
+
+            // Fallback: find first component definition
+            if (!componentName) {
+                const funcMatch = code.match(/(?:const|function)\s+(\w+)\s*(?::\s*React\.FC)?[=(:]/);
+                componentName = funcMatch?.[1] || 'Component';
+            }
+
+            console.log('[PREVIEW] Detected component:', componentName);
+
+            // Remove JSDoc metadata and imports
+            let cleaned = code.replace(/\/\*\*[\s\S]*?\*\/\s*\n?/, '');
+            cleaned = cleaned.replace(/^#[^\n]*\n/gm, '');
+            cleaned = cleaned.replace(/^import\s+.*?['"];?\s*$/gm, '');
+            cleaned = cleaned.replace(/^export\s+(default\s+)?/gm, '');
+
+            // Compile TypeScript to JavaScript via IPC
+            const result = await (window as any).api?.transformTsx?.(cleaned);
+            if (!result?.success) {
+                return `render(<div className="p-4 text-red-400">Compile Error: ${result?.error || 'Unknown error'}</div>)`;
+            }
+
+            let compiled = result.output || '';
+            if (!compiled) {
+                return `render(<div className="p-4 text-red-400">No output from compiler</div>)`;
+            }
+            // Remove module system artifacts
+            compiled = compiled.replace(/["']use strict["'];?\n?/g, '');
+            compiled = compiled.replace(/Object\.defineProperty\(exports[\s\S]*?\);/g, '');
+            compiled = compiled.replace(/exports\.\w+\s*=\s*/g, '');
+            compiled = compiled.replace(/exports\.default\s*=\s*\w+;?/g, '');
+            // Remove require() calls - dependencies come from scope
+            compiled = compiled.replace(/(?:var|const|let)\s+\w+\s*=\s*require\([^)]+\);?\n?/g, '');
+            compiled = compiled.replace(/require\([^)]+\)/g, '{}');
+            // Replace module prefixes like lucide_react_1.Play with just Play
+            compiled = compiled.replace(/\w+_\d+\.(\w+)/g, '$1');
+            // Also handle react_1.useState etc
+            compiled = compiled.replace(/react_1\.(\w+)/g, '$1');
+
+            // Add render call with realistic props - embedded:true to prevent modal wrapper
+            const mockProps = `{
+                onClose: () => console.log('Preview: onClose called'),
+                isPane: true,
+                isOpen: true,
+                isModal: false,
+                embedded: true,
+                projectPath: '/mock',
+                currentPath: '/mock',
+                theme: { bg: '#1a1a2e', fg: '#fff', accent: '#4a9eff' }
+            }`;
+            const finalCode = `${compiled}\n\nrender(<${componentName} {...${mockProps}} />)`;
+            console.log('[PREVIEW] Compiled code (first 500 chars):', finalCode.slice(0, 500));
+            return finalCode;
+        } catch (err: any) {
+            return `render(<div className="p-4 text-red-400">Error: ${err.message}</div>)`;
+        }
+    }, []);
+
+    // Toggle live preview
+    const toggleLivePreview = useCallback(async () => {
+        if (!showLivePreview) {
+            setLivePreviewCode('render(<div className="p-4 text-gray-400">Compiling...</div>)');
+            setShowLivePreview(true);
+            const compiled = await compileForPreview(tileJinxEditContent);
+            setLivePreviewCode(compiled);
+        } else {
+            setShowLivePreview(false);
+        }
+    }, [showLivePreview, tileJinxEditContent, compileForPreview]);
+
+    // Update preview when code changes (debounced)
+    useEffect(() => {
+        if (showLivePreview && tileJinxEditContent) {
+            const timeoutId = setTimeout(async () => {
+                const compiled = await compileForPreview(tileJinxEditContent);
+                setLivePreviewCode(compiled);
+            }, 800); // debounce
+            return () => clearTimeout(timeoutId);
+        }
+    }, [tileJinxEditContent, showLivePreview, compileForPreview]);
+
+    // Live preview scope - REAL components and REAL window.api
+    const liveScope = useMemo(() => ({
+        // React
+        React,
+        useState,
+        useEffect,
+        useCallback,
+        useRef,
+        useMemo,
+        useLayoutEffect: React.useLayoutEffect,
+        useContext: React.useContext,
+        createContext: React.createContext,
+        forwardRef: React.forwardRef,
+        memo: React.memo,
+        Fragment: React.Fragment,
+        // REAL npcts components
+        Modal, Tabs, Card, Button, Input, Select,
+        // ALL REAL tile components - exactly what gets rendered
+        DiskUsageAnalyzer,
+        AutosizeTextarea,
+        ForceGraph2D,
+        ActivityIntelligence,
+        BrowserHistoryWeb,
+        CtxEditor,
+        JinxMenu,
+        KnowledgeGraphEditor,
+        LabeledDataManager,
+        McpServerMenu,
+        MemoryManagement,
+        MessageLabeling,
+        NPCTeamMenu,
+        PythonEnvSettings,
+        DBTool,
+        DataDash,
+        LibraryViewer,
+        GraphViewer,
+        PhotoViewer,
+        SettingsMenu,
+        SettingsPanel: SettingsMenu, // alias
+        // ALL lucide icons
+        Database, Image, BookOpen, BarChart3, GitBranch, Network, Users, Bot, Zap,
+        Settings, KeyRound, HardDrive, Box, Folder, File, Globe, ChevronRight, Edit,
+        Terminal, Trash, Plus, X, Star, Clock, Activity, Lock, Archive, Sparkles,
+        ChevronDown, ChevronUp, Play, GripVertical, Search, RefreshCw, Download,
+        Upload, Copy, Check, AlertCircle, Info, Eye, EyeOff, Moon, Sun, Palette,
+        Code, Save, FolderOpen, FileText, Home, ArrowLeft, ArrowRight, Menu, MoreVertical,
+        Loader2, ExternalLink, Link, Unlink, Filter, SortAsc, SortDesc, Table, Grid,
+        List, Maximize2, Minimize2, Move, RotateCcw, ZoomIn, ZoomOut, Layers, Layout,
+        Pause, Server, Mail, Cpu, Wifi, WifiOff, Power, PowerOff, Hash, AtSign,
+        FileJson, Wrench, Code2, FileStack, Share2, Tag, MessageSquare, ArrowUp,
+        // Icon aliases
+        DownloadCloud: Download, Trash2: Trash, Square: Box, Volume2: Activity, Mic: Activity, Keyboard: Settings,
+        // REAL window with REAL api
+        window,
+        // Console
+        console,
+    }), []);
 
     // Save tile configuration
     const saveTilesConfig = useCallback(async (newConfig: typeof tilesConfig) => {
@@ -788,11 +1289,6 @@ const renderActiveWindowsIndicator = () => {
     );
 };
 const renderWorkspaceIndicator = () => {
-    // Debug logging
-    console.log('contentDataRef.current:', contentDataRef.current);
-    console.log('Object.keys(contentDataRef.current):', Object.keys(contentDataRef.current));
-    console.log('rootLayoutNode:', rootLayoutNode);
-    
     // Check if current path has a saved workspace
     const allWorkspaces = JSON.parse(localStorage.getItem(WINDOW_WORKSPACES_KEY) || '{}');
     const windowWorkspaces = allWorkspaces[windowId] || {};
@@ -811,10 +1307,7 @@ const renderWorkspaceIndicator = () => {
         return 0;
     };
     const layoutPaneCount = countPanesInLayout(rootLayoutNode);
-    
-    console.log('activePaneCount from contentDataRef:', activePaneCount);
-    console.log('layoutPaneCount from rootLayoutNode:', layoutPaneCount);
-    
+
     const workspaceData = windowWorkspaces[currentPath];
     const workspaceInfo = workspaceData ? {
         paneCount: layoutPaneCount, // Use the layout count instead
@@ -932,14 +1425,11 @@ const renderWorkspaceIndicator = () => {
     }
     
     try {
-        
         if (selectedConversationIds.length > 0) {
-            console.log('Deleting conversations from database:', selectedConversationIds);
             await Promise.all(selectedConversationIds.map(id => window.api.deleteConversation(id)));
         }
-        
+
         if (selectedFilePaths.length > 0) {
-            console.log('Deleting files from filesystem:', selectedFilePaths);
             await Promise.all(selectedFilePaths.map(filePath => window.api.deleteFile(filePath)));
         }
 
@@ -977,7 +1467,6 @@ const refreshDirectoryStructureOnly = async () => {
         }
         
         // DON'T load conversations - just refresh the file structure
-        console.log('[REFRESH_STRUCTURE] Refreshed folder structure only');
         return structureResult;
     } catch (err) {
         console.error('Error loading structure:', err);
@@ -988,36 +1477,32 @@ const refreshDirectoryStructureOnly = async () => {
 };
 const refreshConversations = async () => {
     if (currentPath) {
-        console.log('[REFRESH] Starting conversation refresh for path:', currentPath);
         try {
             const normalizedPath = normalizePath(currentPath);
             const response = await window.api.getConversations(normalizedPath);
-            console.log('[REFRESH] Got response:', response);
-            
+
             if (response?.conversations) {
                 const formattedConversations = response.conversations.map(conv => ({
                     id: conv.id,
                     title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
                     preview: conv.preview || 'No content',
                     timestamp: conv.timestamp || Date.now(),
-                    last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
+                    last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now(),
+                    npc: conv.npc || conv.assistant_name || conv.npc_name || '',
+                    model: conv.model || conv.model_name || '',
+                    provider: conv.provider || '',
                 }));
-                
-                formattedConversations.sort((a, b) => 
+
+                formattedConversations.sort((a, b) =>
                     new Date(b.last_message_timestamp).getTime() - new Date(a.last_message_timestamp).getTime()
                 );
-                
-                console.log('[REFRESH] Setting conversations:', formattedConversations.length);
+
                 setDirectoryConversations([...formattedConversations]);
-                
-                // ADD THIS: Don't auto-select anything - just update the list
-                console.log('[REFRESH] Refresh complete, preserving current selection');
             } else {
-                console.error('[REFRESH] No conversations in response');
                 setDirectoryConversations([]);
             }
         } catch (err) {
-            console.error('[REFRESH] Error:', err);
+            console.error('Error refreshing conversations:', err);
             setDirectoryConversations([]);
         }
     }
@@ -1025,58 +1510,97 @@ const refreshConversations = async () => {
 
 
 const renderWebsiteList = () => {
+    // Filter websites by search
+    const allWebsites = [...(websiteHistory || []), ...(bookmarks || [])];
+    const filteredWebsites = websiteSearch.trim()
+        ? allWebsites.filter(site =>
+            (site.title || '').toLowerCase().includes(websiteSearch.toLowerCase()) ||
+            (site.url || '').toLowerCase().includes(websiteSearch.toLowerCase())
+        )
+        : allWebsites;
+
     const header = (
-        <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
-            <div className="text-xs text-gray-400 font-medium">Websites</div>
-                    <div className="flex items-center gap-1 w-[66%]">
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        loadWebsiteHistory();
-                    }}
-                    className="p-1 theme-hover rounded-full transition-all"
-                    title="Refresh website history"
+        <div
+            className="mx-1 mt-3"
+            onDragOver={handleSectionDragOver}
+            onDrop={handleSectionDrop('websites')}
+        >
+            <div className="group/header flex items-center bg-gradient-to-r from-purple-900/20 to-indigo-900/20 rounded-t-lg border-b border-purple-500/20">
+                {/* Drag handle - appears on hover */}
+                <div
+                    draggable
+                    onDragStart={handleSectionDragStart('websites')}
+                    onDragEnd={handleSectionDragEnd}
+                    className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
+                    title="Drag to reorder"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
-                    </svg>
-                </button>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setWebsitesCollapsed(!websitesCollapsed);
-                    }}
-                    className="p-1 theme-hover rounded-full transition-all"
-                    title={websitesCollapsed ? "Expand websites" : "Collapse websites"}
-                >
-                    <ChevronRight
-                        size={16}
-                        className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`}
-                    />
-                </button>
+                    <GripVertical size={10} className="text-gray-500" />
+                </div>
+                <div className="flex-1 flex items-center justify-between px-2 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                        <Globe size={12} className="text-purple-400" />
+                        <span className="text-[11px] text-purple-300 font-medium">Websites</span>
+                        <span className="text-[10px] text-gray-500">({openBrowsers.length + allWebsites.length})</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                            title="Refresh"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setWebsitesCollapsed(!websitesCollapsed); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                            title={websitesCollapsed ? "Expand" : "Collapse"}
+                        >
+                            <ChevronRight size={14} className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`} />
+                        </button>
+                    </div>
+                </div>
             </div>
+            {!websitesCollapsed && allWebsites.length > 0 && (
+                <div className="px-1 py-1 bg-black/20 border-b border-white/5">
+                    <div className="relative">
+                        <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                        <input
+                            type="text"
+                            value={websiteSearch}
+                            onChange={(e) => setWebsiteSearch(e.target.value)}
+                            placeholder="Search websites..."
+                            className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-purple-500/50"
+                        />
+                        {websiteSearch && (
+                            <button onClick={() => setWebsiteSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                <X size={10} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 
     if (websitesCollapsed && openBrowsers.length === 0) {
-        return <div className="mt-4">{header}</div>;
+        return <div>{header}</div>;
     }
 
     return (
-        <div className="mt-4">
+        <div>
             {header}
-            
+
             {!websitesCollapsed && (
-                <div className="px-1 space-y-2">
+                <div className="mx-1 bg-black/10 rounded-b-lg max-h-[240px] overflow-y-auto">
                     {/* Currently Open Browsers */}
                     {openBrowsers.length > 0 && (
-                        <div>
+                        <div className="border-b border-white/5">
                             <div
-                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                className="text-[10px] text-gray-500 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-white/5"
                                 onClick={() => setOpenBrowsersCollapsed(!openBrowsersCollapsed)}
                             >
-                                <span>Open Now ({openBrowsers.length})</span>
-                                <ChevronRight size={12} className={`transform transition-transform ${openBrowsersCollapsed ? '' : 'rotate-90'}`} />
+                                <span className="flex items-center gap-1"><Globe size={10} className="text-blue-400" /> Open ({openBrowsers.length})</span>
+                                <ChevronRight size={10} className={`transform transition-transform ${openBrowsersCollapsed ? '' : 'rotate-90'}`} />
                             </div>
                             {!openBrowsersCollapsed && openBrowsers.map(browser => (
                                 <button
@@ -1092,20 +1616,16 @@ const renderWebsiteList = () => {
                                             title: browser.title || new URL(browser.url).hostname
                                         });
                                     }}
-                                    className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all ${
+                                    className={`flex items-center gap-2 px-2 py-1.5 w-full text-left transition-all group ${
                                         activeContentPaneId === browser.paneId
-                                            ? 'conversation-selected border-l-2 border-blue-500'
-                                            : 'hover:bg-gray-800'
+                                            ? 'bg-blue-500/20 border-l-2 border-blue-500'
+                                            : 'hover:bg-white/5 border-l-2 border-transparent'
                                     }`}
                                 >
-                                    <Globe size={14} className="text-blue-400 flex-shrink-0" />
+                                    <Globe size={13} className="text-blue-400 flex-shrink-0" />
                                     <div className="flex flex-col overflow-hidden min-w-0 flex-1">
-                                        <span className="text-xs truncate font-medium">
-                                            {browser.title}
-                                        </span>
-                                        <span className="text-xs text-gray-500 truncate">
-                                            {browser.url}
-                                        </span>
+                                        <span className="text-[11px] truncate text-gray-200">{browser.title}</span>
+                                        <span className="text-[9px] text-gray-600 truncate">{browser.url}</span>
                                     </div>
                                 </button>
                             ))}
@@ -1114,13 +1634,16 @@ const renderWebsiteList = () => {
 
                     {/* Bookmarks */}
                     {bookmarks.length > 0 && (
-                        <div>
+                        <div className="border-b border-white/5">
                             <div
-                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                className="text-[10px] text-gray-500 px-2 py-1.5 font-medium flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors"
                                 onClick={() => setBookmarksCollapsed(!bookmarksCollapsed)}
                             >
-                                <span>Bookmarks ({bookmarks.length})</span>
-                                <ChevronRight size={12} className={`transform transition-transform ${bookmarksCollapsed ? '' : 'rotate-90'}`} />
+                                <span className="flex items-center gap-1.5">
+                                    <Star size={10} className="text-yellow-400" />
+                                    Bookmarks ({bookmarks.length})
+                                </span>
+                                <ChevronRight size={10} className={`transform transition-transform text-gray-600 ${bookmarksCollapsed ? '' : 'rotate-90'}`} />
                             </div>
                             {!bookmarksCollapsed && bookmarks.map((bookmark, idx) => (
                                 <button
@@ -1136,12 +1659,12 @@ const renderWebsiteList = () => {
                                             title: bookmark.title
                                         });
                                     }}
-                                    className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all group"
+                                    className="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-white/5 transition-all group border-l-2 border-transparent hover:border-yellow-500/50"
                                 >
-                                    <Star size={14} className="text-yellow-400 flex-shrink-0" />
+                                    <Star size={12} className="text-yellow-400 flex-shrink-0" />
                                     <div className="flex flex-col overflow-hidden min-w-0 flex-1">
-                                        <span className="text-xs truncate">{bookmark.title}</span>
-                                        <span className="text-xs text-gray-500 truncate">{bookmark.url}</span>
+                                        <span className="text-[11px] truncate text-gray-200">{bookmark.title}</span>
+                                        <span className="text-[9px] text-gray-600 truncate">{bookmark.url}</span>
                                     </div>
                                 </button>
                             ))}
@@ -1150,13 +1673,16 @@ const renderWebsiteList = () => {
 
                     {/* Common Sites */}
                     {commonSites.length > 0 && (
-                        <div>
+                        <div className="border-b border-white/5">
                             <div
-                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                className="text-[10px] text-gray-500 px-2 py-1.5 font-medium flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors"
                                 onClick={() => setCommonSitesCollapsed(!commonSitesCollapsed)}
                             >
-                                <span>Common Sites ({commonSites.length})</span>
-                                <ChevronRight size={12} className={`transform transition-transform ${commonSitesCollapsed ? '' : 'rotate-90'}`} />
+                                <span className="flex items-center gap-1.5">
+                                    <Globe size={10} className="text-green-400" />
+                                    Frequent ({commonSites.length})
+                                </span>
+                                <ChevronRight size={10} className={`transform transition-transform text-gray-600 ${commonSitesCollapsed ? '' : 'rotate-90'}`} />
                             </div>
                             {!commonSitesCollapsed && commonSites.map(site => (
                                 <button
@@ -1182,25 +1708,25 @@ const renderWebsiteList = () => {
                                             title: site.domain
                                         });
                                     }}
-                                    className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all group"
+                                    className="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-white/5 transition-all group border-l-2 border-transparent hover:border-green-500/50"
                                 >
-                                    <img 
-                                        src={site.favicon} 
-                                        alt="" 
-                                        className="w-4 h-4 flex-shrink-0"
+                                    <img
+                                        src={site.favicon}
+                                        alt=""
+                                        className="w-3.5 h-3.5 flex-shrink-0 rounded"
                                         onError={(e) => {
                                             e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="gray" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
                                         }}
                                     />
                                     <div className="flex flex-col overflow-hidden min-w-0 flex-1">
-                                        <span className="text-xs truncate">{site.domain}</span>
-                                        <span className="text-xs text-gray-500">
+                                        <span className="text-[11px] truncate text-gray-200">{site.domain}</span>
+                                        <span className="text-[9px] text-gray-600">
                                             {site.count} visits
                                         </span>
                                     </div>
-                                    <Plus 
-                                        size={12} 
-                                        className="text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" 
+                                    <Plus
+                                        size={10}
+                                        className="text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity hover:text-green-400"
                                     />
                                 </button>
                             ))}
@@ -1211,11 +1737,14 @@ const renderWebsiteList = () => {
                     {websiteHistory.length > 0 && (
                         <div>
                             <div
-                                className="text-xs text-gray-600 px-2 py-1 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-800 rounded"
+                                className="text-[10px] text-gray-500 px-2 py-1.5 font-medium flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors"
                                 onClick={() => setRecentHistoryCollapsed(!recentHistoryCollapsed)}
                             >
-                                <span>Recent History ({websiteHistory.length})</span>
-                                <ChevronRight size={12} className={`transform transition-transform ${recentHistoryCollapsed ? '' : 'rotate-90'}`} />
+                                <span className="flex items-center gap-1.5">
+                                    <Clock size={10} className="text-cyan-400" />
+                                    History ({websiteHistory.length})
+                                </span>
+                                <ChevronRight size={10} className={`transform transition-transform text-gray-600 ${recentHistoryCollapsed ? '' : 'rotate-90'}`} />
                             </div>
                             {!recentHistoryCollapsed && <div className="max-h-48 overflow-y-auto">
                                 {websiteHistory.slice(0, 20).map((item, idx) => (
@@ -1242,14 +1771,14 @@ const renderWebsiteList = () => {
                                                 title: item.title || new URL(item.url).hostname
                                             });
                                         }}
-                                        className="flex items-center gap-2 px-2 py-1 w-full text-left rounded hover:bg-gray-800 transition-all"
+                                        className="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-white/5 transition-all group border-l-2 border-transparent hover:border-cyan-500/50"
                                     >
-                                        <Globe size={12} className="text-gray-400 flex-shrink-0" />
+                                        <Globe size={11} className="text-gray-500 flex-shrink-0" />
                                         <div className="flex flex-col overflow-hidden min-w-0 flex-1">
-                                            <span className="text-xs truncate">
+                                            <span className="text-[11px] truncate text-gray-300">
                                                 {item.title || new URL(item.url).hostname}
                                             </span>
-                                            <span className="text-xs text-gray-500 truncate">
+                                            <span className="text-[9px] text-gray-600 truncate">
                                                 {new Date(item.timestamp).toLocaleString()}
                                             </span>
                                         </div>
@@ -1282,6 +1811,234 @@ useEffect(() => {
         loadGitStatus();
     }
     }, [currentPath, loadGitStatus]);
+
+    // Load memories for the current path
+    const loadMemories = useCallback(async () => {
+        if (!currentPath) return;
+        setLoadingMemories(true);
+        try {
+            // Try to fetch memories from the API
+            const response = await window.api.getMemories?.({ path: currentPath, limit: 50 });
+            if (response?.memories) {
+                setMemories(response.memories);
+            }
+        } catch (err) {
+            console.error('[Sidebar] Failed to load memories:', err);
+        } finally {
+            setLoadingMemories(false);
+        }
+    }, [currentPath]);
+
+    // Load knowledge graph entities for the current path
+    const loadKnowledgeEntities = useCallback(async () => {
+        if (!currentPath) return;
+        setLoadingKnowledge(true);
+        try {
+            // Try to fetch knowledge graph from the API
+            const response = await window.api.getKnowledgeGraph?.({ path: currentPath, limit: 50 });
+            if (response?.entities) {
+                setKnowledgeEntities(response.entities);
+            }
+        } catch (err) {
+            console.error('[Sidebar] Failed to load knowledge graph:', err);
+        } finally {
+            setLoadingKnowledge(false);
+        }
+    }, [currentPath]);
+
+    // Load memories and knowledge when path changes or sections expand
+    useEffect(() => {
+        if (!memoriesCollapsed && currentPath) {
+            loadMemories();
+        }
+    }, [memoriesCollapsed, currentPath, loadMemories]);
+
+    useEffect(() => {
+        if (!knowledgeCollapsed && currentPath) {
+            loadKnowledgeEntities();
+        }
+    }, [knowledgeCollapsed, currentPath, loadKnowledgeEntities]);
+
+    // Render Memory section
+    const renderMemorySection = () => {
+        const filteredMemories = memorySearch.trim()
+            ? memories.filter(m =>
+                (m.content || '').toLowerCase().includes(memorySearch.toLowerCase()) ||
+                (m.type || '').toLowerCase().includes(memorySearch.toLowerCase())
+            )
+            : memories;
+
+        return (
+            <div className="mx-1 mt-3">
+                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-purple-900/20 to-pink-900/20 rounded-t-lg border-b border-purple-500/20">
+                    <div className="flex items-center gap-1.5">
+                        <BrainCircuit size={12} className="text-purple-400" />
+                        <span className="text-[11px] text-purple-300 font-medium">Memories</span>
+                        <span className="text-[10px] text-gray-500">({filteredMemories.length})</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); loadMemories(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                            title="Refresh memories"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setMemoriesCollapsed(!memoriesCollapsed); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                            title={memoriesCollapsed ? "Expand" : "Collapse"}
+                        >
+                            <ChevronRight size={14} className={`transform transition-transform ${memoriesCollapsed ? "" : "rotate-90"}`} />
+                        </button>
+                    </div>
+                </div>
+
+                {!memoriesCollapsed && (
+                    <>
+                        {/* Search */}
+                        <div className="px-1 py-1 bg-black/20 border-b border-white/5">
+                            <div className="relative">
+                                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="text"
+                                    value={memorySearch}
+                                    onChange={(e) => setMemorySearch(e.target.value)}
+                                    placeholder="Search memories..."
+                                    className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-purple-500/50"
+                                />
+                                {memorySearch && (
+                                    <button onClick={() => setMemorySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                        <X size={10} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Memory list */}
+                        <div className="bg-black/10 rounded-b-lg max-h-[200px] overflow-y-auto">
+                            {loadingMemories ? (
+                                <div className="px-3 py-3 text-[11px] text-gray-500 text-center">Loading...</div>
+                            ) : filteredMemories.length === 0 ? (
+                                <div className="px-3 py-3 text-[11px] text-gray-500 text-center">
+                                    {memorySearch ? `No matches for "${memorySearch}"` : 'No memories yet'}
+                                </div>
+                            ) : (
+                                filteredMemories.map((memory, index) => (
+                                    <div
+                                        key={memory.id || index}
+                                        className="px-2 py-1.5 hover:bg-white/5 border-l-2 border-transparent hover:border-purple-500/50 cursor-pointer"
+                                        onClick={() => {
+                                            // Could open memory in a viewer pane
+                                            console.log('Memory clicked:', memory);
+                                        }}
+                                    >
+                                        <div className="text-[11px] text-gray-200 truncate">{memory.content || memory.summary || 'Memory'}</div>
+                                        <div className="text-[9px] text-gray-500 flex items-center gap-1 mt-0.5">
+                                            <span className="px-1 py-0.5 bg-purple-500/20 rounded text-purple-400">{memory.type || 'general'}</span>
+                                            {memory.timestamp && <span>{new Date(memory.timestamp).toLocaleDateString()}</span>}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        );
+    };
+
+    // Render Knowledge Graph section
+    const renderKnowledgeSection = () => {
+        const filteredEntities = knowledgeSearch.trim()
+            ? knowledgeEntities.filter(e =>
+                (e.name || '').toLowerCase().includes(knowledgeSearch.toLowerCase()) ||
+                (e.type || '').toLowerCase().includes(knowledgeSearch.toLowerCase())
+            )
+            : knowledgeEntities;
+
+        return (
+            <div className="mx-1 mt-3">
+                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 rounded-t-lg border-b border-cyan-500/20">
+                    <div className="flex items-center gap-1.5">
+                        <Network size={12} className="text-cyan-400" />
+                        <span className="text-[11px] text-cyan-300 font-medium">Knowledge</span>
+                        <span className="text-[10px] text-gray-500">({filteredEntities.length})</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); loadKnowledgeEntities(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-cyan-400"
+                            title="Refresh knowledge graph"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setKnowledgeCollapsed(!knowledgeCollapsed); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                            title={knowledgeCollapsed ? "Expand" : "Collapse"}
+                        >
+                            <ChevronRight size={14} className={`transform transition-transform ${knowledgeCollapsed ? "" : "rotate-90"}`} />
+                        </button>
+                    </div>
+                </div>
+
+                {!knowledgeCollapsed && (
+                    <>
+                        {/* Search */}
+                        <div className="px-1 py-1 bg-black/20 border-b border-white/5">
+                            <div className="relative">
+                                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="text"
+                                    value={knowledgeSearch}
+                                    onChange={(e) => setKnowledgeSearch(e.target.value)}
+                                    placeholder="Search entities..."
+                                    className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-cyan-500/50"
+                                />
+                                {knowledgeSearch && (
+                                    <button onClick={() => setKnowledgeSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                        <X size={10} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Entity list */}
+                        <div className="bg-black/10 rounded-b-lg max-h-[200px] overflow-y-auto">
+                            {loadingKnowledge ? (
+                                <div className="px-3 py-3 text-[11px] text-gray-500 text-center">Loading...</div>
+                            ) : filteredEntities.length === 0 ? (
+                                <div className="px-3 py-3 text-[11px] text-gray-500 text-center">
+                                    {knowledgeSearch ? `No matches for "${knowledgeSearch}"` : 'No knowledge entries yet'}
+                                </div>
+                            ) : (
+                                filteredEntities.map((entity, index) => (
+                                    <div
+                                        key={entity.id || index}
+                                        className="px-2 py-1.5 hover:bg-white/5 border-l-2 border-transparent hover:border-cyan-500/50 cursor-pointer"
+                                        onClick={() => {
+                                            // Could open entity in knowledge graph viewer
+                                            createGraphViewerPane?.();
+                                        }}
+                                    >
+                                        <div className="text-[11px] text-gray-200 truncate flex items-center gap-1">
+                                            <Share2 size={10} className="text-cyan-400" />
+                                            {entity.name || 'Entity'}
+                                        </div>
+                                        <div className="text-[9px] text-gray-500 flex items-center gap-1 mt-0.5">
+                                            <span className="px-1 py-0.5 bg-cyan-500/20 rounded text-cyan-400">{entity.type || 'node'}</span>
+                                            {entity.connections && <span>{entity.connections} connections</span>}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        );
+    };
 
     const renderDiskUsagePanel = () => {
         console.log('[DiskUsage] renderDiskUsagePanel called, currentPath:', currentPath, 'diskUsageCollapsed:', diskUsageCollapsed);
@@ -1530,7 +2287,10 @@ useEffect(() => {
                   title: conv.preview?.split('\n')[0]?.substring(0, 30) || 'New Conversation',
                   preview: conv.preview || 'No content',
                   timestamp: conv.timestamp || Date.now(),
-                  last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now()
+                  last_message_timestamp: conv.last_message_timestamp || conv.timestamp || Date.now(),
+                  npc: conv.npc || conv.assistant_name || conv.npc_name || '',
+                  model: conv.model || conv.model_name || '',
+                  provider: conv.provider || '',
               })) || [];
       
               formattedConversations.sort((a, b) => 
@@ -1757,40 +2517,207 @@ const renderFolderList = (structure) => {
     if (!structure || typeof structure !== 'object' || structure.error) {
         return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>;
     }
+
+    // Count files for display
+    const countItems = (struct) => {
+        let count = 0;
+        Object.values(struct).forEach((item: any) => {
+            if (item?.type === 'file') count++;
+            else if (item?.type === 'directory' && item?.children) count += countItems(item.children);
+        });
+        return count;
+    };
+    const fileCount = countItems(structure);
+
+    // Parse file type filter into array of extensions
+    const parseFileTypeFilter = (filter: string): string[] => {
+        if (!filter.trim()) return [];
+        return filter.split(/[,\s]+/)
+            .map(ext => ext.trim().toLowerCase())
+            .filter(ext => ext.length > 0)
+            .map(ext => ext.startsWith('.') ? ext : `.${ext}`);
+    };
+    const activeTypeFilters = parseFileTypeFilter(fileTypeFilter);
+
+    // Check if a file matches the type filter
+    const matchesTypeFilter = (name: string): boolean => {
+        if (activeTypeFilters.length === 0) return true;
+        const lowerName = name.toLowerCase();
+        return activeTypeFilters.some(ext => lowerName.endsWith(ext));
+    };
+
+    // Filter files by search and type
+    const filterStructure = (struct, query) => {
+        const q = query.toLowerCase().trim();
+        const hasQuery = q.length > 0;
+        const hasTypeFilter = activeTypeFilters.length > 0;
+
+        if (!hasQuery && !hasTypeFilter) return struct;
+
+        const filtered = {};
+        Object.entries(struct).forEach(([name, item]: [string, any]) => {
+            const isDirectory = item?.type === 'directory';
+            const isFile = item?.type === 'file';
+
+            if (isDirectory && item?.children) {
+                // For directories, recursively filter children
+                const filteredChildren = filterStructure(item.children, query);
+                if (Object.keys(filteredChildren).length > 0) {
+                    filtered[name] = { ...item, children: filteredChildren };
+                }
+                // Also include directory if name matches search query (even if empty after filter)
+                else if (hasQuery && name.toLowerCase().includes(q)) {
+                    filtered[name] = item;
+                }
+            } else if (isFile) {
+                // For files, check both search query and type filter
+                const matchesQuery = !hasQuery || name.toLowerCase().includes(q);
+                const matchesType = matchesTypeFilter(name);
+                if (matchesQuery && matchesType) {
+                    filtered[name] = item;
+                }
+            }
+        });
+        return filtered;
+    };
+    const filteredStructure = filterStructure(structure, fileSearch);
+
     if (Object.keys(structure).length === 0) {
         return <div className="p-2 text-xs text-gray-500">Empty directory</div>;
     }
 
     const header = (
-        <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
-            <div className="text-xs text-gray-400 font-medium">Files & Folders</div>
-            <div className="flex items-center gap-1">
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        handleRefreshFilesAndFolders();
-                    }}
-                    className="p-1 theme-hover rounded-full transition-all"
-                    title="Refresh file and folder list"
+        <div
+            className="mx-1 mt-3"
+            onDragOver={handleSectionDragOver}
+            onDrop={handleSectionDrop('files')}
+        >
+            <div className="group/header flex items-center bg-gradient-to-r from-yellow-900/20 to-orange-900/20 rounded-t-lg border-b border-yellow-500/20">
+                {/* Drag handle - appears on hover */}
+                <div
+                    draggable
+                    onDragStart={handleSectionDragStart('files')}
+                    onDragEnd={handleSectionDragEnd}
+                    className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
+                    title="Drag to reorder"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5" />
-                    </svg>
-                </button>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setFilesCollapsed(!filesCollapsed);
-                    }}
-                    className="p-1 theme-hover rounded-full transition-all"
-                    title={filesCollapsed ? "Expand files" : "Collapse files"}
-                >
-                    <ChevronRight
-                        size={16}
-                        className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`}
-                    />
-                </button>
+                    <GripVertical size={10} className="text-gray-500" />
+                </div>
+                <div className="flex-1 flex items-center justify-between px-2 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                        <FolderOpen size={12} className="text-yellow-400" />
+                        <span className="text-[11px] text-yellow-300 font-medium">Files</span>
+                        <span className="text-[10px] text-gray-500">({fileCount})</span>
+                        {activeTypeFilters.length > 0 && (
+                            <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                                {activeTypeFilters.length} filter{activeTypeFilters.length !== 1 ? 's' : ''}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (showFileTypeFilter) {
+                                    // Closing filter - clear the filter value
+                                    setFileTypeFilter('');
+                                }
+                                setShowFileTypeFilter(!showFileTypeFilter);
+                            }}
+                            className={`p-1 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                            title="Filter by file type"
+                        >
+                            <Filter size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                            title="Refresh files"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setFilesCollapsed(!filesCollapsed); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                            title={filesCollapsed ? "Expand" : "Collapse"}
+                        >
+                            <ChevronRight size={14} className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`} />
+                        </button>
+                    </div>
+                </div>
             </div>
+            {!filesCollapsed && (
+                <div className="bg-black/20 border-b border-white/5">
+                    {/* Search input */}
+                    {fileCount > 5 && (
+                        <div className="px-1 py-1">
+                            <div className="relative">
+                                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="text"
+                                    value={fileSearch}
+                                    onChange={(e) => setFileSearch(e.target.value)}
+                                    placeholder="Search files..."
+                                    className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-yellow-500/50"
+                                />
+                                {fileSearch && (
+                                    <button onClick={() => setFileSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                        <X size={10} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    {/* File type filter */}
+                    {showFileTypeFilter && (
+                        <div className="px-1 py-1 border-t border-white/5">
+                            <div className="relative">
+                                <Filter size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="text"
+                                    value={fileTypeFilter}
+                                    onChange={(e) => setFileTypeFilter(e.target.value)}
+                                    placeholder=".py .js .tsx (comma or space separated)"
+                                    className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-6 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-yellow-500/50"
+                                />
+                                {fileTypeFilter && (
+                                    <button onClick={() => setFileTypeFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                        <X size={10} />
+                                    </button>
+                                )}
+                            </div>
+                            {/* Quick filter presets */}
+                            <div className="flex flex-wrap gap-1 mt-1.5 px-1">
+                                {[
+                                    { label: 'Python', ext: '.py' },
+                                    { label: 'JS/TS', ext: '.js .ts .jsx .tsx' },
+                                    { label: 'Docs', ext: '.md .txt .docx .pdf' },
+                                    { label: 'Data', ext: '.json .csv .xlsx' },
+                                    { label: 'Images', ext: '.png .jpg .jpeg .gif .svg' },
+                                ].map(preset => (
+                                    <button
+                                        key={preset.label}
+                                        onClick={() => setFileTypeFilter(fileTypeFilter ? `${fileTypeFilter} ${preset.ext}` : preset.ext)}
+                                        className="text-[9px] px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-gray-400 hover:text-yellow-400 transition-colors"
+                                        title={`Add ${preset.ext}`}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                                {fileTypeFilter && (
+                                    <button
+                                        onClick={() => setFileTypeFilter('')}
+                                        className="text-[9px] px-1.5 py-0.5 bg-red-500/10 hover:bg-red-500/20 rounded text-red-400 hover:text-red-300 transition-colors"
+                                        title="Clear all filters"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 
@@ -1805,17 +2732,17 @@ const renderFolderList = (structure) => {
         };
         const activeFile = currentFile ? findCurrentFile(structure) : null;
         return (
-            <div className="mt-4">
+            <div>
                 {header}
                 {activeFile && (
-                    <div className="px-1 mt-1">
+                    <div className="mx-1 bg-black/10 rounded-b-lg p-1">
                         <button
                             onClick={() => handleFileClick(activeFile.content.path)}
-                            className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 text-left rounded"
+                            className="flex items-center gap-2 px-2 py-1.5 w-full hover:bg-white/5 text-left rounded transition-all border-l-2 border-yellow-500"
                             title={`Edit ${activeFile.name}`}
                         >
                             {getFileIcon(activeFile.name)}
-                            <span className="text-gray-300 truncate">{activeFile.name}</span>
+                            <span className="text-[11px] text-gray-200 truncate">{activeFile.name}</span>
                         </button>
                     </div>
                 )}
@@ -1981,7 +2908,13 @@ const renderFolderList = (structure) => {
     return (
         <div>
             {header}
-            <div className="px-1">{renderFolderContents(structure)}</div>
+            <div className="mx-1 bg-black/10 rounded-b-lg max-h-[320px] overflow-y-auto">
+                {fileSearch.trim() && Object.keys(filteredStructure).length === 0 ? (
+                    <div className="px-3 py-3 text-[11px] text-gray-500 text-center">No files match "{fileSearch}"</div>
+                ) : (
+                    <div className="py-1">{renderFolderContents(fileSearch.trim() ? filteredStructure : structure)}</div>
+                )}
+            </div>
         </div>
     );
 };
@@ -1995,145 +2928,340 @@ const renderFolderList = (structure) => {
             })
             : [];
 
+        // Count active filters
+        const activeFilterCount = [convoNpcFilter, convoModelFilter, convoDateFrom, convoDateTo].filter(f => f.trim()).length;
+
+        // Apply all filters
+        let filteredConversations = sortedConversations;
+
+        // Text search filter
+        if (convoSearch.trim()) {
+            const q = convoSearch.toLowerCase();
+            filteredConversations = filteredConversations.filter(conv =>
+                (conv.title || conv.id || '').toLowerCase().includes(q) ||
+                (conv.preview || '').toLowerCase().includes(q) ||
+                (conv.npc || '').toLowerCase().includes(q) ||
+                (conv.model || '').toLowerCase().includes(q)
+            );
+        }
+
+        // NPC filter
+        if (convoNpcFilter.trim()) {
+            const npcFilters = convoNpcFilter.toLowerCase().split(/[,\s]+/).filter(f => f);
+            filteredConversations = filteredConversations.filter(conv =>
+                npcFilters.some(npc => (conv.npc || '').toLowerCase().includes(npc))
+            );
+        }
+
+        // Model/Provider filter
+        if (convoModelFilter.trim()) {
+            const modelFilters = convoModelFilter.toLowerCase().split(/[,\s]+/).filter(f => f);
+            filteredConversations = filteredConversations.filter(conv =>
+                modelFilters.some(model => (conv.model || conv.provider || '').toLowerCase().includes(model))
+            );
+        }
+
+        // Date range filter
+        if (convoDateFrom) {
+            const fromDate = new Date(convoDateFrom).getTime();
+            filteredConversations = filteredConversations.filter(conv => {
+                const convDate = new Date(conv.last_message_timestamp || conv.timestamp).getTime();
+                return convDate >= fromDate;
+            });
+        }
+        if (convoDateTo) {
+            const toDate = new Date(convoDateTo).setHours(23, 59, 59, 999);
+            filteredConversations = filteredConversations.filter(conv => {
+                const convDate = new Date(conv.last_message_timestamp || conv.timestamp).getTime();
+                return convDate <= toDate;
+            });
+        }
+
+        // Get unique NPCs and models for filter dropdowns
+        const uniqueNpcs = [...new Set(sortedConversations.map(c => c.npc).filter(Boolean))];
+        const uniqueModels = [...new Set(sortedConversations.map(c => c.model || c.provider).filter(Boolean))];
+
         const header = (
-            <div className="flex items-center justify-between px-3 py-2 mt-2 bg-black/20 rounded-lg mx-1">
-                <div className="text-xs text-gray-400 font-medium">Conversations ({sortedConversations.length})</div>
-                <div className="flex items-center gap-1">
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            refreshConversations();
-                        }}
-                        className="p-1 theme-hover rounded-full transition-all"
-                        title="Refresh conversations"
+            <div
+                className="mx-1 mt-3"
+                onDragOver={handleSectionDragOver}
+                onDrop={handleSectionDrop('conversations')}
+            >
+                <div className="group/header flex items-center bg-gradient-to-r from-green-900/20 to-emerald-900/20 rounded-t-lg border-b border-green-500/20">
+                    {/* Drag handle - appears on hover */}
+                    <div
+                        draggable
+                        onDragStart={handleSectionDragStart('conversations')}
+                        onDragEnd={handleSectionDragEnd}
+                        className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
+                        title="Drag to reorder"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5"/>
-                        </svg>
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setConversationsCollapsed(!conversationsCollapsed);
-                        }}
-                        className="p-1 theme-hover rounded-full transition-all"
-                        title={conversationsCollapsed ? "Expand conversations" : "Collapse conversations"}
-                    >
-                        <ChevronRight
-                            size={16}
-                            className={`transform transition-transform ${conversationsCollapsed ? "" : "rotate-90"}`}
-                        />
-                    </button>
+                        <GripVertical size={10} className="text-gray-500" />
+                    </div>
+                    <div className="flex-1 flex items-center justify-between px-2 py-1.5">
+                        <div className="flex items-center gap-1.5">
+                            <MessageSquare size={12} className="text-green-400" />
+                            <span className="text-[11px] text-green-300 font-medium">Conversations</span>
+                            <span className="text-[10px] text-gray-500">({filteredConversations.length})</span>
+                            {activeFilterCount > 0 && (
+                                <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full">
+                                    {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (showConvoFilters) {
+                                        // Closing filter - clear all filter values
+                                        setConvoNpcFilter('');
+                                        setConvoModelFilter('');
+                                        setConvoDateFrom('');
+                                        setConvoDateTo('');
+                                    }
+                                    setShowConvoFilters(!showConvoFilters);
+                                }}
+                                className={`p-1 hover:bg-white/10 rounded transition-all ${activeFilterCount > 0 || showConvoFilters ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
+                                title="Filter conversations"
+                            >
+                                <Filter size={12} />
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
+                                className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
+                                title="Refresh conversations"
+                            >
+                                <RefreshCw size={12} />
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setConversationsCollapsed(!conversationsCollapsed); }}
+                                className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
+                                title={conversationsCollapsed ? "Expand" : "Collapse"}
+                            >
+                                <ChevronRight size={14} className={`transform transition-transform ${conversationsCollapsed ? "" : "rotate-90"}`} />
+                            </button>
+                        </div>
+                    </div>
                 </div>
+                {!conversationsCollapsed && (
+                    <div className="bg-black/20 border-b border-white/5">
+                        {/* Search input */}
+                        {sortedConversations.length > 0 && (
+                            <div className="px-1 py-1">
+                                <div className="relative">
+                                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <input
+                                        type="text"
+                                        value={convoSearch}
+                                        onChange={(e) => setConvoSearch(e.target.value)}
+                                        placeholder="Search conversations..."
+                                        className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                    />
+                                    {convoSearch && (
+                                        <button onClick={() => setConvoSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                            <X size={10} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {/* Advanced filters */}
+                        {showConvoFilters && (
+                            <div className="px-1 py-1 border-t border-white/5 space-y-1.5">
+                                {/* NPC filter */}
+                                <div className="relative">
+                                    <Bot size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <input
+                                        type="text"
+                                        value={convoNpcFilter}
+                                        onChange={(e) => setConvoNpcFilter(e.target.value)}
+                                        placeholder="Filter by NPC (comma separated)..."
+                                        className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-6 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                        list="npc-suggestions"
+                                    />
+                                    {uniqueNpcs.length > 0 && (
+                                        <datalist id="npc-suggestions">
+                                            {uniqueNpcs.map(npc => <option key={npc} value={npc} />)}
+                                        </datalist>
+                                    )}
+                                    {convoNpcFilter && (
+                                        <button onClick={() => setConvoNpcFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                            <X size={10} />
+                                        </button>
+                                    )}
+                                </div>
+                                {/* Model/Provider filter */}
+                                <div className="relative">
+                                    <Cpu size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <input
+                                        type="text"
+                                        value={convoModelFilter}
+                                        onChange={(e) => setConvoModelFilter(e.target.value)}
+                                        placeholder="Filter by model/provider..."
+                                        className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-6 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                        list="model-suggestions"
+                                    />
+                                    {uniqueModels.length > 0 && (
+                                        <datalist id="model-suggestions">
+                                            {uniqueModels.map(model => <option key={model} value={model} />)}
+                                        </datalist>
+                                    )}
+                                    {convoModelFilter && (
+                                        <button onClick={() => setConvoModelFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                                            <X size={10} />
+                                        </button>
+                                    )}
+                                </div>
+                                {/* Date range */}
+                                <div className="flex gap-1">
+                                    <div className="relative flex-1">
+                                        <Clock size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                                        <input
+                                            type="date"
+                                            value={convoDateFrom}
+                                            onChange={(e) => setConvoDateFrom(e.target.value)}
+                                            className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-1 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                            title="From date"
+                                        />
+                                    </div>
+                                    <span className="text-gray-500 text-[10px] self-center">to</span>
+                                    <div className="relative flex-1">
+                                        <input
+                                            type="date"
+                                            value={convoDateTo}
+                                            onChange={(e) => setConvoDateTo(e.target.value)}
+                                            className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-green-500/50"
+                                            title="To date"
+                                        />
+                                    </div>
+                                </div>
+                                {/* Quick date presets + clear */}
+                                <div className="flex flex-wrap gap-1 px-1">
+                                    {[
+                                        { label: 'Today', days: 0 },
+                                        { label: '7 days', days: 7 },
+                                        { label: '30 days', days: 30 },
+                                        { label: '90 days', days: 90 },
+                                    ].map(preset => (
+                                        <button
+                                            key={preset.label}
+                                            onClick={() => {
+                                                const today = new Date();
+                                                const from = new Date(today);
+                                                from.setDate(from.getDate() - preset.days);
+                                                setConvoDateFrom(from.toISOString().split('T')[0]);
+                                                setConvoDateTo(today.toISOString().split('T')[0]);
+                                            }}
+                                            className="text-[9px] px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-gray-400 hover:text-green-400 transition-colors"
+                                        >
+                                            {preset.label}
+                                        </button>
+                                    ))}
+                                    {activeFilterCount > 0 && (
+                                        <button
+                                            onClick={() => { setConvoNpcFilter(''); setConvoModelFilter(''); setConvoDateFrom(''); setConvoDateTo(''); }}
+                                            className="text-[9px] px-1.5 py-0.5 bg-red-500/10 hover:bg-red-500/20 rounded text-red-400 hover:text-red-300 transition-colors"
+                                            title="Clear all filters"
+                                        >
+                                            Clear all
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         );
 
         // Always show the header, even when empty
         if (!sortedConversations.length) {
             return (
-                <div className="mt-4">
+                <div>
                     {header}
-                    <div className="px-3 py-2 text-xs text-gray-500">No conversations yet</div>
+                    <div className="mx-1 px-3 py-3 text-[11px] text-gray-500 bg-black/10 rounded-b-lg text-center">No conversations yet</div>
                 </div>
             );
         }
 
         if (conversationsCollapsed) {
             const activeConversation = activeConversationId ? sortedConversations.find(conv => conv.id === activeConversationId) : null;
-
             return (
-                <div className="mt-4">
+                <div>
                     {header}
                     {activeConversation && !currentFile && (
-                        <div className="px-1 mt-1">
+                        <div className="mx-1 bg-black/10 rounded-b-lg p-1">
                             <button
-                                key={activeConversation.id}
                                 onClick={() => handleConversationSelect(activeConversation.id)}
-                                className="flex items-center gap-2 px-4 py-2 w-full theme-hover text-left rounded-lg transition-all duration-200 conversation-selected border-l-2 border-blue-500"
+                                className="flex items-center gap-2 px-2 py-1.5 w-full hover:bg-white/5 text-left rounded transition-all border-l-2 border-green-500"
                             >
-                                <File size={16} className="text-gray-400 flex-shrink-0" />
-                                <div className="flex flex-col overflow-hidden">
-                                    <span className="text-sm truncate">{activeConversation.title || activeConversation.id}</span>
-                                    <span className="text-xs text-gray-500">{new Date(activeConversation.timestamp).toLocaleString()}</span>
+                                <MessageSquare size={14} className="text-green-400 flex-shrink-0" />
+                                <div className="flex flex-col overflow-hidden min-w-0">
+                                    <span className="text-[11px] truncate text-gray-200">{activeConversation.title || 'Untitled'}</span>
                                 </div>
                             </button>
-
-
                         </div>
-
                     )}
-
                 </div>
             );
         }
 
         return (
-            <div className="mt-4">
+            <div>
                 {header}
-                <div className="px-1">
-                    {sortedConversations.map((conv, index) => {
-    
-                        const isSelected = selectedConvos?.has(conv.id);
-                        const isActive = conv.id === activeConversationId && !currentFile;
-                        const isLastClicked = lastClickedIndex === index;
-    
-                        
-                        return (
-                            <button
-                            key={conv.id}
-                            draggable="true"
-                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'conversation', id: conv.id }); }}
-                            onDragEnd={handleGlobalDragEnd}
-    
-                            onClick={(e) => { 
-                                    if (e.ctrlKey || e.metaKey) { 
-                                        const newSelected = new Set(selectedConvos || new Set()); 
-                                        if (newSelected.has(conv.id)) { 
-                                            newSelected.delete(conv.id); 
-                                        } else { 
-                                            newSelected.add(conv.id); 
-                                        } 
-                                        setSelectedConvos(newSelected);
-                                        setLastClickedIndex(index);
-                                    } else if (e.shiftKey && lastClickedIndex !== null) {
-                                        const newSelected = new Set();
-                                        const start = Math.min(lastClickedIndex, index);
-                                        const end = Math.max(lastClickedIndex, index);
-                                        for (let i = start; i <= end; i++) {
-                                            if (sortedConversations[i]) {
-                                                newSelected.add(sortedConversations[i].id);
+                <div className="mx-1 bg-black/10 rounded-b-lg max-h-[280px] overflow-y-auto">
+                    {filteredConversations.length === 0 ? (
+                        <div className="px-3 py-3 text-[11px] text-gray-500 text-center">No matches for "{convoSearch}"</div>
+                    ) : (
+                        filteredConversations.map((conv, index) => {
+                            const isSelected = selectedConvos?.has(conv.id);
+                            const isActive = conv.id === activeConversationId && !currentFile;
+                            return (
+                                <button
+                                    key={conv.id}
+                                    draggable="true"
+                                    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'copyMove'; handleGlobalDragStart(e, { type: 'conversation', id: conv.id }); }}
+                                    onDragEnd={handleGlobalDragEnd}
+                                    onClick={(e) => {
+                                        if (e.ctrlKey || e.metaKey) {
+                                            const newSelected = new Set(selectedConvos || new Set());
+                                            if (newSelected.has(conv.id)) newSelected.delete(conv.id);
+                                            else newSelected.add(conv.id);
+                                            setSelectedConvos(newSelected);
+                                            setLastClickedIndex(index);
+                                        } else if (e.shiftKey && lastClickedIndex !== null) {
+                                            const newSelected = new Set();
+                                            const start = Math.min(lastClickedIndex, index);
+                                            const end = Math.max(lastClickedIndex, index);
+                                            for (let i = start; i <= end; i++) {
+                                                if (filteredConversations[i]) newSelected.add(filteredConversations[i].id);
                                             }
+                                            setSelectedConvos(newSelected);
+                                        } else {
+                                            setSelectedConvos(new Set([conv.id]));
+                                            handleConversationSelect(conv.id);
+                                            setLastClickedIndex(index);
                                         }
-                                        setSelectedConvos(newSelected);
-                                    } else { 
-                                        setSelectedConvos(new Set([conv.id])); 
-                                        handleConversationSelect(conv.id);
-                                        setLastClickedIndex(index);
-                                    } 
-                                }}
-                                onContextMenu={(e) => { 
-                                    e.preventDefault(); 
-                                    if (!selectedConvos?.has(conv.id)) { 
-                                        setSelectedConvos(new Set([conv.id])); 
-                                    } 
-                                    setContextMenuPos({ x: e.clientX, y: e.clientY }); 
-                                }}
-                                className={`flex items-center gap-2 px-4 py-2 w-full theme-hover text-left rounded-lg transition-all duration-200
-                                    ${isSelected || isActive ? 'conversation-selected' : 'theme-text-primary'}
-                                    ${isActive ? 'border-l-2 border-blue-500' : ''}`}
-                            >
-                                <File size={16} className="text-gray-400 flex-shrink-0" />
-                                <div className="flex flex-col overflow-hidden">
-                                    <span className="text-sm truncate">{conv.title || conv.id}</span>
-                                    <span className="text-xs text-gray-500">{new Date(conv.timestamp).toLocaleString()}</span>
-                                </div>
-    
-                            </button>
-                            
-                        );
-    
-                
-                })}
+                                    }}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        if (!selectedConvos?.has(conv.id)) setSelectedConvos(new Set([conv.id]));
+                                        setContextMenuPos({ x: e.clientX, y: e.clientY });
+                                    }}
+                                    className={`flex items-center gap-2 px-2 py-1.5 w-full text-left transition-all group
+                                        ${isActive ? 'bg-green-500/20 border-l-2 border-green-500' : 'hover:bg-white/5 border-l-2 border-transparent'}
+                                        ${isSelected ? 'bg-blue-500/10' : ''}`}
+                                >
+                                    <MessageSquare size={13} className={`flex-shrink-0 ${isActive ? 'text-green-400' : 'text-gray-500 group-hover:text-gray-400'}`} />
+                                    <div className="flex flex-col overflow-hidden min-w-0 flex-1">
+                                        <span className={`text-[11px] truncate ${isActive ? 'text-green-200' : 'text-gray-300'}`}>{conv.title || 'Untitled'}</span>
+                                        <span className="text-[9px] text-gray-600 truncate">{conv.preview?.substring(0, 40) || new Date(conv.timestamp).toLocaleDateString()}</span>
+                                    </div>
+                                </button>
+                            );
+                        })
+                    )}
                 
                 
                 </div>
@@ -2441,18 +3569,22 @@ return (
                                     );
                                 case 'terminal':
                                     return (
-                                        <div key={tile.id} className="relative flex">
+                                        <div key={tile.id} className="relative flex" data-dropdown="terminal">
                                             <button onClick={() => createNewTerminal?.(defaultNewTerminalType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Terminal" title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal (Ctrl+Shift+T)`}>
                                                 {defaultNewTerminalType === 'system' && <Terminal size={16} className="text-green-400" />}
                                                 {defaultNewTerminalType === 'npcsh' && <Sparkles size={16} className="text-purple-400" />}
                                                 {defaultNewTerminalType === 'guac' && <Code2 size={16} className="text-yellow-400" />}
                                                 <span className="text-[10px] ml-1.5">{defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType}</span>
                                             </button>
-                                            <button onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Terminal options">
+                                            <button
+                                                onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)}
+                                                className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700"
+                                                aria-label="Terminal options"
+                                            >
                                                 <ChevronDown size={10} />
                                             </button>
                                             {terminalDropdownOpen && (
-                                                <div className="absolute left-0 top-full mt-1 w-36 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1">
+                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1 min-w-[140px]">
                                                     <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                                                         <Terminal size={14} className="text-green-400" /><span>Bash</span>
                                                     </button>
@@ -2462,19 +3594,69 @@ return (
                                                     <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                                                         <Code2 size={14} className="text-yellow-400" /><span>guac</span>
                                                     </button>
+                                                    <div className="border-t border-gray-700 my-1" />
+                                                    <button onClick={() => { createNewTerminal?.('python3'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Code2 size={14} className="text-blue-400" /><span>Python</span>
+                                                    </button>
+                                                    <div className="border-t border-gray-700 my-1" />
+                                                    <button onClick={() => { createNewNotebook?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <FileText size={14} className="text-orange-400" /><span>Notebook (.ipynb)</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewExperiment?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <FlaskConical size={14} className="text-purple-400" /><span>Experiment (.exp)</span>
+                                                    </button>
                                                 </div>
                                             )}
                                         </div>
                                     );
                                 case 'code':
+                                    const defaultType = commonFileTypes.find(t => t.ext === defaultCodeFileType) || commonFileTypes[0];
                                     return (
-                                        <button key={tile.id} onClick={createNewTextFile} className="action-grid-button-wide" aria-label="New Code File" title="New Code File (Ctrl+Shift+F)">
-                                            <Code2 size={16} /><span className="text-[10px] ml-1.5">Code</span>
-                                        </button>
+                                        <div key={tile.id} className="relative flex" data-dropdown="code-file">
+                                            <button onClick={() => createFileWithExtension(defaultCodeFileType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Code File" title={`New ${defaultType.label} file (Ctrl+Shift+F)`}>
+                                                <Code2 size={16} /><span className="text-[10px] ml-1.5">.{defaultCodeFileType}</span>
+                                            </button>
+                                            <button
+                                                onClick={() => setCodeFileDropdownOpen(!codeFileDropdownOpen)}
+                                                className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700"
+                                                aria-label="File type options"
+                                            >
+                                                <ChevronDown size={10} />
+                                            </button>
+                                            {codeFileDropdownOpen && (
+                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1 min-w-[180px] max-h-80 overflow-y-auto">
+                                                    <div className="px-3 py-1.5 border-b border-gray-700">
+                                                        <div className="text-[9px] text-gray-500">Click to create, right-click to set default</div>
+                                                    </div>
+                                                    {commonFileTypes.map(type => (
+                                                        <button
+                                                            key={type.ext}
+                                                            onClick={() => { createFileWithExtension(type.ext); setCodeFileDropdownOpen(false); }}
+                                                            onContextMenu={(e) => { e.preventDefault(); setDefaultCodeFileType(type.ext); setCodeFileDropdownOpen(false); }}
+                                                            className={`flex items-center gap-2 w-full px-3 py-1.5 text-left text-[11px] hover:bg-gray-700 ${defaultCodeFileType === type.ext ? 'bg-blue-900/30 text-blue-300' : 'text-gray-200'}`}
+                                                        >
+                                                            <span className="w-4 text-center">{type.icon}</span>
+                                                            <span className="flex-1">{type.label}</span>
+                                                            <span className="text-[9px] text-gray-500">.{type.ext}</span>
+                                                            {defaultCodeFileType === type.ext && <Star size={10} className="text-yellow-400" />}
+                                                        </button>
+                                                    ))}
+                                                    <div className="border-t border-gray-700">
+                                                        <button
+                                                            onClick={() => { setCodeFileDropdownOpen(false); createNewTextFile?.(); }}
+                                                            className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] text-gray-400 hover:bg-gray-700"
+                                                        >
+                                                            <span className="w-4 text-center">✏️</span>
+                                                            <span>Custom filename...</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     );
                                 case 'document':
                                     return (
-                                        <div key={tile.id} className="relative flex">
+                                        <div key={tile.id} className="relative flex" data-dropdown="doc">
                                             <button onClick={() => createNewDocument?.(defaultNewDocumentType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Document" title={`New ${defaultNewDocumentType.toUpperCase()} Document`}>
                                                 {defaultNewDocumentType === 'docx' && <FileText size={16} className="text-blue-300" />}
                                                 {defaultNewDocumentType === 'xlsx' && <FileJson size={16} className="text-green-300" />}
@@ -2485,6 +3667,23 @@ return (
                                             <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
                                                 <ChevronDown size={10} />
                                             </button>
+                                            {docDropdownOpen && (
+                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1 min-w-[150px]">
+                                                    <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">New Document</div>
+                                                    <button onClick={() => { createNewDocument?.('docx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <FileText size={16} className="text-blue-300" /><span>Word (.docx)</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewDocument?.('xlsx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <FileJson size={16} className="text-green-300" /><span>Excel (.xlsx)</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewDocument?.('pptx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <BarChart3 size={16} className="text-orange-300" /><span>PowerPoint (.pptx)</span>
+                                                    </button>
+                                                    <button onClick={() => { createNewDocument?.('mapx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
+                                                        <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 case 'workspace':
@@ -2501,23 +3700,14 @@ return (
                     </>
                 )}
             </div>
-            {/* Expand/collapse toggle and edit mode */}
+            {/* Expand/collapse toggle */}
             <div className="flex items-center mt-1">
                 <button onClick={() => setHeaderActionsExpanded(!headerActionsExpanded)} className="flex-1 py-1 text-[10px] text-gray-500 hover:text-gray-300 flex items-center justify-center gap-1">
-                    {headerActionsExpanded ? <><ChevronUp size={10} /> Less</> : <><ChevronDown size={10} /> More actions</>}
+                    {headerActionsExpanded ? <><ChevronUp size={10} /> Less</> : <><ChevronDown size={10} /> More</>}
                 </button>
-                {headerActionsExpanded && (
-                    <button
-                        onClick={() => setTileEditMode(!tileEditMode)}
-                        className={`px-2 py-1 text-[10px] rounded ${tileEditMode ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                        title="Edit tile layout"
-                    >
-                        <Settings size={10} />
-                    </button>
-                )}
             </div>
             {/* Tile edit mode panel */}
-            {tileEditMode && headerActionsExpanded && (
+            {tileEditMode && (
                 <div className="mt-2 p-2 bg-gray-800/50 rounded-lg border border-gray-700">
                     <div className="text-[10px] text-gray-400 mb-2">Drag to reorder • Click eye to toggle</div>
                     <div className="space-y-1">
@@ -2564,9 +3754,19 @@ return (
                 renderSearchResults()
             ) : (
                 <>
-                    {renderWebsiteList()}
-                    {renderFolderList(folderStructure)}
-                    {renderConversationList(directoryConversations)}
+                    {/* Render sections in user-defined order */}
+                    {(sidebarSectionOrder || ['websites', 'files', 'conversations']).map((sectionId: string) => {
+                        switch (sectionId) {
+                            case 'websites':
+                                return <div key={sectionId}>{renderWebsiteList()}</div>;
+                            case 'files':
+                                return <div key={sectionId}>{renderFolderList(folderStructure)}</div>;
+                            case 'conversations':
+                                return <div key={sectionId}>{renderConversationList(directoryConversations)}</div>;
+                            default:
+                                return null;
+                        }
+                    })}
                 </>
             )}
             {contextMenuPos && renderContextMenu()}
@@ -2878,8 +4078,15 @@ return (
 
         {sidebarCollapsed && <div className="flex-1"></div>}
 
-        {/* Delete button */}
-        <div className={`flex justify-center ${sidebarCollapsed ? 'hidden' : ''}`}>
+        {/* Edit + Delete + Collapse toggle buttons - always visible when sidebar expanded */}
+        <div className={`flex justify-center items-center gap-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
+            <button
+                onClick={() => setBottomGridEditMode(!bottomGridEditMode)}
+                className={`p-2 rounded-full transition-all ${bottomGridEditMode ? 'bg-purple-600 text-white' : 'theme-hover text-gray-400 hover:text-purple-400'}`}
+                title="Edit tiles"
+            >
+                <Edit size={20} />
+            </button>
             <button
                 onClick={deleteSelectedConversations}
                 className="p-2 theme-hover rounded-full text-red-400 transition-all"
@@ -2887,49 +4094,243 @@ return (
             >
                 <Trash size={24} />
             </button>
+            <button
+                onClick={() => setBottomGridCollapsed(!bottomGridCollapsed)}
+                className="p-2 theme-hover rounded-full text-gray-400 hover:text-white transition-all"
+                title={bottomGridCollapsed ? "Show quick actions" : "Hide quick actions"}
+            >
+                {bottomGridCollapsed ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
         </div>
 
+        {/* Bottom grid section - collapsible */}
+        {!bottomGridCollapsed && (
         <div className="p-4 border-t theme-border flex-shrink-0">
-            {/* 4x3 Grid BELOW delete button */}
-            {!sidebarCollapsed && (
-                <div className="grid grid-cols-3 grid-rows-4 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
-                    {/* Row 1: DB Tool | Photo Tool | Library */}
-                    <button onClick={() => createDBToolPane?.()} className="action-grid-button" aria-label="DB Tool" title="Database Query Tool (includes Data Labeler)"><Database size={16} /></button>
-                    <button onClick={() => createPhotoViewerPane?.()} className="action-grid-button" aria-label="Photo Tool" title="Photo Viewer"><Image size={16} /></button>
-                    <button onClick={() => createLibraryViewerPane?.()} className="action-grid-button" aria-label="Library" title="Document Library (PDFs, EPUBs)"><BookOpen size={16} /></button>
-                    {/* Row 2: Data Dash | Knowledge Graph | Web Browser Graph */}
-                    <button onClick={() => createDataDashPane?.()} className="action-grid-button" aria-label="Data Dash" title="Data Dashboard"><BarChart3 size={16} /></button>
-                    <button onClick={() => createGraphViewerPane?.()} className="action-grid-button" aria-label="Knowledge Graph" title="Knowledge Graph"><GitBranch size={16} /></button>
-                    <button onClick={() => createBrowserGraphPane?.()} className="action-grid-button" aria-label="Browser Graph" title="Web Browser Graph"><Network size={16} /></button>
-                    {/* Row 3: Team Management | NPCs | Jinxs */}
-                    <button onClick={() => createTeamManagementPane?.()} className="action-grid-button" aria-label="Team Management" title="Team Management"><Users size={16} /></button>
-                    <button onClick={() => createNPCTeamPane?.()} className="action-grid-button" aria-label="NPCs" title="NPCs"><Bot size={16} /></button>
-                    <button onClick={() => createJinxPane?.()} className="action-grid-button" aria-label="Jinxs" title="Jinxs"><Zap size={16} /></button>
-                    {/* Row 4: Settings | Project Env | Disk Usage Analyzer */}
-                    <button onClick={() => createSettingsPane?.()} className="action-grid-button" aria-label="Settings" title="Settings"><Settings size={16} /></button>
-                    <button onClick={() => createProjectEnvPane?.()} className="action-grid-button" aria-label="Env Variables" title="Environment Variables"><KeyRound size={16} /></button>
-                    <button onClick={() => createDiskUsagePane?.()} className="action-grid-button" aria-label="Disk Usage" title="Disk Usage Analyzer"><HardDrive size={16} /></button>
+            {/* Bottom Grid Edit Mode - uses jinx tiles when loaded */}
+            {!sidebarCollapsed && bottomGridEditMode && (
+                <div className="mb-2 p-2 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <div className="text-[10px] text-gray-400 mb-2">Drag to reorder • Click to edit</div>
+                    <div className="grid grid-cols-3 gap-1">
+                        {(tileJinxesLoaded ? tileJinxes : bottomGridConfig.map(t => ({ ...t, filename: `${t.id}.jinx`, jinx_name: `tile.${t.id}`, action: t.id, rawContent: '' }))).map((tile, idx) => (
+                            <div
+                                key={tile.filename || tile.id}
+                                draggable
+                                onDragStart={() => setDraggedTileIdx(idx)}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={() => { if (draggedTileIdx !== null) handleTileReorder(draggedTileIdx, idx); }}
+                                onDragEnd={() => setDraggedTileIdx(null)}
+                                onClick={() => {
+                                    setEditingTileJinx(tile.filename);
+                                    setTileJinxEditContent(tile.rawContent);
+                                }}
+                                className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] cursor-grab active:cursor-grabbing hover:bg-purple-600/30 ${
+                                    !tile.enabled ? 'opacity-50' : 'bg-gray-700/50'
+                                } ${draggedTileIdx === idx ? 'ring-2 ring-purple-500 opacity-50' : ''}`}
+                            >
+                                <GripVertical size={10} className="text-gray-500" />
+                                <span className="flex-1 truncate">{tile.label}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <button
+                        onClick={() => {
+                            // Create new custom tile
+                            const newName = `custom_${Date.now()}`;
+                            const newContent = `/**
+ * @jinx tile.${newName}
+ * @label Custom
+ * @icon Box
+ * @order ${tileJinxes.length}
+ * @enabled true
+ */
+
+import React from 'react';
+import { Box } from 'lucide-react';
+
+export default function CustomTile({ onClose, theme }: { onClose?: () => void; theme?: any }) {
+    return (
+        <div className="p-4">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+                <Box size={20} />
+                Custom Tile
+            </h2>
+            <p className="text-gray-400 mt-2">Edit this component to create your custom tile.</p>
+        </div>
+    );
+}
+`;
+                            setEditingTileJinx(`${newName}.jinx`);
+                            setTileJinxEditContent(newContent);
+                        }}
+                        className="mt-2 w-full px-2 py-1 text-xs bg-purple-600/30 text-purple-300 rounded hover:bg-purple-600/50 flex items-center justify-center gap-1"
+                    >
+                        <Plus size={12} /> New Custom Tile
+                    </button>
                 </div>
             )}
 
-            <div className={`flex justify-center ${!sidebarCollapsed ? 'mt-4' : ''}`}>
-                <button
-                    onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                    className="p-2 w-full theme-button theme-hover rounded-full transition-all group"
-                    title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                >
-                    <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
-                        <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                        <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
-                        <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+            {/* Tile Editor Modal - Full component code editor with live preview */}
+            {editingTileJinx && (
+                <div className="fixed inset-0 bg-black/70 z-[9999] flex items-center justify-center p-4">
+                    <div className="bg-gray-900 border border-gray-700 rounded-lg w-[95vw] h-[95vh] flex flex-col">
+                        <div className="flex items-center justify-between p-3 border-b border-gray-700">
+                            <span className="text-sm font-medium">{editingTileJinx.replace('.jinx', '')} Component</span>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={toggleLivePreview}
+                                    className={`px-3 py-1 text-xs rounded flex items-center gap-1 ${showLivePreview ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                                >
+                                    <Play size={12} /> {showLivePreview ? 'Hide Preview' : 'Live Preview'}
+                                </button>
+                                <button
+                                    onClick={() => saveTileJinx(editingTileJinx, tileJinxEditContent)}
+                                    className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                >
+                                    Save
+                                </button>
+                                <button
+                                    onClick={() => { setEditingTileJinx(null); setTileJinxEditContent(''); setShowLivePreview(false); }}
+                                    className="px-3 py-1 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-hidden flex">
+                            {/* Code Editor */}
+                            <div className={`${showLivePreview ? 'w-1/2' : 'w-full'} h-full`}>
+                                <CodeMirror
+                                    value={tileJinxEditContent}
+                                    onChange={(val) => setTileJinxEditContent(val)}
+                                    extensions={[
+                                        javascript({ jsx: true, typescript: true }),
+                                        EditorView.theme({
+                                            '&': { height: '100%', fontSize: '13px' },
+                                            '.cm-scroller': { overflow: 'auto' },
+                                            '.cm-content': { fontFamily: '"Fira Code", "JetBrains Mono", monospace' },
+                                            '.cm-gutters': { backgroundColor: '#1a1a2e', borderRight: '1px solid #333' },
+                                        }),
+                                    ]}
+                                    theme="dark"
+                                    height="100%"
+                                    style={{ height: '100%' }}
+                                />
+                            </div>
+                            {/* Live Preview - renders the actual component */}
+                            {showLivePreview && (
+                                <div className="w-1/2 h-full border-l border-gray-700 flex flex-col">
+                                    <div className="p-2 border-b border-gray-700 text-xs text-gray-400 flex items-center justify-between">
+                                        <span className="flex items-center gap-2">
+                                            <Play size={12} className="text-green-400" />
+                                            Live Preview
+                                        </span>
+                                        <span className="text-gray-500 text-[10px]">updates as you type</span>
+                                    </div>
+                                    <div className="flex-1 overflow-auto bg-gray-900 relative" style={{ contain: 'layout paint' }}>
+                                        <LiveProvider code={livePreviewCode} scope={liveScope} noInline={true}>
+                                            <LiveError className="p-4 text-red-400 text-sm font-mono bg-red-900/30 border-b border-red-800" />
+                                            <LivePreview className="h-full w-full" />
+                                        </LiveProvider>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="px-3 py-2 text-[10px] text-gray-500 border-t border-gray-700">
+                            ~/.npcsh/incognide/tiles/{editingTileJinx}
+                        </div>
                     </div>
-                </button>
-            </div>
+                </div>
+            )}
+
+            {/* 4x3 Grid - uses jinx tiles when loaded */}
+            {!sidebarCollapsed && !bottomGridEditMode && (
+                <div className="grid grid-cols-3 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
+                    {(() => {
+                        // Fallback actions for when jinxes haven't loaded yet
+                        const fallbackActions: Record<string, () => void> = {
+                            db: () => createDBToolPane?.(),
+                            photo: () => createPhotoViewerPane?.(),
+                            library: () => createLibraryViewerPane?.(),
+                            help: () => createHelpPane?.(),
+                            datadash: () => createDataDashPane?.(),
+                            graph: () => createGraphViewerPane?.(),
+                            browsergraph: () => createBrowserGraphPane?.(),
+                            team: () => createTeamManagementPane?.(),
+                            npc: () => createNPCTeamPane?.(),
+                            jinx: () => createJinxPane?.(),
+                            settings: () => createSettingsPane?.(),
+                            env: () => createProjectEnvPane?.(),
+                            disk: () => createDiskUsagePane?.(),
+                        };
+                        // Icon map
+                        const iconMap: Record<string, React.ReactNode> = {
+                            Database: <Database size={16} />,
+                            Image: <Image size={16} />,
+                            BookOpen: <BookOpen size={16} />,
+                            Info: <Info size={16} />,
+                            BarChart3: <BarChart3 size={16} />,
+                            GitBranch: <GitBranch size={16} />,
+                            Network: <Network size={16} />,
+                            Users: <Users size={16} />,
+                            Bot: <Bot size={16} />,
+                            Zap: <Zap size={16} />,
+                            Settings: <Settings size={16} />,
+                            KeyRound: <KeyRound size={16} />,
+                            HardDrive: <HardDrive size={16} />,
+                            Box: <Box size={16} />,
+                        };
+
+                        // Use jinx tiles if loaded, otherwise fallback
+                        const tiles = tileJinxesLoaded
+                            ? tileJinxes.filter(t => t.enabled)
+                            : bottomGridConfig.filter(t => t.enabled).map(t => ({ ...t, action: t.id }));
+
+                        return tiles.map((tile) => (
+                            <button
+                                key={tile.filename || tile.id}
+                                onClick={() => {
+                                    // If tile has a filename, use jinx pane (compiles jinx at runtime)
+                                    if (tile.filename && createTileJinxPane) {
+                                        createTileJinxPane(tile.filename);
+                                    } else {
+                                        // Fallback to bundled components
+                                        const action = fallbackActions[tile.action];
+                                        if (action) action();
+                                        else console.log(`No action for ${tile.action}`);
+                                    }
+                                }}
+                                className="action-grid-button"
+                                aria-label={tile.label}
+                                title={tile.label}
+                            >
+                                {iconMap[tile.icon] || <Box size={16} />}
+                            </button>
+                        ));
+                    })()}
+                </div>
+            )}
+
+        </div>
+        )}
+
+        {/* Sidebar collapse button - always visible at bottom */}
+        <div className={`flex items-center gap-2 p-2 ${sidebarCollapsed ? '' : ''}`}>
+            <button
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                className="flex-1 p-2 theme-button theme-hover rounded-lg transition-all group"
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+                <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
+                    <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                    <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
+                    <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
+                </div>
+            </button>
         </div>
     </div>
 
-    {/* Chat Plus Dropdown - rendered outside sidebar to avoid clipping */}
-    {chatPlusDropdownOpen && (
+    {/* Chat Plus Dropdown - using portal to render to body */}
+    {chatPlusDropdownOpen && createPortal(
         <>
             <div className="fixed inset-0 z-[9998]" onClick={() => setChatPlusDropdownOpen(false)} />
             <div className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-2xl py-2 z-[9999]" style={{ top: '80px', left: '10px', minWidth: '180px' }}>
@@ -2972,30 +4373,10 @@ return (
                     <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
                 </button>
             </div>
-        </>
+        </>,
+        document.body
     )}
 
-    {/* Doc Dropdown - rendered outside sidebar to avoid clipping from overflow-hidden */}
-    {docDropdownOpen && (
-        <>
-            <div className="fixed inset-0 z-[9998]" onClick={() => setDocDropdownOpen(false)} />
-            <div className="fixed theme-bg-secondary border theme-border rounded-lg shadow-2xl py-2 z-[9999]" style={{ top: '160px', left: '10px', minWidth: '150px' }}>
-                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">New Document</div>
-                <button onClick={() => { createNewDocument?.('docx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <FileText size={16} className="text-blue-300" /><span>Word (.docx)</span>
-                </button>
-                <button onClick={() => { createNewDocument?.('xlsx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <FileJson size={16} className="text-green-300" /><span>Excel (.xlsx)</span>
-                </button>
-                <button onClick={() => { createNewDocument?.('pptx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <BarChart3 size={16} className="text-orange-300" /><span>PowerPoint (.pptx)</span>
-                </button>
-                <button onClick={() => { createNewDocument?.('mapx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left theme-hover text-sm theme-text-primary">
-                    <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
-                </button>
-            </div>
-        </>
-    )}
 </>
 );
 

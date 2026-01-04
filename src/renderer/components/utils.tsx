@@ -70,6 +70,12 @@ export const normalizePath = (path: string | null | undefined) => {
 
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 
+// Strip source prefixes like "project:" or "global:" from NPC names
+export const stripSourcePrefix = (name: string | undefined | null): string => {
+    if (!name) return '';
+    return name.replace(/^(project:|global:)/, '');
+};
+
 export const getFileIcon = (filename: string) => {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     const iconProps = { size: 16, className: "flex-shrink-0" };
@@ -283,6 +289,21 @@ export const gatherWorkspaceContext = (contentDataRef: React.MutableRefObject<an
                 path: paneData.contentId,
                 paneId: paneId
             });
+        } else if (paneData.contentType === 'terminal' && paneData.getTerminalContext) {
+            // Include terminal output context
+            try {
+                const terminalOutput = paneData.getTerminalContext();
+                if (terminalOutput && terminalOutput.trim()) {
+                    contexts.push({
+                        type: 'terminal',
+                        content: terminalOutput,
+                        paneId: paneId,
+                        shellType: paneData.shellType || 'system'
+                    });
+                }
+            } catch (err) {
+                console.warn('Failed to get terminal context:', err);
+            }
         }
     });
 
@@ -675,20 +696,13 @@ export const usePaneAwareStreamListeners = (
     studioContext?: StudioContext | null
 ) => {
     return useEffect(() => {
-        console.log('[DEBUG] Stream listener effect running. config?.stream:', config?.stream, 'listenersAttached.current:', listenersAttached.current);
         if (!config?.stream || listenersAttached.current) {
-            console.log('[DEBUG] NOT attaching listeners - config.stream:', config?.stream, 'already attached:', listenersAttached.current);
             return;
         }
 
-        console.log('[REACT] Attaching PANE-AWARE stream listeners.');
-
         const handleStreamData = (_: any, { streamId: incomingStreamId, chunk }: any) => {
-            console.log('[DEBUG] handleStreamData called! streamId:', incomingStreamId, 'chunk:', chunk);
             const targetPaneId = streamToPaneRef.current[incomingStreamId];
-            console.log('[DEBUG] targetPaneId from streamToPaneRef:', targetPaneId, 'streamToPaneRef:', streamToPaneRef.current);
             if (!targetPaneId) {
-                console.log('[DEBUG] No targetPaneId found for streamId:', incomingStreamId);
                 return;
             }
 
@@ -822,7 +836,6 @@ export const usePaneAwareStreamListeners = (
                             status: tc.status,
                             result_preview: tc.result_preview || ''
                         }));
-                        console.log('[STREAM][TOOLCALLS]', normalizedCalls);
 
                         // Intercept and execute studio.* actions
                         if (studioContext) {
@@ -840,9 +853,7 @@ export const usePaneAwareStreamListeners = (
                                     // Execute the studio action asynchronously
                                     (async () => {
                                         try {
-                                            console.log(`[STUDIO] Executing action: ${actionName}`, args);
                                             const result = await executeStudioAction(actionName, args, studioContext);
-                                            console.log(`[STUDIO] Action result:`, result);
 
                                             // Update the tool call with the result
                                             tc.status = result.success ? 'complete' : 'error';
@@ -932,15 +943,9 @@ export const usePaneAwareStreamListeners = (
                         const recentUserMsgs = paneData.chatMessages.allMessages.filter((m: any) => m.role === 'user').slice(-3);
                         const wasAgentMode = recentUserMsgs.some((m: any) => m.executionMode === 'tool_agent');
 
-                        console.log('Stream complete. Was agent mode?', wasAgentMode);
-                        console.log('Assistant response:', msg.content.substring(0, 200));
-
                         if (wasAgentMode) {
                             const contexts = gatherWorkspaceContext(contentDataRef).filter((c: any) => c.type === 'file');
-                            console.log('Available file contexts:', contexts.map((c: any) => c.path));
-
                             const proposedChanges = parseAgenticResponse(msg.content, contexts);
-                            console.log('Proposed changes found:', proposedChanges.length);
 
                             if (proposedChanges.length > 0) {
                                 setAiEditModal({
@@ -962,7 +967,6 @@ export const usePaneAwareStreamListeners = (
                         // Auto-TTS if user used voice input
                         const wasVoiceInput = recentUserMsgs.length > 0 && recentUserMsgs[recentUserMsgs.length - 1]?.wasVoiceInput;
                         if (wasVoiceInput && msg.content) {
-                            console.log('[Voice] Auto-playing TTS for voice input response');
                             triggerAutoTTS(msg.content);
                         }
                     }
@@ -1001,18 +1005,13 @@ export const usePaneAwareStreamListeners = (
             setRootLayoutNode(prev => ({ ...prev }));
         };
 
-        console.log('[DEBUG] Attaching window.api.onStreamData...');
         const cleanupStreamData = window.api.onStreamData(handleStreamData);
-        console.log('[DEBUG] Attaching window.api.onStreamComplete...');
         const cleanupStreamComplete = window.api.onStreamComplete(handleStreamComplete);
-        console.log('[DEBUG] Attaching window.api.onStreamError...');
         const cleanupStreamError = window.api.onStreamError(handleStreamError);
 
-        console.log('[DEBUG] All stream listeners attached successfully!');
         listenersAttached.current = true;
 
         return () => {
-            console.log('[REACT] Cleaning up stream listeners.');
             cleanupStreamData();
             cleanupStreamComplete();
             cleanupStreamError();

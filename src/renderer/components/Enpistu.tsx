@@ -4,7 +4,7 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, ArrowDown,X, Wrench, FileText, Code2, FileJson, Paperclip,
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
-    Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen
+    Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen, User
 } from 'lucide-react';
 
 import { Icon } from 'lucide-react';
@@ -31,6 +31,7 @@ import BrowserUrlDialog from './BrowserUrlDialog';
 import PptxViewer from './PptxViewer';
 import LatexViewer from './LatexViewer';
 import NotebookViewer from './NotebookViewer';
+import ExpViewer from './ExpViewer';
 import PicViewer from './PicViewer';
 import MindMapViewer from './MindMapViewer';
 import ZipViewer from './ZipViewer';
@@ -38,8 +39,29 @@ import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import ProjectEnvEditor from './ProjectEnvEditor';
 import DBTool from './DBTool';
 import LibraryViewer from './LibraryViewer';
+import HelpViewer from './HelpViewer';
 import FolderViewer from './FolderViewer';
 import PathSwitcher from './PathSwitcher';
+import { LiveProvider, LivePreview, LiveError } from 'react-live';
+// Components for tile jinx runtime rendering
+import GraphViewer from './GraphViewer';
+import BrowserHistoryWeb from './BrowserHistoryWeb';
+import KnowledgeGraphEditor from './KnowledgeGraphEditor';
+import McpServerMenu from './McpServerMenu';
+import MemoryManagement from './MemoryManagement';
+import MessageLabeling from './MessageLabeling';
+import LabeledDataManager from './LabeledDataManager';
+import ActivityIntelligence from './ActivityIntelligence';
+import PythonEnvSettings from './PythonEnvSettings';
+import AutosizeTextarea from './AutosizeTextarea';
+import ForceGraph2D from 'react-force-graph-2d';
+import { Pie, Bar, Line } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement } from 'chart.js';
+import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart, ImageEditor, WidgetBuilder, WidgetGrid, Widget, DataTable } from 'npcts';
+
+// Register chart.js components for jinx runtime
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement);
+import * as LucideIcons from 'lucide-react';
 import { useActivityTracker } from './ActivityTracker';
 import {
     serializeWorkspace,
@@ -77,29 +99,121 @@ import {
     getThumbnailIcon,
     createToggleMessageSelectionMode,
     findNodeByPath,
-    findNodePath
+    findNodePath,
+    stripSourcePrefix
 } from './utils';
 import { BranchingUI, createBranchPoint } from './BranchingUI';
 import BranchOptionsModal, { BranchOptions } from './BranchOptionsModal';
 import BranchVisualizer from './BranchVisualizer';
-import { syncLayoutWithContentData } from './LayoutNode';
+import { syncLayoutWithContentData, addPaneToLayout, collectPaneIds } from './LayoutNode';
 // Note: Sidebar.tsx, ChatViewer.tsx are code fragments, not proper modules yet
 import PaneHeader from './PaneHeader';
 import { LayoutNode } from './LayoutNode';
 import ConversationList from './ConversationList';
-import AutosizeTextarea from './AutosizeTextarea';
 import { ChatMessage } from './ChatMessage';
+import BroadcastResponseRow from './BroadcastResponseRow';
 import { PredictiveTextOverlay } from './PredictiveTextOverlay';
 import { usePredictiveText } from './PredictiveText';
 import { CommandPalette } from './CommandPalette';
-import MessageLabeling, { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage, ContextFile, ContextFileStorage } from './MessageLabeling';
+import { MessageLabelStorage, MessageLabel, ConversationLabel, ConversationLabelStorage, ContextFile, ContextFileStorage } from './MessageLabeling';
 import ConversationLabeling from './ConversationLabeling';
 import ContextFilesPanel from './ContextFilesPanel';
-import GraphViewer from './GraphViewer';
-import BrowserHistoryWeb from './BrowserHistoryWeb';
 import DataLabeler from './DataLabeler';
 import ChatInput from './ChatInput';
 import { StudioContext } from '../studioActions';
+
+// Stable TileJinxContent component - defined at module level to prevent state loss on parent re-renders
+const TileJinxContentExternal: React.FC<{
+    jinxFile: string;
+    tileJinxScope: Record<string, any>;
+    currentPath: string;
+}> = React.memo(({ jinxFile, tileJinxScope, currentPath }) => {
+    const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const loadCompiledComponent = async () => {
+            if (!jinxFile) {
+                setError('No jinx file specified');
+                setLoading(false);
+                return;
+            }
+            try {
+                // Load pre-compiled code from cache
+                const result = await (window as any).api?.tileJinxCompiled?.(jinxFile);
+                if (!result?.success || !result.compiled) {
+                    setError(result?.error || `Failed to load compiled ${jinxFile}`);
+                    setLoading(false);
+                    return;
+                }
+
+                // Execute the compiled code with scope
+                const scopeKeys = Object.keys(tileJinxScope);
+                const scopeValues = Object.values(tileJinxScope);
+
+                // Create function that returns the component
+                const fn = new Function(...scopeKeys, `
+                    ${result.compiled}
+                    return __component;
+                `);
+
+                const LoadedComponent = fn(...scopeValues);
+                if (LoadedComponent) {
+                    setComponent(() => LoadedComponent);
+                } else {
+                    setError('Component not found in compiled code');
+                }
+            } catch (err: any) {
+                console.error('Failed to load tile jinx:', err);
+                setError(err.message);
+            }
+            setLoading(false);
+        };
+        loadCompiledComponent();
+    }, [jinxFile, tileJinxScope]);
+
+    if (loading) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-bg-primary">
+                <div className="text-gray-400">Loading {jinxFile}...</div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex-1 p-4 theme-bg-primary">
+                <div className="text-red-400 font-mono text-sm bg-red-900/30 p-4 rounded">
+                    Error loading {jinxFile}: {error}
+                </div>
+            </div>
+        );
+    }
+
+    if (!Component) {
+        return (
+            <div className="flex-1 p-4 theme-bg-primary">
+                <div className="text-yellow-400">No component found</div>
+            </div>
+        );
+    }
+
+    // Render the loaded component with props
+    return (
+        <div className="flex-1 overflow-auto theme-bg-primary">
+            <Component
+                onClose={() => console.log('Tile closed')}
+                isPane={true}
+                isOpen={true}
+                isModal={false}
+                embedded={true}
+                projectPath={currentPath}
+                currentPath={currentPath}
+            />
+        </div>
+    );
+});
 
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
@@ -154,6 +268,15 @@ const ChatInterface = () => {
         const saved = localStorage.getItem('npcStudioCurrentNPC');
         return saved ? JSON.parse(saved) : null;
     });
+    // Multi-select for broadcast - initialize with current model/npc if available
+    const [selectedModels, setSelectedModels] = useState<string[]>(() => {
+        const saved = localStorage.getItem('npcStudioCurrentModel');
+        const model = saved ? JSON.parse(saved) : null;
+        return model ? [model] : [];
+    });
+    const [selectedNPCs, setSelectedNPCs] = useState<string[]>([]);
+    // Broadcast mode toggle - when OFF, selecting replaces; when ON, selecting adds
+    const [broadcastMode, setBroadcastMode] = useState(false);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -214,7 +337,10 @@ const ChatInterface = () => {
     const [websiteHistory, setWebsiteHistory] = useState([]);
     const [commonSites, setCommonSites] = useState([]);
     const [openBrowsers, setOpenBrowsers] = useState([]);
-    const [websitesCollapsed, setWebsitesCollapsed] = useState(false);
+    const [websitesCollapsed, setWebsitesCollapsed] = useState(() => {
+        const saved = localStorage.getItem('sidebarWebsitesCollapsed');
+        return saved !== null ? JSON.parse(saved) : false;
+    });
     const [paneContextMenu, setPaneContextMenu] = useState(null);
     const [isInputMinimized, setIsInputMinimized] = useState(false);
     const [showDateTime, setShowDateTime] = useState(() => {
@@ -256,6 +382,24 @@ const ChatInterface = () => {
         });
         return labelsMap;
     });
+
+    // Branch/run navigation state - tracks which run is active for each cellId
+    const [activeRuns, setActiveRuns] = useState<{ [cellId: string]: number }>({});
+
+    // Expanded branch path per pane - when set, shows that branch as the main view
+    // Key is paneId, value is array of message IDs representing the path to follow
+    const [expandedBranchPath, setExpandedBranchPath] = useState<{ [paneId: string]: string[] }>({});
+
+    // Selected branches for multi-branch broadcasting
+    // Key is paneId, value is a Map of messageId -> message object for all selected branches
+    const [selectedBranches, setSelectedBranches] = useState<{ [paneId: string]: Map<string, any> }>({});
+    const selectedBranchesRef = useRef(selectedBranches);
+    selectedBranchesRef.current = selectedBranches; // Always keep ref in sync
+
+    // Debug: log whenever selectedBranches changes
+    useEffect(() => {
+        console.log('[STATE] selectedBranches updated:', Object.keys(selectedBranches).map(k => `${k}: ${selectedBranches[k]?.size || 0} items`));
+    }, [selectedBranches]);
 
     // Conversation labeling state
     const [conversationLabelingModal, setConversationLabelingModal] = useState<{ isOpen: boolean; conversation: any | null }>({ isOpen: false, conversation: null });
@@ -327,6 +471,16 @@ const ChatInterface = () => {
     const [npcsLoading, setNpcsLoading] = useState(false);
     const [npcsError, setNpcsError] = useState(null);
 
+    // Sync currentNPC to selectedNPCs
+    useEffect(() => {
+        if (currentNPC && availableNPCs.length > 0) {
+            setSelectedNPCs(prev => {
+                if (prev.includes(currentNPC)) return prev;
+                return [...prev, currentNPC];
+            });
+        }
+    }, [currentNPC, availableNPCs]);
+
     const [displayedMessageCount, setDisplayedMessageCount] = useState(10);
     const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
     const streamToPaneRef = useRef({});
@@ -375,8 +529,19 @@ const ChatInterface = () => {
     const [ctxEditorOpen, setCtxEditorOpen] = useState(false);
 
    
-    const [filesCollapsed, setFilesCollapsed] = useState(true);
-    const [conversationsCollapsed, setConversationsCollapsed] = useState(true);
+    const [filesCollapsed, setFilesCollapsed] = useState(() => {
+        const saved = localStorage.getItem('sidebarFilesCollapsed');
+        return saved !== null ? JSON.parse(saved) : true;
+    });
+    const [conversationsCollapsed, setConversationsCollapsed] = useState(() => {
+        const saved = localStorage.getItem('sidebarConversationsCollapsed');
+        return saved !== null ? JSON.parse(saved) : true;
+    });
+    // Sidebar section order: array of section IDs in display order
+    const [sidebarSectionOrder, setSidebarSectionOrder] = useState<string[]>(() => {
+        const saved = localStorage.getItem('sidebarSectionOrder');
+        return saved !== null ? JSON.parse(saved) : ['websites', 'files', 'conversations'];
+    });
     const chatContainerRef = useRef(null);
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -401,7 +566,10 @@ const ChatInterface = () => {
         const saved = localStorage.getItem('npcStudioExecutionMode');
         return saved ? JSON.parse(saved) : 'chat';
     });
-    const [favoriteModels, setFavoriteModels] = useState(new Set());
+    const [favoriteModels, setFavoriteModels] = useState<Set<string>>(() => {
+        const saved = localStorage.getItem('npcStudioFavoriteModels');
+        return saved ? new Set(JSON.parse(saved)) : new Set();
+    });
     const [showAllModels, setShowAllModels] = useState(true); // Change default to true
 
 
@@ -424,6 +592,8 @@ const ChatInterface = () => {
     const [dropTarget, setDropTarget] = useState(null);
    
     const contentDataRef = useRef({});
+    const currentPathRef = useRef(currentPath);
+    currentPathRef.current = currentPath;
     const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
     const rootLayoutNodeRef = useRef(rootLayoutNode);
     const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -768,6 +938,24 @@ const ChatInterface = () => {
     useEffect(() => {
         localStorage.setItem('npcStudioExecutionMode', JSON.stringify(executionMode));
     }, [executionMode]);
+
+    // Save sidebar collapsed states
+    useEffect(() => {
+        localStorage.setItem('sidebarFilesCollapsed', JSON.stringify(filesCollapsed));
+    }, [filesCollapsed]);
+
+    useEffect(() => {
+        localStorage.setItem('sidebarConversationsCollapsed', JSON.stringify(conversationsCollapsed));
+    }, [conversationsCollapsed]);
+
+    useEffect(() => {
+        localStorage.setItem('sidebarWebsitesCollapsed', JSON.stringify(websitesCollapsed));
+    }, [websitesCollapsed]);
+
+    // Save sidebar section order
+    useEffect(() => {
+        localStorage.setItem('sidebarSectionOrder', JSON.stringify(sidebarSectionOrder));
+    }, [sidebarSectionOrder]);
 
     useEffect(() => {
         const saveCurrentWorkspace = () => {
@@ -1144,6 +1332,19 @@ const ChatInterface = () => {
                 handleCreateNewFolderRef.current?.();
                 return;
             }
+
+            // Ctrl+W - Close current tab/pane (prevent closing window)
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'w' || e.key === 'W') && !e.shiftKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (activeContentPaneId) {
+                    const nodePath = findNodePath(rootLayoutNodeRef.current, activeContentPaneId);
+                    if (nodePath) {
+                        closeContentPane(activeContentPaneId, nodePath);
+                    }
+                }
+                return;
+            }
         };
 
         window.addEventListener('keydown', handleKeyDown);
@@ -1157,10 +1358,10 @@ const ChatInterface = () => {
     
     
     useEffect(() => {
-        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText }) => {
-            console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText });
-           
-            setBrowserContextMenuPos({ x, y, selectedText });
+        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText, linkURL, pageURL }) => {
+            console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText, linkURL });
+
+            setBrowserContextMenuPos({ x, y, selectedText, linkURL, pageURL });
         });
     
         return () => {
@@ -1252,9 +1453,20 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
         } else {
             try {
                 const msgs = await window.api.getConversationMessages(newContentId);
+                const assistantMsgs = msgs?.filter((m: any) => m.role === 'assistant') || [];
+                console.log('[LOAD_MSGS] Total:', msgs?.length, 'Assistant msgs:', assistantMsgs.length,
+                    'With parentMessageId:', assistantMsgs.filter((m: any) => m.parentMessageId).length);
+                // Log all assistant messages to trace grouping
+                if (assistantMsgs.length > 0) {
+                    console.log('[LOAD_MSGS] Assistant message details:', assistantMsgs.map((m: any) => ({
+                        id: String(m.message_id || '').slice(0, 8),
+                        parent: String(m.parentMessageId || 'NONE').slice(0, 8),
+                        npc: m.npc
+                    })));
+                }
                 const formatted = (msgs && Array.isArray(msgs))
                     ? msgs.map((m) => {
-                        const msg = { ...m, id: m.id || generateId() };
+                        const msg = { ...m, id: m.message_id || m.id || generateId() };
                         // Reconstruct contentParts for assistant messages with tool calls
                         if (msg.role === 'assistant' && msg.toolCalls && Array.isArray(msg.toolCalls)) {
                             const contentParts: any[] = [];
@@ -1293,7 +1505,9 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
         paneData.fileContent = null;
     }
 
-    setRootLayoutNode(oldRoot => syncLayoutWithContentData(oldRoot, contentDataRef.current));
+    // Force re-render without calling syncLayoutWithContentData to avoid race condition
+    // The existing useEffect will handle any necessary sync
+    setRootLayoutNode(prev => ({ ...prev }));
 }, [trackActivity]);
 
 // Perform split on a pane - creates a new pane and splits the layout
@@ -1494,13 +1708,281 @@ const handleResendMessage = useCallback((messageToResend: any) => {
         return;
     }
 
+    // If this is an assistant message, find the parent user message
+    let targetMessage = messageToResend;
+    if (messageToResend.role === 'assistant') {
+        const activePaneData = contentDataRef.current[activeContentPaneId];
+        if (activePaneData?.chatMessages?.allMessages) {
+            // Look for the parent user message by parentMessageId or cellId
+            const parentId = messageToResend.parentMessageId || messageToResend.cellId;
+            if (parentId) {
+                const userMsg = activePaneData.chatMessages.allMessages.find(
+                    (m: any) => (m.id === parentId || m.timestamp === parentId) && m.role === 'user'
+                );
+                if (userMsg) {
+                    targetMessage = userMsg;
+                }
+            }
+            // Fallback: find the user message just before this assistant message
+            if (targetMessage.role === 'assistant') {
+                const idx = activePaneData.chatMessages.allMessages.findIndex(
+                    (m: any) => m.id === messageToResend.id || m.timestamp === messageToResend.timestamp
+                );
+                if (idx > 0) {
+                    for (let i = idx - 1; i >= 0; i--) {
+                        if (activePaneData.chatMessages.allMessages[i].role === 'user') {
+                            targetMessage = activePaneData.chatMessages.allMessages[i];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     setResendModal({
         isOpen: true,
-        message: messageToResend,
-        selectedModel: currentModel,
-        selectedNPC: currentNPC
+        message: targetMessage,
+        selectedModel: messageToResend.model || currentModel,
+        selectedNPC: messageToResend.npc || currentNPC
     });
-}, [isStreaming, currentModel, currentNPC]);
+}, [isStreaming, currentModel, currentNPC, activeContentPaneId]);
+
+// Handle broadcast - send same message to multiple model/NPC combinations
+const handleBroadcast = useCallback(async (messageToResend: any, models: string[], npcs: string[]) => {
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData || activePaneData.contentType !== 'chat' || !activePaneData.contentId) {
+        setError("Cannot broadcast: The active pane is not a valid chat window.");
+        return;
+    }
+    if (isStreaming) {
+        console.warn('Cannot broadcast while another operation is in progress.');
+        return;
+    }
+
+    // Find the user message (same logic as handleResendMessage)
+    let targetMessage = messageToResend;
+    if (messageToResend.role === 'assistant') {
+        const parentId = messageToResend.parentMessageId || messageToResend.cellId;
+        if (parentId) {
+            const userMsg = activePaneData.chatMessages.allMessages.find(
+                (m: any) => (m.id === parentId || m.timestamp === parentId) && m.role === 'user'
+            );
+            if (userMsg) targetMessage = userMsg;
+        }
+        if (targetMessage.role === 'assistant') {
+            const idx = activePaneData.chatMessages.allMessages.findIndex(
+                (m: any) => m.id === messageToResend.id || m.timestamp === messageToResend.timestamp
+            );
+            for (let i = idx - 1; i >= 0; i--) {
+                if (activePaneData.chatMessages.allMessages[i].role === 'user') {
+                    targetMessage = activePaneData.chatMessages.allMessages[i];
+                    break;
+                }
+            }
+        }
+    }
+
+    const conversationId = activePaneData.contentId;
+    const cellId = targetMessage.cellId || targetMessage.id || targetMessage.timestamp;
+    const allMessages = activePaneData.chatMessages.allMessages;
+
+    // Ensure user message has cellId
+    const userMsgIndex = allMessages.findIndex((m: any) =>
+        (m.id === targetMessage.id || m.timestamp === targetMessage.timestamp) && m.role === 'user'
+    );
+    if (userMsgIndex !== -1 && !allMessages[userMsgIndex].cellId) {
+        allMessages[userMsgIndex].cellId = cellId;
+    }
+
+    // Create branches for each model × NPC combination
+    const combinations: Array<{model: string, npc: string}> = [];
+    for (const model of models) {
+        for (const npc of npcs) {
+            combinations.push({ model, npc });
+        }
+    }
+
+    // Count existing runs
+    const existingRuns = allMessages.filter((m: any) => m.cellId === cellId && m.role === 'assistant').length;
+
+    // Launch all branches
+    setIsStreaming(true);
+    const newStreamIds: string[] = [];
+
+    for (let i = 0; i < combinations.length; i++) {
+        const { model, npc } = combinations[i];
+        const newStreamId = generateId();
+        newStreamIds.push(newStreamId);
+        streamToPaneRef.current[newStreamId] = activeContentPaneId;
+
+        const runNumber = existingRuns + i + 1;
+        const selectedModelObj = availableModels.find((m: any) => m.value === model);
+        const selectedNpc = availableNPCs.find((n: any) => n.value === npc);
+        const providerToUse = selectedModelObj?.provider || currentProvider;
+
+        // Create placeholder message
+        const assistantPlaceholder = {
+            id: newStreamId,
+            role: 'assistant',
+            content: '',
+            isStreaming: true,
+            timestamp: new Date().toISOString(),
+            streamId: newStreamId,
+            model: model,
+            provider: providerToUse,
+            npc: npc,
+            cellId: cellId,
+            parentMessageId: targetMessage.id || targetMessage.timestamp,
+            runNumber: runNumber,
+            runCount: existingRuns + combinations.length,
+        };
+
+        allMessages.push(assistantPlaceholder);
+
+        // Update runCount on all related messages
+        allMessages.forEach((m: any) => {
+            if (m.cellId === cellId) {
+                m.runCount = existingRuns + combinations.length;
+            }
+        });
+    }
+
+    activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
+        -(activePaneData.chatMessages.displayedMessageCount || 20)
+    );
+    setRootLayoutNode(prev => ({ ...prev }));
+
+    // Execute all in parallel
+    const executePromises = combinations.map(async ({ model, npc }, i) => {
+        const newStreamId = newStreamIds[i];
+        const selectedModelObj = availableModels.find((m: any) => m.value === model);
+        const selectedNpc = availableNPCs.find((n: any) => n.value === npc);
+        const providerToUse = selectedModelObj?.provider || currentProvider;
+
+        try {
+            await window.api.executeCommandStream({
+                commandstr: targetMessage.content,
+                currentPath,
+                conversationId,
+                model,
+                provider: providerToUse,
+                npc: selectedNpc?.name || npc,
+                npcSource: selectedNpc?.source || 'global',
+                attachments: targetMessage.attachments?.map((att: any) => ({
+                    name: att.name, path: att.path, size: att.size, type: att.type
+                })) || [],
+                streamId: newStreamId,
+                isRerun: true,
+                parentMessageId: targetMessage.id || targetMessage.timestamp,
+                // Pass frontend message IDs
+                assistantMessageId: newStreamId,
+            });
+        } catch (err: any) {
+            console.error('[BROADCAST] Error for', model, npc, err);
+            const msgIndex = activePaneData.chatMessages.allMessages.findIndex((m: any) => m.id === newStreamId);
+            if (msgIndex !== -1) {
+                const message = activePaneData.chatMessages.allMessages[msgIndex];
+                message.content = `[Error: ${err.message}]`;
+                message.type = 'error';
+                message.isStreaming = false;
+            }
+        }
+    });
+
+    await Promise.all(executePromises);
+}, [isStreaming, activeContentPaneId, currentProvider, currentPath, availableModels, availableNPCs]);
+
+// Handle switching active run for a cell - also updates expandedBranchPath
+const handleSwitchRun = useCallback((cellId: string, runIndex: number) => {
+    setActiveRuns(prev => ({ ...prev, [cellId]: runIndex }));
+
+    // Get the selected run and update expandedBranchPath
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData?.chatMessages?.allMessages) return;
+
+    const allMessages = activePaneData.chatMessages.allMessages;
+    const siblingRuns = allMessages.filter((m: any) =>
+        m.role === 'assistant' && (m.cellId === cellId || m.parentMessageId === cellId)
+    );
+
+    if (runIndex === 0) {
+        // First/default branch - clear path to show tree view
+        setExpandedBranchPath(prev => {
+            const next = { ...prev };
+            delete next[activeContentPaneId];
+            return next;
+        });
+    } else if (siblingRuns[runIndex]) {
+        // Non-default branch - build path to this run
+        const selectedRun = siblingRuns[runIndex];
+        const msgById = new Map(allMessages.map((m: any) => [m.id, m]));
+        const path: string[] = [];
+        let cur = selectedRun;
+        while (cur) {
+            path.unshift(cur.id);
+            cur = cur.parentMessageId ? msgById.get(cur.parentMessageId) : null;
+        }
+        setExpandedBranchPath(prev => ({ ...prev, [activeContentPaneId]: path }));
+    }
+}, [activeContentPaneId]);
+
+// Handle expanding branches to tiles
+const handleExpandBranches = useCallback((cellId: string) => {
+    const activePaneData = contentDataRef.current[activeContentPaneId];
+    if (!activePaneData?.chatMessages?.allMessages) return;
+
+    // Find all runs for this cell
+    const siblingRuns = activePaneData.chatMessages.allMessages.filter(
+        (m: any) => m.cellId === cellId && m.role === 'assistant'
+    );
+
+    if (siblingRuns.length <= 1) return;
+
+    // Find the original user message (parent)
+    const firstRun = siblingRuns[0];
+    const userMessage = activePaneData.chatMessages.allMessages.find(
+        (m: any) => m.id === firstRun.parentMessageId
+    );
+
+    // Get node path for the split
+    const nodePath = findNodePath(rootLayoutNodeRef.current, activeContentPaneId);
+    if (!nodePath) return;
+
+    // Create a unique content ID for the branches view
+    const branchesContentId = `branches_${cellId}_${Date.now()}`;
+
+    // Store branch data that will be picked up by the new pane
+    const branchData = {
+        cellId,
+        userMessage: userMessage || { content: 'Original prompt', role: 'user' },
+        runs: siblingRuns.map((run: any) => ({
+            id: run.id,
+            model: run.model,
+            npc: run.npc,
+            provider: run.provider,
+            content: run.content,
+            runNumber: run.runNumber,
+            timestamp: run.timestamp
+        }))
+    };
+
+    // Perform split to the right with branches content type
+    performSplit(nodePath, 'right', 'branches', branchesContentId);
+
+    // After split, update the new pane's data with branch info
+    setTimeout(() => {
+        // Find the pane that was just created
+        const newPaneId = Object.keys(contentDataRef.current).find(
+            id => contentDataRef.current[id]?.contentId === branchesContentId
+        );
+        if (newPaneId) {
+            contentDataRef.current[newPaneId].branchData = branchData;
+            setRootLayoutNode(prev => ({ ...prev })); // Trigger re-render
+        }
+    }, 50);
+
+}, [activeContentPaneId, findNodePath, performSplit]);
 
 // Handle creating a conversation branch from a specific message
 const handleCreateBranch = useCallback((messageIndex: number) => {
@@ -1571,7 +2053,10 @@ const handleBranchOptionsConfirm = useCallback(async (options: BranchOptions) =>
                     name: att.name, path: att.path, size: att.size, type: att.type
                 })) || [],
                 streamId: newStreamId,
-                isResend: true
+                isResend: true,
+                parentMessageId: userMessage?.id,
+                // Pass frontend message IDs
+                assistantMessageId: newStreamId,
             });
         } catch (err: any) {
             console.error('[BRANCH RESEND] Error:', err);
@@ -1631,26 +2116,8 @@ const handleRunScript = useCallback(async (scriptPath: string) => {
         terminalId: newPaneId
     };
 
-    // Add pane to layout
-    setRootLayoutNode((prev) => {
-        if (!prev) {
-            return { id: newPaneId, type: 'content' };
-        }
-        if (prev.type === 'content') {
-            return {
-                id: `split-${Date.now()}`,
-                type: 'split',
-                direction: 'horizontal',
-                children: [prev, { id: newPaneId, type: 'content' }],
-                sizes: [50, 50]
-            };
-        }
-        const newRoot = JSON.parse(JSON.stringify(prev));
-        newRoot.children.push({ id: newPaneId, type: 'content' });
-        const equalSize = 100 / newRoot.children.length;
-        newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-        return newRoot;
-    });
+    // Add pane to layout using balanced grid
+    setRootLayoutNode((prev) => addPaneToLayout(prev, newPaneId));
 
     setActiveContentPaneId(newPaneId);
 
@@ -1702,35 +2169,220 @@ const renderChatView = useCallback(({ nodeId }) => {
         return <div className="flex-1 flex items-center justify-center theme-text-muted">No messages</div>;
     }
 
+    const allMessages = paneData.chatMessages.allMessages || [];
     const messages = paneData.chatMessages.messages || [];
+
+    // Build a map of parentMessageId (or cellId) -> sibling runs for branch navigation
+    // parentMessageId is used for loaded messages, cellId for freshly created ones
+    const siblingRunsMap: { [key: string]: any[] } = {};
+
+    allMessages.forEach((m: any) => {
+        const groupKey = m.parentMessageId || m.cellId;
+        if (groupKey && m.role === 'assistant') {
+            if (!siblingRunsMap[groupKey]) {
+                siblingRunsMap[groupKey] = [];
+            }
+            siblingRunsMap[groupKey].push(m);
+        }
+    });
+
+    // Debug: Log broadcast groups with more than 1 sibling
+    const broadcastGroups = Object.entries(siblingRunsMap).filter(([_, runs]) => runs.length > 1);
+    if (broadcastGroups.length > 0) {
+        console.log('[TREE DEBUG] Broadcast groups found:', broadcastGroups.length,
+            'Groups:', broadcastGroups.map(([key, runs]) => ({
+                groupKey: String(key || '').slice(0, 8),
+                count: runs.length,
+                ids: runs.map((r: any) => String(r.id || '').slice(0, 8))
+            })));
+    }
+
+    // Track which group keys have been rendered as broadcast groups to avoid duplicates
+    const renderedBroadcastKeys = new Set<string>();
+
+    // Handler for toggling branch selection (multi-select)
+    const handleToggleBranchSelection = (message: any, selected: boolean) => {
+        console.log('[BRANCH] Toggle selection for nodeId:', nodeId, 'message:', message.id, message.npc || message.model, 'selected:', selected);
+        setSelectedBranches(prev => {
+            const paneMap = new Map(prev[nodeId] || []);
+            if (selected) {
+                paneMap.set(message.id, message);
+            } else {
+                paneMap.delete(message.id);
+            }
+            return {
+                ...prev,
+                [nodeId]: paneMap
+            };
+        });
+    };
+
+    // Get selected branch IDs for this pane - use ref to avoid stale closure
+    const currentSelectedBranches = selectedBranchesRef.current;
+    console.log('[DEBUG] selectedBranches ref:', Object.keys(currentSelectedBranches), 'nodeId:', nodeId, 'has entry:', !!currentSelectedBranches[nodeId], 'size:', currentSelectedBranches[nodeId]?.size);
+    const selectedBranchIds = new Set(currentSelectedBranches[nodeId]?.keys() || []);
+
+    // Handler for copying all broadcast responses
+    const handleCopyAllBroadcast = (messages: any[]) => {
+        const content = messages.map((m, i) =>
+            `--- Response ${i + 1} (${m.npc || m.model || 'Unknown'}) ---\n${m.content || ''}`
+        ).join('\n\n');
+        navigator.clipboard.writeText(content);
+    };
+
+    // Build the main chain by following parentMessageId links
+    const msgById = new Map(allMessages.map((m: any) => [m.id, m]));
+
+    // Check if we have an expanded branch path for this pane
+    const branchPath = expandedBranchPath[nodeId] || [];
+    const isInBranch = branchPath.length > 0;
+
+    // Handler to expand into a branch (enter a sub-chain as main view)
+    const handleExpandBranch = (assistantMsgId: string) => {
+        // Build path from root to this assistant message
+        const path: string[] = [];
+        let current = msgById.get(assistantMsgId);
+        while (current) {
+            path.unshift(current.id);
+            current = current.parentMessageId ? msgById.get(current.parentMessageId) : null;
+        }
+        setExpandedBranchPath(prev => ({ ...prev, [nodeId]: path }));
+    };
+
+    // Build the chain - either from root or from branch path
+    const mainChain: any[] = [];
+    const processed = new Set<string>();
+
+    // Build the chain following a specific path when expanded, or default path when not
+    // branchPath contains message IDs we must follow through
+    const branchPathSet = new Set(branchPath);
+
+    // Find root user message
+    const rootUserMsgs = allMessages.filter((m: any) =>
+        m.role === 'user' && (!m.parentMessageId || !msgById.has(m.parentMessageId))
+    );
+    let current: any = rootUserMsgs[0];
+
+    while (current) {
+        if (processed.has(current.id)) break;
+        processed.add(current.id);
+        mainChain.push(current);
+
+        if (current.role === 'user') {
+            // Find assistant responses to this user message
+            const responses = allMessages.filter((m: any) =>
+                m.role === 'assistant' && m.parentMessageId === current.id
+            );
+            if (responses.length > 0) {
+                // If expanded, prefer the response in our branch path
+                if (isInBranch) {
+                    const pathResponse = responses.find((r: any) => branchPathSet.has(r.id));
+                    current = pathResponse || responses[0];
+                } else {
+                    current = responses[0];
+                }
+            } else {
+                break;
+            }
+        } else {
+            // Find next message - user following up on this assistant (sub-chain)
+            const subChainUser = allMessages.find((m: any) =>
+                m.role === 'user' && m.parentMessageId === current.id
+            );
+            if (subChainUser) {
+                current = subChainUser;
+            } else if (!isInBranch) {
+                // Only continue to next main chain user if NOT in a branch
+                const nextUser = allMessages.find((m: any) =>
+                    m.role === 'user' &&
+                    !processed.has(m.id) &&
+                    (!m.parentMessageId || msgById.get(m.parentMessageId)?.role === 'user')
+                );
+                current = nextUser || null;
+            } else {
+                break;
+            }
+        }
+    }
 
     // Note: The scrollable container is in LayoutNode.tsx, we just render the messages here
     return (
         <div className="p-4 space-y-4">
-            {messages.map((msg: any, idx: number) => (
-                <ChatMessage
-                    key={msg.id || msg.timestamp || idx}
-                    message={msg}
-                    isSelected={selectedMessages.has(msg.id || msg.timestamp)}
-                    messageSelectionMode={messageSelectionMode}
-                    toggleMessageSelection={(msgId) => {
-                        const newSet = new Set(selectedMessages);
-                        if (newSet.has(msgId)) {
-                            newSet.delete(msgId);
-                        } else {
-                            newSet.add(msgId);
-                        }
-                        setSelectedMessages(newSet);
-                    }}
-                    handleMessageContextMenu={(e: React.MouseEvent) => handleMessageContextMenu(e, msg)}
-                    searchTerm={searchTerm}
-                    isCurrentSearchResult={false}
-                    onResendMessage={() => handleResendMessage(msg)}
-                    onCreateBranch={handleCreateBranch}
-                    messageIndex={idx}
-                    onLabelMessage={handleLabelMessage}
-                    messageLabel={messageLabels[msg.id || msg.timestamp]}
-                    conversationId={paneData.contentId}
+            {mainChain.map((msg: any, idx: number) => {
+                // Get sibling runs for this message using parentMessageId or cellId
+                const groupKey = msg.parentMessageId || msg.cellId;
+                const siblingRuns = groupKey ? siblingRunsMap[groupKey] || [] : [];
+                const activeRunIndex = groupKey ? (activeRuns[groupKey] ?? siblingRuns.findIndex((r: any) => r.id === msg.id)) : 0;
+
+                // For assistant messages, check if this is a broadcast group OR has sub-chains
+                // But skip tree view when we're in an expanded branch (show linear instead)
+                if (msg.role === 'assistant' && groupKey && !isInBranch) {
+                    // Skip if we've already rendered this group
+                    if (renderedBroadcastKeys.has(groupKey)) {
+                        return null;
+                    }
+
+                    // Check if this message has any sub-chain children
+                    const hasSubChain = allMessages.some((m: any) =>
+                        m.role === 'user' && m.parentMessageId === msg.id
+                    );
+
+                    // Use BroadcastResponseRow for broadcasts OR messages with sub-chains
+                    if (siblingRuns.length > 1 || hasSubChain) {
+                        renderedBroadcastKeys.add(groupKey);
+
+                        // Find the user message that triggered this
+                        const userMsgIdx = messages.findIndex((m: any, i: number) =>
+                            i < idx && m.role === 'user'
+                        );
+                        const userMessage = userMsgIdx >= 0 ? messages[userMsgIdx] : null;
+
+                        return (
+                            <BroadcastResponseRow
+                                key={`broadcast-${groupKey}`}
+                                siblingRuns={siblingRuns}
+                                userMessage={userMessage}
+                                allMessages={allMessages}
+                                onCopyAll={handleCopyAllBroadcast}
+                                onToggleBranchSelection={handleToggleBranchSelection}
+                                selectedBranchIds={selectedBranchIds}
+                                onExpandBranch={handleExpandBranch}
+                            />
+                        );
+                    }
+                }
+
+                return (
+                    <ChatMessage
+                        key={msg.id || msg.timestamp || idx}
+                        message={msg}
+                        isSelected={selectedMessages.has(msg.id || msg.timestamp)}
+                        messageSelectionMode={messageSelectionMode}
+                        toggleMessageSelection={(msgId) => {
+                            const newSet = new Set(selectedMessages);
+                            if (newSet.has(msgId)) {
+                                newSet.delete(msgId);
+                            } else {
+                                newSet.add(msgId);
+                            }
+                            setSelectedMessages(newSet);
+                        }}
+                        handleMessageContextMenu={(e: React.MouseEvent) => handleMessageContextMenu(e, msg)}
+                        searchTerm={searchTerm}
+                        isCurrentSearchResult={false}
+                        onResendMessage={() => handleResendMessage(msg)}
+                        onBroadcast={handleBroadcast}
+                        onExpandBranches={handleExpandBranches}
+                        onSwitchRun={handleSwitchRun}
+                        siblingRuns={siblingRuns}
+                        activeRunIndex={activeRunIndex >= 0 ? activeRunIndex : 0}
+                        onCreateBranch={handleCreateBranch}
+                        messageIndex={idx}
+                        onLabelMessage={handleLabelMessage}
+                        messageLabel={messageLabels[msg.id || msg.timestamp]}
+                        conversationId={paneData.contentId}
+                    availableModels={availableModels}
+                    availableNPCs={availableNPCs}
                     onOpenFile={(path: string) => {
                         const ext = path.split('.').pop()?.toLowerCase();
                         let contentType = 'editor';
@@ -1746,10 +2398,99 @@ const renderChatView = useCallback(({ nodeId }) => {
                         }
                     }}
                 />
-            ))}
+                );
+            })}
         </div>
     );
-}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleCreateBranch, findNodePath, performSplit]);
+}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleBroadcast, handleExpandBranches, handleSwitchRun, activeRuns, handleCreateBranch, findNodePath, performSplit, availableModels, availableNPCs, expandedBranchPath]);
+
+// Render branch comparison view - shows all branches side by side
+const renderBranchComparisonPane = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const branchData = paneData?.branchData;
+
+    if (!branchData || !branchData.runs || branchData.runs.length === 0) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-text-muted p-4">
+                <div className="text-center">
+                    <GitBranch size={32} className="mx-auto mb-2 text-gray-500" />
+                    <p>No branch data available</p>
+                </div>
+            </div>
+        );
+    }
+
+    const { userMessage, runs } = branchData;
+    const userContent = typeof userMessage.content === 'string'
+        ? userMessage.content
+        : userMessage.content?.[0]?.text || '';
+
+    return (
+        <div className="flex-1 flex flex-col overflow-hidden theme-bg-secondary">
+            {/* User message header */}
+            <div className="p-3 border-b theme-border bg-gray-800/50">
+                <div className="flex items-center gap-2 mb-1">
+                    <User size={14} className="text-blue-400" />
+                    <span className="text-xs text-gray-400 uppercase">Original Prompt</span>
+                </div>
+                <div className="text-sm text-gray-200 whitespace-pre-wrap line-clamp-3">
+                    {userContent.slice(0, 300)}{userContent.length > 300 ? '...' : ''}
+                </div>
+            </div>
+
+            {/* Branch count indicator */}
+            <div className="px-3 py-2 border-b theme-border bg-gray-900/50 flex items-center gap-2">
+                <GitBranch size={14} className="text-purple-400" />
+                <span className="text-xs text-gray-400">
+                    {runs.length} Branches
+                </span>
+            </div>
+
+            {/* Branches grid */}
+            <div className="flex-1 overflow-auto p-2">
+                <div className={`grid gap-2 h-full ${
+                    runs.length <= 2 ? 'grid-cols-2' :
+                    runs.length <= 4 ? 'grid-cols-2 grid-rows-2' :
+                    'grid-cols-3'
+                }`}>
+                    {runs.map((run: any, idx: number) => {
+                        const content = typeof run.content === 'string'
+                            ? run.content
+                            : run.content?.[0]?.text || '';
+
+                        return (
+                            <div
+                                key={run.id || idx}
+                                className="flex flex-col border theme-border rounded-lg overflow-hidden bg-gray-900"
+                            >
+                                {/* Branch header */}
+                                <div className="px-2 py-1.5 bg-gray-800 border-b theme-border flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-xs font-semibold text-purple-400">
+                                        #{idx + 1}
+                                    </span>
+                                    <span className="text-[10px] px-1.5 py-0.5 bg-blue-600/20 text-blue-300 rounded">
+                                        {run.model?.slice(0, 20) || 'unknown'}
+                                    </span>
+                                    {run.npc && run.npc !== 'agent' && (
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-green-600/20 text-green-300 rounded">
+                                            {stripSourcePrefix(run.npc)}
+                                        </span>
+                                    )}
+                                </div>
+                                {/* Branch content */}
+                                <div className="flex-1 overflow-auto p-2">
+                                    <div className="text-xs text-gray-300 whitespace-pre-wrap">
+                                        <MarkdownRenderer content={content} />
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+}, []);
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -1785,13 +2526,14 @@ const renderFileEditor = useCallback(({ nodeId }) => {
     );
 }, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal]);
 
-const renderTerminalView = useCallback(({ nodeId }) => {
+const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, shell?: string }) => {
     return (
         <TerminalView
             nodeId={nodeId}
             contentDataRef={contentDataRef}
             currentPath={currentPath}
             activeContentPaneId={activeContentPaneId}
+            shell={shell}
         />
     );
 }, [currentPath, activeContentPaneId]);
@@ -1923,6 +2665,20 @@ const renderNotebookViewer = useCallback(({ nodeId }) => {
     );
 }, [rootLayoutNode, closeContentPane, performSplit]);
 
+const renderExpViewer = useCallback(({ nodeId }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const filePath = paneData?.contentId;
+    return (
+        <ExpViewer
+            filePath={filePath}
+            currentPath={currentPath}
+            modelsToDisplay={modelsToDisplay}
+            availableNPCs={availableNPCs}
+            jinxsToDisplay={jinxsToDisplay}
+        />
+    );
+}, [currentPath, modelsToDisplay, availableNPCs, jinxsToDisplay]);
+
 const renderZipViewer = useCallback(({ nodeId }) => {
     return (
         <ZipViewer
@@ -2053,60 +2809,25 @@ const renderDataDashPane = useCallback(({ nodeId }: { nodeId: string }) => {
 const renderPhotoViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
         <PhotoViewer
-            currentPath={currentPath}
+            currentPath={currentPathRef.current}
             onStartConversation={handleStartConversationFromViewer}
         />
     );
-}, [currentPath, handleStartConversationFromViewer]);
+}, [handleStartConversationFromViewer]);
 
 // Handle opening a document from the library viewer
 const handleOpenDocumentFromLibrary = useCallback(async (path: string, type: 'pdf' | 'epub') => {
     // Open the document in a new pane
     const newPaneId = generateId();
 
-    setRootLayoutNode(oldRoot => {
-        contentDataRef.current[newPaneId] = {};
+    // Set content BEFORE creating layout node - never create empty panes
+    contentDataRef.current[newPaneId] = {
+        contentType: type,
+        contentId: path
+    };
 
-        if (!oldRoot) {
-            return { id: newPaneId, type: 'content' };
-        }
-
-        let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-        if (activeContentPaneId) {
-            const pathToActive = findNodePath(newRoot, activeContentPaneId);
-            if (pathToActive && pathToActive.length > 0) {
-                const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                const targetIndex = pathToActive[pathToActive.length - 1];
-
-                if (targetParent && targetParent.type === 'split') {
-                    const newChildren = [...targetParent.children];
-                    newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                    const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                    targetParent.children = newChildren;
-                    targetParent.sizes = newSizes;
-                    return newRoot;
-                }
-            }
-        }
-
-        if (newRoot.type === 'content') {
-            return {
-                id: generateId(),
-                type: 'split',
-                direction: 'horizontal',
-                children: [newRoot, { id: newPaneId, type: 'content' }],
-                sizes: [50, 50],
-            };
-        } else if (newRoot.type === 'split') {
-            newRoot.children.push({ id: newPaneId, type: 'content' });
-            const equalSize = 100 / newRoot.children.length;
-            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-            return newRoot;
-        }
-
-        return { id: newPaneId, type: 'content' };
-    });
+    // Use balanced grid layout
+    setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
 
     setTimeout(async () => {
         await updateContentPane(newPaneId, type, path);
@@ -2114,22 +2835,27 @@ const handleOpenDocumentFromLibrary = useCallback(async (path: string, type: 'pd
     }, 0);
 
     setActiveContentPaneId(newPaneId);
-}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane]);
+}, [updateContentPane]);
 
 // Render LibraryViewer pane (for pane-based viewing)
 const renderLibraryViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
         <LibraryViewer
-            currentPath={currentPath}
+            currentPath={currentPathRef.current}
             onOpenDocument={handleOpenDocumentFromLibrary}
         />
     );
-}, [currentPath, handleOpenDocumentFromLibrary]);
+}, [handleOpenDocumentFromLibrary]);
+
+// Render HelpViewer pane
+const renderHelpPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return <HelpViewer />;
+}, []);
 
 // Render FolderViewer pane (for pane-based folder browsing)
 const renderFolderViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
     const paneData = contentDataRef.current[nodeId];
-    const folderPath = paneData?.contentId || currentPath || '/';
+    const folderPath = paneData?.contentId || currentPathRef.current;
 
     const handleOpenFile = (filePath: string) => {
         // Open the file in a new pane or tab
@@ -2180,27 +2906,27 @@ const renderFolderViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
             onNavigate={handleNavigate}
         />
     );
-}, [currentPath, setRootLayoutNode]);
+}, []);
 
 // Render ProjectEnvEditor pane (for pane-based viewing)
 const renderProjectEnvPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
         <ProjectEnvEditor
-            currentPath={currentPath}
+            currentPath={currentPathRef.current}
         />
     );
-}, [currentPath]);
+}, []);
 
 // Render DiskUsageAnalyzer pane (for pane-based viewing)
 const renderDiskUsagePane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
         <DiskUsageAnalyzer
-            path={currentPath}
+            path={currentPathRef.current}
             isDarkMode={isDarkMode}
             isPane={true}
         />
     );
-}, [currentPath, isDarkMode]);
+}, [isDarkMode]);
 
 // Markdown Preview Component (needs to be a proper component for hooks)
 const MarkdownPreviewContent: React.FC<{ filePath: string }> = ({ filePath }) => {
@@ -2265,6 +2991,117 @@ const renderDBToolPane = useCallback(({ nodeId }: { nodeId: string }) => {
     );
 }, [currentPath, currentModel, currentProvider, currentNPC]);
 
+// Tile Jinx runtime scope - dependencies available to compiled jinx code
+// NOTE: Don't include the MAIN tile components (the ones defined by jinx files themselves)
+// DO include utility components and sub-components that tiles may depend on
+const tileJinxScope = useMemo(() => ({
+    // React
+    React,
+    useState,
+    useEffect,
+    useCallback,
+    useRef,
+    useMemo,
+    useLayoutEffect: React.useLayoutEffect,
+    useContext: React.useContext,
+    createContext: React.createContext,
+    forwardRef: React.forwardRef,
+    memo: React.memo,
+    Fragment: React.Fragment,
+    // npcts UI components and utilities
+    Modal, Tabs, Card, Button, Input, Select, ImageEditor,
+    createWindowApiDatabaseClient, QueryChart,
+    WidgetBuilder, WidgetGrid, Widget, DataTable,
+    // Chart.js components (Chart is alias for ChartJS)
+    Pie, Bar, Line, ChartJS, Chart: ChartJS,
+    ArcElement, Tooltip, Legend,
+    CategoryScale, LinearScale, BarElement, PointElement, LineElement,
+    // Utility components jinx files may use
+    AutosizeTextarea,
+    ForceGraph2D,
+    // Sub-components that tiles may USE (not the main tile components they DEFINE)
+    MemoryManagement,
+    ActivityIntelligence,
+    LabeledDataManager,
+    KnowledgeGraphEditor,
+    CtxEditor,
+    PythonEnvSettings,
+    // All lucide icons
+    ...LucideIcons,
+    // Real window, console, and JS built-ins (in case icons shadow them)
+    window,
+    console,
+    Map: globalThis.Map,
+    Set: globalThis.Set,
+}), []);
+
+// Compile tile jinx code for runtime rendering
+const compileTileJinx = useCallback(async (code: string): Promise<string> => {
+    try {
+        // Find the exported component name
+        const exportDefaultMatch = code.match(/export\s+default\s+(\w+)\s*;?\s*$/m);
+        const exportDefaultFuncMatch = code.match(/export\s+default\s+(?:function|const)\s+(\w+)/);
+        let componentName = exportDefaultMatch?.[1] || exportDefaultFuncMatch?.[1];
+        if (!componentName) {
+            const funcMatch = code.match(/(?:const|function)\s+(\w+)\s*(?::\s*React\.FC)?[=(:]/);
+            componentName = funcMatch?.[1] || 'Component';
+        }
+
+        // Clean the code
+        let cleaned = code.replace(/\/\*\*[\s\S]*?\*\/\s*\n?/, '');
+        cleaned = cleaned.replace(/^#[^\n]*\n/gm, '');
+        cleaned = cleaned.replace(/^import\s+.*?['"];?\s*$/gm, '');
+        cleaned = cleaned.replace(/^export\s+(default\s+)?/gm, '');
+
+        // Compile TypeScript
+        const result = await (window as any).api?.transformTsx?.(cleaned);
+        if (!result?.success) {
+            return `render(<div className="p-4 text-red-400">Compile Error: ${result?.error || 'Unknown error'}</div>)`;
+        }
+
+        let compiled = result.output || '';
+        // Remove module artifacts
+        compiled = compiled.replace(/["']use strict["'];?\n?/g, '');
+        compiled = compiled.replace(/Object\.defineProperty\(exports[\s\S]*?\);/g, '');
+        compiled = compiled.replace(/exports\.\w+\s*=\s*/g, '');
+        compiled = compiled.replace(/exports\.default\s*=\s*\w+;?/g, '');
+        compiled = compiled.replace(/(?:var|const|let)\s+\w+\s*=\s*require\([^)]+\);?\n?/g, '');
+        compiled = compiled.replace(/require\([^)]+\)/g, '{}');
+        compiled = compiled.replace(/\w+_\d+\.(\w+)/g, '$1');
+        compiled = compiled.replace(/react_1\.(\w+)/g, '$1');
+
+        // Render with real props
+        const propsCode = `{
+            onClose: () => console.log('Tile closed'),
+            isPane: true,
+            isOpen: true,
+            isModal: false,
+            embedded: true,
+            projectPath: '${currentPath || ''}',
+            currentPath: '${currentPath || ''}',
+            theme: { bg: '#1a1a2e', fg: '#fff', accent: '#4a9eff' }
+        }`;
+        return `${compiled}\n\nrender(<${componentName} {...${propsCode}} />)`;
+    } catch (err: any) {
+        return `render(<div className="p-4 text-red-400">Error: ${err.message}</div>)`;
+    }
+}, [currentPath]);
+
+// Render Tile Jinx pane - uses external stable component to prevent state loss
+const renderTileJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const jinxFile = paneData?.jinxFile;
+
+    return (
+        <TileJinxContentExternal
+            key={nodeId}
+            jinxFile={jinxFile}
+            tileJinxScope={tileJinxScope}
+            currentPath={currentPathRef.current}
+        />
+    );
+}, [tileJinxScope]);
+
 // Use the PDF highlights loader from PdfViewer module
 useEffect(() => {
     loadPdfHighlightsForActivePane(activeContentPaneId, contentDataRef, setPdfHighlights);
@@ -2322,7 +3159,7 @@ useEffect(() => {
         }
     }, [currentPath, loadWebsiteHistory]);
 
-    // Track open browsers
+    // Track open browsers - only update if actually changed
     useEffect(() => {
         const browsers = Object.entries(contentDataRef.current)
             .filter(([_, data]) => data.contentType === 'browser')
@@ -2332,7 +3169,12 @@ useEffect(() => {
                 viewId: data.contentId,
                 title: data.browserTitle || 'Loading...'
             }));
-        setOpenBrowsers(browsers);
+        // Only update if browser list actually changed (compare by stringifying)
+        setOpenBrowsers(prev => {
+            const prevStr = JSON.stringify(prev);
+            const newStr = JSON.stringify(browsers);
+            return prevStr === newStr ? prev : browsers;
+        });
     }, [rootLayoutNode]); // Re-check when layout changes
 
 
@@ -2391,85 +3233,103 @@ const renderMessageContextMenu = () => (
 );
 
 
-  // Helper to find an empty pane that can be reused
+  // Helper to find an empty pane that can be reused (kept for backwards compat but should not be used)
   const findEmptyPaneId = useCallback(() => {
-    for (const [paneId, data] of Object.entries(contentDataRef.current)) {
-      if (!data || !data.contentType || data.contentType === 'empty') {
-        return paneId;
-      }
-    }
+    // DISABLED - we should never have empty panes
     return null;
   }, []);
 
-  const createAndAddPaneNodeToLayout = useCallback(() => {
-  // First check if there's an empty pane to reuse
-  const emptyPaneId = findEmptyPaneId();
-  if (emptyPaneId) {
-    setActiveContentPaneId(emptyPaneId);
-    return emptyPaneId;
+  const createAndAddPaneNodeToLayout = useCallback((contentType: string, contentId: string | null) => {
+  // NEVER create a pane without contentType
+  if (!contentType) {
+    console.error('[createAndAddPaneNodeToLayout] Cannot create pane without contentType!');
+    return null;
   }
 
   const newPaneId = generateId();
 
-  // Create the contentData entry ONLY AFTER we know where it goes
-  let finalPaneId = newPaneId;
+  // Set content BEFORE creating layout node - never create empty panes
+  contentDataRef.current[newPaneId] = {
+    contentType,
+    contentId
+  };
 
   setRootLayoutNode(oldRoot => {
-    // Initialize contentData entry NOW, inside the state update
-    contentDataRef.current[newPaneId] = {};
-    
     if (!oldRoot) {
       return { id: newPaneId, type: 'content' };
     }
 
-    let newRoot = JSON.parse(JSON.stringify(oldRoot));
-    let targetParent = null;
-    let targetIndex = -1;
-    let pathToTarget = [];
-
-    if (activeContentPaneId) {
-      pathToTarget = findNodePath(newRoot, activeContentPaneId);
-      if (pathToTarget && pathToTarget.length > 0) {
-        targetParent = findNodeByPath(newRoot, pathToTarget.slice(0, -1));
-        targetIndex = pathToTarget[pathToTarget.length - 1];
+    // Collect all existing pane IDs from the layout
+    const collectPaneIds = (node: any): string[] => {
+      if (!node) return [];
+      if (node.type === 'content') return [node.id];
+      if (node.type === 'split') {
+        return node.children.flatMap((child: any) => collectPaneIds(child));
       }
-    }
+      return [];
+    };
 
-    if (!targetParent || targetIndex === -1) {
-      if (newRoot.type === 'content') {
-        const newSplitNode = {
-          id: generateId(),
-          type: 'split',
-          direction: 'horizontal',
-          children: [newRoot, { id: newPaneId, type: 'content' }],
-          sizes: [50, 50],
-        };
-        return newSplitNode;
-      } else if (newRoot.type === 'split') {
-        const newChildren = [...newRoot.children, { id: newPaneId, type: 'content' }];
-        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-        return { ...newRoot, children: newChildren, sizes: newSizes };
+    const existingPaneIds = collectPaneIds(oldRoot);
+    const allPaneIds = [...existingPaneIds, newPaneId];
+    const totalPanes = allPaneIds.length;
+
+    // Calculate balanced grid dimensions (rows and cols differ by at most 1)
+    const cols = Math.ceil(Math.sqrt(totalPanes));
+    const rows = Math.ceil(totalPanes / cols);
+
+    // Build a balanced grid layout
+    // Structure: vertical split of rows, each row is horizontal split of columns
+    const buildGridLayout = (paneIds: string[], numRows: number, numCols: number): any => {
+      if (paneIds.length === 0) return null;
+      if (paneIds.length === 1) {
+        return { id: paneIds[0], type: 'content' };
       }
-    } else {
-      if (targetParent.type === 'split') {
-        const newChildren = [...targetParent.children];
-        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-        const actualTargetParentInNewRoot = findNodeByPath(newRoot, pathToTarget.slice(0, -1));
-        if (actualTargetParentInNewRoot) {
-          actualTargetParentInNewRoot.children = newChildren;
-          actualTargetParentInNewRoot.sizes = newSizes;
+
+      // Create rows
+      const rowNodes: any[] = [];
+      let paneIndex = 0;
+
+      for (let r = 0; r < numRows && paneIndex < paneIds.length; r++) {
+        // Calculate how many panes in this row (distribute evenly)
+        const panesInThisRow = Math.min(numCols, paneIds.length - paneIndex);
+        const rowPaneIds = paneIds.slice(paneIndex, paneIndex + panesInThisRow);
+        paneIndex += panesInThisRow;
+
+        if (rowPaneIds.length === 1) {
+          // Single pane in row - just the content node
+          rowNodes.push({ id: rowPaneIds[0], type: 'content' });
+        } else {
+          // Multiple panes in row - horizontal split
+          rowNodes.push({
+            id: generateId(),
+            type: 'split',
+            direction: 'horizontal',
+            children: rowPaneIds.map(id => ({ id, type: 'content' })),
+            sizes: new Array(rowPaneIds.length).fill(100 / rowPaneIds.length)
+          });
         }
-        return newRoot;
       }
-    }
 
-    return { id: newPaneId, type: 'content' };
+      if (rowNodes.length === 1) {
+        return rowNodes[0];
+      }
+
+      // Multiple rows - vertical split
+      return {
+        id: generateId(),
+        type: 'split',
+        direction: 'vertical',
+        children: rowNodes,
+        sizes: new Array(rowNodes.length).fill(100 / rowNodes.length)
+      };
+    };
+
+    return buildGridLayout(allPaneIds, rows, cols);
   });
 
   setActiveContentPaneId(newPaneId);
   return newPaneId;
-}, [activeContentPaneId, findNodePath, findNodeByPath, findEmptyPaneId]);
+}, []);
   
   
    
@@ -2482,16 +3342,16 @@ const renderMessageContextMenu = () => (
         if (rootLayoutNode) {
             // Create a temporary object to hold the synchronized content data.
             const synchronizedContentData = { ...contentDataRef.current };
-            
+
             // Call the sync function. It will modify synchronizedContentData in place.
             const originalContentDataKeys = Object.keys(contentDataRef.current);
-            
+
             const updatedLayoutNode = syncLayoutWithContentData(rootLayoutNode, synchronizedContentData);
-            
+
             const newContentDataKeys = Object.keys(synchronizedContentData);
 
             // Check if contentDataRef.current actually changed (added/removed keys)
-            if (originalContentDataKeys.length !== newContentDataKeys.length || 
+            if (originalContentDataKeys.length !== newContentDataKeys.length ||
                 !originalContentDataKeys.every(key => synchronizedContentData.hasOwnProperty(key)) ||
                 !newContentDataKeys.every(key => contentDataRef.current.hasOwnProperty(key))
             ) {
@@ -2501,9 +3361,12 @@ const renderMessageContextMenu = () => (
                 setRootLayoutNode(prev => ({ ...prev }));
             }
 
-            // If the layoutNode itself was changed by syncLayoutWithContentData (e.g., from null to a node)
-            // then update the state.
-            if (updatedLayoutNode !== rootLayoutNode) {
+            // Only update layout if the NUMBER of panes actually changed
+            // (Don't overwrite based on reference inequality alone - that causes issues)
+            const originalPaneCount = collectPaneIds(rootLayoutNode).length;
+            const updatedPaneCount = collectPaneIds(updatedLayoutNode).length;
+            if (updatedPaneCount !== originalPaneCount) {
+                console.log('[EFFECT] Layout pane count changed, updating layout:', originalPaneCount, '->', updatedPaneCount);
                 setRootLayoutNode(updatedLayoutNode);
             }
 
@@ -2587,13 +3450,14 @@ const renderMessageContextMenu = () => (
         }
     }, [editedFileName, currentPath]);
 
-    const createNewTerminal = useCallback(async (shellType: 'system' | 'npcsh' | 'guac' = 'system') => {
+    const createNewTerminal = useCallback(async (shellType: 'system' | 'npcsh' | 'guac' | 'python3' = 'system') => {
         const newTerminalId = `term_${generateId()}`;
 
         // Check for empty pane to reuse first
         const emptyPaneId = findEmptyPaneId();
         if (emptyPaneId) {
-            contentDataRef.current[emptyPaneId] = { shellType };
+            // Set contentType immediately to prevent sync from removing pane
+            contentDataRef.current[emptyPaneId] = { shellType, contentType: 'terminal', contentId: newTerminalId };
             await updateContentPane(emptyPaneId, 'terminal', newTerminalId);
             setActiveContentPaneId(emptyPaneId);
             setRootLayoutNode(prev => ({ ...prev }));
@@ -2602,50 +3466,11 @@ const renderMessageContextMenu = () => (
 
         const newPaneId = generateId();
 
-        // Create layout first
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = { shellType };
+        // Set content data with contentType BEFORE layout update to prevent sync removal
+        contentDataRef.current[newPaneId] = { shellType, contentType: 'terminal', contentId: newTerminalId };
 
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
+        // Use balanced grid layout
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
 
         // Then update content (shellType is already in paneData from above)
         setTimeout(async () => {
@@ -2656,511 +3481,160 @@ const renderMessageContextMenu = () => (
         setActiveContentPaneId(newPaneId);
         setActiveConversationId(null);
         setCurrentFile(null);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, [updateContentPane, findEmptyPaneId]);
+
+    // Create a new experiment (.exp)
+    const createNewExperiment = useCallback(async () => {
+        // Create a new untitled experiment in the current directory
+        const timestamp = Date.now();
+        const notebookName = `experiment-${timestamp}.exp`;
+        const notebookPath = `${currentPath}/${notebookName}`;
+
+        // Create empty experiment structure with scientific method sections
+        const emptyExp = {
+            exp_version: '1.0',
+            created_at: new Date().toISOString(),
+            modified_at: new Date().toISOString(),
+            hypothesis: '',
+            sections: [
+                { id: 'hypothesis', type: 'hypothesis', title: 'Hypothesis', order: 0, blocks: [] },
+                { id: 'methods', type: 'methods', title: 'Methods', order: 1, blocks: [] },
+                { id: 'data', type: 'data', title: 'Data', order: 2, blocks: [] },
+                { id: 'results', type: 'results', title: 'Results', order: 3, blocks: [] },
+                { id: 'discussion', type: 'discussion', title: 'Discussion', order: 4, blocks: [] },
+                { id: 'conclusion', type: 'conclusion', title: 'Conclusion', order: 5, blocks: [] },
+            ],
+            status: 'draft',
+            conclusion: null,
+            tags: [],
+            session_ids: [],
+            notes: [],
+            artifacts: []
+        };
+
+        try {
+            await (window as any).api.writeFileContent(notebookPath, JSON.stringify(emptyExp, null, 2));
+
+            // Check for empty pane to reuse first
+            const emptyPaneId = findEmptyPaneId();
+            if (emptyPaneId) {
+                await updateContentPane(emptyPaneId, 'exp', notebookPath);
+                setActiveContentPaneId(emptyPaneId);
+                setRootLayoutNode(prev => ({ ...prev }));
+                return;
+            }
+
+            const newPaneId = generateId();
+
+            // Set content BEFORE layout to prevent empty pane
+            contentDataRef.current[newPaneId] = { contentType: 'exp', contentId: notebookPath };
+
+            // Use balanced grid layout
+            setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+
+            setActiveContentPaneId(newPaneId);
+            setActiveConversationId(null);
+            setCurrentFile(notebookPath);
+        } catch (err: any) {
+            setError(`Failed to create notebook: ${err.message}`);
+        }
+    }, [currentPath, updateContentPane, findEmptyPaneId]);
 
     // Create DataLabeler pane
     const createDataLabelerPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'data-labeler', 'data-labeler');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'data-labeler', contentId: 'data-labeler' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create GraphViewer pane
     const createGraphViewerPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'graph-viewer', 'graph-viewer');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'graph-viewer', contentId: 'graph-viewer' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create BrowserHistoryWeb pane (browser navigation graph)
     const createBrowserGraphPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'browsergraph', 'browsergraph');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'browsergraph', contentId: 'browsergraph' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create DataDash pane
     const createDataDashPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'datadash', 'datadash');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'datadash', contentId: 'datadash' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create DBTool pane
     const createDBToolPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
+        contentDataRef.current[newPaneId] = { contentType: 'dbtool', contentId: 'dbtool' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setTimeout(async () => {
             await updateContentPane(newPaneId, 'dbtool', 'dbtool');
             setRootLayoutNode(prev => ({ ...prev }));
         }, 0);
-
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, [updateContentPane]);
+
+    // Create Tile Jinx pane - loads and runs a jinx file at runtime
+    const createTileJinxPane = useCallback(async (jinxFile: string) => {
+        const newPaneId = generateId();
+        contentDataRef.current[newPaneId] = {
+            contentType: 'tilejinx',
+            contentId: jinxFile,
+            jinxFile: jinxFile,
+        };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+        setActiveContentPaneId(newPaneId);
+    }, []);
 
     // Create PhotoViewer pane
     const createPhotoViewerPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'photoviewer', 'photoviewer');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'photoviewer', contentId: 'photoviewer' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create LibraryViewer pane
     const createLibraryViewerPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'library', 'library');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'library', contentId: 'library' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create ProjectEnv pane
     const createProjectEnvPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'projectenv', 'projectenv');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'projectenv', contentId: 'projectenv' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Create DiskUsage pane
     const createDiskUsagePane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'diskusage', 'diskusage');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'diskusage', contentId: 'diskusage' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
+
+    // Create Help pane
+    const createHelpPane = useCallback(async () => {
+        const newPaneId = generateId();
+        contentDataRef.current[newPaneId] = { contentType: 'help', contentId: 'help' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+        setActiveContentPaneId(newPaneId);
+    }, []);
 
     const handleGlobalDragStart = useCallback((e, item) => {
     Object.values(contentDataRef.current).forEach(paneData => {
@@ -3238,68 +3712,31 @@ const handleGlobalDragEnd = () => {
 
     const newPaneId = generateId();
 
-    // Create layout first
-    setRootLayoutNode(oldRoot => {
-        contentDataRef.current[newPaneId] = {};
+    // Set content BEFORE layout to prevent empty pane
+    contentDataRef.current[newPaneId] = { contentType: 'browser', contentId: newBrowserId, browserUrl: targetUrl };
 
-        if (!oldRoot) {
-            return { id: newPaneId, type: 'content' };
-        }
-
-        let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-        if (activeContentPaneId) {
-            const pathToActive = findNodePath(newRoot, activeContentPaneId);
-            if (pathToActive && pathToActive.length > 0) {
-                const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                const targetIndex = pathToActive[pathToActive.length - 1];
-
-                if (targetParent && targetParent.type === 'split') {
-                    const newChildren = [...targetParent.children];
-                    newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                    const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                    targetParent.children = newChildren;
-                    targetParent.sizes = newSizes;
-                    return newRoot;
-                }
-            }
-        }
-
-        if (newRoot.type === 'content') {
-            return {
-                id: generateId(),
-                type: 'split',
-                direction: 'horizontal',
-                children: [newRoot, { id: newPaneId, type: 'content' }],
-                sizes: [50, 50],
-            };
-        } else if (newRoot.type === 'split') {
-            newRoot.children.push({ id: newPaneId, type: 'content' });
-            const equalSize = 100 / newRoot.children.length;
-            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-            return newRoot;
-        }
-
-        return { id: newPaneId, type: 'content' };
-    });
-
-    // Then update content
-    setTimeout(async () => {
-        await updateContentPane(newPaneId, 'browser', newBrowserId);
-        if (contentDataRef.current[newPaneId]) {
-            contentDataRef.current[newPaneId].browserUrl = targetUrl;
-        }
-        setRootLayoutNode(prev => ({ ...prev }));
-    }, 0);
+    // Use balanced grid layout
+    setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
 
     setActiveContentPaneId(newPaneId);
     setActiveConversationId(null);
     setCurrentFile(null);
-}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+}, [currentPath, updateContentPane, findEmptyPaneId]);
 
 // Handle opening a new browser tab/pane with a URL
 const handleNewBrowserTab = useCallback((url: string) => {
-    createNewBrowser(url || 'https://google.com');
+    if (!url) return;
+    createNewBrowser(url);
+}, [createNewBrowser]);
+
+// Listen for ctrl+click / middle-click on browser links from main process
+useEffect(() => {
+    const cleanup = (window as any).api?.onBrowserOpenInNewTab?.(({ url }: { url: string }) => {
+        if (url) {
+            createNewBrowser(url);
+        }
+    });
+    return () => cleanup?.();
 }, [createNewBrowser]);
 
 const renderBrowserViewer = useCallback(({ nodeId }) => {
@@ -3308,7 +3745,6 @@ const renderBrowserViewer = useCallback(({ nodeId }) => {
             nodeId={nodeId}
             contentDataRef={contentDataRef}
             currentPath={currentPath}
-            browserContextMenuPos={browserContextMenuPos}
             setBrowserContextMenuPos={setBrowserContextMenuPos}
             handleNewBrowserTab={handleNewBrowserTab}
             setRootLayoutNode={setRootLayoutNode}
@@ -3319,7 +3755,7 @@ const renderBrowserViewer = useCallback(({ nodeId }) => {
             closeContentPane={closeContentPane}
         />
     );
-}, [currentPath, rootLayoutNode, closeContentPane, browserContextMenuPos, handleNewBrowserTab, createNewBrowser]);
+}, [currentPath, rootLayoutNode, closeContentPane, handleNewBrowserTab]);
 
 const handleBrowserDialogNavigate = (url) => {
         createNewBrowser(url);
@@ -3483,6 +3919,64 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
             setError
         );
     };
+
+    // Create a new Jupyter notebook (.ipynb)
+    const createNewJupyterNotebook = useCallback(async () => {
+        const timestamp = Date.now();
+        const notebookName = `notebook-${timestamp}.ipynb`;
+        const notebookPath = `${currentPath}/${notebookName}`;
+
+        // Create empty Jupyter notebook structure
+        const emptyNotebook = {
+            nbformat: 4,
+            nbformat_minor: 5,
+            metadata: {
+                kernelspec: {
+                    display_name: 'Python 3',
+                    language: 'python',
+                    name: 'python3'
+                },
+                language_info: {
+                    name: 'python',
+                    version: '3.9.0'
+                }
+            },
+            cells: [
+                {
+                    cell_type: 'code',
+                    execution_count: null,
+                    metadata: {},
+                    outputs: [],
+                    source: ['']
+                }
+            ]
+        };
+
+        try {
+            await (window as any).api.writeFileContent(notebookPath, JSON.stringify(emptyNotebook, null, 2));
+
+            // Check for empty pane to reuse first
+            const emptyPaneId = findEmptyPaneId();
+            if (emptyPaneId) {
+                await updateContentPane(emptyPaneId, 'notebook', notebookPath);
+                setActiveContentPaneId(emptyPaneId);
+                setRootLayoutNode(prev => ({ ...prev }));
+                loadDirectoryStructure(currentPath);
+                return;
+            }
+
+            const newPaneId = generateId();
+            contentDataRef.current[newPaneId] = { contentType: 'notebook', contentId: notebookPath };
+            setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+            setActiveContentPaneId(newPaneId);
+            setActiveConversationId(null);
+            setCurrentFile(null);
+            loadDirectoryStructure(currentPath);
+        } catch (err: any) {
+            console.error('Error creating notebook:', err);
+            setError(err.message);
+        }
+    }, [currentPath, updateContentPane, findEmptyPaneId]);
 
     // File drag and drop handler
     const handleDrop = async (e: React.DragEvent) => {
@@ -3677,6 +4171,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
             if (contexts.length > 0 && contextChanged) {
                 const fileContexts = contexts.filter((c: any) => c.type === 'file');
                 const browserContexts = contexts.filter((c: any) => c.type === 'browser');
+                const terminalContexts = contexts.filter((c: any) => c.type === 'terminal');
                 let contextPrompt = '';
 
                 if (fileContexts.length > 0) {
@@ -3709,6 +4204,14 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
                     contextPrompt += browserContents.join('\n\n');
                 }
 
+                // Add terminal context
+                if (terminalContexts.length > 0) {
+                    if (contextPrompt) contextPrompt += '\n\n';
+                    contextPrompt += terminalContexts.map((ctx: any) =>
+                        `Terminal output (${ctx.shellType}):\n\`\`\`\n${ctx.content}\n\`\`\``
+                    ).join('\n\n');
+                }
+
                 if (paneExecMode === 'tool_agent') {
                     finalPromptForUserMessage = `${input}
 
@@ -3727,28 +4230,117 @@ ${contextPrompt}`;
             }
         }
 
-        const userMessage = {
-            id: generateId(),
-            role: 'user',
-            content: finalPromptForUserMessage,
-            timestamp: new Date().toISOString(),
-            attachments: uploadedFiles,
-            executionMode: paneExecMode,
-            isJinxCall: isJinxMode,
-            jinxName: isJinxMode ? jinxName : null,
-            jinxInputs: isJinxMode ? jinxArgsForApi : null,
-            wasVoiceInput: wasVoiceInput
-        };
+        // Check if we have selected branches for sub-branching
+        const branchMap = selectedBranches[activeContentPaneId];
+        const branchTargets = branchMap && branchMap.size > 0 ? Array.from(branchMap.values()) : [null];
+        console.log('[BRANCH] Reading selectedBranches for activeContentPaneId:', activeContentPaneId, 'targets:', branchTargets.length, branchTargets.map((b: any) => b?.id + ' ' + (b?.npc || b?.model)));
 
-        const assistantPlaceholder = {
-            id: newStreamId, role: 'assistant', content: '', timestamp: new Date().toISOString(),
-            isStreaming: true, streamId: newStreamId, npc: currentNPC, model: currentModel
-        };
+        // Clear selected branches after using them
+        if (branchMap && branchMap.size > 0) {
+            setSelectedBranches(prev => {
+                const next = { ...prev };
+                delete next[activeContentPaneId];
+                return next;
+            });
+        }
 
         if (!paneData.chatMessages) {
             paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
-        paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
+
+        // For each selected branch (or null if none), send a message
+        for (const branchParent of branchTargets) {
+            const branchStreamId = branchTargets.length > 1 ? generateId() : newStreamId;
+
+            // When continuing a branch, inherit NPC/model from the branch, otherwise use selector
+            const useNpc = branchParent?.npc || currentNPC;
+            const useModel = branchParent?.model || currentModel;
+            const useProvider = branchParent?.provider || currentProvider;
+            const useNpcSource = branchParent?.npcSource || 'global';
+
+            // For sub-branches, use the branch parent's ID as cellId to group them
+            const cellId = branchParent ? branchParent.id : generateId();
+
+            const userMessage = {
+                id: generateId(),
+                role: 'user',
+                content: finalPromptForUserMessage,
+                timestamp: new Date().toISOString(),
+                attachments: uploadedFiles,
+                executionMode: paneExecMode,
+                isJinxCall: isJinxMode,
+                jinxName: isJinxMode ? jinxName : null,
+                jinxInputs: isJinxMode ? jinxArgsForApi : null,
+                wasVoiceInput: wasVoiceInput,
+                parentMessageId: branchParent?.id || null, // Link to branch parent if sub-branching
+                cellId: cellId,
+            };
+
+            const assistantPlaceholder = {
+                id: branchStreamId, role: 'assistant', content: '', timestamp: new Date().toISOString(),
+                isStreaming: true, streamId: branchStreamId,
+                npc: useNpc, model: useModel, provider: useProvider, npcSource: useNpcSource,
+                parentMessageId: userMessage.id, // Link assistant response to its user message
+                cellId: cellId,
+            };
+
+            console.log('[BRANCH] Sending to branch:', branchParent?.id, 'using NPC:', useNpc, 'model:', useModel);
+
+            paneData.chatMessages.allMessages.push(userMessage, assistantPlaceholder);
+            paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
+            streamToPaneRef.current[branchStreamId] = activeContentPaneId;
+
+            // Trigger render immediately so messages show before API call
+            setRootLayoutNode(prev => ({ ...prev }));
+
+            try {
+                // For sub-branching, use the branch's NPC info
+                const npcName = useNpc?.replace(/^(project:|global:)/, '') || 'agent';
+
+                if (isJinxMode) {
+                    await window.api.executeJinx({
+                        jinxName: jinxName,
+                        jinxArgs: jinxArgsForApi,
+                        currentPath,
+                        conversationId,
+                        model: useModel,
+                        provider: useProvider,
+                        npc: npcName,
+                        npcSource: useNpcSource,
+                        streamId: branchStreamId,
+                    });
+                } else {
+                    const commandData = {
+                        commandstr: finalPromptForUserMessage,
+                        currentPath,
+                        conversationId,
+                        model: useModel,
+                        provider: useProvider,
+                        npc: npcName,
+                        npcSource: useNpcSource,
+                        attachments: uploadedFiles.map((f: any) => {
+                            if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
+                            else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
+                            return { name: f.name, type: f.type };
+                        }),
+                        streamId: branchStreamId,
+                        executionMode: paneExecMode,
+                        mcpServerPath: paneExecMode === 'tool_agent' ? mcpServerPath : undefined,
+                        selectedMcpTools: paneExecMode === 'tool_agent' ? selectedMcpTools : undefined,
+                        userParentMessageId: userMessage.parentMessageId, // For sub-branching
+                        // Pass frontend-generated message IDs so backend uses the same IDs
+                        userMessageId: userMessage.id,
+                        assistantMessageId: branchStreamId,
+                        parentMessageId: userMessage.id, // Assistant's parent is the user message
+                    };
+                    await window.api.executeCommandStream(commandData);
+                }
+            } catch (err: any) {
+                setError(err.message);
+                delete streamToPaneRef.current[branchStreamId];
+            }
+        }
+
         paneData.chatMessages.messages = paneData.chatMessages.allMessages.slice(-(paneData.chatMessages.displayedMessageCount || 20));
         paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
 
@@ -3762,48 +4354,9 @@ ${contextPrompt}`;
             }));
         }
 
-        try {
-            const selectedNpc = availableNPCs.find((npc: any) => npc.value === currentNPC);
-
-            if (isJinxMode) {
-                await window.api.executeJinx({
-                    jinxName: jinxName,
-                    jinxArgs: jinxArgsForApi,
-                    currentPath,
-                    conversationId,
-                    model: currentModel,
-                    provider: currentProvider,
-                    npc: selectedNpc ? selectedNpc.name : currentNPC,
-                    npcSource: selectedNpc ? selectedNpc.source : 'global',
-                    streamId: newStreamId,
-                });
-            } else {
-                const commandData = {
-                    commandstr: finalPromptForUserMessage,
-                    currentPath,
-                    conversationId,
-                    model: currentModel,
-                    provider: currentProvider,
-                    npc: selectedNpc ? selectedNpc.name : currentNPC,
-                    npcSource: selectedNpc ? selectedNpc.source : 'global',
-                    attachments: uploadedFiles.map((f: any) => {
-                        if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
-                        else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
-                        return { name: f.name, type: f.type };
-                    }),
-                    streamId: newStreamId,
-                    executionMode: paneExecMode,
-                    mcpServerPath: paneExecMode === 'tool_agent' ? mcpServerPath : undefined,
-                    selectedMcpTools: paneExecMode === 'tool_agent' ? selectedMcpTools : undefined,
-                };
-                console.log('[DEBUG] Sending to backend via executeCommandStream:', commandData);
-                await window.api.executeCommandStream(commandData);
-                console.log('[DEBUG] executeCommandStream call completed');
-            }
-        } catch (err: any) {
-            setError(err.message);
-            setIsStreaming(false);
-            delete streamToPaneRef.current[newStreamId];
+        // Set streaming false only when all streams complete (handled by stream listeners)
+        if (branchTargets.length === 1 && branchTargets[0] === null) {
+            // Normal single message case - streaming state managed normally
         }
     };
 
@@ -3977,74 +4530,48 @@ ${contextPrompt}`;
         let newStreamId: string | null = null;
 
         try {
-            // Find the user message and the assistant response that followed
+            // Find the user message that we're re-running
             const messageIdToResend = messageToResend.id || messageToResend.timestamp;
             const allMessages = activePaneData.chatMessages.allMessages;
             const userMsgIndex = allMessages.findIndex((m: any) =>
                 (m.id || m.timestamp) === messageIdToResend
             );
 
-            console.log('[RESEND] Found user message at index:', userMsgIndex);
+            // Get or create cellId - this groups all runs for the same prompt
+            // cellId is the ID of the original user message
+            const cellId = messageToResend.cellId || messageToResend.id || messageToResend.timestamp;
 
-            if (userMsgIndex !== -1) {
-                // Collect messages to delete (the user message and any assistant responses after it)
-                const messagesToDelete = [];
+            // Count existing runs for this cell
+            const existingRuns = allMessages.filter((m: any) =>
+                m.cellId === cellId && m.role === 'assistant'
+            ).length;
+            const newRunNumber = existingRuns + 1;
 
-                // Add the original user message to delete list
-                const userMsg = allMessages[userMsgIndex];
-                if (userMsg.message_id || userMsg.id) {
-                    messagesToDelete.push(userMsg.message_id || userMsg.id);
-                }
-
-                // Add the assistant response that followed (if exists)
-                if (userMsgIndex + 1 < allMessages.length &&
-                    allMessages[userMsgIndex + 1].role === 'assistant') {
-                    const assistantMsg = allMessages[userMsgIndex + 1];
-                    if (assistantMsg.message_id || assistantMsg.id) {
-                        messagesToDelete.push(assistantMsg.message_id || assistantMsg.id);
-                    }
-                }
-
-                console.log('[RESEND] Messages to delete:', messagesToDelete);
-
-                // Delete from database
-                for (const msgId of messagesToDelete) {
-                    try {
-                        const result = await window.api.deleteMessage({
-                            conversationId,
-                            messageId: msgId
-                        });
-                        console.log('[RESEND] Deleted message:', msgId, 'Result:', result);
-                    } catch (err) {
-                        console.error('[RESEND] Error deleting message:', msgId, err);
-                    }
-                }
-
-                // Remove from local state - keep everything BEFORE the user message
-                activePaneData.chatMessages.allMessages = allMessages.slice(0, userMsgIndex);
-                activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
-                    -(activePaneData.chatMessages.displayedMessageCount || 20)
-                );
-
-                console.log('[RESEND] Messages after deletion:', activePaneData.chatMessages.allMessages.length);
+            // If the user message doesn't have a cellId yet, update it
+            if (userMsgIndex !== -1 && !allMessages[userMsgIndex].cellId) {
+                allMessages[userMsgIndex].cellId = cellId;
             }
 
-            // Now send the new message
+            // Update runCount on the original user message
+            if (userMsgIndex !== -1) {
+                allMessages[userMsgIndex].runCount = newRunNumber;
+            }
+
+            // Also update runCount on all existing assistant responses for this cell
+            allMessages.forEach((m: any) => {
+                if (m.cellId === cellId && m.role === 'assistant') {
+                    m.runCount = newRunNumber;
+                }
+            });
+
+            // Now create the new run (don't delete old messages - keep them as run history)
             newStreamId = generateId();
             streamToPaneRef.current[newStreamId] = activeContentPaneId;
             setIsStreaming(true);
 
             const selectedNpc = availableNPCs.find((npc: any) => npc.value === selectedNPC);
 
-            // Create NEW user message (don't reuse the old one)
-            const newUserMessage = {
-                id: generateId(), // NEW ID
-                role: 'user',
-                content: messageToResend.content,
-                timestamp: new Date().toISOString(),
-                attachments: messageToResend.attachments || [],
-            };
-
+            // Create new assistant placeholder message for this run
             const assistantPlaceholderMessage = {
                 id: newStreamId,
                 role: 'assistant',
@@ -4053,16 +4580,45 @@ ${contextPrompt}`;
                 timestamp: new Date().toISOString(),
                 streamId: newStreamId,
                 model: selectedModel,
+                provider: availableModels.find((m: any) => m.value === selectedModel)?.provider || currentProvider,
                 npc: selectedNPC,
+                // Run tracking fields
+                cellId: cellId,
+                parentMessageId: messageIdToResend,  // Links to original user message
+                runNumber: newRunNumber,
+                runCount: newRunNumber,
             };
 
-            // Add new messages
-            activePaneData.chatMessages.allMessages.push(newUserMessage, assistantPlaceholderMessage);
+            // Insert the new run after the last response for this cell
+            // Find the last assistant message with this cellId
+            let insertIndex = allMessages.length;
+            for (let i = allMessages.length - 1; i >= 0; i--) {
+                if (allMessages[i].cellId === cellId) {
+                    insertIndex = i + 1;
+                    break;
+                }
+            }
+
+            // If no matching cellId found, insert after the user message
+            if (insertIndex === allMessages.length && userMsgIndex !== -1) {
+                insertIndex = userMsgIndex + 1;
+                // Skip past any immediate assistant response
+                while (insertIndex < allMessages.length && allMessages[insertIndex].role === 'assistant') {
+                    // Mark it with cellId if not already
+                    if (!allMessages[insertIndex].cellId) {
+                        allMessages[insertIndex].cellId = cellId;
+                        allMessages[insertIndex].runNumber = 1;
+                        allMessages[insertIndex].runCount = newRunNumber;
+                    }
+                    insertIndex++;
+                }
+            }
+
+            // Insert the new message
+            allMessages.splice(insertIndex, 0, assistantPlaceholderMessage);
             activePaneData.chatMessages.messages = activePaneData.chatMessages.allMessages.slice(
                 -(activePaneData.chatMessages.displayedMessageCount || 20)
             );
-
-            console.log('[RESEND] Added new messages, total now:', activePaneData.chatMessages.allMessages.length);
 
             setRootLayoutNode(prev => ({ ...prev }));
 
@@ -4081,7 +4637,10 @@ ${contextPrompt}`;
                     name: att.name, path: att.path, size: att.size, type: att.type
                 })) || [],
                 streamId: newStreamId,
-                isResend: true
+                isRerun: true,  // Flag this as a re-run
+                parentMessageId: messageIdToResend,
+                // Pass frontend message IDs
+                assistantMessageId: newStreamId,
             });
 
             setResendModal({ isOpen: false, message: null, selectedModel: '', selectedNPC: '' });
@@ -4126,60 +4685,16 @@ ${contextPrompt}`;
 
             // CRITICAL: Create pane and layout synchronously in one step
             const newPaneId = generateId();
-            
-            // First, update the layout with the new pane
-            setRootLayoutNode(oldRoot => {
-                // Initialize contentData entry INSIDE the state update
-                contentDataRef.current[newPaneId] = {};
-                
-                if (!oldRoot) {
-                    return { id: newPaneId, type: 'content' };
-                }
 
-                let newRoot = JSON.parse(JSON.stringify(oldRoot));
-                
-                if (activeContentPaneId) {
-                    const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                    if (pathToActive && pathToActive.length > 0) {
-                        const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                        const targetIndex = pathToActive[pathToActive.length - 1];
-                        
-                        if (targetParent && targetParent.type === 'split') {
-                            const newChildren = [...targetParent.children];
-                            newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                            const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                            targetParent.children = newChildren;
-                            targetParent.sizes = newSizes;
-                            return newRoot;
-                        }
-                    }
-                }
-                
-                // Fallback: create split with existing root
-                if (newRoot.type === 'content') {
-                    return {
-                        id: generateId(),
-                        type: 'split',
-                        direction: 'horizontal',
-                        children: [newRoot, { id: newPaneId, type: 'content' }],
-                        sizes: [50, 50],
-                    };
-                } else if (newRoot.type === 'split') {
-                    newRoot.children.push({ id: newPaneId, type: 'content' });
-                    const equalSize = 100 / newRoot.children.length;
-                    newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                    return newRoot;
-                }
-                
-                return { id: newPaneId, type: 'content' };
-            });
+            // Set content BEFORE layout to prevent empty pane
+            contentDataRef.current[newPaneId] = {
+                contentType: 'chat',
+                contentId: conversation.id,
+                chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+            };
 
-            // THEN update the content (this will now pass validation)
-            // Use setTimeout to ensure the state update has completed
-            setTimeout(async () => {
-                await updateContentPane(newPaneId, 'chat', conversation.id, skipMessageLoad);
-                setRootLayoutNode(prev => ({ ...prev })); // Force re-render
-            }, 0);
+            // Update the layout with the new pane using balanced grid
+            setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
 
             setActiveContentPaneId(newPaneId);
             setActiveConversationId(conversation.id);
@@ -4221,58 +4736,10 @@ ${contextPrompt}`;
     // Create NPC Team pane
     const createNPCTeamPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'npcteam', 'npcteam');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'npcteam', contentId: 'npcteam' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
+    }, []);
 
     // Render Jinx Menu pane (embedded version for pane layout)
     const renderJinxPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -4289,58 +4756,10 @@ ${contextPrompt}`;
     // Create Jinx pane
     const createJinxPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'jinx', 'jinx');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'jinx', contentId: 'jinx' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
     // Render Team Management pane (embedded version for pane layout)
     const renderTeamManagementPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -4361,58 +4780,10 @@ ${contextPrompt}`;
     // Create Team Management pane
     const createTeamManagementPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'teammanagement', 'teammanagement');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'teammanagement', contentId: 'teammanagement' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, createNewConversation]);
+    }, []);
 
     // Render Settings pane (embedded version for pane layout)
     const renderSettingsPane = useCallback(({ nodeId }: { nodeId: string }) => {
@@ -4431,80 +4802,46 @@ ${contextPrompt}`;
     // Create Settings pane
     const createSettingsPane = useCallback(async () => {
         const newPaneId = generateId();
-
-        setRootLayoutNode(oldRoot => {
-            contentDataRef.current[newPaneId] = {};
-
-            if (!oldRoot) {
-                return { id: newPaneId, type: 'content' };
-            }
-
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
-
-            if (activeContentPaneId) {
-                const pathToActive = findNodePath(newRoot, activeContentPaneId);
-                if (pathToActive && pathToActive.length > 0) {
-                    const targetParent = findNodeByPath(newRoot, pathToActive.slice(0, -1));
-                    const targetIndex = pathToActive[pathToActive.length - 1];
-
-                    if (targetParent && targetParent.type === 'split') {
-                        const newChildren = [...targetParent.children];
-                        newChildren.splice(targetIndex + 1, 0, { id: newPaneId, type: 'content' });
-                        const newSizes = new Array(newChildren.length).fill(100 / newChildren.length);
-                        targetParent.children = newChildren;
-                        targetParent.sizes = newSizes;
-                        return newRoot;
-                    }
-                }
-            }
-
-            if (newRoot.type === 'content') {
-                return {
-                    id: generateId(),
-                    type: 'split',
-                    direction: 'horizontal',
-                    children: [newRoot, { id: newPaneId, type: 'content' }],
-                    sizes: [50, 50],
-                };
-            } else if (newRoot.type === 'split') {
-                newRoot.children.push({ id: newPaneId, type: 'content' });
-                const equalSize = 100 / newRoot.children.length;
-                newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-                return newRoot;
-            }
-
-            return { id: newPaneId, type: 'content' };
-        });
-
-        setTimeout(async () => {
-            await updateContentPane(newPaneId, 'settings', 'settings');
-            setRootLayoutNode(prev => ({ ...prev }));
-        }, 0);
-
+        contentDataRef.current[newPaneId] = { contentType: 'settings', contentId: 'settings' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
-    }, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+    }, []);
 
-    const createNewTextFile = () => {
-        setPromptModalValue('untitled.py');
+    const createNewTextFile = useCallback((defaultFilename?: string) => {
+        const filename = defaultFilename || localStorage.getItem('npcStudio_defaultCodeFileType') || 'untitled.py';
+        const finalDefault = filename.includes('.') ? filename : `untitled.${filename}`;
+        setPromptModalValue(finalDefault);
         setPromptModal({
             isOpen: true,
             title: 'Create New File',
             message: 'Enter filename with extension (e.g., script.py, index.js, notes.md)',
-            defaultValue: 'untitled.py',
-            onConfirm: async (filename) => {
+            defaultValue: finalDefault,
+            onConfirm: async (inputFilename) => {
                 try {
-                    if (!filename || filename.trim() === '') return;
-                    const cleanName = filename.trim();
+                    if (!inputFilename || inputFilename.trim() === '') return;
+                    const cleanName = inputFilename.trim();
                     const filepath = normalizePath(`${currentPath}/${cleanName}`);
                     await window.api.writeFileContent(filepath, '');
                     await loadDirectoryStructure(currentPath);
-                    await handleFileClick(filepath);
+                    // Use ref to avoid forward reference issue
+                    if (handleFileClickRef.current) {
+                        handleFileClickRef.current(filepath);
+                    }
                 } catch (err) {
                     setError(err.message);
                 }
             }
         });
-    };
+    }, [currentPath, loadDirectoryStructure, normalizePath, setError, setPromptModal, setPromptModalValue]);
+
+    // Listen for custom event to create file with specific name
+    useEffect(() => {
+        const handleCreateNewFileWithName = (e: CustomEvent<{ filename: string }>) => {
+            createNewTextFile(e.detail.filename);
+        };
+        window.addEventListener('createNewFileWithName', handleCreateNewFileWithName as EventListener);
+        return () => window.removeEventListener('createNewFileWithName', handleCreateNewFileWithName as EventListener);
+    }, [createNewTextFile]);
 
     const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx' | 'mapx') => {
         try {
@@ -4592,12 +4929,8 @@ ${contextPrompt}`;
             }
         }
 
-        console.log('Parsed agent changes:', changes);
         return changes;
     }, []);
-
-    // Set up streaming listeners
-    console.log('[DEBUG] Setting up stream listeners. Config:', config, 'config.stream:', config?.stream);
 
     // Build studioContext for agent-controlled UI actions
     const studioContext: StudioContext = useMemo(() => ({
@@ -4684,20 +5017,12 @@ ${contextPrompt}`;
         const cleanup = window.api.onScreenshotCaptured(async (screenshotPath: string) => {
             console.log('[Screenshot] Captured:', screenshotPath);
 
-            // Create a new conversation
-            const newConvoId = generateId();
-            const newConversation = {
-                id: newConvoId,
+            // Create the conversation in the backend
+            const conversation = await window.api.createConversation({
                 title: `Screenshot ${new Date().toLocaleString()}`,
-                messages: [],
-                timestamp: new Date().toISOString(),
-                npc: currentNPC,
-                model: currentModel,
-                provider: currentProvider
-            };
-
-            // Add to conversations list
-            setDirectoryConversations(prev => [newConversation, ...prev]);
+                type: 'conversation',
+                directory_path: currentPath
+            });
 
             // Create the attachment from the screenshot path
             const fileName = screenshotPath.split('/').pop() || 'screenshot.png';
@@ -4713,26 +5038,45 @@ ${contextPrompt}`;
             // Set the uploaded files with the screenshot
             setUploadedFiles([attachment]);
 
-            // Open the conversation in a new pane
-            const newPaneData = {
-                type: 'chat' as const,
-                title: newConversation.title,
-                conversationId: newConvoId,
-                conversation: newConversation,
-                npc: currentNPC,
-                model: currentModel,
-                provider: currentProvider,
-            };
+            // Get or create a pane for the conversation
+            let paneId = activeContentPaneId;
+            const existingPaneIds = Object.keys(contentDataRef.current);
 
-            createAndAddPaneNodeToLayout(newPaneData);
-            setActiveConversationId(newConvoId);
+            if (!paneId && existingPaneIds.length > 0) {
+                paneId = existingPaneIds[0];
+            }
+
+            if (!paneId) {
+                // No panes exist - create a new layout with a single pane
+                paneId = generateId();
+                contentDataRef.current[paneId] = {
+                    contentType: 'chat',
+                    contentId: conversation.id,
+                    chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+                };
+                setRootLayoutNode({ id: paneId, type: 'content' });
+            } else {
+                // Update existing pane
+                contentDataRef.current[paneId] = {
+                    contentType: 'chat',
+                    contentId: conversation.id,
+                    chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+                };
+                setRootLayoutNode(prev => prev ? { ...prev } : { id: paneId, type: 'content' });
+            }
+
+            setActiveContentPaneId(paneId);
+            setActiveConversationId(conversation.id);
+
+            // Refresh the sidebar
+            refreshConversations();
 
             // Focus the window
             window.focus();
         });
 
         return cleanup;
-    }, [currentNPC, currentModel, currentProvider, generateId, createAndAddPaneNodeToLayout]);
+    }, [currentPath, generateId, activeContentPaneId, refreshConversations]);
 
         
     useEffect(() => {
@@ -4891,18 +5235,12 @@ ${contextPrompt}`;
             initialLoadComplete.current = true;
 
             // CRITICAL: Try to load workspace FIRST, before anything else
-            console.log(`[INIT] Attempting to load workspace for ${currentPath}`);
             setIsLoadingWorkspace(true);
-            
+
             let workspaceRestored = false;
             try {
                 const savedWorkspace = loadWorkspaceFromStorage(currentPath);
                 if (savedWorkspace) {
-                    console.log(`[INIT] Found saved workspace for ${currentPath}`, {
-                        paneCount: Object.keys(savedWorkspace.contentData).length,
-                        layoutExists: !!savedWorkspace.layoutNode
-                    });
-                    
                     // Load directory structure WITHOUT triggering conversation selection
                     await loadDirectoryStructureWithoutConversationLoad(currentPath);
 
@@ -4915,46 +5253,60 @@ ${contextPrompt}`;
                         generateId,
                         getConversationStats
                     );
-                    
-                    if (workspaceRestored) {
-                        console.log(`[INIT] Successfully restored workspace with ${Object.keys(contentDataRef.current).length} panes`);
-                    } else {
-                        console.log(`[INIT] Workspace restoration failed`);
-                    }
-                } else {
-                    console.log(`[INIT] No saved workspace found for ${currentPath}`);
                 }
             } catch (error) {
-                console.error(`[INIT] Error loading workspace:`, error);
+                console.error(`Error loading workspace:`, error);
             } finally {
                 setIsLoadingWorkspace(false);
             }
 
             // Now check if workspace was restored
             const workspaceAlreadyLoaded = workspaceRestored && rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
-            
-            console.log('[INIT] Workspace check after restoration attempt:', {
-                workspaceRestored,
-                workspaceAlreadyLoaded,
-                rootLayoutNode: !!rootLayoutNode,
-                contentDataCount: Object.keys(contentDataRef.current).length
-            });
 
             // Only load directory structure if workspace wasn't restored
             if (!workspaceAlreadyLoaded) {
-                console.log('[INIT] No workspace loaded, loading directory structure normally');
                 await loadDirectoryStructure(currentPath);
             } else {
-                console.log('[INIT] Workspace already loaded, just loading conversations list');
                 await loadConversationsWithoutAutoSelect(currentPath);
             }
 
             const fetchedModels = await fetchModels(currentPath, setModelsLoading, setModelsError, setAvailableModels);
             const fetchedNPCs = await loadAvailableNPCs(currentPath, setNpcsLoading, setNpcsError, setAvailableNPCs);
 
-            let modelToSet = config.model || 'llama3.2';
-            let providerToSet = config.provider || 'ollama';
-            let npcToSet = config.npc || 'sibiji';
+            // Get project-level ctx settings (model/provider/npc from .ctx files or env)
+            const projectCtx = await window.api.getProjectCtx(currentPath);
+
+            // Priority order for model selection:
+            // 1. Project ctx (from npc_team/*.ctx or env vars)
+            // 2. Previously saved model in localStorage
+            // 3. Global config default
+            let modelToSet = projectCtx.model || config.model || 'llama3.2';
+            let providerToSet = projectCtx.provider || config.provider || 'ollama';
+            let npcToSet = projectCtx.npc || config.npc || 'sibiji';
+
+            // Validate that the model exists in available models
+            const projectModelExists = fetchedModels.find(m => m.value === modelToSet);
+            if (projectModelExists) {
+                providerToSet = projectModelExists.provider;
+            } else {
+                // Project model not found - try saved localStorage model
+                const savedModel = localStorage.getItem('npcStudioCurrentModel');
+                const savedProvider = localStorage.getItem('npcStudioCurrentProvider');
+                if (savedModel) {
+                    const parsedSavedModel = JSON.parse(savedModel);
+                    const savedModelExists = fetchedModels.find(m => m.value === parsedSavedModel);
+                    if (savedModelExists) {
+                        modelToSet = parsedSavedModel;
+                        providerToSet = savedProvider ? JSON.parse(savedProvider) : savedModelExists.provider;
+                    }
+                }
+
+                // If still no valid model, pick first available
+                if (!fetchedModels.find(m => m.value === modelToSet) && fetchedModels.length > 0) {
+                    modelToSet = fetchedModels[0].value;
+                    providerToSet = fetchedModels[0].provider;
+                }
+            }
 
             const storedConvoId = localStorage.getItem(LAST_ACTIVE_CONVO_ID_KEY);
             let targetConvoId = null;
@@ -4965,18 +5317,21 @@ ${contextPrompt}`;
                 const convoInCurrentDir = currentConversations.find(conv => conv.id === storedConvoId);
                 if (convoInCurrentDir) {
                     targetConvoId = storedConvoId;
-                    const lastUsedInConvo = await window.api.getLastUsedInConversation(targetConvoId);
-                    if (lastUsedInConvo?.model) {
-                        const validModel = fetchedModels.find(m => m.value === lastUsedInConvo.model);
-                        if (validModel) { 
-                            modelToSet = validModel.value; 
-                            providerToSet = validModel.provider; 
+                    // Only use conversation's last model if projectCtx didn't specify one
+                    if (!projectCtx.model) {
+                        const lastUsedInConvo = await window.api.getLastUsedInConversation(targetConvoId);
+                        if (lastUsedInConvo?.model) {
+                            const validModel = fetchedModels.find(m => m.value === lastUsedInConvo.model);
+                            if (validModel) {
+                                modelToSet = validModel.value;
+                                providerToSet = validModel.provider;
+                            }
                         }
-                    }
-                    if (lastUsedInConvo?.npc) {
-                        const validNpc = fetchedNPCs.find(n => n.value === lastUsedInConvo.npc);
-                        if (validNpc) { 
-                            npcToSet = validNpc.value; 
+                        if (lastUsedInConvo?.npc) {
+                            const validNpc = fetchedNPCs.find(n => n.value === lastUsedInConvo.npc);
+                            if (validNpc) {
+                                npcToSet = validNpc.value;
+                            }
                         }
                     }
                 } else {
@@ -4984,26 +5339,66 @@ ${contextPrompt}`;
                 }
             }
 
-            if (!targetConvoId) {
+            // Only use directory's last model if projectCtx didn't specify one
+            if (!targetConvoId && !projectCtx.model) {
                 const lastUsedInDir = await window.api.getLastUsedInDirectory(currentPath);
                 if (lastUsedInDir?.model) {
                     const validModel = fetchedModels.find(m => m.value === lastUsedInDir.model);
-                    if (validModel) { 
-                        modelToSet = validModel.value; 
-                        providerToSet = validModel.provider; 
+                    if (validModel) {
+                        modelToSet = validModel.value;
+                        providerToSet = validModel.provider;
                     }
                 }
                 if (lastUsedInDir?.npc) {
                     const validNpc = fetchedNPCs.find(n => n.value === lastUsedInDir.npc);
-                    if (validNpc) { 
-                        npcToSet = validNpc.value; 
+                    if (validNpc) {
+                        npcToSet = validNpc.value;
                     }
                 }
             }
             
             if (!fetchedModels.some(m => m.value === modelToSet) && fetchedModels.length > 0) {
-                modelToSet = fetchedModels[0].value;
-                providerToSet = fetchedModels[0].provider;
+                // Config model not found - try favorites first, then fall back to a reasonable default
+                // Load favorites from localStorage (since state might be stale in closure)
+                const savedFavorites = localStorage.getItem('npcStudioFavoriteModels');
+                const favModels = savedFavorites ? new Set(JSON.parse(savedFavorites)) : new Set();
+
+                // Find first favorite that exists in available models
+                const firstFavorite = fetchedModels.find(m => favModels.has(m.value));
+                if (firstFavorite) {
+                    modelToSet = firstFavorite.value;
+                    providerToSet = firstFavorite.provider;
+                } else {
+                    // No favorites found, try to pick a reasonable default (not first alphabetical)
+                    // Prefer local models, then cheap cloud models - avoid expensive ones like claude-opus
+                    const preferredDefaults = [
+                        'llama3.2', 'llama3.2:latest', 'llama3.1', 'llama3', 'mistral', 'mixtral',  // Local
+                        'gpt-4o-mini', 'gpt-3.5-turbo',  // Cheap OpenAI
+                        'claude-3-5-sonnet', 'claude-3-sonnet', 'claude-3-haiku', 'claude-sonnet-4-20250514',  // Cheaper Claude
+                        'gemini-pro', 'gemini-1.5-flash',  // Google
+                    ];
+                    const preferredModel = fetchedModels.find(m =>
+                        preferredDefaults.some(pref => m.value.includes(pref))
+                    );
+                    if (preferredModel) {
+                        modelToSet = preferredModel.value;
+                        providerToSet = preferredModel.provider;
+                    } else {
+                        // Last resort: pick one that's NOT opus/expensive
+                        const notExpensive = fetchedModels.find(m =>
+                            !m.value.toLowerCase().includes('opus') &&
+                            !m.value.toLowerCase().includes('gpt-4-turbo') &&
+                            !m.value.toLowerCase().includes('gpt-4-32k')
+                        );
+                        if (notExpensive) {
+                            modelToSet = notExpensive.value;
+                            providerToSet = notExpensive.provider;
+                        } else {
+                            modelToSet = fetchedModels[0].value;
+                            providerToSet = fetchedModels[0].provider;
+                        }
+                    }
+                }
             } else if (fetchedModels.length === 0) {
                 modelToSet = 'llama3.2';
                 providerToSet = 'ollama';
@@ -5019,26 +5414,11 @@ ${contextPrompt}`;
             setCurrentProvider(providerToSet);
             setCurrentNPC(npcToSet);
 
-            // Final check - only create panes if workspace wasn't loaded
-    // Final check - only create panes if workspace wasn't loaded
-    const hasExistingWorkspace = rootLayoutNode && Object.keys(contentDataRef.current).length > 0;
-
-    console.log('[INIT] Final workspace check:', { 
-        hasExistingWorkspace, 
-        rootLayoutNode: !!rootLayoutNode, 
-        contentDataCount: Object.keys(contentDataRef.current).length
-    });
-
-    if (!hasExistingWorkspace) {
-        console.log('[INIT] Creating default panes');
-        
-        if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
-            console.log('[INIT] Creating pane for stored conversation:', targetConvoId);
-            await handleConversationSelect(targetConvoId, false, false);  // ← THIS IS CREATING PHANTOM PANES!
-        }
-    } else {
-                console.log('[INIT] Workspace exists, skipping pane creation');
-                
+            if (!workspaceRestored) {
+                if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
+                    await handleConversationSelect(targetConvoId, false, false);
+                }
+            } else {
                 if (targetConvoId) {
                     setActiveConversationId(targetConvoId);
                 }
@@ -5719,7 +6099,8 @@ ${contextPrompt}`;
                             content: '',
                             timestamp: new Date().toISOString(),
                             type: 'message',
-                            isStreaming: true
+                            isStreaming: true,
+                            parentMessageId: userMsg.id,
                         };
 
                         if (paneData.chatMessages) {
@@ -5746,7 +6127,11 @@ ${contextPrompt}`;
                                 npc: currentNPC,
                                 npcSource: 'global',
                                 attachments: [],
-                                streamId: newStreamId
+                                streamId: newStreamId,
+                                // Pass frontend message IDs
+                                userMessageId: userMsg.id,
+                                assistantMessageId: newStreamId,
+                                parentMessageId: userMsg.id,
                             });
                         } catch (err: any) {
                             console.error('[MacroInput onSubmit] Error:', err);
@@ -6343,6 +6728,9 @@ const getChatInputProps = useCallback((paneId: string) => ({
     currentProvider, setCurrentProvider, favoriteModels, toggleFavoriteModel,
     showAllModels, setShowAllModels, modelsToDisplay, ollamaToolModels, setError,
     availableNPCs, npcsLoading, npcsError, currentNPC, setCurrentNPC,
+    // Multi-select for broadcast - persisted at Enpistu level
+    selectedModels, setSelectedModels, selectedNPCs, setSelectedNPCs,
+    broadcastMode, setBroadcastMode,
     availableMcpServers, mcpServerPath, setMcpServerPath,
     selectedMcpTools, setSelectedMcpTools, availableMcpTools, setAvailableMcpTools,
     mcpToolsLoading, setMcpToolsLoading, mcpToolsError, setMcpToolsError,
@@ -6362,6 +6750,161 @@ const getChatInputProps = useCallback((paneId: string) => ({
             performSplit(nodePath, 'right', contentType, path);
         }
     },
+    // Broadcast new message to multiple models/NPCs
+    onBroadcast: async (models: string[], npcs: string[]) => {
+        const activePaneData = contentDataRef.current[paneId];
+        if (!activePaneData || activePaneData.contentType !== 'chat' || !activePaneData.contentId) {
+            setError("Cannot broadcast: The active pane is not a valid chat window.");
+            return;
+        }
+        if (isStreaming || !input.trim()) return;
+
+        // Deduplicate models and npcs
+        const uniqueModels = [...new Set(models)];
+        const uniqueNpcs = [...new Set(npcs)];
+
+        const conversationId = activePaneData.contentId;
+        const allMessages = activePaneData.chatMessages?.allMessages || [];
+
+        // Check if we have selected branches for sub-branching
+        const branchMap = selectedBranches[paneId];
+        const branchTargets = branchMap && branchMap.size > 0 ? Array.from(branchMap.values()) : [null];
+        console.log('[BROADCAST] branchTargets:', branchTargets.length, branchTargets.map((b: any) => b?.id));
+
+        // Clear selected branches after using them
+        if (branchMap && branchMap.size > 0) {
+            setSelectedBranches(prev => {
+                const next = { ...prev };
+                delete next[paneId];
+                return next;
+            });
+        }
+
+        // For each branch target (or null if none), create user message and responses
+        const allUserMessageIds: string[] = [];
+        for (const branchParent of branchTargets) {
+            const userMessageId = generateId();
+            const cellId = userMessageId;
+            allUserMessageIds.push(userMessageId);
+
+            const userMessage = {
+                id: userMessageId,
+                role: 'user',
+                content: input,
+                timestamp: new Date().toISOString(),
+                attachments: uploadedFiles.map(f => ({ name: f.name, path: f.path, size: f.size, type: f.type })),
+                cellId: cellId,
+                parentMessageId: branchParent?.id || null, // Link to branch parent if sub-branching
+            };
+            allMessages.push(userMessage);
+        }
+
+        // Create combinations for each branch target × model × npc
+        // For each branch target × each model/npc combination
+        const allExecutions: Array<{
+            branchIdx: number,
+            userMessageId: string,
+            cellId: string,
+            model: string,
+            npcKey: string,
+            npcName: string,
+            npcSource: string,
+            streamId: string
+        }> = [];
+
+        for (let branchIdx = 0; branchIdx < branchTargets.length; branchIdx++) {
+            const userMessageId = allUserMessageIds[branchIdx];
+            const cellId = userMessageId;
+
+            for (const model of uniqueModels) {
+                for (const npcName of uniqueNpcs) {
+                    // Look up NPC source from availableNPCs
+                    const npcObj = availableNPCs.find((n: any) => n.value === npcName);
+                    const npcSource = npcObj?.source || 'global';
+                    const streamId = generateId();
+
+                    allExecutions.push({
+                        branchIdx,
+                        userMessageId,
+                        cellId,
+                        model,
+                        npcKey: npcName,
+                        npcName,
+                        npcSource,
+                        streamId
+                    });
+                }
+            }
+        }
+        console.log('[BROADCAST] executions:', allExecutions.length, 'branches:', branchTargets.length);
+
+        setIsStreaming(true);
+
+        // Create assistant placeholders for all executions
+        for (const exec of allExecutions) {
+            streamToPaneRef.current[exec.streamId] = paneId;
+
+            const selectedModelObj = availableModels.find((m: any) => m.value === exec.model);
+            const providerToUse = selectedModelObj?.provider || currentProvider;
+
+            const assistantPlaceholder = {
+                id: exec.streamId,
+                role: 'assistant',
+                content: '',
+                isStreaming: true,
+                timestamp: new Date().toISOString(),
+                streamId: exec.streamId,
+                model: exec.model,
+                provider: providerToUse,
+                npc: exec.npcName,
+                npcSource: exec.npcSource,
+                cellId: exec.cellId,
+                parentMessageId: exec.userMessageId,
+            };
+            allMessages.push(assistantPlaceholder);
+        }
+
+        activePaneData.chatMessages.allMessages = allMessages;
+        activePaneData.chatMessages.messages = allMessages.slice(-(activePaneData.chatMessages.displayedMessageCount || 20));
+        setInput('');
+        setUploadedFiles([]);
+        setRootLayoutNode(prev => ({ ...prev }));
+
+        // Execute all in parallel
+        const executePromises = allExecutions.map(async (exec) => {
+            const selectedModelObj = availableModels.find((m: any) => m.value === exec.model);
+            const providerToUse = selectedModelObj?.provider || currentProvider;
+
+            try {
+                await window.api.executeCommandStream({
+                    commandstr: input,
+                    currentPath,
+                    conversationId,
+                    model: exec.model,
+                    provider: providerToUse,
+                    npc: exec.npcName,
+                    npcSource: exec.npcSource,
+                    attachments: uploadedFiles.map(f => ({ name: f.name, path: f.path, size: f.size, type: f.type })),
+                    streamId: exec.streamId,
+                    isResend: branchTargets[exec.branchIdx] !== null, // Skip saving user msg if sub-branching
+                    parentMessageId: exec.userMessageId, // Assistant's parent is the user message
+                    userParentMessageId: branchTargets[exec.branchIdx]?.id || null,
+                    // Pass frontend-generated message IDs so backend uses the same IDs
+                    userMessageId: exec.userMessageId,
+                    assistantMessageId: exec.streamId,
+                });
+            } catch (err: any) {
+                console.error('[BROADCAST] Error for', exec.model, exec.npcKey, err);
+            }
+        });
+
+        await Promise.all(executePromises);
+
+        // Reset broadcast mode and selections after sending
+        setBroadcastMode(false);
+        setSelectedModels(currentModel ? [currentModel] : []);
+        setSelectedNPCs([]);
+    },
 }), [
     input, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
@@ -6372,6 +6915,8 @@ const getChatInputProps = useCallback((paneId: string) => ({
     availableModels, modelsLoading, modelsError, currentModel, currentProvider,
     favoriteModels, showAllModels, modelsToDisplay, ollamaToolModels,
     availableNPCs, npcsLoading, npcsError, currentNPC,
+    selectedModels, setSelectedModels, selectedNPCs, setSelectedNPCs,
+    broadcastMode, setBroadcastMode,
     availableMcpServers, mcpServerPath, selectedMcpTools, availableMcpTools,
     mcpToolsLoading, mcpToolsError, showMcpServersDropdown, activeConversationId, findNodePath, performSplit,
 ]);
@@ -6397,6 +6942,7 @@ const layoutComponentApi = useMemo(() => ({
     renderPptxViewer,
     renderLatexViewer,
     renderNotebookViewer,
+    renderExpViewer,
     renderPicViewer,
     renderMindMapViewer,
     renderZipViewer,
@@ -6411,10 +6957,13 @@ const layoutComponentApi = useMemo(() => ({
     renderSettingsPane,
     renderPhotoViewerPane,
     renderLibraryViewerPane,
+    renderHelpPane,
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
     renderMarkdownPreviewPane,
+    renderTileJinxPane,
+    renderBranchComparisonPane,
     setPaneContextMenu,
     // Chat-specific props:
     autoScrollEnabled, setAutoScrollEnabled,
@@ -6445,6 +6994,7 @@ const layoutComponentApi = useMemo(() => ({
     renderPptxViewer,
     renderLatexViewer,
     renderNotebookViewer,
+    renderExpViewer,
     renderPicViewer,
     renderMindMapViewer,
     renderZipViewer,
@@ -6459,10 +7009,13 @@ const layoutComponentApi = useMemo(() => ({
     renderSettingsPane,
     renderPhotoViewerPane,
     renderLibraryViewerPane,
+    renderHelpPane,
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
     renderMarkdownPreviewPane,
+    renderTileJinxPane,
+    renderBranchComparisonPane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
     setPaneContextMenu,
     autoScrollEnabled, setAutoScrollEnabled,
@@ -6481,18 +7034,16 @@ const handleConversationSelect = async (conversationId: string, skipMessageLoad 
 
     // CRITICAL: Don't create/update panes if workspace is being restored
     if (isLoadingWorkspace) {
-        console.log('[SELECT_CONVO] Skipping pane update - currently restoring workspace');
         return null;
     }
 
-    // NEW: Check if this conversation is already open in a pane
+    // Check if this conversation is already open in a pane
     const existingPaneId = Object.keys(contentDataRef.current).find(paneId => {
         const paneData = contentDataRef.current[paneId];
         return paneData?.contentType === 'chat' && paneData?.contentId === conversationId;
     });
 
     if (existingPaneId) {
-        console.log('[SELECT_CONVO] Conversation already open in pane:', existingPaneId);
         setActiveContentPaneId(existingPaneId);
         return existingPaneId;
     }
@@ -6523,12 +7074,16 @@ const handleConversationSelect = async (conversationId: string, skipMessageLoad 
         // ADD THIS CHECK: Only update if the pane exists and is not empty
         if (paneIdToUpdate && contentDataRef.current[paneIdToUpdate]) {
             await updateContentPane(paneIdToUpdate, 'chat', conversationId, skipMessageLoad);
+            setActiveContentPaneId(paneIdToUpdate);
             setRootLayoutNode(prev => ({...prev}));
         } else {
             console.warn('[SELECT_CONVO] No valid pane to update, creating new one');
-            const newPaneId = createAndAddPaneNodeToLayout();
-            await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
-            paneIdToUpdate = newPaneId;
+            const newPaneId = createAndAddPaneNodeToLayout('chat', conversationId);
+            if (newPaneId) {
+                await updateContentPane(newPaneId, 'chat', conversationId, skipMessageLoad);
+                setActiveContentPaneId(newPaneId);
+                paneIdToUpdate = newPaneId;
+            }
         }
     }
     return paneIdToUpdate;
@@ -6547,12 +7102,11 @@ const handleFileClick = useCallback(async (filePath: string) => {
     else if (extension === 'pptx') contentType = 'pptx';
     else if (extension === 'tex') contentType = 'latex';
     else if (extension === 'ipynb') contentType = 'notebook';
+    else if (extension === 'exp') contentType = 'exp';
     else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
     else if (extension === 'mapx') contentType = 'mindmap';
     else if (extension === 'zip') contentType = 'zip';
     else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
-
-    console.log('[FILE_CLICK] File:', filePath, 'ContentType:', contentType);
 
     // Check for empty pane to reuse first
     const emptyPaneId = findEmptyPaneId();
@@ -6565,63 +7119,81 @@ const handleFileClick = useCallback(async (filePath: string) => {
 
     const newPaneId = generateId();
 
-    setRootLayoutNode(oldRoot => {
-        contentDataRef.current[newPaneId] = {};
+    // Set content BEFORE layout to prevent empty pane
+    contentDataRef.current[newPaneId] = { contentType: contentType, contentId: filePath };
 
+    setRootLayoutNode(oldRoot => {
         if (!oldRoot) {
             return { id: newPaneId, type: 'content' };
         }
 
-        let newRoot = JSON.parse(JSON.stringify(oldRoot));
+        // Collect all existing pane IDs from the layout
+        const collectPaneIds = (node: any): string[] => {
+            if (!node) return [];
+            if (node.type === 'content') return [node.id];
+            if (node.type === 'split') {
+                return node.children.flatMap((child: any) => collectPaneIds(child));
+            }
+            return [];
+        };
 
-        if (activeContentPaneId) {
-            const pathToActive = findNodePath(newRoot, activeContentPaneId);
-            if (pathToActive && pathToActive.length > 0) {
-                const targetParent = findNodeByPath(newRoot,
-                    pathToActive.slice(0, -1)
-                );
-                const targetIndex = pathToActive[pathToActive.length - 1];
+        const existingPaneIds = collectPaneIds(oldRoot);
+        const allPaneIds = [...existingPaneIds, newPaneId];
+        const totalPanes = allPaneIds.length;
 
-                if (targetParent && targetParent.type === 'split') {
-                    const newChildren = [...targetParent.children];
-                    newChildren.splice(targetIndex + 1, 0,
-                        { id: newPaneId, type: 'content' }
-                    );
-                    const newSizes = new Array(newChildren.length)
-                        .fill(100 / newChildren.length);
-                    targetParent.children = newChildren;
-                    targetParent.sizes = newSizes;
-                    return newRoot;
+        // Calculate balanced grid dimensions (rows and cols differ by at most 1)
+        const cols = Math.ceil(Math.sqrt(totalPanes));
+        const rows = Math.ceil(totalPanes / cols);
+
+        // Build a balanced grid layout
+        const buildGridLayout = (paneIds: string[], numRows: number, numCols: number): any => {
+            if (paneIds.length === 0) return null;
+            if (paneIds.length === 1) {
+                return { id: paneIds[0], type: 'content' };
+            }
+
+            const rowNodes: any[] = [];
+            let paneIndex = 0;
+
+            for (let r = 0; r < numRows && paneIndex < paneIds.length; r++) {
+                const panesInThisRow = Math.min(numCols, paneIds.length - paneIndex);
+                const rowPaneIds = paneIds.slice(paneIndex, paneIndex + panesInThisRow);
+                paneIndex += panesInThisRow;
+
+                if (rowPaneIds.length === 1) {
+                    rowNodes.push({ id: rowPaneIds[0], type: 'content' });
+                } else {
+                    rowNodes.push({
+                        id: generateId(),
+                        type: 'split',
+                        direction: 'horizontal',
+                        children: rowPaneIds.map(id => ({ id, type: 'content' })),
+                        sizes: new Array(rowPaneIds.length).fill(100 / rowPaneIds.length)
+                    });
                 }
             }
-        }
 
-        if (newRoot.type === 'content') {
+            if (rowNodes.length === 1) {
+                return rowNodes[0];
+            }
+
             return {
                 id: generateId(),
                 type: 'split',
-                direction: 'horizontal',
-                children: [newRoot, { id: newPaneId, type: 'content' }],
-                sizes: [50, 50],
+                direction: 'vertical',
+                children: rowNodes,
+                sizes: new Array(rowNodes.length).fill(100 / rowNodes.length)
             };
-        } else if (newRoot.type === 'split') {
-            newRoot.children.push({ id: newPaneId, type: 'content' });
-            const equalSize = 100 / newRoot.children.length;
-            newRoot.sizes = new Array(newRoot.children.length).fill(equalSize);
-            return newRoot;
-        }
+        };
 
-        return { id: newPaneId, type: 'content' };
+        return buildGridLayout(allPaneIds, rows, cols);
     });
 
-    setTimeout(async () => {
-        console.log('[FILE_CLICK] Updating content pane:', newPaneId, contentType, filePath);
-        await updateContentPane(newPaneId, contentType, filePath);
-        setRootLayoutNode(prev => ({ ...prev }));
-    }, 0);
-
     setActiveContentPaneId(newPaneId);
-}, [activeContentPaneId, findNodePath, findNodeByPath, updateContentPane, findEmptyPaneId]);
+
+    // Load the actual file content after layout is set
+    await updateContentPane(newPaneId, contentType, filePath);
+}, [updateContentPane, findEmptyPaneId]);
 
 // Update ref for keyboard handler access
 handleFileClickRef.current = handleFileClick;
@@ -6797,15 +7369,28 @@ const renderBrowserContextMenu = () => {
                         <div className="border-t theme-border my-1" />
                     </>
                 )}
-                <button
-                    onClick={() => {
-                        handleNewBrowserTab(paneData?.browserUrl || 'https://google.com');
-                        closeMenu();
-                    }}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
-                >
-                    Open in New Pane
-                </button>
+                {browserContextMenuPos.linkURL && (
+                    <button
+                        onClick={() => {
+                            handleNewBrowserTab(browserContextMenuPos.linkURL);
+                            closeMenu();
+                        }}
+                        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
+                    >
+                        Open Link in New Pane
+                    </button>
+                )}
+                {(browserContextMenuPos.pageURL || paneData?.browserUrl) && (
+                    <button
+                        onClick={() => {
+                            handleNewBrowserTab(browserContextMenuPos.pageURL || paneData?.browserUrl);
+                            closeMenu();
+                        }}
+                        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
+                    >
+                        Open Page in New Pane
+                    </button>
+                )}
                 <div className="border-t theme-border my-1" />
                 <button
                     onClick={() => {
@@ -6975,6 +7560,7 @@ const renderMainContent = () => {
                             else if (extension === 'pptx') contentType = 'pptx';
                             else if (extension === 'tex') contentType = 'latex';
                             else if (extension === 'ipynb') contentType = 'notebook';
+    else if (extension === 'exp') contentType = 'exp';
                             else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
                             else if (extension === 'mapx') contentType = 'mindmap';
                             else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
@@ -6983,8 +7569,12 @@ const renderMainContent = () => {
                             contentType = 'editor';
                         }
 
-                        contentDataRef.current[newPaneId] = {};
-                        await updateContentPane(newPaneId, contentType, draggedItem.id);
+                        // Set content BEFORE layout to prevent empty pane
+                        if (draggedItem.type === 'browser' && draggedItem.url) {
+                            contentDataRef.current[newPaneId] = { contentType: contentType, contentId: draggedItem.id, browserUrl: draggedItem.url };
+                        } else {
+                            contentDataRef.current[newPaneId] = { contentType: contentType, contentId: draggedItem.id };
+                        }
 
                         setRootLayoutNode(newLayout);
                         setActiveContentPaneId(newPaneId);
@@ -7007,6 +7597,7 @@ const renderMainContent = () => {
                     setAutoScrollEnabled={setAutoScrollEnabled}
                     isPredictiveTextEnabled={isPredictiveTextEnabled}
                     setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
+                    createHelpPane={createHelpPane}
                 />
             </main>
         );
@@ -7051,6 +7642,7 @@ const renderMainContent = () => {
                 setAutoScrollEnabled={setAutoScrollEnabled}
                 isPredictiveTextEnabled={isPredictiveTextEnabled}
                 setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
+                createHelpPane={createHelpPane}
             />
         </main>
     );
@@ -7134,6 +7726,8 @@ const renderMainContent = () => {
         setFilesCollapsed={setFilesCollapsed}
         setConversationsCollapsed={setConversationsCollapsed}
         setWebsitesCollapsed={setWebsitesCollapsed}
+        sidebarSectionOrder={sidebarSectionOrder}
+        setSidebarSectionOrder={setSidebarSectionOrder}
         setInput={setInput}
         setContextMenuPos={setContextMenuPos}
         setSidebarItemContextMenuPos={setSidebarItemContextMenuPos}
@@ -7166,6 +7760,8 @@ const renderMainContent = () => {
         createProjectEnvPane={createProjectEnvPane}
         createDiskUsagePane={createDiskUsagePane}
         createLibraryViewerPane={createLibraryViewerPane}
+        createHelpPane={createHelpPane}
+        createTileJinxPane={createTileJinxPane}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}
@@ -7195,6 +7791,8 @@ const renderMainContent = () => {
         handleCreateNewFolder={handleCreateNewFolder}
         createNewTextFile={createNewTextFile}
         createNewTerminal={createNewTerminal}
+        createNewNotebook={createNewJupyterNotebook}
+        createNewExperiment={createNewExperiment}
         createNewDocument={createNewDocument}
         handleOpenNpcTeamMenu={handleOpenNpcTeamMenu}
         renderSearchResults={renderSearchResults}
@@ -7280,6 +7878,8 @@ const renderMainContent = () => {
                                     return renderMindMapViewer({ nodeId: zenModePaneId });
                                 case 'notebook':
                                     return renderNotebookViewer({ nodeId: zenModePaneId });
+                                case 'exp':
+                                    return renderExpViewer({ nodeId: zenModePaneId });
                                 case 'data-labeler':
                                     return renderDataLabelerPane({ nodeId: zenModePaneId });
                                 case 'graph-viewer':
@@ -7296,6 +7896,8 @@ const renderMainContent = () => {
                                     return renderDiskUsagePane({ nodeId: zenModePaneId });
                                 case 'markdown-preview':
                                     return renderMarkdownPreviewPane({ nodeId: zenModePaneId });
+                                case 'help':
+                                    return renderHelpPane({ nodeId: zenModePaneId });
                                 default:
                                     return <div className="flex-1 flex items-center justify-center theme-text-muted">Unknown content type</div>;
                             }
@@ -7315,6 +7917,17 @@ const renderMainContent = () => {
             contentDataRef={contentDataRef}
             setRootLayoutNode={setRootLayoutNode}
             onOpenVisualizer={() => setShowBranchVisualizer(true)}
+            expandedBranchPath={expandedBranchPath}
+            onCollapseBranch={(paneId) => {
+                setExpandedBranchPath(prev => {
+                    const next = { ...prev };
+                    delete next[paneId];
+                    return next;
+                });
+            }}
+            onExpandBranch={(paneId, path) => {
+                setExpandedBranchPath(prev => ({ ...prev, [paneId]: path }));
+            }}
         />
 
         <BranchOptionsModal
@@ -7342,6 +7955,17 @@ const renderMainContent = () => {
                     setRootLayoutNode(prev => ({ ...prev }));
                 } else if (branchId === 'main') {
                     setCurrentBranchId('main');
+                    setRootLayoutNode(prev => ({ ...prev }));
+                }
+            }}
+            allMessages={activeContentPaneId ? contentDataRef.current[activeContentPaneId]?.chatMessages?.allMessages || [] : []}
+            expandedBranchPath={activeContentPaneId ? expandedBranchPath[activeContentPaneId] || [] : []}
+            onExpandBranch={(path) => {
+                if (activeContentPaneId) {
+                    setExpandedBranchPath(prev => ({
+                        ...prev,
+                        [activeContentPaneId]: path
+                    }));
                     setRootLayoutNode(prev => ({ ...prev }));
                 }
             }}

@@ -1,11 +1,17 @@
 import React, { memo, useState, useRef } from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
-import { Paperclip, Tag, Star, ChevronDown, ChevronUp, Volume2, VolumeX, Loader } from 'lucide-react';
+import { Paperclip, Tag, Star, ChevronDown, ChevronUp, Volume2, VolumeX, Loader, RotateCcw, History, Cpu, Bot, Zap, Send, GitBranch, Columns, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const highlightSearchTerm = (content: string, searchTerm: string): string => {
     if (!searchTerm || !content) return content;
     const regex = new RegExp(`(${searchTerm})`, 'gi');
     return content.replace(regex, '**$1**');
+};
+
+// Strip source prefixes like "project:" or "global:" from NPC names
+const stripSourcePrefix = (name: string): string => {
+    if (!name) return name;
+    return name.replace(/^(project:|global:)/, '');
 };
 
 // Count approximate lines in content (rough estimate based on newlines and length)
@@ -28,11 +34,18 @@ export const ChatMessage = memo(({
     isCurrentSearchResult,
     onResendMessage,
     onCreateBranch,
+    onBroadcast,
+    onExpandBranches,
+    onSwitchRun,
+    siblingRuns,
+    activeRunIndex,
     messageIndex,
     onLabelMessage,
     messageLabel,
     conversationId,
-    onOpenFile
+    onOpenFile,
+    availableModels,
+    availableNPCs
 }: {
     message: any;
     isSelected?: boolean;
@@ -43,11 +56,18 @@ export const ChatMessage = memo(({
     isCurrentSearchResult?: boolean;
     onResendMessage?: (msg: any) => void;
     onCreateBranch?: (msg: any, idx: number) => void;
+    onBroadcast?: (msg: any, models: string[], npcs: string[]) => void;
+    onExpandBranches?: (cellId: string) => void;
+    onSwitchRun?: (cellId: string, runIndex: number) => void;
+    siblingRuns?: any[];
+    activeRunIndex?: number;
     messageIndex?: number;
     onLabelMessage?: (msg: any) => void;
     messageLabel?: string;
     conversationId?: string;
     onOpenFile?: (path: string) => void;
+    availableModels?: any[];
+    availableNPCs?: any[];
 }) => {
     const showStreamingIndicators = !!message.isStreaming;
     const messageId = message.id || message.timestamp;
@@ -60,6 +80,11 @@ export const ChatMessage = memo(({
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [isLoadingTTS, setIsLoadingTTS] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Broadcast/branch UI state
+    const [showBroadcastPanel, setShowBroadcastPanel] = useState(false);
+    const [selectedModels, setSelectedModels] = useState<string[]>([]);
+    const [selectedNPCs, setSelectedNPCs] = useState<string[]>([]);
 
     // Get saved TTS settings
     const getTTSSettings = () => {
@@ -254,7 +279,7 @@ export const ChatMessage = memo(({
             )}
 
             <div className="flex justify-between items-center text-xs theme-text-muted mb-1 opacity-80">
-                <span className="font-semibold">{message.role === 'user' ? 'You' : (message.npc || 'Agent')}</span>
+                <span className="font-semibold">{message.role === 'user' ? 'You' : (stripSourcePrefix(message.npc) || 'Agent')}</span>
                 <div className="flex items-center gap-2">
                     {message.role !== 'user' && message.model && (
                         <span className="truncate" title={message.model}>{message.model}</span>
@@ -438,6 +463,248 @@ export const ChatMessage = memo(({
                                 </div>
                             );
                         })}
+                    </div>
+                )}
+
+                {/* Execution Config & Actions - shown for assistant messages */}
+                {message.role === 'assistant' && !showStreamingIndicators && (
+                    <div className="mt-2 pt-2 border-t border-gray-700/50">
+                        {/* Branch Navigator - shown when there are sibling runs */}
+                        {siblingRuns && siblingRuns.length > 1 && (
+                            <div className="mb-3 p-2 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <GitBranch size={12} className="text-purple-400" />
+                                        <span className="text-[10px] text-gray-400 uppercase">
+                                            {siblingRuns.length} Branches
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        {/* Navigation arrows */}
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (onSwitchRun && message.cellId && activeRunIndex !== undefined && activeRunIndex > 0) {
+                                                    onSwitchRun(message.cellId, activeRunIndex - 1);
+                                                }
+                                            }}
+                                            disabled={activeRunIndex === 0}
+                                            className="p-1 hover:bg-gray-700 rounded disabled:opacity-30 text-gray-400"
+                                            title="Previous branch"
+                                        >
+                                            <ChevronLeft size={14} />
+                                        </button>
+                                        <span className="text-[10px] text-gray-300 min-w-[40px] text-center">
+                                            {(activeRunIndex ?? 0) + 1} / {siblingRuns.length}
+                                        </span>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (onSwitchRun && message.cellId && activeRunIndex !== undefined && activeRunIndex < siblingRuns.length - 1) {
+                                                    onSwitchRun(message.cellId, activeRunIndex + 1);
+                                                }
+                                            }}
+                                            disabled={activeRunIndex === siblingRuns.length - 1}
+                                            className="p-1 hover:bg-gray-700 rounded disabled:opacity-30 text-gray-400"
+                                            title="Next branch"
+                                        >
+                                            <ChevronRight size={14} />
+                                        </button>
+                                        {/* Expand to tiles button */}
+                                        {onExpandBranches && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onExpandBranches(message.cellId);
+                                                }}
+                                                className="p-1 ml-1 hover:bg-purple-600/30 rounded text-purple-400"
+                                                title="Open all branches as tiles"
+                                            >
+                                                <Columns size={14} />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                {/* Branch tabs */}
+                                <div className="flex flex-wrap gap-1">
+                                    {siblingRuns.map((run, idx) => (
+                                        <button
+                                            key={run.id || idx}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (onSwitchRun && message.cellId) {
+                                                    onSwitchRun(message.cellId, idx);
+                                                }
+                                            }}
+                                            className={`px-2 py-1 text-[10px] rounded-md border transition-all ${
+                                                idx === activeRunIndex
+                                                    ? 'bg-purple-600/30 border-purple-500 text-purple-200'
+                                                    : 'bg-gray-700/30 border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500'
+                                            }`}
+                                            title={`${run.model || 'unknown'} / ${stripSourcePrefix(run.npc) || 'agent'}`}
+                                        >
+                                            <span className="font-medium">{run.model?.slice(0, 12) || '?'}</span>
+                                            {run.npc && run.npc !== 'agent' && (
+                                                <span className="ml-1 opacity-70">· {stripSourcePrefix(run.npc)}</span>
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Config chips row */}
+                        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                            {message.model && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-600/20 text-blue-300 border border-blue-600/30" title={`Model: ${message.model}`}>
+                                    <Cpu size={10} />
+                                    {message.model.length > 20 ? message.model.slice(0, 20) + '...' : message.model}
+                                </span>
+                            )}
+                            {message.provider && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-600/20 text-purple-300 border border-purple-600/30" title={`Provider: ${message.provider}`}>
+                                    {message.provider}
+                                </span>
+                            )}
+                            {message.npc && message.npc !== 'agent' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-600/20 text-green-300 border border-green-600/30" title={`NPC: ${stripSourcePrefix(message.npc)}`}>
+                                    <Bot size={10} />
+                                    {stripSourcePrefix(message.npc)}
+                                </span>
+                            )}
+                            {message.jinxName && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-orange-600/20 text-orange-300 border border-orange-600/30" title={`Jinx: ${message.jinxName}`}>
+                                    <Zap size={10} />
+                                    {message.jinxName}
+                                </span>
+                            )}
+                            {message.runCount && message.runCount > 1 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-600/20 text-gray-300 border border-gray-600/30" title={`${message.runCount} runs for this cell`}>
+                                    <History size={10} />
+                                    {message.runCount} runs
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Action buttons row */}
+                        <div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                            {onResendMessage && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onResendMessage(message);
+                                    }}
+                                    className="flex items-center gap-1 px-2 py-1 text-[10px] bg-gray-700/50 hover:bg-gray-700 rounded text-gray-300 hover:text-white transition-colors"
+                                    title="Re-run with same config"
+                                >
+                                    <RotateCcw size={10} />
+                                    Re-run
+                                </button>
+                            )}
+                            {onBroadcast && availableModels && availableModels.length > 0 && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowBroadcastPanel(!showBroadcastPanel);
+                                        if (!showBroadcastPanel) {
+                                            setSelectedModels([message.model || availableModels[0]?.value]);
+                                            setSelectedNPCs([message.npc || 'agent']);
+                                        }
+                                    }}
+                                    className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded transition-colors ${
+                                        showBroadcastPanel
+                                            ? 'bg-purple-600/30 text-purple-300'
+                                            : 'bg-gray-700/50 hover:bg-gray-700 text-gray-300 hover:text-white'
+                                    }`}
+                                    title="Broadcast to multiple models/NPCs"
+                                >
+                                    <GitBranch size={10} />
+                                    Branch
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Broadcast Panel - inline multi-select */}
+                        {showBroadcastPanel && availableModels && availableNPCs && (
+                            <div className="mt-2 p-2 bg-gray-800/80 rounded-lg border border-gray-700">
+                                <div className="text-[10px] text-gray-400 mb-2">Select models & NPCs to branch to:</div>
+
+                                {/* Models multi-select */}
+                                <div className="mb-2">
+                                    <div className="text-[9px] text-gray-500 mb-1 uppercase">Models</div>
+                                    <div className="flex flex-wrap gap-1">
+                                        {availableModels.slice(0, 8).map((m: any) => (
+                                            <button
+                                                key={m.value}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedModels(prev =>
+                                                        prev.includes(m.value)
+                                                            ? prev.filter(x => x !== m.value)
+                                                            : [...prev, m.value]
+                                                    );
+                                                }}
+                                                className={`px-2 py-0.5 text-[10px] rounded-full border transition-colors ${
+                                                    selectedModels.includes(m.value)
+                                                        ? 'bg-blue-600/30 border-blue-500 text-blue-300'
+                                                        : 'bg-gray-700/50 border-gray-600 text-gray-400 hover:text-gray-200'
+                                                }`}
+                                            >
+                                                {m.display_name?.slice(0, 15) || m.value?.slice(0, 15)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* NPCs multi-select */}
+                                <div className="mb-2">
+                                    <div className="text-[9px] text-gray-500 mb-1 uppercase">NPCs</div>
+                                    <div className="flex flex-wrap gap-1">
+                                        {availableNPCs.slice(0, 8).map((n: any) => (
+                                            <button
+                                                key={n.value}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedNPCs(prev =>
+                                                        prev.includes(n.value)
+                                                            ? prev.filter(x => x !== n.value)
+                                                            : [...prev, n.value]
+                                                    );
+                                                }}
+                                                className={`px-2 py-0.5 text-[10px] rounded-full border transition-colors ${
+                                                    selectedNPCs.includes(n.value)
+                                                        ? 'bg-green-600/30 border-green-500 text-green-300'
+                                                        : 'bg-gray-700/50 border-gray-600 text-gray-400 hover:text-gray-200'
+                                                }`}
+                                            >
+                                                {n.display_name || n.value}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Broadcast button */}
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-gray-500">
+                                        {selectedModels.length} model{selectedModels.length !== 1 ? 's' : ''} × {selectedNPCs.length} NPC{selectedNPCs.length !== 1 ? 's' : ''} = {selectedModels.length * selectedNPCs.length} branch{selectedModels.length * selectedNPCs.length !== 1 ? 'es' : ''}
+                                    </span>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (selectedModels.length > 0 && selectedNPCs.length > 0) {
+                                                onBroadcast(message, selectedModels, selectedNPCs);
+                                                setShowBroadcastPanel(false);
+                                            }
+                                        }}
+                                        disabled={selectedModels.length === 0 || selectedNPCs.length === 0}
+                                        className="flex items-center gap-1 px-3 py-1 text-[10px] bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 disabled:opacity-50 rounded text-white transition-colors"
+                                    >
+                                        <Send size={10} />
+                                        Broadcast
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

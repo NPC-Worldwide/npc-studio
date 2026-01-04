@@ -1,16 +1,13 @@
 import React, { useEffect, useRef, useState, memo, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X, Plus, Settings, Trash2, Lock, GripVertical, Puzzle, Download, FolderOpen } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X, Plus, Settings, Trash2, Lock, GripVertical, Puzzle, Download, FolderOpen, Key, Eye, EyeOff, Shield, Check } from 'lucide-react';
 
 const WebBrowserViewer = memo(({
     nodeId,
     contentDataRef,
     currentPath,
-    browserContextMenuPos,
     setBrowserContextMenuPos,
-    handleNewBrowserTab, // New prop for opening new browser tabs/panes
-    setRootLayoutNode, // For triggering re-renders when title changes
-
-    // Props for drag-and-drop and context menu
+    handleNewBrowserTab,
+    setRootLayoutNode,
     findNodePath,
     rootLayoutNode,
     setDraggedItem,
@@ -32,6 +29,32 @@ const WebBrowserViewer = memo(({
     const [importStatus, setImportStatus] = useState<{ importing: boolean; message?: string } | null>(null);
     const [isSecure, setIsSecure] = useState(false);
 
+    // Password management state
+    const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+    const [pendingCredentials, setPendingCredentials] = useState<{ site: string; username: string; password: string } | null>(null);
+    const [savedPasswords, setSavedPasswords] = useState<any[]>([]);
+    const [showPasswordFill, setShowPasswordFill] = useState(false);
+    const [showPasswordInPrompt, setShowPasswordInPrompt] = useState(false);
+    const [showPasswordsMenu, setShowPasswordsMenu] = useState(false);
+    const [allPasswords, setAllPasswords] = useState<any[]>([]);
+    const [showPasswordValue, setShowPasswordValue] = useState<string | null>(null);
+
+    // Site permissions state
+    const [sitePermissions, setSitePermissions] = useState<Record<string, string[]>>(() => {
+        try {
+            return JSON.parse(localStorage.getItem('npc-browser-site-permissions') || '{}');
+        } catch { return {}; }
+    });
+    const [showPermissionsMenu, setShowPermissionsMenu] = useState(false);
+
+    // Privacy & ad blocking state
+    const [adBlockEnabled, setAdBlockEnabled] = useState(() => {
+        return localStorage.getItem('npc-browser-adblock') !== 'false'; // Default enabled
+    });
+    const [trackingProtection, setTrackingProtection] = useState(() => {
+        return localStorage.getItem('npc-browser-tracking-protection') !== 'false'; // Default enabled
+    });
+    
     // Search engine configuration
     const SEARCH_ENGINES = {
         duckduckgo: { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
@@ -232,24 +255,52 @@ const WebBrowserViewer = memo(({
         // IPC from main process is generally more reliable.
         // Assuming window.api.onBrowserShowContextMenu from Enpistu handles this.
 
-        // Handle links that try to open in new windows (target="_blank", window.open, etc.)
+        // Handle links that try to open in new windows (target="_blank", window.open, ctrl+click, middle-click)
         const handleNewWindow = (e) => {
             e.preventDefault();
             const url = e.url;
-            if (url && url !== 'about:blank') {
-                // Open in the same webview instead of blocking
+            if (!url || url === 'about:blank') return;
+
+            // Check disposition to determine if user wants new tab
+            // 'background-tab' = middle-click or ctrl+click
+            // 'foreground-tab' = shift+click or explicit new tab request
+            const shouldOpenInNewTab = e.disposition === 'background-tab' ||
+                                       e.disposition === 'foreground-tab' ||
+                                       e.disposition === 'new-window';
+
+            if (shouldOpenInNewTab && handleNewBrowserTab) {
+                // Open in a new tab within the same pane
+                handleNewBrowserTab(url);
+            } else {
+                // Open in the same webview (default behavior for regular link clicks)
                 webview.src = url;
             }
         };
 
         // Handle permission requests (camera, microphone, geolocation, etc.)
         const handlePermissionRequest = (e) => {
-            // Allow common permissions, deny others
-            const allowedPermissions = ['clipboard-read', 'clipboard-write', 'notifications'];
-            if (allowedPermissions.includes(e.permission)) {
+            // Check stored site permissions
+            try {
+                const storedPerms = JSON.parse(localStorage.getItem('npc-browser-site-permissions') || '{}');
+                const url = webview.getURL?.();
+                let site = '';
+                try {
+                    site = new URL(url).hostname;
+                } catch { site = url; }
+                const sitePerms = storedPerms[site] || [];
+
+                // Allow if permission is explicitly granted for this site
+                if (sitePerms.includes(e.permission)) {
+                    e.request.allow();
+                    return;
+                }
+            } catch { /* ignore parsing errors */ }
+
+            // Default: allow common safe permissions, deny others
+            const defaultAllowed = ['clipboard-read', 'clipboard-write', 'notifications'];
+            if (defaultAllowed.includes(e.permission)) {
                 e.request.allow();
             } else {
-                // For now, deny other permissions - could add UI to prompt user
                 e.request.deny();
             }
         };
@@ -286,6 +337,7 @@ const WebBrowserViewer = memo(({
     }, [currentPath, viewId, nodeId, setBrowserContextMenuPos, setRootLayoutNode]);
 
     // Effect to handle tab switching - navigate when paneData.browserUrl changes externally
+    // This should ONLY trigger when switching between tabs within this pane that have different URLs
     useEffect(() => {
         const webview = webviewRef.current;
         const paneUrl = contentDataRef.current[nodeId]?.browserUrl;
@@ -296,8 +348,11 @@ const WebBrowserViewer = memo(({
             return;
         }
 
-        // Only navigate if the paneUrl changed externally (tab switch) and differs from current
+        // Only navigate if the paneUrl changed externally (tab switch) and differs from current webview URL
         if (webview && paneUrl && hasInitializedRef.current && paneUrl !== lastKnownPaneUrlRef.current) {
+            // Get the current URL from the webview to compare
+            const currentWebviewUrl = webview.getURL?.() || '';
+
             let urlToLoad = paneUrl;
             if (!paneUrl.startsWith('http')) {
                 if (paneUrl === 'about:blank') {
@@ -307,8 +362,16 @@ const WebBrowserViewer = memo(({
                     urlToLoad = isLocalhost ? `http://${paneUrl}` : `https://${paneUrl}`;
                 }
             }
-            lastKnownPaneUrlRef.current = paneUrl;
-            webview.src = urlToLoad;
+
+            // Only actually navigate if the webview is showing a different URL
+            // This prevents reloading when just switching panes or re-rendering
+            if (currentWebviewUrl !== urlToLoad && currentWebviewUrl !== paneUrl) {
+                lastKnownPaneUrlRef.current = paneUrl;
+                webview.src = urlToLoad;
+            } else {
+                // Just update the ref without navigating
+                lastKnownPaneUrlRef.current = paneUrl;
+            }
         }
     });
 
@@ -484,6 +547,312 @@ const WebBrowserViewer = memo(({
         }
     }, [showExtensionsMenu, loadExtensions]);
 
+    // Password management functions
+    const getSiteFromUrl = useCallback((url: string) => {
+        try {
+            const urlObj = new URL(url);
+            return urlObj.hostname;
+        } catch {
+            return url;
+        }
+    }, []);
+
+    const checkForSavedPasswords = useCallback(async (url: string) => {
+        const site = getSiteFromUrl(url);
+        try {
+            const result = await (window as any).api?.passwordGetForSite?.(site);
+            if (result?.success && result.passwords?.length > 0) {
+                setSavedPasswords(result.passwords);
+                setShowPasswordFill(true);
+            } else {
+                setSavedPasswords([]);
+                setShowPasswordFill(false);
+            }
+        } catch (err) {
+            console.error('[Browser] Failed to check saved passwords:', err);
+        }
+    }, [getSiteFromUrl]);
+
+    const handleSavePassword = useCallback(async () => {
+        if (!pendingCredentials) return;
+        try {
+            await (window as any).api?.passwordSave?.(pendingCredentials);
+            setShowPasswordPrompt(false);
+            setPendingCredentials(null);
+        } catch (err) {
+            console.error('[Browser] Failed to save password:', err);
+        }
+    }, [pendingCredentials]);
+
+    const handleFillPassword = useCallback(async (password: any) => {
+        const webview = webviewRef.current;
+        if (!webview) return;
+
+        try {
+            // Inject script to fill the login form
+            await webview.executeJavaScript(`
+                (function() {
+                    const username = ${JSON.stringify(password.username)};
+                    const pwd = ${JSON.stringify(password.password)};
+
+                    // Find username/email fields
+                    const usernameInputs = document.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"], input[id*="user"], input[id*="email"], input[id*="login"]');
+                    const passwordInputs = document.querySelectorAll('input[type="password"]');
+
+                    // Fill username - try to find the best match
+                    for (const input of usernameInputs) {
+                        if (input.offsetParent !== null) { // visible
+                            input.value = username;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            break;
+                        }
+                    }
+
+                    // Fill password
+                    for (const input of passwordInputs) {
+                        if (input.offsetParent !== null) { // visible
+                            input.value = pwd;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            break;
+                        }
+                    }
+                })();
+            `);
+            setShowPasswordFill(false);
+        } catch (err) {
+            console.error('[Browser] Failed to fill password:', err);
+        }
+    }, []);
+
+    const loadAllPasswords = useCallback(async () => {
+        try {
+            const result = await (window as any).api?.passwordList?.();
+            if (result?.success) {
+                setAllPasswords(result.passwords || []);
+            }
+        } catch (err) {
+            console.error('[Browser] Failed to load passwords:', err);
+        }
+    }, []);
+
+    const handleDeletePassword = useCallback(async (id: string) => {
+        try {
+            await (window as any).api?.passwordDelete?.(id);
+            loadAllPasswords();
+        } catch (err) {
+            console.error('[Browser] Failed to delete password:', err);
+        }
+    }, [loadAllPasswords]);
+
+    // Inject form detection script when page loads
+    useEffect(() => {
+        const webview = webviewRef.current;
+        if (!webview) return;
+
+        const handleDomReady = async () => {
+            // Check for saved passwords for this site
+            const url = webview.getURL?.();
+            if (url) {
+                checkForSavedPasswords(url);
+            }
+
+            // Inject ad blocking CSS and scripts if enabled
+            const isAdBlockOn = localStorage.getItem('npc-browser-adblock') !== 'false';
+            const isTrackingProtOn = localStorage.getItem('npc-browser-tracking-protection') !== 'false';
+
+            if (isAdBlockOn || isTrackingProtOn) {
+                try {
+                    await webview.executeJavaScript(`
+                        (function() {
+                            if (window.__npcAdBlockInstalled) return;
+                            window.__npcAdBlockInstalled = true;
+
+                            // Inject ad-blocking CSS
+                            const style = document.createElement('style');
+                            style.textContent = \`
+                                [class*="ad-"], [class*="ads-"], [class*="advert"], [id*="ad-"], [id*="ads-"],
+                                [class*="banner"], [class*="sponsor"], [class*="promoted"], [class*="promo-"],
+                                iframe[src*="ads"], iframe[src*="doubleclick"], iframe[src*="googlesyndication"],
+                                [data-ad], [data-ads], [data-advertisement], .adsbygoogle, .ad-container,
+                                [aria-label*="advertisement"], [aria-label*="sponsored"],
+                                ins.adsbygoogle, [id*="google_ads"], [class*="GoogleAd"],
+                                [class*="ad-slot"], [class*="ad-unit"], [class*="ad-wrapper"],
+                                [id*="taboola"], [id*="outbrain"], [class*="taboola"], [class*="outbrain"] {
+                                    display: none !important;
+                                    visibility: hidden !important;
+                                    height: 0 !important;
+                                    width: 0 !important;
+                                    overflow: hidden !important;
+                                    pointer-events: none !important;
+                                }
+                            \`;
+                            document.head.appendChild(style);
+
+                            // Block tracking scripts
+                            const blockedDomains = [
+                                'doubleclick.net', 'googlesyndication.com', 'googleadservices.com',
+                                'google-analytics.com', 'googletagmanager.com', 'facebook.net',
+                                'analytics', 'tracker', 'tracking', 'pixel', 'beacon',
+                                'criteo', 'outbrain', 'taboola', 'adnxs', 'hotjar', 'mixpanel'
+                            ];
+
+                            // Override fetch to block tracker requests
+                            const originalFetch = window.fetch;
+                            window.fetch = function(url, options) {
+                                const urlStr = typeof url === 'string' ? url : url.url || '';
+                                if (blockedDomains.some(d => urlStr.includes(d))) {
+                                    return Promise.reject(new Error('Blocked by NPC Studio'));
+                                }
+                                return originalFetch.apply(this, arguments);
+                            };
+
+                            // Override XMLHttpRequest to block trackers
+                            const originalOpen = XMLHttpRequest.prototype.open;
+                            XMLHttpRequest.prototype.open = function(method, url) {
+                                const urlStr = typeof url === 'string' ? url : url.toString();
+                                if (blockedDomains.some(d => urlStr.includes(d))) {
+                                    this.__blocked = true;
+                                }
+                                return originalOpen.apply(this, arguments);
+                            };
+                            const originalSend = XMLHttpRequest.prototype.send;
+                            XMLHttpRequest.prototype.send = function() {
+                                if (this.__blocked) return;
+                                return originalSend.apply(this, arguments);
+                            };
+
+                            // Block navigator.sendBeacon (used for analytics)
+                            navigator.sendBeacon = () => false;
+
+                            // Disable tracking cookies
+                            try {
+                                Object.defineProperty(document, 'cookie', {
+                                    get: function() { return ''; },
+                                    set: function(val) {
+                                        // Allow session cookies, block tracking
+                                        if (blockedDomains.some(d => val.includes(d))) return;
+                                        // Allow the cookie
+                                    }
+                                });
+                            } catch (e) {}
+
+                            console.log('[NPC Studio] Ad blocking & tracking protection active');
+                        })();
+                    `);
+                } catch (err) {
+                    // Ignore - some pages block script injection
+                }
+            }
+
+            // Inject script to detect login form submissions
+            try {
+                await webview.executeJavaScript(`
+                    (function() {
+                        if (window.__npcPasswordDetectorInstalled) return;
+                        window.__npcPasswordDetectorInstalled = true;
+
+                        document.addEventListener('submit', function(e) {
+                            const form = e.target;
+                            const passwordInputs = form.querySelectorAll('input[type="password"]');
+                            if (passwordInputs.length === 0) return;
+
+                            // Find username/email field
+                            const usernameInputs = form.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"]');
+                            let username = '';
+                            for (const input of usernameInputs) {
+                                if (input.value) {
+                                    username = input.value;
+                                    break;
+                                }
+                            }
+
+                            const password = passwordInputs[0].value;
+                            if (username && password) {
+                                // Send to parent via postMessage (will be picked up by IPC)
+                                window.postMessage({
+                                    type: 'npc-password-detected',
+                                    site: window.location.hostname,
+                                    username: username,
+                                    password: password
+                                }, '*');
+                            }
+                        }, true);
+                    })();
+                `);
+            } catch (err) {
+                // Ignore errors for pages that don't allow JS injection
+            }
+        };
+
+        const handleIpcMessage = (event: any) => {
+            if (event.channel === 'password-detected') {
+                const { site, username, password } = event.args[0];
+                setPendingCredentials({ site, username, password });
+                setShowPasswordPrompt(true);
+            }
+        };
+
+        // Listen for console messages that contain our password detection
+        const handleConsoleMessage = (event: any) => {
+            try {
+                if (event.message?.includes('npc-password-detected')) {
+                    const match = event.message.match(/npc-password-detected:(.+)/);
+                    if (match) {
+                        const data = JSON.parse(match[1]);
+                        setPendingCredentials(data);
+                        setShowPasswordPrompt(true);
+                    }
+                }
+            } catch { /* ignore parsing errors */ }
+        };
+
+        webview.addEventListener('dom-ready', handleDomReady);
+        webview.addEventListener('ipc-message', handleIpcMessage);
+        webview.addEventListener('console-message', handleConsoleMessage);
+
+        return () => {
+            webview.removeEventListener('dom-ready', handleDomReady);
+            webview.removeEventListener('ipc-message', handleIpcMessage);
+            webview.removeEventListener('console-message', handleConsoleMessage);
+        };
+    }, [checkForSavedPasswords]);
+
+    // Site permission management
+    const getPermissionsForSite = useCallback((url: string) => {
+        const site = getSiteFromUrl(url);
+        return sitePermissions[site] || [];
+    }, [sitePermissions, getSiteFromUrl]);
+
+    const toggleSitePermission = useCallback((permission: string) => {
+        const site = getSiteFromUrl(currentUrl);
+        setSitePermissions(prev => {
+            const current = prev[site] || [];
+            const updated = current.includes(permission)
+                ? current.filter(p => p !== permission)
+                : [...current, permission];
+            const newPerms = { ...prev, [site]: updated };
+            localStorage.setItem('npc-browser-site-permissions', JSON.stringify(newPerms));
+            return newPerms;
+        });
+    }, [currentUrl, getSiteFromUrl]);
+
+    const AVAILABLE_PERMISSIONS = [
+        { id: 'clipboard-read', name: 'Clipboard Read', desc: 'Read from clipboard' },
+        { id: 'clipboard-write', name: 'Clipboard Write', desc: 'Write to clipboard' },
+        { id: 'notifications', name: 'Notifications', desc: 'Show notifications' },
+        { id: 'geolocation', name: 'Location', desc: 'Access your location' },
+        { id: 'media', name: 'Camera/Mic', desc: 'Access camera and microphone' },
+    ];
+
+    // Load passwords when menu opens
+    useEffect(() => {
+        if (showPasswordsMenu) {
+            loadAllPasswords();
+        }
+    }, [showPasswordsMenu, loadAllPasswords]);
+
     // Re-introducing drag-and-drop and context menu for the pane itself
     const handleDragStart = useCallback((e) => {
         e.dataTransfer.effectAllowed = 'move';
@@ -561,11 +930,142 @@ const WebBrowserViewer = memo(({
                     </div>
                 </div>
 
-                {/* Far right: Extensions + Settings + Close in one row */}
+                {/* Far right: Passwords + Permissions + Extensions + Settings + Close in one row */}
                 <div className="flex items-center gap-0.5 px-1 border-l theme-border">
+                    {/* Saved passwords indicator */}
+                    {savedPasswords.length > 0 && (
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowPasswordFill(!showPasswordFill)}
+                                className="p-1 theme-hover rounded text-green-400"
+                                title={`${savedPasswords.length} saved password(s) available`}
+                            >
+                                <Key size={16} />
+                            </button>
+                            {showPasswordFill && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setShowPasswordFill(false)} />
+                                    <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[220px]">
+                                        <div className="p-2 border-b theme-border">
+                                            <span className="text-xs font-medium theme-text-primary">Auto-fill Credentials</span>
+                                        </div>
+                                        {savedPasswords.map((pwd: any, idx: number) => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => handleFillPassword(pwd)}
+                                                className="flex items-center gap-2 w-full px-3 py-2 text-left theme-hover"
+                                            >
+                                                <Key size={14} className="text-green-400" />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-xs theme-text-primary truncate">{pwd.username}</div>
+                                                    <div className="text-[10px] theme-text-muted">{pwd.site}</div>
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Site permissions button */}
+                    <div className="relative">
+                        <button
+                            onClick={() => { setShowPermissionsMenu(!showPermissionsMenu); setShowSessionMenu(false); setShowExtensionsMenu(false); setShowPasswordsMenu(false); }}
+                            className={`p-1 theme-hover rounded ${getPermissionsForSite(currentUrl).length > 0 ? 'text-blue-400' : ''}`}
+                            title="Site Permissions"
+                        >
+                            <Shield size={16} />
+                        </button>
+                        {showPermissionsMenu && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowPermissionsMenu(false)} />
+                                <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[250px]">
+                                    <div className="p-2 border-b theme-border">
+                                        <span className="text-xs font-medium theme-text-primary">Permissions for {getSiteFromUrl(currentUrl)}</span>
+                                    </div>
+                                    <div className="py-1">
+                                        {AVAILABLE_PERMISSIONS.map(perm => {
+                                            const isAllowed = getPermissionsForSite(currentUrl).includes(perm.id);
+                                            return (
+                                                <button
+                                                    key={perm.id}
+                                                    onClick={() => toggleSitePermission(perm.id)}
+                                                    className="flex items-center gap-2 w-full px-3 py-2 text-left theme-hover"
+                                                >
+                                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${isAllowed ? 'bg-green-500 border-green-500' : 'border-gray-500'}`}>
+                                                        {isAllowed && <Check size={10} className="text-white" />}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <div className="text-xs theme-text-primary">{perm.name}</div>
+                                                        <div className="text-[10px] theme-text-muted">{perm.desc}</div>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Passwords manager button */}
+                    <div className="relative">
+                        <button
+                            onClick={() => { setShowPasswordsMenu(!showPasswordsMenu); setShowSessionMenu(false); setShowExtensionsMenu(false); setShowPermissionsMenu(false); }}
+                            className="p-1 theme-hover rounded"
+                            title="Saved Passwords"
+                        >
+                            <Key size={16} />
+                        </button>
+                        {showPasswordsMenu && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowPasswordsMenu(false)} />
+                                <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[280px] max-h-[400px] overflow-auto">
+                                    <div className="p-2 border-b theme-border">
+                                        <span className="text-xs font-medium theme-text-primary">Saved Passwords</span>
+                                    </div>
+                                    {allPasswords.length > 0 ? (
+                                        <div className="py-1">
+                                            {allPasswords.map((pwd: any) => (
+                                                <div key={pwd.id} className="flex items-center gap-2 px-3 py-2 theme-hover">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="text-xs theme-text-primary truncate">{pwd.site}</div>
+                                                        <div className="text-[10px] theme-text-muted truncate">{pwd.username}</div>
+                                                        <div className="text-[10px] font-mono theme-text-muted">
+                                                            {showPasswordValue === pwd.id ? pwd.password : '••••••••'}
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => setShowPasswordValue(showPasswordValue === pwd.id ? null : pwd.id)}
+                                                        className="p-1 theme-hover rounded"
+                                                        title={showPasswordValue === pwd.id ? "Hide password" : "Show password"}
+                                                    >
+                                                        {showPasswordValue === pwd.id ? <EyeOff size={12} /> : <Eye size={12} />}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeletePassword(pwd.id)}
+                                                        className="p-1 theme-hover rounded text-red-400"
+                                                        title="Delete password"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="px-3 py-4 text-xs theme-text-muted text-center">
+                                            No saved passwords
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
                     {/* Extensions button */}
                     <div className="relative">
-                        <button onClick={() => { setShowExtensionsMenu(!showExtensionsMenu); setShowSessionMenu(false); }} className={`p-1 theme-hover rounded ${extensions.length > 0 ? 'text-purple-400' : ''}`} title="Extensions"><Puzzle size={16} /></button>
+                        <button onClick={() => { setShowExtensionsMenu(!showExtensionsMenu); setShowSessionMenu(false); setShowPasswordsMenu(false); setShowPermissionsMenu(false); }} className={`p-1 theme-hover rounded ${extensions.length > 0 ? 'text-purple-400' : ''}`} title="Extensions"><Puzzle size={16} /></button>
                         {showExtensionsMenu && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setShowExtensionsMenu(false)} />
@@ -628,6 +1128,39 @@ const WebBrowserViewer = memo(({
                                             {Object.entries(SEARCH_ENGINES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
                                         </select>
                                     </div>
+                                    {/* Privacy Settings */}
+                                    <div className="p-2 border-b theme-border">
+                                        <span className="text-xs theme-text-muted block mb-2">Privacy & Ad Blocking</span>
+                                        <label className="flex items-center justify-between py-1 cursor-pointer">
+                                            <span className="text-xs theme-text-primary">Block Ads</span>
+                                            <button
+                                                onClick={() => {
+                                                    const newVal = !adBlockEnabled;
+                                                    setAdBlockEnabled(newVal);
+                                                    localStorage.setItem('npc-browser-adblock', String(newVal));
+                                                }}
+                                                className={`w-8 h-4 rounded-full transition-colors ${adBlockEnabled ? 'bg-green-500' : 'bg-gray-600'}`}
+                                            >
+                                                <div className={`w-3 h-3 rounded-full bg-white transform transition-transform ${adBlockEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                            </button>
+                                        </label>
+                                        <label className="flex items-center justify-between py-1 cursor-pointer">
+                                            <span className="text-xs theme-text-primary">Block Trackers</span>
+                                            <button
+                                                onClick={() => {
+                                                    const newVal = !trackingProtection;
+                                                    setTrackingProtection(newVal);
+                                                    localStorage.setItem('npc-browser-tracking-protection', String(newVal));
+                                                }}
+                                                className={`w-8 h-4 rounded-full transition-colors ${trackingProtection ? 'bg-green-500' : 'bg-gray-600'}`}
+                                            >
+                                                <div className={`w-3 h-3 rounded-full bg-white transform transition-transform ${trackingProtection ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                            </button>
+                                        </label>
+                                        <div className="text-[10px] theme-text-muted mt-1">
+                                            Blocks ads, trackers, and analytics scripts. Reload page after changing.
+                                        </div>
+                                    </div>
                                     <div className="py-1">
                                         <button onClick={handleClearCookies} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"><Trash2 size={12} />Clear Cookies</button>
                                         <button onClick={handleClearCache} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"><Trash2 size={12} />Clear Cache</button>
@@ -637,7 +1170,7 @@ const WebBrowserViewer = memo(({
                             </>
                         )}
                     </div>
-                    <button onClick={(e) => { e.stopPropagation(); const p = findNodePath(rootLayoutNode, nodeId); if (p) closeContentPane(nodeId, p); }} className="p-1 theme-hover rounded hover:text-red-400" title="Close"><X size={16} /></button>
+                    {/* Close button removed - PaneTabBar or minimal header already handles closing */}
                 </div>
             </div>
 
@@ -659,6 +1192,59 @@ const WebBrowserViewer = memo(({
                     partition={`persist:${viewId}`}
                     style={{ visibility: error ? 'hidden' : 'visible' }}
                 />
+
+                {/* Password Save Prompt */}
+                {showPasswordPrompt && pendingCredentials && (
+                    <div className="absolute bottom-4 right-4 z-50 theme-bg-secondary border theme-border rounded-lg shadow-lg p-4 max-w-sm">
+                        <div className="flex items-start gap-3">
+                            <div className="p-2 rounded-full bg-green-500/20">
+                                <Key size={20} className="text-green-400" />
+                            </div>
+                            <div className="flex-1">
+                                <h4 className="text-sm font-medium theme-text-primary mb-1">Save password?</h4>
+                                <p className="text-xs theme-text-muted mb-2">
+                                    Save credentials for <span className="font-medium">{pendingCredentials.site}</span>
+                                </p>
+                                <div className="text-xs theme-text-muted mb-3">
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-gray-500">Username:</span>
+                                        <span>{pendingCredentials.username}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-gray-500">Password:</span>
+                                        <span>{showPasswordInPrompt ? pendingCredentials.password : '••••••••'}</span>
+                                        <button
+                                            onClick={() => setShowPasswordInPrompt(!showPasswordInPrompt)}
+                                            className="p-0.5 theme-hover rounded"
+                                        >
+                                            {showPasswordInPrompt ? <EyeOff size={10} /> : <Eye size={10} />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={handleSavePassword}
+                                        className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs rounded font-medium"
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        onClick={() => { setShowPasswordPrompt(false); setPendingCredentials(null); }}
+                                        className="flex-1 px-3 py-1.5 theme-bg-tertiary theme-hover text-xs rounded"
+                                    >
+                                        Not now
+                                    </button>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => { setShowPasswordPrompt(false); setPendingCredentials(null); }}
+                                className="p-1 theme-hover rounded"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
