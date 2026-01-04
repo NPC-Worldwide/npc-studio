@@ -243,12 +243,86 @@ const dbQuery = (query, params = []) => {
 };
 
 
+// Parse .npcshrc file for environment variables
+function parseNpcshrc() {
+  const rcPath = path.join(os.homedir(), '.npcshrc');
+  const result = {};
+  try {
+    if (fs.existsSync(rcPath)) {
+      const content = fs.readFileSync(rcPath, 'utf-8');
+      const lines = content.split('\n');
+      for (const line of lines) {
+        // Match export VAR=value or VAR=value
+        const match = line.match(/^(?:export\s+)?(\w+)=(.*)$/);
+        if (match) {
+          let value = match[2].trim();
+          // Remove quotes if present
+          if ((value.startsWith('"') && value.endsWith('"')) ||
+              (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1);
+          }
+          result[match[1]] = value;
+        }
+      }
+    }
+  } catch (e) {
+    console.log('Error reading .npcshrc:', e.message);
+  }
+  return result;
+}
+
+// Read model/provider from environment or ctx file
+function getDefaultModelConfig() {
+  const yaml = require('js-yaml');
+  let model = 'llama3.2';
+  let provider = 'ollama';
+  let npc = 'sibiji';
+
+  // Read .npcshrc for env vars (since Electron doesn't source shell configs)
+  const npcshrcEnv = parseNpcshrc();
+
+  // Priority 1: Environment variables (from process.env or .npcshrc)
+  const chatModel = process.env.NPCSH_CHAT_MODEL || npcshrcEnv.NPCSH_CHAT_MODEL;
+  const chatProvider = process.env.NPCSH_CHAT_PROVIDER || npcshrcEnv.NPCSH_CHAT_PROVIDER;
+  const defaultNpc = process.env.NPCSH_DEFAULT_NPC || npcshrcEnv.NPCSH_DEFAULT_NPC;
+
+  if (chatModel) {
+    model = chatModel;
+  }
+  if (chatProvider) {
+    provider = chatProvider;
+  }
+  if (defaultNpc) {
+    npc = defaultNpc;
+  }
+
+  // Priority 2: Read from global npcsh.ctx if env vars not set
+  if (!chatModel) {
+    try {
+      const globalCtx = path.join(os.homedir(), '.npcsh', 'npc_team', 'npcsh.ctx');
+      if (fs.existsSync(globalCtx)) {
+        const ctxData = yaml.load(fs.readFileSync(globalCtx, 'utf-8')) || {};
+        if (ctxData.model) model = ctxData.model;
+        if (ctxData.provider) provider = ctxData.provider;
+        if (ctxData.npc) npc = ctxData.npc;
+      }
+    } catch (e) {
+      console.log('Error reading global ctx for default model:', e.message);
+    }
+  }
+
+  console.log('Default model config:', { model, provider, npc });
+  return { model, provider, npc };
+}
+
+const defaultModelConfig = getDefaultModelConfig();
+
 const DEFAULT_CONFIG = {
   baseDir: path.resolve(os.homedir(), '.npcsh'),
   stream: true,
-  model: 'llama3.2',
-  provider: 'ollama',
-  npc: 'sibiji',
+  model: defaultModelConfig.model,
+  provider: defaultModelConfig.provider,
+  npc: defaultModelConfig.npc,
 };
 
 function generateId() {
@@ -359,6 +433,22 @@ app.on('web-contents-created', (event, contents) => {
     }
   });
 
+  // Handle new window requests from webviews (ctrl+click, middle-click, target="_blank")
+  // Send to renderer to open in new tab instead of new window
+  if (contents.getType() === 'webview') {
+    contents.setWindowOpenHandler(({ url, disposition }) => {
+      // Send the URL to renderer to open in a new tab
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('browser-open-in-new-tab', {
+          url,
+          disposition // 'background-tab', 'foreground-tab', 'new-window', etc.
+        });
+      }
+      // Deny the new window - renderer will handle opening in tab
+      return { action: 'deny' };
+    });
+  }
+
   // Handle downloads from webviews - forward to renderer which has currentPath
   if (contents.getType() === 'webview') {
     const session = contents.session;
@@ -413,6 +503,17 @@ app.whenReady().then(async () => {
 
   try {
     log('Starting backend server...');
+    log(`Data directory: ${dataPath}`);
+
+    // Ensure the data directory and npcsh directories exist before starting backend
+    try {
+      fs.mkdirSync(dataPath, { recursive: true });
+      fs.mkdirSync(path.join(os.homedir(), '.npcsh', 'npc_team'), { recursive: true });
+      fs.mkdirSync(path.join(os.homedir(), '.npcsh', 'npc_team', 'jinxs'), { recursive: true });
+      log('Created necessary directories for backend');
+    } catch (dirErr) {
+      log(`Warning: Could not create directories: ${dirErr.message}`);
+    }
 
     // Check if user has configured a custom Python path for the backend
     const customPythonPath = getBackendPythonPath();
@@ -433,6 +534,24 @@ app.whenReady().then(async () => {
         : path.join(app.getAppPath(), 'dist', 'resources', 'backend', executableName);
     }
 
+    // Check if backend path exists
+    if (!customPythonPath && !fs.existsSync(backendPath)) {
+      log(`ERROR: Backend executable not found at: ${backendPath}`);
+      // Try to fall back to Python if available
+      const pythonPaths = ['python3', 'python'];
+      for (const pyPath of pythonPaths) {
+        try {
+          execSync(`${pyPath} -c "import npcpy"`, { stdio: 'ignore' });
+          log(`Falling back to system Python: ${pyPath}`);
+          backendPath = pyPath;
+          spawnArgs = ['-m', 'npcpy.serve'];
+          break;
+        } catch (e) {
+          // Python or npcpy not available
+        }
+      }
+    }
+
     log(`Using backend path: ${backendPath}${spawnArgs.length ? ' ' + spawnArgs.join(' ') : ''}`);
 
     backendProcess = spawn(backendPath, spawnArgs, {
@@ -440,10 +559,11 @@ app.whenReady().then(async () => {
       windowsHide: true,
       env: {
         ...process.env,
-        CORNERIA_DATA_DIR: dataPath,
         INCOGNIDE_PORT: '5337',
         FLASK_DEBUG: '1',
         PYTHONUNBUFFERED: '1',
+        PYTHONIOENCODING: 'utf-8',
+        HOME: os.homedir(),
       },
     });
 
@@ -452,22 +572,41 @@ app.whenReady().then(async () => {
     });
 
     backendProcess.stderr.on("data", (data) => {
-      logBackend(`stderr: ${data.toString().trim()}`);
+      const msg = data.toString().trim();
+      logBackend(`stderr: ${msg}`);
+      // Check for critical errors
+      if (msg.includes('ModuleNotFoundError') || msg.includes('ImportError')) {
+        log(`CRITICAL: Backend missing dependencies: ${msg}`);
+      }
     });
+
+    backendProcess.on('error', (err) => {
+      log(`Backend process error: ${err.message}`);
+    });
+
     backendProcess.on('close', (code) => {
       if (code !== 0) {
         logBackend(`Backend server exited with code: ${code}`);
       }
     });
 
-    
-   
     const serverReady = await waitForServer();
     if (!serverReady) {
-      console.error('Backend server failed to start in time');
-     
+      log('Backend server failed to start in time - check backend.log for details');
+      // Try to initialize npcsh directly if backend failed
+      try {
+        log('Attempting direct npcsh initialization...');
+        const initResult = execSync(`python3 -c "from npcsh._state import initialize_base_npcs_if_needed; import os; initialize_base_npcs_if_needed(os.path.expanduser('~/.npcsh/npcsh_history.db'))"`, {
+          timeout: 30000,
+          env: { ...process.env, HOME: os.homedir() }
+        });
+        log('Direct npcsh initialization completed');
+      } catch (initErr) {
+        log(`Direct npcsh initialization failed: ${initErr.message}`);
+      }
     }
   } catch (err) {
+    log(`Error spawning backend server: ${err.message}`);
     console.error('Error spawning backend server:', err);
   }
 
@@ -3745,10 +3884,11 @@ ipcMain.handle('setup:restartBackend', async () => {
       windowsHide: true,
       env: {
         ...process.env,
-        CORNERIA_DATA_DIR: dataPath,
         INCOGNIDE_PORT: '5337',
         FLASK_DEBUG: '1',
         PYTHONUNBUFFERED: '1',
+        PYTHONIOENCODING: 'utf-8',
+        HOME: os.homedir(),
       },
     });
 
@@ -6254,13 +6394,18 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       provider: data.provider,
       npc: data.npc,
       npcSource: data.npcSource || 'global',
-      attachments: data.attachments || [], 
-      executionMode: data.executionMode || 'chat', 
-      mcpServerPath: data.executionMode === 'tool_agent' ? data.mcpServerPath : undefined, 
-
-      jinxs: data.jinxs || [],  
-      tools: data.tools || [],     
-
+      attachments: data.attachments || [],
+      executionMode: data.executionMode || 'chat',
+      mcpServerPath: data.executionMode === 'tool_agent' ? data.mcpServerPath : undefined,
+      parentMessageId: data.parentMessageId,
+      isResend: data.isRerun || false,
+      jinxs: data.jinxs || [],
+      tools: data.tools || [],
+      // Pass frontend-generated message IDs so backend uses the same IDs
+      userMessageId: data.userMessageId,
+      assistantMessageId: data.assistantMessageId,
+      // For sub-branches: the parent of the user message (points to an assistant message)
+      userParentMessageId: data.userParentMessageId,
     };
     
     const response = await fetch(apiUrl, {
@@ -7332,6 +7477,7 @@ ipcMain.handle('getConversations', async (_, path) => {
             ch.reasoning_content,
             ch.tool_calls,
             ch.tool_results,
+            ch.parent_message_id,
             json_group_array(
                 json_object(
                     'id', ma.id,
@@ -7401,12 +7547,14 @@ ipcMain.handle('getConversations', async (_, path) => {
                 content,
                 reasoningContent: row.reasoning_content,
                 toolCalls,
-                toolResults
+                toolResults,
+                parentMessageId: row.parent_message_id
             };
             delete newRow.attachments_json;
             delete newRow.reasoning_content;
             delete newRow.tool_calls;
             delete newRow.tool_results;
+            delete newRow.parent_message_id;
             return newRow;
         });
 
@@ -7418,10 +7566,61 @@ ipcMain.handle('getConversations', async (_, path) => {
 
 
     ipcMain.handle('getDefaultConfig', () => {
-   
+
     console.log('CONFIG:', DEFAULT_CONFIG);
     return DEFAULT_CONFIG;
 
+  });
+
+  // Get project-level ctx settings (model/provider/npc) for a directory
+  ipcMain.handle('getProjectCtx', async (_, currentPath) => {
+    const yaml = require('js-yaml');
+    let result = { model: null, provider: null, npc: null };
+
+    // Read .npcshrc for env vars
+    const npcshrcEnv = parseNpcshrc();
+
+    // Check project npc_team folder first
+    try {
+      const npcTeamDir = path.join(currentPath, 'npc_team');
+      if (fs.existsSync(npcTeamDir)) {
+        const ctxFiles = fs.readdirSync(npcTeamDir).filter(f => f.endsWith('.ctx'));
+        if (ctxFiles.length > 0) {
+          const ctxData = yaml.load(fs.readFileSync(path.join(npcTeamDir, ctxFiles[0]), 'utf-8')) || {};
+          if (ctxData.model) result.model = ctxData.model;
+          if (ctxData.provider) result.provider = ctxData.provider;
+          if (ctxData.npc) result.npc = ctxData.npc;
+        }
+      }
+    } catch (e) {
+      console.log('Error reading project ctx:', e.message);
+    }
+
+    // Fall back to global ctx if project doesn't have settings
+    if (!result.model) {
+      try {
+        const globalCtx = path.join(os.homedir(), '.npcsh', 'npc_team', 'npcsh.ctx');
+        if (fs.existsSync(globalCtx)) {
+          const ctxData = yaml.load(fs.readFileSync(globalCtx, 'utf-8')) || {};
+          if (ctxData.model) result.model = ctxData.model;
+          if (ctxData.provider) result.provider = ctxData.provider;
+          if (ctxData.npc) result.npc = ctxData.npc;
+        }
+      } catch (e) {
+        console.log('Error reading global ctx:', e.message);
+      }
+    }
+
+    // Fall back to env variables from process.env or .npcshrc
+    if (!result.model) {
+      result.model = process.env.NPCSH_CHAT_MODEL || npcshrcEnv.NPCSH_CHAT_MODEL;
+    }
+    if (!result.provider) {
+      result.provider = process.env.NPCSH_CHAT_PROVIDER || npcshrcEnv.NPCSH_CHAT_PROVIDER;
+    }
+
+    console.log('getProjectCtx result:', result);
+    return result;
   });
 
   ipcMain.handle('getWorkingDirectory', () => {

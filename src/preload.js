@@ -10,6 +10,7 @@ readFileBuffer: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
 readDocxContent: (filePath) => 
   ipcRenderer.invoke('read-docx-content', filePath),
     getDefaultConfig: () => ipcRenderer.invoke('getDefaultConfig'),
+    getProjectCtx: (currentPath) => ipcRenderer.invoke('getProjectCtx', currentPath),
     readDirectoryStructure: (dirPath) => ipcRenderer.invoke('readDirectoryStructure', dirPath),
     goUpDirectory: (currentPath) => ipcRenderer.invoke('goUpDirectory', currentPath),
     readDirectory: (dirPath) => ipcRenderer.invoke('readDirectory', dirPath),
@@ -136,6 +137,13 @@ readDocxContent: (filePath) =>
         const handler = (_, data) => callback(data);
         ipcRenderer.on('browser-download-requested', handler);
         return () => ipcRenderer.removeListener('browser-download-requested', handler);
+    },
+
+    // Listen for new tab requests from main process (ctrl+click, middle-click on links)
+    onBrowserOpenInNewTab: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('browser-open-in-new-tab', handler);
+        return () => ipcRenderer.removeListener('browser-open-in-new-tab', handler);
     },
 
     onDownloadProgress: (callback) => {

@@ -255,12 +255,24 @@ const WebBrowserViewer = memo(({
         // IPC from main process is generally more reliable.
         // Assuming window.api.onBrowserShowContextMenu from Enpistu handles this.
 
-        // Handle links that try to open in new windows (target="_blank", window.open, etc.)
+        // Handle links that try to open in new windows (target="_blank", window.open, ctrl+click, middle-click)
         const handleNewWindow = (e) => {
             e.preventDefault();
             const url = e.url;
-            if (url && url !== 'about:blank') {
-                // Open in the same webview instead of blocking
+            if (!url || url === 'about:blank') return;
+
+            // Check disposition to determine if user wants new tab
+            // 'background-tab' = middle-click or ctrl+click
+            // 'foreground-tab' = shift+click or explicit new tab request
+            const shouldOpenInNewTab = e.disposition === 'background-tab' ||
+                                       e.disposition === 'foreground-tab' ||
+                                       e.disposition === 'new-window';
+
+            if (shouldOpenInNewTab && handleNewBrowserTab) {
+                // Open in a new tab within the same pane
+                handleNewBrowserTab(url);
+            } else {
+                // Open in the same webview (default behavior for regular link clicks)
                 webview.src = url;
             }
         };
@@ -325,6 +337,7 @@ const WebBrowserViewer = memo(({
     }, [currentPath, viewId, nodeId, setBrowserContextMenuPos, setRootLayoutNode]);
 
     // Effect to handle tab switching - navigate when paneData.browserUrl changes externally
+    // This should ONLY trigger when switching between tabs within this pane that have different URLs
     useEffect(() => {
         const webview = webviewRef.current;
         const paneUrl = contentDataRef.current[nodeId]?.browserUrl;
@@ -335,8 +348,11 @@ const WebBrowserViewer = memo(({
             return;
         }
 
-        // Only navigate if the paneUrl changed externally (tab switch) and differs from current
+        // Only navigate if the paneUrl changed externally (tab switch) and differs from current webview URL
         if (webview && paneUrl && hasInitializedRef.current && paneUrl !== lastKnownPaneUrlRef.current) {
+            // Get the current URL from the webview to compare
+            const currentWebviewUrl = webview.getURL?.() || '';
+
             let urlToLoad = paneUrl;
             if (!paneUrl.startsWith('http')) {
                 if (paneUrl === 'about:blank') {
@@ -346,8 +362,16 @@ const WebBrowserViewer = memo(({
                     urlToLoad = isLocalhost ? `http://${paneUrl}` : `https://${paneUrl}`;
                 }
             }
-            lastKnownPaneUrlRef.current = paneUrl;
-            webview.src = urlToLoad;
+
+            // Only actually navigate if the webview is showing a different URL
+            // This prevents reloading when just switching panes or re-rendering
+            if (currentWebviewUrl !== urlToLoad && currentWebviewUrl !== paneUrl) {
+                lastKnownPaneUrlRef.current = paneUrl;
+                webview.src = urlToLoad;
+            } else {
+                // Just update the ref without navigating
+                lastKnownPaneUrlRef.current = paneUrl;
+            }
         }
     });
 

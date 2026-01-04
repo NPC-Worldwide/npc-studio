@@ -202,6 +202,16 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
         onTabClose(index);
     }, [onTabClose]);
 
+    // Middle-click (auxclick with button 1) to close tab
+    const handleTabAuxClick = useCallback((e: React.MouseEvent, index: number) => {
+        // button 1 = middle mouse button
+        if (e.button === 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            onTabClose(index);
+        }
+    }, [onTabClose]);
+
     return (
         <div
             ref={tabBarRef}
@@ -227,6 +237,7 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
                     onDragOver={(e) => handleDragOver(e, index)}
                     onDrop={(e) => handleDrop(e, index)}
                     onClick={() => onTabSelect(index)}
+                    onAuxClick={(e) => handleTabAuxClick(e, index)}
                     className={`
                         flex items-center gap-1.5 pl-2 pr-6 py-1 rounded-t text-xs cursor-pointer
                         transition-colors group relative min-w-[40px] max-w-[150px]

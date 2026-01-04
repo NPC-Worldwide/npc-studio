@@ -62,13 +62,14 @@ const Sidebar = (props: any) => {
         setSelectedConvos, setActiveContentPaneId, setCurrentFile, setActiveConversationId,
         setDirectoryConversations, setFolderStructure, setGitCommitMessage, setGitLoading,
         setGitError, setGitStatus, setFilesCollapsed, setConversationsCollapsed, setWebsitesCollapsed,
+        sidebarSectionOrder, setSidebarSectionOrder,
         setInput, setContextMenuPos, setSidebarItemContextMenuPos, setSearchTerm,
         setIsSearching, setDeepSearchResults, setMessageSearchResults,
         setIsEditingPath, setEditedPath, setSettingsOpen, setProjectEnvEditorOpen, setBrowserUrlDialogOpen,
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
         setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed,
         createGraphViewerPane, createBrowserGraphPane, createDataLabelerPane,
-        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane, createTileJinxPane,
+        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane, createHelpPane, createTileJinxPane,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -3652,9 +3653,66 @@ return (
                 renderSearchResults()
             ) : (
                 <>
-                    {renderWebsiteList()}
-                    {renderFolderList(folderStructure)}
-                    {renderConversationList(directoryConversations)}
+                    {/* Render sections in user-defined order with drag-and-drop */}
+                    {(sidebarSectionOrder || ['websites', 'files', 'conversations']).map((sectionId: string, index: number) => {
+                        const handleDragStart = (e: React.DragEvent) => {
+                            e.dataTransfer.setData('text/plain', sectionId);
+                            e.dataTransfer.effectAllowed = 'move';
+                        };
+
+                        const handleDragOver = (e: React.DragEvent) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                        };
+
+                        const handleDrop = (e: React.DragEvent) => {
+                            e.preventDefault();
+                            const draggedId = e.dataTransfer.getData('text/plain');
+                            if (draggedId === sectionId || !setSidebarSectionOrder) return;
+
+                            const currentOrder = sidebarSectionOrder || ['websites', 'files', 'conversations'];
+                            const newOrder = [...currentOrder];
+                            const draggedIndex = newOrder.indexOf(draggedId);
+                            const targetIndex = newOrder.indexOf(sectionId);
+
+                            newOrder.splice(draggedIndex, 1);
+                            newOrder.splice(targetIndex, 0, draggedId);
+                            setSidebarSectionOrder(newOrder);
+                        };
+
+                        const renderSectionWithDrag = (content: React.ReactNode) => (
+                            <div
+                                key={sectionId}
+                                className="group/section flex"
+                                onDragOver={handleDragOver}
+                                onDrop={handleDrop}
+                            >
+                                {/* Drag handle - appears on hover, pushes content right */}
+                                <div
+                                    draggable
+                                    onDragStart={handleDragStart}
+                                    className="w-0 group-hover/section:w-4 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/section:opacity-100"
+                                    title="Drag to reorder"
+                                >
+                                    <GripVertical size={10} className="text-gray-500 hover:text-gray-300" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    {content}
+                                </div>
+                            </div>
+                        );
+
+                        switch (sectionId) {
+                            case 'websites':
+                                return renderSectionWithDrag(renderWebsiteList());
+                            case 'files':
+                                return renderSectionWithDrag(renderFolderList(folderStructure));
+                            case 'conversations':
+                                return renderSectionWithDrag(renderConversationList(directoryConversations));
+                            default:
+                                return null;
+                        }
+                    })}
                 </>
             )}
             {contextMenuPos && renderContextMenu()}
@@ -4139,6 +4197,7 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                             db: () => createDBToolPane?.(),
                             photo: () => createPhotoViewerPane?.(),
                             library: () => createLibraryViewerPane?.(),
+                            help: () => createHelpPane?.(),
                             datadash: () => createDataDashPane?.(),
                             graph: () => createGraphViewerPane?.(),
                             browsergraph: () => createBrowserGraphPane?.(),
@@ -4154,6 +4213,7 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                             Database: <Database size={16} />,
                             Image: <Image size={16} />,
                             BookOpen: <BookOpen size={16} />,
+                            Info: <Info size={16} />,
                             BarChart3: <BarChart3 size={16} />,
                             GitBranch: <GitBranch size={16} />,
                             Network: <Network size={16} />,

@@ -8,6 +8,12 @@ const highlightSearchTerm = (content: string, searchTerm: string): string => {
     return content.replace(regex, '**$1**');
 };
 
+// Strip source prefixes like "project:" or "global:" from NPC names
+const stripSourcePrefix = (name: string): string => {
+    if (!name) return name;
+    return name.replace(/^(project:|global:)/, '');
+};
+
 // Count approximate lines in content (rough estimate based on newlines and length)
 const countLines = (content: string): number => {
     if (!content) return 0;
@@ -273,7 +279,7 @@ export const ChatMessage = memo(({
             )}
 
             <div className="flex justify-between items-center text-xs theme-text-muted mb-1 opacity-80">
-                <span className="font-semibold">{message.role === 'user' ? 'You' : (message.npc || 'Agent')}</span>
+                <span className="font-semibold">{message.role === 'user' ? 'You' : (stripSourcePrefix(message.npc) || 'Agent')}</span>
                 <div className="flex items-center gap-2">
                     {message.role !== 'user' && message.model && (
                         <span className="truncate" title={message.model}>{message.model}</span>
@@ -535,11 +541,11 @@ export const ChatMessage = memo(({
                                                     ? 'bg-purple-600/30 border-purple-500 text-purple-200'
                                                     : 'bg-gray-700/30 border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500'
                                             }`}
-                                            title={`${run.model || 'unknown'} / ${run.npc || 'agent'}`}
+                                            title={`${run.model || 'unknown'} / ${stripSourcePrefix(run.npc) || 'agent'}`}
                                         >
                                             <span className="font-medium">{run.model?.slice(0, 12) || '?'}</span>
                                             {run.npc && run.npc !== 'agent' && (
-                                                <span className="ml-1 opacity-70">· {run.npc}</span>
+                                                <span className="ml-1 opacity-70">· {stripSourcePrefix(run.npc)}</span>
                                             )}
                                         </button>
                                     ))}
@@ -561,9 +567,9 @@ export const ChatMessage = memo(({
                                 </span>
                             )}
                             {message.npc && message.npc !== 'agent' && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-600/20 text-green-300 border border-green-600/30" title={`NPC: ${message.npc}`}>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-600/20 text-green-300 border border-green-600/30" title={`NPC: ${stripSourcePrefix(message.npc)}`}>
                                     <Bot size={10} />
-                                    {message.npc}
+                                    {stripSourcePrefix(message.npc)}
                                 </span>
                             )}
                             {message.jinxName && (

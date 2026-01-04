@@ -70,6 +70,12 @@ export const normalizePath = (path: string | null | undefined) => {
 
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 
+// Strip source prefixes like "project:" or "global:" from NPC names
+export const stripSourcePrefix = (name: string | undefined | null): string => {
+    if (!name) return '';
+    return name.replace(/^(project:|global:)/, '');
+};
+
 export const getFileIcon = (filename: string) => {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     const iconProps = { size: 16, className: "flex-shrink-0" };

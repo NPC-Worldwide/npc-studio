@@ -6,7 +6,7 @@ import {
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
     Image as ImageIcon, Tag, Folder, Users, Settings, Images, BookOpen,
     FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2, Maximize2, Minimize2,
-    FlaskConical
+    FlaskConical, HelpCircle
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
@@ -564,7 +564,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderExpViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
-            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderHelpPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -714,14 +714,15 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         paneData.activeTabIndex = 0;
                     }
                     // Add new content as new tab
+                    const browserUrl = draggedItem.url || draggedItem.browserUrl; // Support both property names
                     const newTabTitle = contentType === 'browser'
-                        ? (draggedItem.browserUrl || draggedItem.id || 'Browser')
+                        ? (browserUrl || draggedItem.id || 'Browser')
                         : (draggedItem.id?.split('/').pop() || contentType);
                     const newTab = {
                         id: `tab_${Date.now()}_${paneData.tabs.length}`,
                         contentType,
                         contentId: draggedItem.id,
-                        browserUrl: draggedItem.browserUrl, // Preserve browser URL from dragged item
+                        browserUrl: browserUrl, // Preserve browser URL from dragged item
                         fileContent: draggedItem.fileContent, // Preserve file content from dragged item
                         fileChanged: draggedItem.fileChanged, // Preserve file changed state
                         title: newTabTitle
@@ -741,8 +742,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     // Clear fileContent for new tab (will be loaded below if editor)
                     paneData.fileContent = null;
                     paneData.fileChanged = false;
-                    if (contentType === 'browser' && draggedItem.browserUrl) {
-                        paneData.browserUrl = draggedItem.browserUrl;
+                    if (contentType === 'browser' && browserUrl) {
+                        paneData.browserUrl = browserUrl;
                     }
 
                     // For editor files, load the content if not already loaded
@@ -772,6 +773,21 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 }
             } else {
                 performSplit(path, side, contentType, draggedItem.id);
+                // For browser splits, we need to set the browserUrl after performSplit creates the pane
+                // performSplit sets contentDataRef synchronously, so we can update it immediately
+                if (contentType === 'browser' && browserUrl) {
+                    // Find the newly created pane and set its browserUrl
+                    // performSplit creates a new pane ID, but we don't have access to it here
+                    // We need to update performSplit to accept additional data, or handle this differently
+                    // For now, we'll check all panes for new browser panes without a URL
+                    setTimeout(() => {
+                        Object.entries(contentDataRef.current).forEach(([id, data]) => {
+                            if (data.contentType === 'browser' && data.contentId === draggedItem.id && !data.browserUrl) {
+                                data.browserUrl = browserUrl;
+                            }
+                        });
+                    }, 0);
+                }
             }
             setDraggedItem(null);
             setDropTarget(null);
@@ -958,6 +974,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'library') {
             headerIcon = <BookOpen size={14} className="text-amber-400" />;
             headerTitle = 'Library';
+        } else if (contentType === 'help') {
+            headerIcon = <HelpCircle size={14} className="text-blue-400" />;
+            headerTitle = 'Help';
         } else if (contentType === 'projectenv') {
             headerIcon = <FolderCog size={14} className="text-orange-400" />;
             headerTitle = 'Project Environment';
@@ -978,7 +997,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             headerTitle = 'Data Dashboard';
         } else if (contentType === 'mindmap') {
             headerIcon = <Brain size={14} className="text-rose-400" />;
-            headerTitle = 'Mind Map';
+            headerTitle = 'Map Document';
         } else if (contentType === 'markdown-preview') {
             headerIcon = <FileIcon size={14} className="text-blue-400" />;
             headerTitle = `Preview: ${contentId?.split('/').pop() || 'Markdown'}`;
@@ -1210,6 +1229,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderTerminalView({ nodeId: node.id, shell: 'python3' });
                 case 'branches':
                     return renderBranchComparisonPane({ nodeId: node.id });
+                case 'help':
+                    return renderHelpPane({ nodeId: node.id });
                 default:
                     return null;
             }

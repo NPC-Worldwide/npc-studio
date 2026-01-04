@@ -83,6 +83,14 @@ interface ChatInputProps {
     npcsError: any;
     currentNPC: string;
     setCurrentNPC: (val: string) => void;
+    // Multi-select for broadcast
+    selectedModels: string[];
+    setSelectedModels: React.Dispatch<React.SetStateAction<string[]>>;
+    selectedNPCs: string[];
+    setSelectedNPCs: React.Dispatch<React.SetStateAction<string[]>>;
+    // Broadcast mode toggle
+    broadcastMode: boolean;
+    setBroadcastMode: (val: boolean) => void;
     // MCP
     availableMcpServers: any[];
     mcpServerPath: string;
@@ -123,6 +131,8 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
         currentProvider, setCurrentProvider, favoriteModels, toggleFavoriteModel,
         showAllModels, setShowAllModels, modelsToDisplay, ollamaToolModels, setError,
         availableNPCs, npcsLoading, npcsError, currentNPC, setCurrentNPC,
+        selectedModels, setSelectedModels, selectedNPCs, setSelectedNPCs,
+        broadcastMode, setBroadcastMode,
         availableMcpServers, mcpServerPath, setMcpServerPath,
         selectedMcpTools, setSelectedMcpTools, availableMcpTools, setAvailableMcpTools,
         mcpToolsLoading, setMcpToolsLoading, mcpToolsError, setMcpToolsError,
@@ -140,8 +150,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
     const mcpDropdownRef = useRef<HTMLDivElement>(null);
 
     // Multi-select dropdowns for broadcasting to multiple models/NPCs
-    const [selectedModels, setSelectedModels] = useState<string[]>([]);
-    const [selectedNPCs, setSelectedNPCs] = useState<string[]>([]);
+    // selectedModels and selectedNPCs now come from props (persisted at Enpistu level)
     const [showModelsDropdown, setShowModelsDropdown] = useState(false);
     const [showNpcsDropdown, setShowNpcsDropdown] = useState(false);
     const modelsDropdownRef = useRef<HTMLDivElement>(null);
@@ -223,18 +232,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
         }
     }, [executionMode, selectedJinx]);
 
-    // Sync selected models/NPCs with current selections when they change
-    useEffect(() => {
-        if (currentModel && !selectedModels.includes(currentModel)) {
-            setSelectedModels([currentModel]);
-        }
-    }, [currentModel]);
-
-    useEffect(() => {
-        if (currentNPC && !selectedNPCs.includes(currentNPC)) {
-            setSelectedNPCs([currentNPC]);
-        }
-    }, [currentNPC]);
+    // Note: selectedModels/selectedNPCs sync is now handled at Enpistu level
 
     // Close MCP dropdown on ESC or click outside
     useEffect(() => {
@@ -779,8 +777,14 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             onKeyDown={(e) => {
                                 if (!isStreaming && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                                     e.preventDefault();
-                                    handleInputSubmit(e, { voiceInput: usedVoiceInput });
-                                    setUsedVoiceInput(false);
+                                    // Auto-broadcast if multiple models/NPCs selected
+                                    const shouldBroadcast = onBroadcast && selectedModels.length > 0 && selectedNPCs.length > 0 && (selectedModels.length > 1 || selectedNPCs.length > 1);
+                                    if (shouldBroadcast) {
+                                        onBroadcast(selectedModels, selectedNPCs);
+                                    } else {
+                                        handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                        setUsedVoiceInput(false);
+                                    }
                                     setIsInputExpanded(false);
                                 }
                             }}
@@ -798,7 +802,16 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 Stop
                             </button>
                         ) : (
-                            <button onClick={(e) => { handleInputSubmit(e, { voiceInput: usedVoiceInput }); setUsedVoiceInput(false); setIsInputExpanded(false); }} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center gap-1 disabled:opacity-50">
+                            <button onClick={(e) => {
+                                const shouldBroadcast = onBroadcast && selectedModels.length > 0 && selectedNPCs.length > 0 && (selectedModels.length > 1 || selectedNPCs.length > 1);
+                                if (shouldBroadcast) {
+                                    onBroadcast(selectedModels, selectedNPCs);
+                                } else {
+                                    handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                    setUsedVoiceInput(false);
+                                }
+                                setIsInputExpanded(false);
+                            }} disabled={!canSend} className="theme-button-success text-white rounded-lg px-4 py-2 text-sm flex items-center gap-1 disabled:opacity-50">
                                 <Send size={16}/> Send
                             </button>
                         )}
@@ -835,11 +848,221 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     </div>
                 )}
 
-                {/* Modern selector bar - 2 rows: Row1: mode|model|npc, Row2: context|params */}
-                <div className={`flex flex-col gap-1 px-1.5 py-1.5 relative z-30 ${isStreaming ? 'opacity-50 pointer-events-none' : ''}`}>
-                <div className="grid grid-cols-3 gap-1">
+                {/* Input area - moved above selectors */}
+                <div className="flex-1 overflow-hidden flex flex-col">
+                    <ContextFilesPanel
+                        isCollapsed={contextFilesCollapsed}
+                        onToggleCollapse={() => setContextFilesCollapsed(!contextFilesCollapsed)}
+                        contextFiles={contextFiles}
+                        setContextFiles={setContextFiles}
+                        currentPath={currentPath}
+                    />
+                    {renderAttachmentThumbnails()}
+
+                    <div className="flex-1 flex items-stretch p-2 gap-2">
+                        <div className="flex-grow relative h-full">
+                            {isJinxMode ? (
+                                <div className="flex flex-col h-full">
+                                    {/* Required inputs only (no defaults) - config inputs are in the settings dropdown */}
+                                    <div className="flex-1 p-2 overflow-y-auto">
+                                        {jinxRequiredInputs.length > 0 ? (
+                                            <div className={`grid gap-4 ${
+                                                jinxRequiredInputs.length <= 3 ? 'grid-cols-1' : 'grid-cols-2'
+                                            }`}>
+                                                {jinxRequiredInputs.map((inp: any, idx: number) => {
+                                                    const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command', 'description'].includes(inp.name.toLowerCase());
+                                                    const isFirst = idx === 0;
+                                                    const placeholder = getInputPlaceholder(inp.name);
+
+                                                    return (
+                                                        <div key={`${selectedJinx.name}-${inp.name}`} className={`relative ${isTextArea ? 'col-span-full' : ''}`}>
+                                                            <label className="text-[10px] text-purple-400 uppercase mb-1 block font-medium tracking-wide">{inp.name}</label>
+                                                            {isTextArea ? (
+                                                                <textarea
+                                                                    ref={isFirst ? firstJinxInputRef as any : undefined}
+                                                                    tabIndex={idx + 1}
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inp.name] || ''}
+                                                                    onChange={(e) => setJinxInputValues((prev: any) => ({
+                                                                        ...prev,
+                                                                        [selectedJinx.name]: { ...prev[selectedJinx.name], [inp.name]: e.target.value }
+                                                                    }))}
+                                                                    placeholder={placeholder}
+                                                                    className="w-full text-sm bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all resize-none placeholder-gray-500"
+                                                                    rows={3}
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            ) : (
+                                                                <input
+                                                                    ref={isFirst ? firstJinxInputRef as any : undefined}
+                                                                    tabIndex={idx + 1}
+                                                                    type="text"
+                                                                    value={jinxInputValues[selectedJinx.name]?.[inp.name] || ''}
+                                                                    onChange={(e) => setJinxInputValues((prev: any) => ({
+                                                                        ...prev,
+                                                                        [selectedJinx.name]: { ...prev[selectedJinx.name], [inp.name]: e.target.value }
+                                                                    }))}
+                                                                    placeholder={placeholder}
+                                                                    className="w-full text-sm bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all placeholder-gray-500"
+                                                                    disabled={isStreaming}
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                                                {jinxConfigInputs.length > 0 ? 'Configure defaults above ↑' : 'No inputs'}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="relative h-full">
+                                    <textarea
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            // Handle Enter to load suggested jinx
+                                            if (showJinxSuggestion && detectedJinx && e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                setExecutionMode(detectedJinx.name);
+                                                setSelectedJinx(detectedJinx);
+                                                setInput('');
+                                                setShowJinxSuggestion(false);
+                                                setDetectedJinx(null);
+                                                return;
+                                            }
+                                            if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                // Auto-broadcast if multiple models/NPCs selected
+                                                const shouldBroadcast = onBroadcast && selectedModels.length > 0 && selectedNPCs.length > 0 && (selectedModels.length > 1 || selectedNPCs.length > 1);
+                                                if (shouldBroadcast) {
+                                                    onBroadcast(selectedModels, selectedNPCs);
+                                                } else {
+                                                    handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                                    setUsedVoiceInput(false);
+                                                }
+                                            }
+                                            // Escape to dismiss suggestion
+                                            if (e.key === 'Escape' && showJinxSuggestion) {
+                                                setShowJinxSuggestion(false);
+                                                setDetectedJinx(null);
+                                            }
+                                        }}
+                                        onPaste={handlePaste}
+                                        placeholder={isStreaming ? "Streaming..." : "Type a message... (use /jinx to run a jinx)"}
+                                        className={`w-full h-full theme-input text-sm rounded-lg pl-3 pr-16 py-2 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70' : ''}`}
+                                        disabled={isStreaming}
+                                    />
+                                    {/* Jinx suggestion popup */}
+                                    {showJinxSuggestion && detectedJinx && (
+                                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-gradient-to-r from-purple-900/95 to-pink-900/95 backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden z-50">
+                                            <button
+                                                onClick={() => {
+                                                    setExecutionMode(detectedJinx.name);
+                                                    setSelectedJinx(detectedJinx);
+                                                    setInput('');
+                                                    setShowJinxSuggestion(false);
+                                                    setDetectedJinx(null);
+                                                }}
+                                                className="w-full px-3 py-2 flex items-center gap-3 hover:bg-white/10 transition-colors"
+                                            >
+                                                <div className="w-8 h-8 rounded-lg bg-purple-500/30 flex items-center justify-center flex-shrink-0">
+                                                    <Zap size={16} className="text-purple-300" />
+                                                </div>
+                                                <div className="flex-1 text-left">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-medium text-purple-100">{detectedJinx.name}</span>
+                                                        {detectedJinx.group && (
+                                                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300">{detectedJinx.group}</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-[10px] text-purple-300/70">
+                                                        {detectedJinx.inputs?.length || 0} input{(detectedJinx.inputs?.length || 0) !== 1 ? 's' : ''} • Press Enter to load
+                                                    </div>
+                                                </div>
+                                                <div className="text-[10px] text-purple-400 bg-purple-500/20 px-2 py-1 rounded">
+                                                    ↵ Enter
+                                                </div>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="absolute top-1 right-1 flex gap-1">
+                                <button onClick={() => setIsInputMinimized(true)} className="p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100" title="Minimize">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+                                </button>
+                                <button onClick={() => setIsInputExpanded(true)} className="p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100" title="Expand">
+                                    <Maximize2 size={12} />
+                                </button>
+                            </div>
+                            <div className="absolute bottom-1 right-1 flex gap-1">
+                                <button
+                                    onClick={toggleRecording}
+                                    disabled={isStreaming}
+                                    className={`p-1 rounded theme-hover opacity-50 group-hover:opacity-100 ${isStreaming ? 'opacity-30' : ''} ${isRecording ? 'text-red-500 animate-pulse' : usedVoiceInput ? 'text-green-400' : 'theme-text-muted hover:theme-text-primary'}`}
+                                    title={isRecording ? "Stop recording" : usedVoiceInput ? "Voice mode - response will be spoken" : "Start voice input"}
+                                >
+                                    {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+                                </button>
+                                <button onClick={handleAttachFileClick} disabled={isStreaming} className={`p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100 ${isStreaming ? 'opacity-30' : ''}`} title="Attach file">
+                                    <Paperclip size={16} />
+                                </button>
+                            </div>
+                            {recordingError && (
+                                <div className="absolute bottom-8 right-1 bg-red-500/90 text-white text-xs px-2 py-1 rounded">
+                                    {recordingError}
+                                </div>
+                            )}
+                        </div>
+
+                        {isStreaming ? (
+                            <button onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end">
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
+                            </button>
+                        ) : (
+                            <button
+                                onClick={(e) => {
+                                    // Auto-broadcast if multiple models/NPCs selected
+                                    const shouldBroadcast = onBroadcast && selectedModels.length > 0 && selectedNPCs.length > 0 && (selectedModels.length > 1 || selectedNPCs.length > 1);
+                                    if (shouldBroadcast && canSend) {
+                                        onBroadcast(selectedModels, selectedNPCs);
+                                    } else {
+                                        handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                        setUsedVoiceInput(false);
+                                    }
+                                }}
+                                disabled={!canSend}
+                                className={`text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end disabled:opacity-50 ${
+                                    selectedModels.length > 1 || selectedNPCs.length > 1
+                                        ? 'bg-purple-600 hover:bg-purple-500'
+                                        : 'theme-button-success'
+                                }`}
+                                title={selectedModels.length > 1 || selectedNPCs.length > 1
+                                    ? `Send to ${selectedModels.length * selectedNPCs.length} combinations`
+                                    : 'Send message'}
+                            >
+                                {selectedModels.length > 1 || selectedNPCs.length > 1 ? (
+                                    <>
+                                        <GitBranch size={14} />
+                                        <span className="text-xs">{selectedModels.length * selectedNPCs.length}</span>
+                                    </>
+                                ) : (
+                                    <Send size={16}/>
+                                )}
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Compact selector strip - now below input */}
+                <div className={`px-1.5 py-1 relative z-30 ${isStreaming ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className="flex items-center gap-1">
                     {/* Mode tile */}
-                    <div className="relative">
+                    <div className="relative flex-1">
                         <button
                             className={`w-full h-9 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 ${
                                 executionMode === 'chat'
@@ -918,7 +1141,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     </div>
 
                     {/* Model tile - multi-select */}
-                    <div className="relative" ref={modelsDropdownRef}>
+                    <div className="relative flex-1" ref={modelsDropdownRef}>
                         <button
                             className={`w-full h-9 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 ${
                                 selectedModels.length > 1
@@ -952,9 +1175,14 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     />
                                 </div>
                                 <div className="px-2 py-1 border-b border-white/5 flex items-center justify-between">
-                                    <span className="text-[9px] text-gray-500">{filteredModels.length} models</span>
+                                    <button
+                                        onClick={() => setBroadcastMode(!broadcastMode)}
+                                        className={`text-[9px] px-1.5 py-0.5 rounded ${broadcastMode ? 'bg-purple-500/30 text-purple-300' : 'bg-white/5 text-gray-500 hover:text-gray-300'}`}
+                                    >
+                                        {broadcastMode ? '● Multi' : '○ Single'}
+                                    </button>
                                     <div className="flex gap-2">
-                                        <button onClick={() => setSelectedModels(filteredModels.map((m: any) => m.value))} className="text-[9px] text-blue-400 hover:text-blue-300">All</button>
+                                        {broadcastMode && <button onClick={() => setSelectedModels(filteredModels.map((m: any) => m.value))} className="text-[9px] text-blue-400 hover:text-blue-300">All</button>}
                                         <button onClick={() => setSelectedModels(currentModel ? [currentModel] : [])} className="text-[9px] text-gray-400 hover:text-gray-300">Reset</button>
                                         <button onClick={() => toggleFavoriteModel(currentModel)} className={`${favoriteModels.has(currentModel) ? 'text-yellow-400' : 'text-gray-500 hover:text-yellow-400'}`}><Star size={10} /></button>
                                         <button onClick={() => setShowAllModels(!showAllModels)} className={`${!showAllModels && favoriteModels.size > 0 ? 'text-blue-400' : 'text-gray-500'}`}><ListFilter size={10} /></button>
@@ -965,7 +1193,16 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                         const checked = selectedModels.includes(m.value);
                                         return (
                                             <div key={`${m.value}-${idx}`} className={`px-2 py-1.5 text-xs rounded cursor-pointer flex items-center gap-2 transition-all ${checked ? 'bg-blue-500/20 text-blue-200' : 'hover:bg-white/5'}`}
-                                                onClick={() => { setSelectedModels(prev => prev.includes(m.value) ? (prev.length === 1 ? prev : prev.filter(x => x !== m.value)) : [...prev, m.value]); if (!checked) { setCurrentModel(m.value); if (m.provider) setCurrentProvider(m.provider); } }}>
+                                                onClick={() => {
+                                                    if (broadcastMode) {
+                                                        // Multi-select: toggle
+                                                        setSelectedModels(prev => prev.includes(m.value) ? (prev.length === 1 ? prev : prev.filter(x => x !== m.value)) : [...prev, m.value]);
+                                                    } else {
+                                                        // Single-select: replace
+                                                        setSelectedModels([m.value]);
+                                                    }
+                                                    if (!checked) { setCurrentModel(m.value); if (m.provider) setCurrentProvider(m.provider); }
+                                                }}>
                                                 <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'bg-blue-500 border-blue-500' : 'border-gray-600'}`}>
                                                     {checked && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                                                 </div>
@@ -984,7 +1221,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     </div>
 
                     {/* NPC tile - multi-select */}
-                    <div className="relative" ref={npcsDropdownRef}>
+                    <div className="relative flex-1" ref={npcsDropdownRef}>
                         <button
                             className={`w-full h-9 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 ${
                                 selectedNPCs.length > 1
@@ -1018,19 +1255,34 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     />
                                 </div>
                                 <div className="px-2 py-1 border-b border-white/5 flex items-center justify-between">
-                                    <span className="text-[9px] text-gray-500">{filteredNPCs.length} NPCs</span>
+                                    <button
+                                        onClick={() => setBroadcastMode(!broadcastMode)}
+                                        className={`text-[9px] px-1.5 py-0.5 rounded ${broadcastMode ? 'bg-purple-500/30 text-purple-300' : 'bg-white/5 text-gray-500 hover:text-gray-300'}`}
+                                    >
+                                        {broadcastMode ? '● Multi' : '○ Single'}
+                                    </button>
                                     <div className="flex gap-2">
-                                        <button onClick={() => setSelectedNPCs(filteredNPCs.map((n: any) => n.value))} className="text-[9px] text-green-400 hover:text-green-300">All</button>
-                                        <button onClick={() => setSelectedNPCs(currentNPC ? [currentNPC] : [])} className="text-[9px] text-gray-400 hover:text-gray-300">Reset</button>
+                                        {broadcastMode && <button onClick={() => setSelectedNPCs(filteredNPCs.map((n: any) => n.value))} className="text-[9px] text-green-400 hover:text-green-300">All</button>}
+                                        <button onClick={() => setSelectedNPCs([])} className="text-[9px] text-gray-400 hover:text-gray-300">Reset</button>
                                     </div>
                                 </div>
                                 <div className="max-h-64 overflow-y-auto p-1">
                                     {filteredNPCs.map((npc: any) => {
-                                        const checked = selectedNPCs.includes(npc.value);
+                                        const npcKey = npc.value;
+                                        const checked = selectedNPCs.includes(npcKey);
                                         const teamPath = npc.source === 'project' ? '📁' : npc.source === 'global' ? '🌐' : '';
                                         return (
                                             <div key={`${npc.source}-${npc.value}`} className={`px-2 py-1.5 text-xs rounded cursor-pointer flex items-center gap-2 transition-all ${checked ? 'bg-green-500/20 text-green-200' : 'hover:bg-white/5'}`}
-                                                onClick={() => { setSelectedNPCs(prev => prev.includes(npc.value) ? (prev.length === 1 ? prev : prev.filter(x => x !== npc.value)) : [...prev, npc.value]); if (!checked) setCurrentNPC(npc.value); }}>
+                                                onClick={() => {
+                                                    if (broadcastMode) {
+                                                        // Multi-select: toggle
+                                                        setSelectedNPCs(prev => prev.includes(npcKey) ? (prev.length === 1 ? prev : prev.filter(x => x !== npcKey)) : [...prev, npcKey]);
+                                                    } else {
+                                                        // Single-select: replace
+                                                        setSelectedNPCs([npcKey]);
+                                                    }
+                                                    if (!checked) setCurrentNPC(npc.value);
+                                                }}>
                                                 <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'bg-green-500 border-green-500' : 'border-gray-600'}`}>
                                                     {checked && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                                                 </div>
@@ -1047,29 +1299,9 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                         )}
                     </div>
 
-                </div>
-
-                {/* Row 2: Context files + Params */}
-                <div className="grid grid-cols-2 gap-1">
-                    {/* Context files tile */}
-                    <button
-                        className={`w-full h-8 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 ${
-                            contextFiles.length > 0
-                                ? 'bg-gradient-to-br from-blue-500/20 to-cyan-600/20 text-blue-300 border border-blue-500/30'
-                                : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'
-                        }`}
-                        onClick={() => setContextFilesCollapsed(!contextFilesCollapsed)}
-                    >
-                        <Paperclip size={11} className="flex-shrink-0" />
-                        <span className="truncate">
-                            {contextFiles.length > 0 ? `${contextFiles.length} file${contextFiles.length > 1 ? 's' : ''}` : 'Context'}
-                        </span>
-                        <ChevronDown size={10} className={`transition-transform flex-shrink-0 ${!contextFilesCollapsed ? 'rotate-180' : ''}`} />
-                    </button>
-
                     {/* Params tile OR Jinx Config tile when in jinx mode */}
                     {isJinxMode ? (
-                        <div className="relative" ref={jinxConfigDropdownRef}>
+                        <div className="relative flex-1" ref={jinxConfigDropdownRef}>
                             <button
                                 className="w-full h-8 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 bg-gradient-to-br from-purple-500/20 to-pink-500/20 text-purple-300 border border-purple-500/30 hover:from-purple-500/30 hover:to-pink-500/30 px-2"
                                 onClick={() => { setShowJinxConfigDropdown(!showJinxConfigDropdown); setShowModelsDropdown(false); setShowNpcsDropdown(false); setShowJinxDropdown(false); }}
@@ -1113,7 +1345,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             )}
                         </div>
                     ) : (
-                        <div className="relative" ref={paramsDropdownRef}>
+                        <div className="relative flex-1" ref={paramsDropdownRef}>
                             <button
                                 className="w-full h-8 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 px-2"
                                 onClick={() => { setShowParamsDropdown(!showParamsDropdown); setShowModelsDropdown(false); setShowNpcsDropdown(false); setShowJinxDropdown(false); }}
@@ -1256,205 +1488,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                 </div>
                 </div>
 
-                {/* Broadcast indicator - shown when multi-selecting */}
-                {(selectedModels.length > 1 || selectedNPCs.length > 1) && (
-                    <div className="flex items-center justify-center gap-2 py-1 text-[10px] text-purple-300 bg-purple-500/10 border-b border-purple-500/20">
-                        <GitBranch size={10} />
-                        <span>Broadcasting to {selectedModels.length} model{selectedModels.length > 1 ? 's' : ''} × {selectedNPCs.length} NPC{selectedNPCs.length > 1 ? 's' : ''} = {selectedModels.length * selectedNPCs.length} runs</span>
-                    </div>
-                )}
-
-                <div className="flex-1 overflow-hidden flex flex-col">
-                    <ContextFilesPanel
-                        isCollapsed={contextFilesCollapsed}
-                        onToggleCollapse={() => setContextFilesCollapsed(!contextFilesCollapsed)}
-                        contextFiles={contextFiles}
-                        setContextFiles={setContextFiles}
-                        currentPath={currentPath}
-                    />
-                    {renderAttachmentThumbnails()}
-
-                    <div className="flex-1 flex items-stretch p-2 gap-2">
-                        <div className="flex-grow relative h-full">
-                            {isJinxMode ? (
-                                <div className="flex flex-col h-full">
-                                    {/* Required inputs only (no defaults) - config inputs are in the settings dropdown */}
-                                    <div className="flex-1 p-2 overflow-y-auto">
-                                        {jinxRequiredInputs.length > 0 ? (
-                                            <div className={`grid gap-4 ${
-                                                jinxRequiredInputs.length <= 3 ? 'grid-cols-1' : 'grid-cols-2'
-                                            }`}>
-                                                {jinxRequiredInputs.map((inp: any, idx: number) => {
-                                                    const isTextArea = ['code', 'prompt', 'query', 'content', 'text', 'command', 'description'].includes(inp.name.toLowerCase());
-                                                    const isFirst = idx === 0;
-                                                    const placeholder = getInputPlaceholder(inp.name);
-
-                                                    return (
-                                                        <div key={`${selectedJinx.name}-${inp.name}`} className={`relative ${isTextArea ? 'col-span-full' : ''}`}>
-                                                            <label className="text-[10px] text-purple-400 uppercase mb-1 block font-medium tracking-wide">{inp.name}</label>
-                                                            {isTextArea ? (
-                                                                <textarea
-                                                                    ref={isFirst ? firstJinxInputRef as any : undefined}
-                                                                    tabIndex={idx + 1}
-                                                                    value={jinxInputValues[selectedJinx.name]?.[inp.name] || ''}
-                                                                    onChange={(e) => setJinxInputValues((prev: any) => ({
-                                                                        ...prev,
-                                                                        [selectedJinx.name]: { ...prev[selectedJinx.name], [inp.name]: e.target.value }
-                                                                    }))}
-                                                                    placeholder={placeholder}
-                                                                    className="w-full text-sm bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all resize-none placeholder-gray-500"
-                                                                    rows={3}
-                                                                    disabled={isStreaming}
-                                                                />
-                                                            ) : (
-                                                                <input
-                                                                    ref={isFirst ? firstJinxInputRef as any : undefined}
-                                                                    tabIndex={idx + 1}
-                                                                    type="text"
-                                                                    value={jinxInputValues[selectedJinx.name]?.[inp.name] || ''}
-                                                                    onChange={(e) => setJinxInputValues((prev: any) => ({
-                                                                        ...prev,
-                                                                        [selectedJinx.name]: { ...prev[selectedJinx.name], [inp.name]: e.target.value }
-                                                                    }))}
-                                                                    placeholder={placeholder}
-                                                                    className="w-full text-sm bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all placeholder-gray-500"
-                                                                    disabled={isStreaming}
-                                                                />
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-                                                {jinxConfigInputs.length > 0 ? 'Configure defaults above ↑' : 'No inputs'}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="relative h-full">
-                                    <textarea
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            // Handle Enter to load suggested jinx
-                                            if (showJinxSuggestion && detectedJinx && e.key === 'Enter' && !e.shiftKey) {
-                                                e.preventDefault();
-                                                setExecutionMode(detectedJinx.name);
-                                                setSelectedJinx(detectedJinx);
-                                                setInput('');
-                                                setShowJinxSuggestion(false);
-                                                setDetectedJinx(null);
-                                                return;
-                                            }
-                                            if (!isStreaming && e.key === 'Enter' && !e.shiftKey) {
-                                                e.preventDefault();
-                                                handleInputSubmit(e, { voiceInput: usedVoiceInput });
-                                                setUsedVoiceInput(false);
-                                            }
-                                            // Escape to dismiss suggestion
-                                            if (e.key === 'Escape' && showJinxSuggestion) {
-                                                setShowJinxSuggestion(false);
-                                                setDetectedJinx(null);
-                                            }
-                                        }}
-                                        onPaste={handlePaste}
-                                        placeholder={isStreaming ? "Streaming..." : "Type a message... (use /jinx to run a jinx)"}
-                                        className={`w-full h-full theme-input text-sm rounded-lg pl-3 pr-16 py-2 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70' : ''}`}
-                                        disabled={isStreaming}
-                                    />
-                                    {/* Jinx suggestion popup */}
-                                    {showJinxSuggestion && detectedJinx && (
-                                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-gradient-to-r from-purple-900/95 to-pink-900/95 backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden z-50">
-                                            <button
-                                                onClick={() => {
-                                                    setExecutionMode(detectedJinx.name);
-                                                    setSelectedJinx(detectedJinx);
-                                                    setInput('');
-                                                    setShowJinxSuggestion(false);
-                                                    setDetectedJinx(null);
-                                                }}
-                                                className="w-full px-3 py-2 flex items-center gap-3 hover:bg-white/10 transition-colors"
-                                            >
-                                                <div className="w-8 h-8 rounded-lg bg-purple-500/30 flex items-center justify-center flex-shrink-0">
-                                                    <Zap size={16} className="text-purple-300" />
-                                                </div>
-                                                <div className="flex-1 text-left">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-sm font-medium text-purple-100">{detectedJinx.name}</span>
-                                                        {detectedJinx.group && (
-                                                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300">{detectedJinx.group}</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-[10px] text-purple-300/70">
-                                                        {detectedJinx.inputs?.length || 0} input{(detectedJinx.inputs?.length || 0) !== 1 ? 's' : ''} • Press Enter to load
-                                                    </div>
-                                                </div>
-                                                <div className="text-[10px] text-purple-400 bg-purple-500/20 px-2 py-1 rounded">
-                                                    ↵ Enter
-                                                </div>
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            <div className="absolute top-1 right-1 flex gap-1">
-                                <button onClick={() => setIsInputMinimized(true)} className="p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100" title="Minimize">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
-                                </button>
-                                <button onClick={() => setIsInputExpanded(true)} className="p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100" title="Expand">
-                                    <Maximize2 size={12} />
-                                </button>
-                            </div>
-                            <div className="absolute bottom-1 right-1 flex gap-1">
-                                <button
-                                    onClick={toggleRecording}
-                                    disabled={isStreaming}
-                                    className={`p-1 rounded theme-hover opacity-50 group-hover:opacity-100 ${isStreaming ? 'opacity-30' : ''} ${isRecording ? 'text-red-500 animate-pulse' : usedVoiceInput ? 'text-green-400' : 'theme-text-muted hover:theme-text-primary'}`}
-                                    title={isRecording ? "Stop recording" : usedVoiceInput ? "Voice mode - response will be spoken" : "Start voice input"}
-                                >
-                                    {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
-                                </button>
-                                <button onClick={handleAttachFileClick} disabled={isStreaming} className={`p-1 theme-text-muted hover:theme-text-primary rounded theme-hover opacity-50 group-hover:opacity-100 ${isStreaming ? 'opacity-30' : ''}`} title="Attach file">
-                                    <Paperclip size={16} />
-                                </button>
-                            </div>
-                            {recordingError && (
-                                <div className="absolute bottom-8 right-1 bg-red-500/90 text-white text-xs px-2 py-1 rounded">
-                                    {recordingError}
-                                </div>
-                            )}
-                        </div>
-
-                        {isStreaming ? (
-                            <button onClick={handleInterruptStream} className="theme-button-danger text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
-                            </button>
-                        ) : onBroadcast && selectedModels.length > 0 && selectedNPCs.length > 0 && (selectedModels.length > 1 || selectedNPCs.length > 1) ? (
-                            <button
-                                onClick={(e) => {
-                                    if (canSend) {
-                                        onBroadcast(selectedModels, selectedNPCs);
-                                    }
-                                }}
-                                disabled={!canSend}
-                                className="theme-button-success text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end disabled:opacity-50 bg-purple-600 hover:bg-purple-500"
-                                title={`Broadcast to ${selectedModels.length * selectedNPCs.length} combinations`}
-                            >
-                                <GitBranch size={14} />
-                                <span className="text-xs">{selectedModels.length * selectedNPCs.length}</span>
-                            </button>
-                        ) : (
-                            <button onClick={(e) => { handleInputSubmit(e, { voiceInput: usedVoiceInput }); setUsedVoiceInput(false); }} disabled={!canSend} className="theme-button-success text-white rounded-lg px-3 py-2 text-sm flex items-center gap-1 flex-shrink-0 self-end disabled:opacity-50">
-                                <Send size={16}/>
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                {/* MCP tools for tool_agent mode */}
+{/* MCP tools for tool_agent mode */}
                 {executionMode === 'tool_agent' && (
                     <div className="px-2 pb-1 border-t theme-border overflow-visible">
                         <div className="relative w-1/2" ref={mcpDropdownRef}>
