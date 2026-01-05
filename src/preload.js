@@ -78,6 +78,7 @@ readDocxContent: (filePath) =>
     browserBack: (args) => ipcRenderer.invoke('browser-back', args),
     browserForward: (args) => ipcRenderer.invoke('browser-forward', args),
     browserRefresh: (args) => ipcRenderer.invoke('browser-refresh', args),
+    browserHardRefresh: (args) => ipcRenderer.invoke('browser-hard-refresh', args),
     browserGetSelectedText: (args) => ipcRenderer.invoke('browser-get-selected-text', args),
     browserAddToHistory: (args) => ipcRenderer.invoke('browser:addToHistory', args),
     browserGetHistory: (args) => ipcRenderer.invoke('browser:getHistory', args),

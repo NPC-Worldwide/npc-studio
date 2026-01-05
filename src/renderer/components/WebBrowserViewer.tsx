@@ -78,9 +78,13 @@ const WebBrowserViewer = memo(({
     const paneData = contentDataRef.current[nodeId];
     // Capture initial URL only once using a ref to prevent reload loops
     const initialUrlRef = useRef(paneData?.browserUrl || 'about:blank');
-    // Use 'default' as the shared session to persist cookies across all browser panes
-    // This ensures users stay logged into sites when opening new browser tabs
-    const viewId = 'default-browser-session';
+    // Use project-based session so each folder has its own cookies/logins
+    // This allows users to be logged into different accounts per project
+    // Hash the path to create a valid partition name
+    const projectPartition = currentPath
+        ? `project-${currentPath.replace(/[^a-zA-Z0-9]/g, '-').substring(0, 50)}`
+        : 'default-browser-session';
+    const viewId = projectPartition;
 
     // Expose getPageContent method through contentDataRef for context gathering
     useEffect(() => {
@@ -1190,6 +1194,8 @@ const WebBrowserViewer = memo(({
                     ref={webviewRef}
                     className="absolute inset-0 w-full h-full"
                     partition={`persist:${viewId}`}
+                    allowpopups="true"
+                    webpreferences="contextIsolation=no"
                     style={{ visibility: error ? 'hidden' : 'visible' }}
                 />
 

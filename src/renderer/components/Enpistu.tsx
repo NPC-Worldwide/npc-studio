@@ -1345,6 +1345,18 @@ const ChatInterface = () => {
                 }
                 return;
             }
+
+            // Ctrl+Shift+R - Hard refresh browser pane, or refresh incognide for other panes
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'r' || e.key === 'R')) {
+                const activePane = contentDataRef.current[activeContentPaneId];
+                if (activePane?.contentType === 'browser' && activePane?.contentId) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    (window as any).api?.browserHardRefresh?.({ viewId: activePane.contentId });
+                    return;
+                }
+                // For non-browser panes, let the default Electron refresh happen
+            }
         };
 
         window.addEventListener('keydown', handleKeyDown);

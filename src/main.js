@@ -2187,9 +2187,26 @@ ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true,
-      partition: `persist:${viewId}`,
+      // Use shared partition so all browser panes share cookies/sessions
+      // This is needed for Google services to work (auth persists across tabs)
+      partition: 'persist:browser-shared',
     },
   });
+
+  // Set Chrome-like user agent so Google services (Drive, Docs, etc.) work properly
+  // Extract Chrome version from Electron's user agent and use standard Chrome UA
+  const electronUA = newBrowserView.webContents.getUserAgent();
+  const chromeMatch = electronUA.match(/Chrome\/(\d+\.\d+\.\d+\.\d+)/);
+  const chromeVersion = chromeMatch ? chromeMatch[1] : '120.0.0.0';
+  let platformUA;
+  if (process.platform === 'win32') {
+    platformUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
+  } else if (process.platform === 'darwin') {
+    platformUA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
+  } else {
+    platformUA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
+  }
+  newBrowserView.webContents.setUserAgent(platformUA);
 
   newBrowserView.setBackgroundColor('#0f172a');
   
@@ -2215,6 +2232,31 @@ ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
   
   
     const wc = newBrowserView.webContents;
+
+    // Handle popup windows (Google auth, contacts widget, etc.)
+    wc.setWindowOpenHandler(({ url, disposition }) => {
+      // Google auth and services - open in system browser for proper auth flow
+      if (url.includes('accounts.google.com') ||
+          url.includes('accounts.youtube.com') ||
+          url.includes('myaccount.google.com')) {
+        shell.openExternal(url);
+        return { action: 'deny' };
+      }
+
+      // Google widgets (contacts hovercard, etc.) - allow them to open
+      if (url.includes('contacts.google.com/widget') ||
+          url.includes('apis.google.com') ||
+          url.includes('plus.google.com')) {
+        // Allow these as they're needed for Google Drive functionality
+        return { action: 'allow' };
+      }
+
+      // For other URLs, send to renderer to open in new browser tab
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('browser-open-in-new-tab', { url, disposition });
+      }
+      return { action: 'deny' };
+    });
 
     // Listeners now only send events to the renderer; they do not register handlers.
     wc.on('did-navigate', (event, navigatedUrl) => {
@@ -2727,6 +2769,14 @@ ipcMain.handle('browser-forward', (event, { viewId }) => {
 ipcMain.handle('browser-refresh', (event, { viewId }) => {
   if (browserViews.has(viewId)) {
     browserViews.get(viewId).view.webContents.reload(); // Access webContents via .view
+    return { success: true };
+  }
+  return { success: false, error: 'Browser view not found' };
+});
+
+ipcMain.handle('browser-hard-refresh', (event, { viewId }) => {
+  if (browserViews.has(viewId)) {
+    browserViews.get(viewId).view.webContents.reloadIgnoringCache();
     return { success: true };
   }
   return { success: false, error: 'Browser view not found' };
