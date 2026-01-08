@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, memo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
 import { Save, Play, Plus, Trash2, ChevronDown, ChevronRight, X, Loader, Code2, FileText, Edit3, Circle, Zap, Square, Power, MessageSquare, Bot, BookOpen, Paperclip, Eye, EyeOff, Archive, Sparkles, RefreshCw, Table, Variable, ChevronLeft, SortAsc, SortDesc, Filter, Hash, Type, Database, ArrowUp, ArrowDown, PanelRightClose, PanelRight, Palette, Settings, Download, FileCode, FileType, PlayCircle, SkipBack, SkipForward } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { python } from '@codemirror/lang-python';
@@ -102,6 +102,8 @@ const NotebookViewer = ({
     performSplit
 }: any) => {
     const [notebook, setNotebook] = useState<Notebook | null>(null);
+    const notebookRef = useRef<Notebook | null>(null);
+    const kernelIdRef = useRef<string | null>(null);
     const [hasChanges, setHasChanges] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [isExecuting, setIsExecuting] = useState<number | null>(null);
@@ -128,8 +130,12 @@ const NotebookViewer = ({
     // Variables panel state
     const [showVariablesPanel, setShowVariablesPanel] = useState(true);
     const [variables, setVariables] = useState<any[]>([]);
+    const variablesRef = useRef<any[]>([]);
     const [variablesLoading, setVariablesLoading] = useState(false);
     const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
+
+    // Collapsed outputs state - track which cell outputs are collapsed
+    const [collapsedOutputs, setCollapsedOutputs] = useState<Set<number>>(new Set());
 
     // Data Explorer state
     const [explorerVar, setExplorerVar] = useState<string | null>(null);
@@ -197,6 +203,13 @@ const NotebookViewer = ({
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         EditorView.lineWrapping,
     ], []);
+
+    // Keep refs in sync with state
+    useEffect(() => { notebookRef.current = notebook; }, [notebook]);
+    useEffect(() => { kernelIdRef.current = kernelId; }, [kernelId]);
+
+    // Track focused cell for Ctrl+Enter
+    const [focusedCellIndex, setFocusedCellIndex] = useState<number | null>(null);
 
     // Check if Jupyter is installed and load kernels on mount
     useEffect(() => {
@@ -514,37 +527,14 @@ const NotebookViewer = ({
         });
     }, []);
 
-    // Execute cell with real kernel
-    const executeCell = useCallback(async (index: number) => {
-        if (!notebook) return;
-
-        const cell = notebook.cells[index];
+    // Execute a single cell
+    const executeCellDirect = async (index: number, kid: string): Promise<void> => {
+        const nb = notebookRef.current;
+        if (!nb) return;
+        const cell = nb.cells[index];
         if (cell.cell_type !== 'code') return;
 
-        // Auto-start kernel if not connected, wait up to 60 seconds
-        let currentKernelId = kernelId;
-        if (kernelStatus !== 'connected' && kernelStatus !== 'busy') {
-            setError(null);
-            await startKernel();
-
-            // Poll for kernel to be ready (up to 60 seconds)
-            const startTime = Date.now();
-            while (Date.now() - startTime < 60000) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-                // Check if kernel is now available via running kernels
-                const running = await (window as any).api.jupyterGetRunningKernels?.();
-                if (running?.kernels?.length > 0) {
-                    currentKernelId = running.kernels[running.kernels.length - 1].kernelId;
-                    break;
-                }
-            }
-        }
-
-        if (!currentKernelId) {
-            setError('Kernel failed to start within 60 seconds. Check your Python environment.');
-            return;
-        }
-
+        console.log(`[EXEC] Starting cell ${index}`);
         setIsExecuting(index);
         setKernelStatus('busy');
 
@@ -552,83 +542,114 @@ const NotebookViewer = ({
 
         try {
             const result = await (window as any).api.jupyterExecuteCode({
-                kernelId: currentKernelId,
+                kernelId: kid,
                 code: source,
                 cellIndex: index
             });
+            console.log(`[EXEC] Finished cell ${index}`);
 
-            const newCells = [...notebook.cells];
-            newCells[index] = {
-                ...newCells[index],
-                execution_count: result.executionCount || (newCells[index].execution_count || 0) + 1,
-                outputs: result.outputs || []
-            };
-
-            if (!result.success && result.error) {
-                // Add error to outputs if not already there
-                if (!result.outputs?.length) {
-                    newCells[index].outputs = [{
-                        output_type: 'error',
-                        ename: 'ExecutionError',
-                        evalue: result.error,
-                        traceback: [result.error]
-                    }];
+            setNotebook(prev => {
+                if (!prev) return prev;
+                const newCells = [...prev.cells];
+                newCells[index] = {
+                    ...newCells[index],
+                    execution_count: result.executionCount || (newCells[index].execution_count || 0) + 1,
+                    outputs: result.outputs || []
+                };
+                if (!result.success && result.error && !result.outputs?.length) {
+                    newCells[index].outputs = [{ output_type: 'error', ename: 'Error', evalue: result.error, traceback: [result.error] }];
                 }
-            }
-
-            setNotebook({ ...notebook, cells: newCells });
+                return { ...prev, cells: newCells };
+            });
             setHasChanges(true);
         } catch (e: any) {
-            const newCells = [...notebook.cells];
-            newCells[index] = {
-                ...newCells[index],
-                outputs: [{
-                    output_type: 'error',
-                    ename: 'Error',
-                    evalue: e.message || 'Execution failed',
-                    traceback: [e.message || 'Execution failed']
-                }]
-            };
-            setNotebook({ ...notebook, cells: newCells });
+            setNotebook(prev => {
+                if (!prev) return prev;
+                const newCells = [...prev.cells];
+                newCells[index] = { ...newCells[index], outputs: [{ output_type: 'error', ename: 'Error', evalue: e.message, traceback: [e.message] }] };
+                return { ...prev, cells: newCells };
+            });
         } finally {
             setIsExecuting(null);
             setKernelStatus('connected');
         }
-    }, [notebook, kernelId, kernelStatus, startKernel]);
+    };
 
-    // Run all cells
-    const runAllCells = useCallback(async () => {
-        if (!notebook) return;
-        // Get indices of code cells upfront to avoid stale closure issues
-        const codeIndices = notebook.cells
-            .map((cell, i) => cell.cell_type === 'code' ? i : -1)
-            .filter(i => i >= 0);
-        for (const i of codeIndices) {
-            await executeCell(i);
+    // Ensure kernel is ready and return its ID
+    const ensureKernel = async (): Promise<string | null> => {
+        let kid = kernelIdRef.current;
+        if (kid && kernelStatus === 'connected') return kid;
+
+        setError(null);
+        await startKernel();
+        const startTime = Date.now();
+        while (Date.now() - startTime < 60000) {
+            await new Promise(r => setTimeout(r, 500));
+            const running = await (window as any).api.jupyterGetRunningKernels?.();
+            if (running?.kernels?.length > 0) {
+                kid = running.kernels[running.kernels.length - 1].kernelId;
+                kernelIdRef.current = kid;
+                return kid;
+            }
         }
-    }, [notebook, executeCell]);
+        setError('Kernel failed to start.');
+        return null;
+    };
+
+    // Execute single cell (public API)
+    const executeCell = useCallback(async (index: number) => {
+        const kid = await ensureKernel();
+        if (!kid) return;
+        await executeCellDirect(index, kid);
+    }, [kernelStatus, startKernel]);
+
+    // Run all cells in strict sequential order
+    const runAllCells = useCallback(async () => {
+        const nb = notebookRef.current;
+        if (!nb) return;
+
+        const kid = await ensureKernel();
+        if (!kid) return;
+
+        const indices = nb.cells.map((c, i) => c.cell_type === 'code' ? i : -1).filter(i => i >= 0);
+        console.log(`[EXEC] Running all cells in order: ${indices.join(', ')}`);
+
+        for (let i = 0; i < indices.length; i++) {
+            const cellIndex = indices[i];
+            console.log(`[EXEC] Running cell ${cellIndex} (${i + 1}/${indices.length})`);
+            await executeCellDirect(cellIndex, kid);
+        }
+        console.log(`[EXEC] All cells complete`);
+    }, [kernelStatus, startKernel]);
 
     // Run all cells before (and including) the given index
     const runAllBefore = useCallback(async (index: number) => {
-        if (!notebook) return;
-        const codeIndices = notebook.cells
-            .map((cell, i) => cell.cell_type === 'code' && i <= index ? i : -1)
-            .filter(i => i >= 0);
-        for (const i of codeIndices) {
-            await executeCell(i);
+        const nb = notebookRef.current;
+        if (!nb) return;
+        const kid = await ensureKernel();
+        if (!kid) return;
+        const indices = nb.cells.map((c, i) => c.cell_type === 'code' && i <= index ? i : -1).filter(i => i >= 0);
+        for (const idx of indices) {
+            await executeCellDirect(idx, kid);
         }
-    }, [notebook, executeCell]);
+    }, [kernelStatus, startKernel]);
 
     // Run all cells after (and including) the given index
     const runAllAfter = useCallback(async (index: number) => {
-        if (!notebook) return;
-        const codeIndices = notebook.cells
-            .map((cell, i) => cell.cell_type === 'code' && i >= index ? i : -1)
-            .filter(i => i >= 0);
-        for (const i of codeIndices) {
-            await executeCell(i);
+        const nb = notebookRef.current;
+        if (!nb) return;
+        const kid = await ensureKernel();
+        if (!kid) return;
+        const indices = nb.cells.map((c, i) => c.cell_type === 'code' && i >= index ? i : -1).filter(i => i >= 0);
+        for (const idx of indices) {
+            await executeCellDirect(idx, kid);
         }
-    }, [notebook, executeCell]);
+    }, [kernelStatus, startKernel]);
+
+    // Keep variablesRef in sync
+    useEffect(() => {
+        variablesRef.current = variables;
+    }, [variables]);
 
     // Refresh variables from kernel
     const refreshVariables = useCallback(async () => {
@@ -636,8 +657,12 @@ const NotebookViewer = ({
         setVariablesLoading(true);
         try {
             const result = await (window as any).api.jupyterGetVariables({ kernelId });
-            if (result?.success && result.variables) {
-                setVariables(result.variables);
+            if (result?.success && Array.isArray(result.variables)) {
+                // Only update if we got actual data - don't clear existing vars on empty response
+                // This prevents variables from disappearing after import-only cells
+                if (result.variables.length > 0 || variablesRef.current.length === 0) {
+                    setVariables(result.variables);
+                }
             }
         } catch (e) {
             console.error('Failed to get variables:', e);
@@ -1539,13 +1564,30 @@ except Exception as e:
                                 <div className="bg-gray-900">
                                     {/* Code cell */}
                                     {cellType === 'code' && (
-                                        <CodeMirror
-                                            value={source}
-                                            onChange={(value) => updateCellSource(index, value)}
-                                            extensions={pythonExtensions}
-                                            basicSetup={false}
-                                            className="text-sm"
-                                        />
+                                        <div
+                                            onKeyDown={(e) => {
+                                                if (e.ctrlKey && e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    executeCell(index);
+                                                }
+                                            }}
+                                            onKeyDownCapture={(e) => {
+                                                if (e.ctrlKey && e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                }
+                                            }}
+                                            onFocus={() => setFocusedCellIndex(index)}
+                                        >
+                                            <CodeMirror
+                                                value={source}
+                                                onChange={(value) => updateCellSource(index, value)}
+                                                extensions={pythonExtensions}
+                                                basicSetup={false}
+                                                className="text-sm"
+                                            />
+                                        </div>
                                     )}
 
                                     {/* Markdown cell */}
@@ -1678,27 +1720,47 @@ except Exception as e:
 
                             {/* Cell outputs - for code, chat, jinx cells */}
                             {!isCollapsed && ['code', 'chat', 'jinx'].includes(cellType) && cell.outputs && cell.outputs.length > 0 && (
-                                <div className="border-t border-gray-700 p-2 space-y-2 bg-gray-850">
-                                    {cell.outputs.map((output, outputIndex) => (
-                                        <div key={outputIndex}>
-                                            {/* Output metadata (model/npc for chat cells) */}
-                                            {output.metadata && (output.metadata.model || output.metadata.npc) && (
-                                                <div className="flex items-center gap-1 mb-1">
-                                                    {output.metadata.model && (
-                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-300">
-                                                            {output.metadata.model}
-                                                        </span>
+                                <div className="border-t border-gray-700 bg-gray-850">
+                                    {/* Output header with collapse toggle */}
+                                    <div
+                                        className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-gray-800/50 text-xs text-gray-400"
+                                        onClick={() => {
+                                            setCollapsedOutputs(prev => {
+                                                const next = new Set(prev);
+                                                if (next.has(index)) next.delete(index);
+                                                else next.add(index);
+                                                return next;
+                                            });
+                                        }}
+                                    >
+                                        {collapsedOutputs.has(index) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                                        <span>Output ({cell.outputs.length} {cell.outputs.length === 1 ? 'item' : 'items'})</span>
+                                    </div>
+                                    {/* Collapsible output content */}
+                                    {!collapsedOutputs.has(index) && (
+                                        <div className="p-2 space-y-2 max-h-[500px] overflow-auto">
+                                            {cell.outputs.map((output, outputIndex) => (
+                                                <div key={outputIndex}>
+                                                    {/* Output metadata (model/npc for chat cells) */}
+                                                    {output.metadata && (output.metadata.model || output.metadata.npc) && (
+                                                        <div className="flex items-center gap-1 mb-1">
+                                                            {output.metadata.model && (
+                                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-300">
+                                                                    {output.metadata.model}
+                                                                </span>
+                                                            )}
+                                                            {output.metadata.npc && (
+                                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600/20 text-green-300">
+                                                                    {output.metadata.npc}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     )}
-                                                    {output.metadata.npc && (
-                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600/20 text-green-300">
-                                                            {output.metadata.npc}
-                                                        </span>
-                                                    )}
+                                                    {renderOutput(output, outputIndex)}
                                                 </div>
-                                            )}
-                                            {renderOutput(output, outputIndex)}
+                                            ))}
                                         </div>
-                                    ))}
+                                    )}
                                 </div>
                             )}
                         </div>

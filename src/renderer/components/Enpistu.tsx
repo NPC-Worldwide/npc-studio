@@ -120,7 +120,7 @@ import ConversationLabeling from './ConversationLabeling';
 import ContextFilesPanel from './ContextFilesPanel';
 import DataLabeler from './DataLabeler';
 import ChatInput from './ChatInput';
-import { StudioContext } from '../studioActions';
+import { StudioContext, executeStudioAction } from '../studioActions';
 
 // Stable TileJinxContent component - defined at module level to prevent state loss on parent re-renders
 const TileJinxContentExternal: React.FC<{
@@ -1685,6 +1685,37 @@ const closeContentPane = useCallback((paneId, nodePath) => {
     });
 }, [activeContentPaneId, setActiveContentPaneId]);
 
+// Listen for external studio action execution (CLI/LLM control)
+// NOTE: This must be after performSplit and closeContentPane are defined
+useEffect(() => {
+    const api = window as any;
+    if (!api.api?.onExecuteStudioAction) return;
+
+    const unsubscribe = api.api.onExecuteStudioAction(async (data: { action: string, args: any }) => {
+        console.log('[EXTERNAL] Executing studio action:', data.action, data.args);
+
+        const ctx: StudioContext = {
+            rootLayoutNode,
+            contentDataRef,
+            activeContentPaneId,
+            setActiveContentPaneId,
+            setRootLayoutNode,
+            performSplit,
+            closeContentPane,
+            updateContentPane,
+            generateId,
+            findPanePath: (node: any, paneId: string, path: number[] = []) => findNodePath(node, paneId),
+        };
+
+        const result = await executeStudioAction(data.action, data.args || {}, ctx);
+        console.log('[EXTERNAL] Action result:', result);
+    });
+
+    return () => {
+        if (unsubscribe) unsubscribe();
+    };
+}, [rootLayoutNode, activeContentPaneId, performSplit, closeContentPane, updateContentPane]);
+
 // Message labeling handlers (defined before renderChatView to avoid reference errors)
 const handleLabelMessage = useCallback((message: any) => {
     setLabelingModal({
@@ -2215,21 +2246,26 @@ const handleRunScript = useCallback(async (scriptPath: string) => {
 const handleSendToTerminal = useCallback((text: string) => {
     if (!text) return;
 
-    // Find the first open terminal pane (prefer Python/IPython terminals)
-    const terminalPaneIds = Object.keys(contentDataRef.current).filter(
+    // Find the first open terminal pane
+    const terminalPaneId = Object.keys(contentDataRef.current).find(
         id => contentDataRef.current[id]?.contentType === 'terminal'
     );
 
-    if (terminalPaneIds.length === 0) {
+    if (!terminalPaneId) {
         console.warn('No terminal pane open. Please open a terminal first.');
         return;
     }
 
-    // Use the first terminal found
-    const terminalPaneId = terminalPaneIds[0];
+    // Get the terminal session ID (contentId), not the pane ID
+    const terminalSessionId = contentDataRef.current[terminalPaneId]?.contentId;
+    if (!terminalSessionId) {
+        console.warn('Terminal session not ready');
+        return;
+    }
 
-    // Send the text to the terminal (add newline to execute)
-    window.api?.writeToTerminal?.({ id: terminalPaneId, data: text + '\n' });
+    // Use bracketed paste mode so multiline code is treated as a single block
+    const bracketedPaste = '\x1b[200~' + text + '\x1b[201~\n';
+    window.api?.writeToTerminal?.({ id: terminalSessionId, data: bracketedPaste });
 }, []);
 
 // Render functions for different content pane types
@@ -2562,6 +2598,110 @@ const renderBranchComparisonPane = useCallback(({ nodeId }) => {
     );
 }, []);
 
+const handleAICodeAction = useCallback(async (type: string, selectedText: string) => {
+    if (!selectedText) return;
+
+    const prompts = {
+        ask: `Explain this code:\n\n\`\`\`\n${selectedText}\n\`\`\``,
+        document: `Add comments and documentation to this code:\n\n\`\`\`\n${selectedText}\n\`\`\``,
+        edit: `Refactor and improve this code:\n\n\`\`\`\n${selectedText}\n\`\`\``
+    };
+
+    const streamId = `ai-action-${Date.now()}`;
+
+    setAiEditModal({
+        isOpen: true,
+        type,
+        selectedText,
+        selectionStart: 0,
+        selectionEnd: 0,
+        aiResponse: '',
+        aiResponseDiff: [],
+        showDiff: false,
+        isLoading: true,
+        streamId,
+        modelForEdit: null,
+        npcForEdit: null,
+        customEditPrompt: prompts[type] || ''
+    });
+
+    const prompt = prompts[type];
+
+    // Set up stream listeners
+    const cleanupData = window.api?.onStreamData?.((_, data) => {
+        if (data.streamId === streamId && data.chunk) {
+            try {
+                const chunk = data.chunk;
+                let content = '';
+                if (typeof chunk === 'string') {
+                    if (chunk.startsWith('data:')) {
+                        const dataContent = chunk.slice(5).trim();
+                        if (dataContent === '[DONE]') return;
+                        try {
+                            const parsed = JSON.parse(dataContent);
+                            content = parsed.choices?.[0]?.delta?.content || parsed.content || '';
+                        } catch {
+                            content = dataContent;
+                        }
+                    } else {
+                        content = chunk;
+                    }
+                }
+                if (content) {
+                    setAiEditModal(prev => ({
+                        ...prev,
+                        aiResponse: (prev.aiResponse || '') + content
+                    }));
+                }
+            } catch (e) {
+                // Partial chunk, ignore
+            }
+        }
+    });
+
+    const cleanupComplete = window.api?.onStreamComplete?.((_, data) => {
+        if (data.streamId === streamId) {
+            setAiEditModal(prev => ({ ...prev, isLoading: false }));
+            cleanupData?.();
+            cleanupComplete?.();
+        }
+    });
+
+    const cleanupError = window.api?.onStreamError?.((_, data) => {
+        if (data.streamId === streamId) {
+            setAiEditModal(prev => ({
+                ...prev,
+                aiResponse: prev.aiResponse || `Error: ${data.error}`,
+                isLoading: false
+            }));
+            cleanupData?.();
+            cleanupComplete?.();
+            cleanupError?.();
+        }
+    });
+
+    // Create a temporary conversation and start the stream
+    const conversation = await window.api?.createConversation?.({ directory_path: currentPath });
+    if (!conversation?.id) {
+        setAiEditModal(prev => ({
+            ...prev,
+            aiResponse: 'Error: Failed to create conversation',
+            isLoading: false
+        }));
+        return;
+    }
+
+    window.api?.executeCommandStream?.({
+        streamId,
+        commandstr: prompt,
+        currentPath,
+        conversationId: conversation.id,
+        model: currentModel,
+        provider: currentProvider,
+        executionMode: 'chat'
+    });
+}, [currentModel, currentProvider, currentPath]);
+
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
     if (!paneData || !paneData.contentId) {
@@ -2585,7 +2725,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             handleEditorCopy={() => {}}
             handleEditorPaste={() => {}}
             handleAddToChat={() => {}}
-            handleAIEdit={() => {}}
+            handleAIEdit={handleAICodeAction}
             startAgenticEdit={() => {}}
             onGitBlame={() => {}}
             setPromptModal={setPromptModal}
@@ -2594,7 +2734,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             onSendToTerminal={handleSendToTerminal}
         />
     );
-}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal]);
+}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal, handleAICodeAction]);
 
 const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, shell?: string }) => {
     return (
@@ -6115,6 +6255,44 @@ ${contextPrompt}`;
                                 className="px-4 py-2 theme-button-success rounded"
                             >
                                 Apply All
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* AI Code Action Modal (Explain, Add Comments, Refactor) */}
+            {aiEditModal.isOpen && ['ask', 'document', 'edit'].includes(aiEditModal.type) && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-3xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+                        <h3 className="text-lg font-medium mb-4">
+                            {aiEditModal.type === 'ask' ? 'Explanation' : aiEditModal.type === 'document' ? 'Comments' : 'Refactored Code'}
+                        </h3>
+                        <div className="flex-1 overflow-y-auto">
+                            {aiEditModal.isLoading ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                                    <span className="ml-2 theme-text-muted">Generating...</span>
+                                </div>
+                            ) : (
+                                <pre className="whitespace-pre-wrap text-sm theme-text-primary bg-black/20 p-4 rounded overflow-auto">
+                                    {aiEditModal.aiResponse || 'No response'}
+                                </pre>
+                            )}
+                        </div>
+                        <div className="flex justify-end gap-3 mt-4">
+                            <button
+                                onClick={() => {
+                                    if (aiEditModal.aiResponse) {
+                                        navigator.clipboard.writeText(aiEditModal.aiResponse);
+                                    }
+                                }}
+                                className="px-4 py-2 theme-button rounded"
+                            >
+                                Copy
+                            </button>
+                            <button onClick={() => setAiEditModal({ isOpen: false })} className="px-4 py-2 theme-button rounded">
+                                Close
                             </button>
                         </div>
                     </div>

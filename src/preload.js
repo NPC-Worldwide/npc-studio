@@ -108,6 +108,13 @@ readDocxContent: (filePath) =>
         return () => ipcRenderer.removeListener('cli-open-workspace', handler);
     },
 
+    // External studio action execution - for CLI/LLM control
+    onExecuteStudioAction: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('execute-studio-action', handler);
+        return () => ipcRenderer.removeListener('execute-studio-action', handler);
+    },
+
     onBrowserLoaded: (callback) => {
         const handler = (_, data) => callback(data);
         ipcRenderer.on('browser-loaded', handler);

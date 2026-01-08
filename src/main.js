@@ -1053,6 +1053,44 @@ if (!gotTheLock) {
     const windows = BrowserWindow.getAllWindows();
     if (windows.length) {
       const mainWindow = windows[0];
+
+      // Parse CLI args from second instance
+      const folderArg = commandLine.find(arg => arg.startsWith('--folder='));
+      const barePathArg = commandLine.slice(1).find(arg =>
+        !arg.startsWith('-') && (arg.startsWith('/') || arg.startsWith('~') || arg.startsWith('.'))
+      );
+      const actionArg = commandLine.find(arg => arg.startsWith('--action='));
+
+      // Send workspace change
+      let folder = null;
+      if (folderArg) {
+        folder = folderArg.split('=')[1].replace(/^"|"$/g, '');
+      } else if (barePathArg) {
+        folder = barePathArg.startsWith('~')
+          ? barePathArg.replace('~', os.homedir())
+          : barePathArg;
+        if (!path.isAbsolute(folder)) {
+          folder = path.resolve(workingDirectory, folder);
+        }
+      }
+
+      if (folder) {
+        log(`[SECOND-INSTANCE] Opening workspace: ${folder}`);
+        mainWindow.webContents.send('cli-open-workspace', { folder });
+      }
+
+      // Send action (JSON encoded)
+      if (actionArg) {
+        try {
+          const actionJson = actionArg.split('=').slice(1).join('=');
+          const actionData = JSON.parse(actionJson);
+          log(`[SECOND-INSTANCE] Executing action: ${actionData.action}`);
+          mainWindow.webContents.send('execute-studio-action', actionData);
+        } catch (err) {
+          log(`[SECOND-INSTANCE] Failed to parse action: ${err.message}`);
+        }
+      }
+
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
