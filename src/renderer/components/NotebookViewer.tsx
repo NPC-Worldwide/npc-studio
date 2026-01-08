@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, memo } from 'react';
-import { Save, Play, Plus, Trash2, ChevronDown, ChevronRight, X, Loader, Code2, FileText, Edit3, Circle, Zap, Square, Power, MessageSquare, Bot, BookOpen, Paperclip, Eye, EyeOff, Archive, Sparkles } from 'lucide-react';
+import { Save, Play, Plus, Trash2, ChevronDown, ChevronRight, X, Loader, Code2, FileText, Edit3, Circle, Zap, Square, Power, MessageSquare, Bot, BookOpen, Paperclip, Eye, EyeOff, Archive, Sparkles, RefreshCw, Table, Variable, ChevronLeft, SortAsc, SortDesc, Filter, Hash, Type, Database, ArrowUp, ArrowDown, PanelRightClose, PanelRight, Palette, Settings, Download, FileCode, FileType, PlayCircle, SkipBack, SkipForward } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { python } from '@codemirror/lang-python';
 import { markdown } from '@codemirror/lang-markdown';
@@ -124,6 +124,45 @@ const NotebookViewer = ({
     const [availableNPCs, setAvailableNPCs] = useState<any[]>([]);
     const [availableJinxs, setAvailableJinxs] = useState<any[]>([]);
     const [showAddCellMenu, setShowAddCellMenu] = useState<number | null>(null);
+
+    // Variables panel state
+    const [showVariablesPanel, setShowVariablesPanel] = useState(true);
+    const [variables, setVariables] = useState<any[]>([]);
+    const [variablesLoading, setVariablesLoading] = useState(false);
+    const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
+
+    // Data Explorer state
+    const [explorerVar, setExplorerVar] = useState<string | null>(null);
+    const [explorerData, setExplorerData] = useState<any>(null);
+    const [explorerLoading, setExplorerLoading] = useState(false);
+    const [explorerOffset, setExplorerOffset] = useState(0);
+    const [explorerSort, setExplorerSort] = useState<{ col: string; dir: 'asc' | 'desc' } | null>(null);
+    const [explorerFilter, setExplorerFilter] = useState('');
+    const [showColumnStats, setShowColumnStats] = useState<string | null>(null);
+
+    // Matplotlib configuration state
+    const [showMplConfig, setShowMplConfig] = useState(false);
+    const [mplConfig, setMplConfig] = useState({
+        style: 'default',
+        fontFamily: 'serif',
+        fontSize: 10,
+        labelSize: 20,
+        tickSize: 20,
+        usetex: false,  // Requires full LaTeX install (texlive-full + cm-super)
+        cmap: 'plasma',
+        figWidth: 6.4,
+        figHeight: 4.8,
+        dpi: 100,
+        tickDirection: 'in',
+        minorTicks: true,
+        legendFrame: false,
+        gridAxis: 'both'
+    });
+    const [mplConfigApplied, setMplConfigApplied] = useState(false);
+
+    // Export state
+    const [showExportMenu, setShowExportMenu] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     const paneData = contentDataRef.current[nodeId];
     const filePath = paneData?.contentId;
@@ -482,15 +521,27 @@ const NotebookViewer = ({
         const cell = notebook.cells[index];
         if (cell.cell_type !== 'code') return;
 
-        // Auto-start kernel if not connected
+        // Auto-start kernel if not connected, wait up to 60 seconds
+        let currentKernelId = kernelId;
         if (kernelStatus !== 'connected' && kernelStatus !== 'busy') {
+            setError(null);
             await startKernel();
-            // Wait a bit for kernel to be ready
-            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Poll for kernel to be ready (up to 60 seconds)
+            const startTime = Date.now();
+            while (Date.now() - startTime < 60000) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+                // Check if kernel is now available via running kernels
+                const running = await (window as any).api.jupyterGetRunningKernels?.();
+                if (running?.kernels?.length > 0) {
+                    currentKernelId = running.kernels[running.kernels.length - 1].kernelId;
+                    break;
+                }
+            }
         }
 
-        if (!kernelId) {
-            setError('No kernel connected. Click "Start Kernel" first.');
+        if (!currentKernelId) {
+            setError('Kernel failed to start within 60 seconds. Check your Python environment.');
             return;
         }
 
@@ -501,7 +552,7 @@ const NotebookViewer = ({
 
         try {
             const result = await (window as any).api.jupyterExecuteCode({
-                kernelId,
+                kernelId: currentKernelId,
                 code: source,
                 cellIndex: index
             });
@@ -544,6 +595,277 @@ const NotebookViewer = ({
             setKernelStatus('connected');
         }
     }, [notebook, kernelId, kernelStatus, startKernel]);
+
+    // Run all cells
+    const runAllCells = useCallback(async () => {
+        if (!notebook) return;
+        // Get indices of code cells upfront to avoid stale closure issues
+        const codeIndices = notebook.cells
+            .map((cell, i) => cell.cell_type === 'code' ? i : -1)
+            .filter(i => i >= 0);
+        for (const i of codeIndices) {
+            await executeCell(i);
+        }
+    }, [notebook, executeCell]);
+
+    // Run all cells before (and including) the given index
+    const runAllBefore = useCallback(async (index: number) => {
+        if (!notebook) return;
+        const codeIndices = notebook.cells
+            .map((cell, i) => cell.cell_type === 'code' && i <= index ? i : -1)
+            .filter(i => i >= 0);
+        for (const i of codeIndices) {
+            await executeCell(i);
+        }
+    }, [notebook, executeCell]);
+
+    // Run all cells after (and including) the given index
+    const runAllAfter = useCallback(async (index: number) => {
+        if (!notebook) return;
+        const codeIndices = notebook.cells
+            .map((cell, i) => cell.cell_type === 'code' && i >= index ? i : -1)
+            .filter(i => i >= 0);
+        for (const i of codeIndices) {
+            await executeCell(i);
+        }
+    }, [notebook, executeCell]);
+
+    // Refresh variables from kernel
+    const refreshVariables = useCallback(async () => {
+        if (!kernelId || kernelStatus !== 'connected') return;
+        setVariablesLoading(true);
+        try {
+            const result = await (window as any).api.jupyterGetVariables({ kernelId });
+            if (result?.success && result.variables) {
+                setVariables(result.variables);
+            }
+        } catch (e) {
+            console.error('Failed to get variables:', e);
+        } finally {
+            setVariablesLoading(false);
+        }
+    }, [kernelId, kernelStatus]);
+
+    // Auto-refresh variables after cell execution
+    useEffect(() => {
+        if (kernelStatus === 'connected' && isExecuting === null) {
+            refreshVariables();
+        }
+    }, [kernelStatus, isExecuting, refreshVariables]);
+
+    // Load dataframe data for explorer
+    const loadDataFrameData = useCallback(async (varName: string, offset = 0) => {
+        if (!kernelId) return;
+        setExplorerLoading(true);
+        try {
+            const result = await (window as any).api.jupyterGetDataFrame({
+                kernelId,
+                varName,
+                offset,
+                limit: 100
+            });
+            if (result?.success) {
+                setExplorerData(result);
+                setExplorerOffset(offset);
+            } else {
+                console.error('Failed to load dataframe:', result?.error);
+            }
+        } catch (e) {
+            console.error('Failed to load dataframe:', e);
+        } finally {
+            setExplorerLoading(false);
+        }
+    }, [kernelId]);
+
+    // Open dataframe in explorer
+    const openInExplorer = useCallback((varName: string) => {
+        setExplorerVar(varName);
+        setExplorerSort(null);
+        setExplorerFilter('');
+        setShowColumnStats(null);
+        loadDataFrameData(varName, 0);
+    }, [loadDataFrameData]);
+
+    // Apply matplotlib configuration to kernel
+    const applyMplConfig = useCallback(async () => {
+        if (!kernelId || kernelStatus !== 'connected') return;
+
+        const configCode = `
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+# Apply Incognide matplotlib configuration
+mpl.rcParams.update({
+    'font.family': '${mplConfig.fontFamily}',
+    'font.size': ${mplConfig.fontSize},
+    'axes.labelsize': ${mplConfig.labelSize},
+    'xtick.labelsize': ${mplConfig.tickSize},
+    'ytick.labelsize': ${mplConfig.tickSize},
+    'text.usetex': ${mplConfig.usetex ? 'True' : 'False'},
+    'image.cmap': '${mplConfig.cmap}',
+    'figure.figsize': (${mplConfig.figWidth}, ${mplConfig.figHeight}),
+    'figure.dpi': ${mplConfig.dpi},
+    'xtick.direction': '${mplConfig.tickDirection}',
+    'ytick.direction': '${mplConfig.tickDirection}',
+    'xtick.minor.visible': ${mplConfig.minorTicks ? 'True' : 'False'},
+    'ytick.minor.visible': ${mplConfig.minorTicks ? 'True' : 'False'},
+    'xtick.top': True,
+    'ytick.right': True,
+    'legend.frameon': ${mplConfig.legendFrame ? 'True' : 'False'},
+    'axes.grid.axis': '${mplConfig.gridAxis}',
+    'xtick.major.size': 10,
+    'xtick.minor.size': 5,
+    'ytick.major.size': 10,
+    'ytick.minor.size': 5,
+})
+${mplConfig.style !== 'default' ? `plt.style.use('${mplConfig.style}')` : ''}
+print("Matplotlib configured for scientific publishing")
+`;
+
+        try {
+            await (window as any).api.jupyterExecuteCode({
+                kernelId,
+                code: configCode
+            });
+            setMplConfigApplied(true);
+        } catch (e) {
+            console.error('Failed to apply matplotlib config:', e);
+        }
+    }, [kernelId, kernelStatus, mplConfig]);
+
+    // Auto-apply matplotlib config when kernel connects, reset when disconnected
+    useEffect(() => {
+        if (kernelStatus === 'connected' && !mplConfigApplied) {
+            applyMplConfig();
+        } else if (kernelStatus === 'disconnected') {
+            setMplConfigApplied(false);
+        }
+    }, [kernelStatus, mplConfigApplied, applyMplConfig]);
+
+    // Export to Python (.py)
+    const exportToPython = useCallback(async () => {
+        if (!notebook || !filePath) return;
+        setIsExporting(true);
+        try {
+            const pyCode = notebook.cells
+                .filter(cell => cell.cell_type === 'code')
+                .map(cell => {
+                    const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source;
+                    return `# Cell [${cell.execution_count || ''}]\n${source}`;
+                })
+                .join('\n\n');
+
+            const pyPath = filePath.replace(/\.(ipynb|incognb)$/, '.py');
+            await (window as any).api.writeFile(pyPath, `#!/usr/bin/env python3\n# Exported from ${filePath.split('/').pop()}\n\n${pyCode}`);
+            alert(`Exported to ${pyPath}`);
+        } catch (e: any) {
+            alert('Export failed: ' + e.message);
+        } finally {
+            setIsExporting(false);
+            setShowExportMenu(false);
+        }
+    }, [notebook, filePath]);
+
+    // Export to HTML
+    const exportToHTML = useCallback(async () => {
+        if (!notebook || !filePath) return;
+        setIsExporting(true);
+        try {
+            const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>${filePath.split('/').pop()}</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #1e1e2e; color: #cdd6f4; }
+        .cell { margin: 20px 0; border: 1px solid #45475a; border-radius: 8px; overflow: hidden; }
+        .cell-code { background: #181825; }
+        .cell-markdown { background: #1e1e2e; }
+        .cell-header { padding: 8px 12px; background: #313244; font-size: 12px; color: #a6adc8; }
+        .cell-content { padding: 12px; }
+        pre { margin: 0; white-space: pre-wrap; font-family: 'Fira Code', monospace; font-size: 13px; }
+        .output { background: #11111b; padding: 12px; border-top: 1px solid #45475a; }
+        .output img { max-width: 100%; }
+        .error { color: #f38ba8; }
+        h1, h2, h3, h4 { color: #cba6f7; }
+        code { background: #313244; padding: 2px 6px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>${filePath.split('/').pop()}</h1>
+${notebook.cells.map((cell, i) => {
+    const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source;
+    const outputs = cell.outputs || [];
+    return `
+    <div class="cell cell-${cell.cell_type}">
+        <div class="cell-header">${cell.cell_type}${cell.execution_count ? ` [${cell.execution_count}]` : ''}</div>
+        <div class="cell-content">
+            <pre>${source.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+        </div>
+        ${outputs.length > 0 ? `<div class="output">${outputs.map(out => {
+            if (out.output_type === 'stream') return `<pre>${(out.text || []).join('').replace(/</g, '&lt;')}</pre>`;
+            if (out.output_type === 'error') return `<pre class="error">${out.ename}: ${out.evalue}</pre>`;
+            if (out.data?.['image/png']) return `<img src="data:image/png;base64,${out.data['image/png']}" />`;
+            if (out.data?.['text/html']) return out.data['text/html'].join?.('') || out.data['text/html'];
+            if (out.data?.['text/plain']) return `<pre>${(out.data['text/plain'].join?.('') || out.data['text/plain']).replace(/</g, '&lt;')}</pre>`;
+            return '';
+        }).join('')}</div>` : ''}
+    </div>`;
+}).join('\n')}
+</body>
+</html>`;
+
+            const htmlPath = filePath.replace(/\.(ipynb|incognb)$/, '.html');
+            await (window as any).api.writeFile(htmlPath, htmlContent);
+            alert(`Exported to ${htmlPath}`);
+        } catch (e: any) {
+            alert('Export failed: ' + e.message);
+        } finally {
+            setIsExporting(false);
+            setShowExportMenu(false);
+        }
+    }, [notebook, filePath]);
+
+    // Export to PDF (via nbconvert if available)
+    const exportToPDF = useCallback(async () => {
+        if (!notebook || !filePath || !kernelId) return;
+        setIsExporting(true);
+        try {
+            // First save the notebook
+            await save();
+
+            // Try to use nbconvert via kernel
+            const result = await (window as any).api.jupyterExecuteCode({
+                kernelId,
+                code: `
+import subprocess
+import sys
+try:
+    result = subprocess.run([sys.executable, '-m', 'jupyter', 'nbconvert', '--to', 'pdf', '${filePath}'],
+                          capture_output=True, text=True, timeout=120)
+    if result.returncode == 0:
+        print("PDF_EXPORT_SUCCESS")
+    else:
+        print("PDF_EXPORT_FAILED:", result.stderr)
+except Exception as e:
+    print("PDF_EXPORT_FAILED:", str(e))
+`
+            });
+
+            const output = result.outputs?.find((o: any) => o.output_type === 'stream')?.text?.join('') || '';
+            if (output.includes('PDF_EXPORT_SUCCESS')) {
+                alert(`Exported to ${filePath.replace(/\.(ipynb|incognb)$/, '.pdf')}`);
+            } else {
+                // Fallback: suggest installing nbconvert
+                alert('PDF export requires jupyter nbconvert with LaTeX support.\nInstall with: pip install nbconvert[webpdf]\n\nError: ' + output);
+            }
+        } catch (e: any) {
+            alert('PDF export failed: ' + e.message);
+        } finally {
+            setIsExporting(false);
+            setShowExportMenu(false);
+        }
+    }, [notebook, filePath, kernelId, save]);
 
     // Execute chat cell - send prompt to LLM
     const executeChatCell = useCallback(async (index: number, targetModels?: string[]) => {
@@ -771,30 +1093,34 @@ const NotebookViewer = ({
 
     return (
         <div className="h-full flex flex-col theme-bg-secondary overflow-hidden">
-            {/* Header */}
-            <div
-                draggable="true"
-                onDragStart={(e) => {
-                    e.dataTransfer.effectAllowed = 'move';
-                    const nodePath = findNodePath(rootLayoutNode, nodeId);
-                    e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
-                    setTimeout(() => setDraggedItem({ type: 'pane', id: nodeId, nodePath }), 0);
-                }}
-                onDragEnd={() => setDraggedItem(null)}
-                onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setPaneContextMenu({
-                        isOpen: true,
-                        x: e.clientX,
-                        y: e.clientY,
-                        nodeId,
-                        nodePath: findNodePath(rootLayoutNode, nodeId)
-                    });
-                }}
-                className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
-            >
-                <div className="flex justify-between items-center">
+            {/* Main content area - horizontal layout */}
+            <div className="flex-1 flex flex-row overflow-hidden">
+                {/* Left column - Header + Cells */}
+                <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+                    {/* Header */}
+                    <div
+                        draggable="true"
+                    onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        const nodePath = findNodePath(rootLayoutNode, nodeId);
+                        e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
+                        setTimeout(() => setDraggedItem({ type: 'pane', id: nodeId, nodePath }), 0);
+                    }}
+                    onDragEnd={() => setDraggedItem(null)}
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setPaneContextMenu({
+                            isOpen: true,
+                            x: e.clientX,
+                            y: e.clientY,
+                            nodeId,
+                            nodePath: findNodePath(rootLayoutNode, nodeId)
+                        });
+                    }}
+                    className="p-2 border-b theme-border text-xs theme-text-muted flex-shrink-0 theme-bg-secondary cursor-move"
+                >
+                    <div className="flex justify-between items-center">
                     <span className="truncate font-semibold text-orange-400">
                         {filePath ? filePath.split('/').pop() : 'Untitled.ipynb'}{hasChanges ? ' *' : ''}
                     </span>
@@ -888,6 +1214,21 @@ const NotebookViewer = ({
                         </div>
 
                         <button
+                            onClick={runAllCells}
+                            disabled={isExecuting !== null}
+                            className="p-1 theme-hover rounded text-green-400 disabled:opacity-50"
+                            title="Run All Cells"
+                        >
+                            <PlayCircle size={14} />
+                        </button>
+                        <button
+                            onClick={() => setShowMplConfig(true)}
+                            className={`p-1 theme-hover rounded ${mplConfigApplied ? 'text-green-400' : 'text-gray-400'}`}
+                            title="Matplotlib Configuration"
+                        >
+                            <Palette size={14} />
+                        </button>
+                        <button
                             onClick={save}
                             disabled={!hasChanges || isSaving}
                             className="p-1 theme-hover rounded disabled:opacity-50"
@@ -897,11 +1238,53 @@ const NotebookViewer = ({
                         </button>
                         <div className="relative">
                             <button
-                                onClick={() => setShowAddCellMenu(showAddCellMenu === -1 ? null : -1)}
-                                className="p-1 theme-hover rounded flex items-center gap-1"
-                                title="Add Cell"
+                                onClick={() => setShowExportMenu(!showExportMenu)}
+                                disabled={isExporting}
+                                className="p-1 theme-hover rounded disabled:opacity-50"
+                                title="Export"
+                            >
+                                {isExporting ? <Loader size={14} className="animate-spin" /> : <Download size={14} />}
+                            </button>
+                            {showExportMenu && (
+                                <div className="absolute top-full right-0 mt-1 w-40 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 py-1">
+                                    <button
+                                        onClick={exportToPython}
+                                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 flex items-center gap-2 text-blue-400"
+                                    >
+                                        <FileCode size={12} />
+                                        Export to .py
+                                    </button>
+                                    <button
+                                        onClick={exportToHTML}
+                                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 flex items-center gap-2 text-green-400"
+                                    >
+                                        <FileType size={12} />
+                                        Export to .html
+                                    </button>
+                                    <button
+                                        onClick={exportToPDF}
+                                        disabled={kernelStatus !== 'connected'}
+                                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 flex items-center gap-2 text-red-400 disabled:opacity-50"
+                                    >
+                                        <FileText size={12} />
+                                        Export to .pdf
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <div className="relative flex items-center">
+                            <button
+                                onClick={() => addCell(notebook.cells.length - 1, 'code')}
+                                className="p-1 theme-hover rounded"
+                                title="Add Code Cell"
                             >
                                 <Plus size={14} />
+                            </button>
+                            <button
+                                onClick={() => setShowAddCellMenu(showAddCellMenu === -1 ? null : -1)}
+                                className="p-0.5 theme-hover rounded"
+                                title="Add Cell (more options)"
+                            >
                                 <ChevronDown size={10} />
                             </button>
                             {showAddCellMenu === -1 && (
@@ -942,12 +1325,12 @@ const NotebookViewer = ({
                         >
                             <X size={14} />
                         </button>
+                        </div>
+                        </div>
                     </div>
-                </div>
-            </div>
 
-            {/* Cells */}
-            <div className="flex-1 overflow-auto p-4 space-y-4">
+                    {/* Cells */}
+                    <div className="flex-1 overflow-auto p-4 space-y-4">
                 {(notebook.cells || []).map((cell, index) => {
                     const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source;
                     const isCollapsed = collapsedCells.has(index);
@@ -1050,12 +1433,39 @@ const NotebookViewer = ({
 
                                 <div className="flex-1" />
 
-                                {/* Execute button - varies by cell type */}
-                                {(cellType === 'code' || cellType === 'chat' || cellType === 'jinx') && (
+                                {/* Execute buttons - varies by cell type */}
+                                {cellType === 'code' && (
+                                    <>
+                                        <button
+                                            onClick={() => runAllBefore(index)}
+                                            disabled={isExecuting !== null}
+                                            className="p-1 text-blue-400 hover:bg-blue-500/20 rounded disabled:opacity-50"
+                                            title="Run All Above (inclusive)"
+                                        >
+                                            <SkipBack size={12} />
+                                        </button>
+                                        <button
+                                            onClick={() => executeCell(index)}
+                                            disabled={isExecuting === index}
+                                            className="p-1 text-green-400 hover:bg-green-500/20 rounded disabled:opacity-50"
+                                            title="Run Cell"
+                                        >
+                                            {isExecuting === index ? <Loader size={12} className="animate-spin" /> : <Play size={12} />}
+                                        </button>
+                                        <button
+                                            onClick={() => runAllAfter(index)}
+                                            disabled={isExecuting !== null}
+                                            className="p-1 text-blue-400 hover:bg-blue-500/20 rounded disabled:opacity-50"
+                                            title="Run All Below (inclusive)"
+                                        >
+                                            <SkipForward size={12} />
+                                        </button>
+                                    </>
+                                )}
+                                {(cellType === 'chat' || cellType === 'jinx') && (
                                     <button
                                         onClick={() => {
-                                            if (cellType === 'code') executeCell(index);
-                                            else if (cellType === 'chat') executeChatCell(index);
+                                            if (cellType === 'chat') executeChatCell(index);
                                             else if (cellType === 'jinx') executeJinxCell(index);
                                         }}
                                         disabled={isExecuting === index}
@@ -1078,13 +1488,20 @@ const NotebookViewer = ({
                                 )}
 
                                 {/* Add cell menu */}
-                                <div className="relative">
+                                <div className="relative flex items-center">
                                     <button
-                                        onClick={() => setShowAddCellMenu(showAddCellMenu === index ? null : index)}
+                                        onClick={() => addCell(index, 'code')}
                                         className="p-1 text-gray-400 hover:bg-gray-700 rounded"
-                                        title="Add Cell Below"
+                                        title="Add Code Cell Below"
                                     >
                                         <Plus size={12} />
+                                    </button>
+                                    <button
+                                        onClick={() => setShowAddCellMenu(showAddCellMenu === index ? null : index)}
+                                        className="p-0.5 text-gray-400 hover:bg-gray-700 rounded"
+                                        title="Add Cell (more options)"
+                                    >
+                                        <ChevronDown size={10} />
                                     </button>
                                     {showAddCellMenu === index && (
                                         <div className="absolute top-full right-0 mt-1 w-32 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 py-1">
@@ -1286,8 +1703,462 @@ const NotebookViewer = ({
                             )}
                         </div>
                     );
-                })}
+                    })}
+                    </div>
+                </div>
+
+                {/* Right Sidebar - Variables Panel & Data Explorer */}
+                <div className={`border-l theme-border flex flex-col bg-gray-900/50 transition-all flex-shrink-0 ${showVariablesPanel || explorerVar ? 'w-80 max-w-[33%]' : 'w-10'}`}>
+                    {/* Sidebar toggle */}
+                    <div className="flex items-center justify-between p-2 border-b theme-border">
+                        {(showVariablesPanel || explorerVar) && (
+                            <span className="text-xs font-semibold text-gray-400 flex items-center gap-1">
+                                <Variable size={12} />
+                                Variables
+                            </span>
+                        )}
+                        <button
+                            onClick={() => {
+                                if (explorerVar) {
+                                    setExplorerVar(null);
+                                    setExplorerData(null);
+                                }
+                                setShowVariablesPanel(!showVariablesPanel);
+                            }}
+                            className="p-1 hover:bg-gray-700 rounded text-gray-400"
+                            title={showVariablesPanel ? 'Hide Variables' : 'Show Variables'}
+                        >
+                            {showVariablesPanel || explorerVar ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
+                        </button>
+                    </div>
+
+                    {showVariablesPanel && !explorerVar && (
+                        <div className="flex-1 overflow-auto">
+                            {/* Refresh button */}
+                            <div className="p-2 border-b theme-border flex items-center justify-between">
+                                <span className="text-[10px] text-gray-500 uppercase">
+                                    {variables.length} variable{variables.length !== 1 ? 's' : ''}
+                                </span>
+                                <button
+                                    onClick={refreshVariables}
+                                    disabled={variablesLoading || kernelStatus !== 'connected'}
+                                    className="p-1 hover:bg-gray-700 rounded text-gray-400 disabled:opacity-50"
+                                    title="Refresh Variables"
+                                >
+                                    <RefreshCw size={12} className={variablesLoading ? 'animate-spin' : ''} />
+                                </button>
+                            </div>
+
+                            {kernelStatus !== 'connected' ? (
+                                <div className="p-4 text-center text-gray-500 text-xs">
+                                    <Database size={24} className="mx-auto mb-2 opacity-50" />
+                                    Start kernel to view variables
+                                </div>
+                            ) : variables.length === 0 ? (
+                                <div className="p-4 text-center text-gray-500 text-xs">
+                                    No variables yet
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-gray-800">
+                                    {variables.map((v) => (
+                                        <div
+                                            key={v.name}
+                                            className="p-2 hover:bg-gray-800/50 cursor-pointer"
+                                            onClick={() => {
+                                                if (v.is_dataframe || v.is_series) {
+                                                    openInExplorer(v.name);
+                                                } else {
+                                                    setExpandedVars(prev => {
+                                                        const next = new Set(prev);
+                                                        if (next.has(v.name)) next.delete(v.name);
+                                                        else next.add(v.name);
+                                                        return next;
+                                                    });
+                                                }
+                                            }}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    {v.is_dataframe ? (
+                                                        <Table size={12} className="text-blue-400" />
+                                                    ) : v.type === 'list' || v.type === 'dict' ? (
+                                                        <Code2 size={12} className="text-purple-400" />
+                                                    ) : v.type === 'ndarray' ? (
+                                                        <Hash size={12} className="text-green-400" />
+                                                    ) : (
+                                                        <Type size={12} className="text-gray-500" />
+                                                    )}
+                                                    <span className="text-sm text-gray-200 font-mono">{v.name}</span>
+                                                </div>
+                                                <span className="text-[10px] text-gray-500">{v.type}</span>
+                                            </div>
+
+                                            {/* Shape/size info */}
+                                            <div className="mt-1 flex items-center gap-2 text-[10px] text-gray-500">
+                                                {v.shape && <span className="bg-gray-800 px-1 rounded">{v.shape}</span>}
+                                                {v.length !== undefined && <span className="bg-gray-800 px-1 rounded">len: {v.length}</span>}
+                                                {v.dtype && <span className="bg-gray-800 px-1 rounded">{v.dtype}</span>}
+                                                {v.memory && <span className="bg-gray-800 px-1 rounded">{(v.memory / 1024).toFixed(1)} KB</span>}
+                                            </div>
+
+                                            {/* DataFrame columns preview */}
+                                            {v.is_dataframe && v.columns && (
+                                                <div className="mt-1 text-[10px] text-gray-500 truncate">
+                                                    cols: {v.columns.slice(0, 5).join(', ')}{v.columns.length > 5 ? ` +${v.columns.length - 5}` : ''}
+                                                </div>
+                                            )}
+
+                                            {/* Expanded repr */}
+                                            {expandedVars.has(v.name) && !v.is_dataframe && (
+                                                <pre className="mt-2 text-[10px] text-gray-400 bg-gray-900 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
+                                                    {v.repr}
+                                                </pre>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Data Explorer */}
+                    {explorerVar && (
+                        <div className="flex-1 flex flex-col overflow-hidden">
+                            {/* Explorer header */}
+                            <div className="p-2 border-b theme-border flex items-center justify-between bg-gray-800">
+                                <div className="flex items-center gap-2">
+                                    <Table size={14} className="text-blue-400" />
+                                    <span className="text-sm font-mono text-blue-300">{explorerVar}</span>
+                                    {explorerData && (
+                                        <span className="text-[10px] text-gray-500">
+                                            {explorerData.total_rows?.toLocaleString()} × {explorerData.total_cols}
+                                        </span>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={() => { setExplorerVar(null); setExplorerData(null); }}
+                                    className="p-1 hover:bg-gray-700 rounded text-gray-400"
+                                >
+                                    <X size={14} />
+                                </button>
+                            </div>
+
+                            {/* Column filter */}
+                            <div className="p-2 border-b theme-border">
+                                <input
+                                    type="text"
+                                    value={explorerFilter}
+                                    onChange={(e) => setExplorerFilter(e.target.value)}
+                                    placeholder="Filter columns..."
+                                    className="w-full text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300"
+                                />
+                            </div>
+
+                            {explorerLoading ? (
+                                <div className="flex-1 flex items-center justify-center">
+                                    <Loader size={24} className="animate-spin text-gray-500" />
+                                </div>
+                            ) : explorerData ? (
+                                <>
+                                    {/* Data grid */}
+                                    <div className="flex-1 overflow-auto">
+                                        <table className="w-full text-xs border-collapse">
+                                            <thead className="sticky top-0 bg-gray-800">
+                                                <tr>
+                                                    <th className="px-2 py-1 text-left text-gray-500 border-b border-gray-700 w-16">#</th>
+                                                    {explorerData.columns
+                                                        ?.filter((col: any) => !explorerFilter || col.name.toLowerCase().includes(explorerFilter.toLowerCase()))
+                                                        .map((col: any) => (
+                                                            <th
+                                                                key={col.name}
+                                                                className="px-2 py-1 text-left border-b border-gray-700 cursor-pointer hover:bg-gray-700 group"
+                                                                onClick={() => setShowColumnStats(showColumnStats === col.name ? null : col.name)}
+                                                            >
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-gray-300 font-medium">{col.name}</span>
+                                                                    <span className="text-[9px] text-gray-500">{col.dtype}</span>
+                                                                </div>
+                                                                {/* Column stats popup */}
+                                                                {showColumnStats === col.name && (
+                                                                    <div className="absolute mt-1 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 p-2 text-[10px]">
+                                                                        <div className="font-semibold text-gray-300 mb-2">{col.name}</div>
+                                                                        <div className="space-y-1 text-gray-400">
+                                                                            <div className="flex justify-between"><span>Type:</span><span className="text-gray-300">{col.dtype}</span></div>
+                                                                            <div className="flex justify-between"><span>Nulls:</span><span className="text-gray-300">{col.null_count ?? 'N/A'}</span></div>
+                                                                            <div className="flex justify-between"><span>Unique:</span><span className="text-gray-300">{col.unique_count ?? 'N/A'}</span></div>
+                                                                            {col.min !== undefined && <div className="flex justify-between"><span>Min:</span><span className="text-gray-300">{col.min?.toFixed?.(2) ?? col.min}</span></div>}
+                                                                            {col.max !== undefined && <div className="flex justify-between"><span>Max:</span><span className="text-gray-300">{col.max?.toFixed?.(2) ?? col.max}</span></div>}
+                                                                            {col.mean !== undefined && <div className="flex justify-between"><span>Mean:</span><span className="text-gray-300">{col.mean?.toFixed?.(2) ?? col.mean}</span></div>}
+                                                                            {col.std !== undefined && <div className="flex justify-between"><span>Std:</span><span className="text-gray-300">{col.std?.toFixed?.(2) ?? col.std}</span></div>}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </th>
+                                                        ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {explorerData.rows?.map((row: any, i: number) => (
+                                                    <tr key={i} className="hover:bg-gray-800/50">
+                                                        <td className="px-2 py-1 text-gray-500 border-b border-gray-800 font-mono">
+                                                            {row.__index__ ?? explorerOffset + i}
+                                                        </td>
+                                                        {explorerData.columns
+                                                            ?.filter((col: any) => !explorerFilter || col.name.toLowerCase().includes(explorerFilter.toLowerCase()))
+                                                            .map((col: any) => (
+                                                                <td key={col.name} className="px-2 py-1 text-gray-300 border-b border-gray-800 font-mono max-w-[150px] truncate" title={String(row[col.name] ?? '')}>
+                                                                    {row[col.name] === null ? <span className="text-gray-600 italic">null</span> :
+                                                                     typeof row[col.name] === 'number' ? row[col.name].toLocaleString() :
+                                                                     String(row[col.name]).slice(0, 50)}
+                                                                </td>
+                                                            ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {/* Pagination */}
+                                    <div className="p-2 border-t theme-border flex items-center justify-between text-xs text-gray-400">
+                                        <span>
+                                            {explorerOffset + 1}-{Math.min(explorerOffset + 100, explorerData.total_rows)} of {explorerData.total_rows?.toLocaleString()}
+                                        </span>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={() => loadDataFrameData(explorerVar, Math.max(0, explorerOffset - 100))}
+                                                disabled={explorerOffset === 0}
+                                                className="p-1 hover:bg-gray-700 rounded disabled:opacity-30"
+                                            >
+                                                <ArrowUp size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => loadDataFrameData(explorerVar, explorerOffset + 100)}
+                                                disabled={explorerOffset + 100 >= explorerData.total_rows}
+                                                className="p-1 hover:bg-gray-700 rounded disabled:opacity-30"
+                                            >
+                                                <ArrowDown size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : null}
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {/* Matplotlib Configuration Modal */}
+            {showMplConfig && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowMplConfig(false)}>
+                    <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl w-[500px] max-h-[80vh] overflow-auto" onClick={e => e.stopPropagation()}>
+                        <div className="p-3 border-b border-gray-700 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Palette size={16} className="text-purple-400" />
+                                <span className="font-semibold text-gray-200">Matplotlib Configuration</span>
+                            </div>
+                            <button onClick={() => setShowMplConfig(false)} className="p-1 hover:bg-gray-700 rounded">
+                                <X size={14} />
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-4">
+                            {/* Style preset */}
+                            <div>
+                                <label className="text-xs text-gray-400 block mb-1">Style Preset</label>
+                                <select
+                                    value={mplConfig.style}
+                                    onChange={e => setMplConfig({...mplConfig, style: e.target.value})}
+                                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                >
+                                    <option value="default">Scientific</option>
+                                    <option value="classic">Classic</option>
+                                    <option value="grayscale">Grayscale</option>
+                                    <option value="dark_background">Dark Background</option>
+                                </select>
+                            </div>
+
+                            {/* Font settings */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Font Family</label>
+                                    <select
+                                        value={mplConfig.fontFamily}
+                                        onChange={e => setMplConfig({...mplConfig, fontFamily: e.target.value})}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                    >
+                                        <option value="serif">Serif (Paper)</option>
+                                        <option value="sans-serif">Sans-Serif</option>
+                                        <option value="monospace">Monospace</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Base Font Size</label>
+                                    <input
+                                        type="number"
+                                        value={mplConfig.fontSize}
+                                        onChange={e => setMplConfig({...mplConfig, fontSize: Number(e.target.value)})}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Label/Tick sizes */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Axis Label Size</label>
+                                    <input
+                                        type="number"
+                                        value={mplConfig.labelSize}
+                                        onChange={e => setMplConfig({...mplConfig, labelSize: Number(e.target.value)})}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Tick Label Size</label>
+                                    <input
+                                        type="number"
+                                        value={mplConfig.tickSize}
+                                        onChange={e => setMplConfig({...mplConfig, tickSize: Number(e.target.value)})}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Figure size */}
+                            <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Figure Width</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        value={mplConfig.figWidth}
+                                        onChange={e => setMplConfig({...mplConfig, figWidth: Number(e.target.value)})}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Figure Height</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        value={mplConfig.figHeight}
+                                        onChange={e => setMplConfig({...mplConfig, figHeight: Number(e.target.value)})}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">DPI</label>
+                                    <input
+                                        type="number"
+                                        value={mplConfig.dpi}
+                                        onChange={e => setMplConfig({...mplConfig, dpi: Number(e.target.value)})}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Colormap */}
+                            <div>
+                                <label className="text-xs text-gray-400 block mb-1">Default Colormap</label>
+                                <select
+                                    value={mplConfig.cmap}
+                                    onChange={e => setMplConfig({...mplConfig, cmap: e.target.value})}
+                                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                >
+                                    <option value="plasma">Plasma</option>
+                                    <option value="viridis">Viridis</option>
+                                    <option value="magma">Magma</option>
+                                    <option value="inferno">Inferno</option>
+                                    <option value="cividis">Cividis</option>
+                                    <option value="coolwarm">Coolwarm</option>
+                                    <option value="RdBu">RdBu</option>
+                                    <option value="Spectral">Spectral</option>
+                                </select>
+                            </div>
+
+                            {/* Tick settings */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Tick Direction</label>
+                                    <select
+                                        value={mplConfig.tickDirection}
+                                        onChange={e => setMplConfig({...mplConfig, tickDirection: e.target.value})}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                    >
+                                        <option value="in">Inward (Paper)</option>
+                                        <option value="out">Outward</option>
+                                        <option value="inout">Both</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 block mb-1">Grid Axis</label>
+                                    <select
+                                        value={mplConfig.gridAxis}
+                                        onChange={e => setMplConfig({...mplConfig, gridAxis: e.target.value})}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+                                    >
+                                        <option value="both">Both</option>
+                                        <option value="x">X only</option>
+                                        <option value="y">Y only</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Toggles */}
+                            <div className="flex flex-wrap gap-4">
+                                <label className="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={mplConfig.usetex}
+                                        onChange={e => setMplConfig({...mplConfig, usetex: e.target.checked})}
+                                        className="rounded bg-gray-700 border-gray-600"
+                                    />
+                                    <span className="text-gray-300">Use LaTeX</span>
+                                </label>
+                                <label className="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={mplConfig.minorTicks}
+                                        onChange={e => setMplConfig({...mplConfig, minorTicks: e.target.checked})}
+                                        className="rounded bg-gray-700 border-gray-600"
+                                    />
+                                    <span className="text-gray-300">Minor Ticks</span>
+                                </label>
+                                <label className="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={mplConfig.legendFrame}
+                                        onChange={e => setMplConfig({...mplConfig, legendFrame: e.target.checked})}
+                                        className="rounded bg-gray-700 border-gray-600"
+                                    />
+                                    <span className="text-gray-300">Legend Frame</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="p-3 border-t border-gray-700 flex items-center justify-between">
+                            <span className="text-xs text-gray-500">
+                                {mplConfigApplied ? '✓ Applied to kernel' : 'Not yet applied'}
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setShowMplConfig(false)}
+                                    className="px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-700 rounded"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => { applyMplConfig(); setShowMplConfig(false); }}
+                                    disabled={kernelStatus !== 'connected'}
+                                    className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-500 text-white rounded disabled:opacity-50"
+                                >
+                                    Apply to Kernel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Status bar */}
             <div className="p-2 border-t theme-border text-xs theme-text-muted flex items-center justify-between theme-bg-secondary">

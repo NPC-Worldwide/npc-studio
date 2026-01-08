@@ -639,6 +639,23 @@ const ChatInterface = () => {
         rootLayoutNodeRef.current = rootLayoutNode;
     }, [rootLayoutNode]);
 
+    // Listen for CLI workspace open command (incognide /path/to/folder)
+    useEffect(() => {
+        const api = window as any;
+        if (!api.api?.onCliOpenWorkspace) return;
+
+        const unsubscribe = api.api.onCliOpenWorkspace((data: { folder: string }) => {
+            if (data?.folder) {
+                console.log('[CLI] Opening workspace from CLI:', data.folder);
+                setCurrentPath(data.folder);
+            }
+        });
+
+        return () => {
+            if (unsubscribe) unsubscribe();
+        };
+    }, []);
+
     // Git functions
     const loadGitStatus = useCallback(async () => {
         if (!currentPath) return;
@@ -2114,26 +2131,59 @@ const handleBranchOptionsConfirm = useCallback(async (options: BranchOptions) =>
     setConversationBranches, setCurrentBranchId, setRootLayoutNode, setCurrentModel, currentModel,
     currentProvider, currentNPC, availableModels, availableNPCs, currentPath, setError, setIsStreaming]);
 
-// Handle running a Python script in a new terminal
+// Track terminals associated with scripts for reuse
+const scriptTerminalMapRef = useRef<Map<string, string>>(new Map());
+
+// Handle running a Python script - saves first, reuses terminal if available
 const handleRunScript = useCallback(async (scriptPath: string) => {
     if (!scriptPath) return;
 
-    // Create a new terminal pane
-    const newPaneId = `pane-${Date.now()}`;
+    // First, save the file if it has unsaved changes
+    const editorPaneId = Object.keys(contentDataRef.current).find(
+        id => contentDataRef.current[id]?.contentId === scriptPath && contentDataRef.current[id]?.contentType === 'editor'
+    );
+    if (editorPaneId) {
+        const paneData = contentDataRef.current[editorPaneId];
+        if (paneData?.fileChanged && paneData?.fileContent) {
+            await window.api?.writeFileContent?.(scriptPath, paneData.fileContent);
+            paneData.fileChanged = false;
+            setRootLayoutNode(p => ({ ...p }));
+        }
+    }
 
-    // Add terminal to content data
-    contentDataRef.current[newPaneId] = {
-        contentType: 'terminal',
-        contentId: newPaneId,
-        terminalId: newPaneId
-    };
+    // Check if we have an existing terminal for this script
+    let terminalPaneId = scriptTerminalMapRef.current.get(scriptPath);
 
-    // Add pane to layout using balanced grid
-    setRootLayoutNode((prev) => addPaneToLayout(prev, newPaneId));
+    // Verify the terminal still exists
+    if (terminalPaneId && !contentDataRef.current[terminalPaneId]) {
+        scriptTerminalMapRef.current.delete(scriptPath);
+        terminalPaneId = undefined;
+    }
 
-    setActiveContentPaneId(newPaneId);
+    // If no existing terminal, create a new one
+    if (!terminalPaneId) {
+        terminalPaneId = `pane-${Date.now()}`;
 
-    // Wait for terminal to initialize then send the run command
+        // Add terminal to content data
+        contentDataRef.current[terminalPaneId] = {
+            contentType: 'terminal',
+            contentId: terminalPaneId,
+            terminalId: terminalPaneId
+        };
+
+        // Add pane to layout using balanced grid
+        setRootLayoutNode((prev) => addPaneToLayout(prev, terminalPaneId));
+
+        // Track this terminal for this script
+        scriptTerminalMapRef.current.set(scriptPath, terminalPaneId);
+    }
+
+    setActiveContentPaneId(terminalPaneId);
+
+    // Wait for terminal to initialize (if new) then send the run command
+    const delay = contentDataRef.current[terminalPaneId]?.terminalInitialized ? 50 : 500;
+    const paneId = terminalPaneId; // Capture for closure
+
     setTimeout(async () => {
         // Get the script directory and filename
         const scriptDir = scriptPath.substring(0, scriptPath.lastIndexOf('/'));
@@ -2152,23 +2202,31 @@ const handleRunScript = useCallback(async (scriptPath: string) => {
 
         // Send the command to run the script
         const runCommand = `cd "${scriptDir}" && ${pythonCmd} "${scriptName}"\n`;
-        window.api?.writeToTerminal?.({ id: newPaneId, data: runCommand });
-    }, 500);
+        window.api?.writeToTerminal?.({ id: paneId, data: runCommand });
+
+        // Mark terminal as initialized for faster re-runs
+        if (contentDataRef.current[paneId]) {
+            contentDataRef.current[paneId].terminalInitialized = true;
+        }
+    }, delay);
 }, [currentPath, setRootLayoutNode, setActiveContentPaneId]);
 
 // Handle sending selected code to an open terminal (Ctrl+Enter)
 const handleSendToTerminal = useCallback((text: string) => {
     if (!text) return;
 
-    // Find the first open terminal pane
-    const terminalPaneId = Object.keys(contentDataRef.current).find(
-        id => contentDataRef.current[id]?.type === 'terminal'
+    // Find the first open terminal pane (prefer Python/IPython terminals)
+    const terminalPaneIds = Object.keys(contentDataRef.current).filter(
+        id => contentDataRef.current[id]?.contentType === 'terminal'
     );
 
-    if (!terminalPaneId) {
+    if (terminalPaneIds.length === 0) {
         console.warn('No terminal pane open. Please open a terminal first.');
         return;
     }
+
+    // Use the first terminal found
+    const terminalPaneId = terminalPaneIds[0];
 
     // Send the text to the terminal (add newline to execute)
     window.api?.writeToTerminal?.({ id: terminalPaneId, data: text + '\n' });
@@ -3038,6 +3096,9 @@ const tileJinxScope = useMemo(() => ({
     KnowledgeGraphEditor,
     CtxEditor,
     PythonEnvSettings,
+    NPCTeamMenu,
+    JinxMenu,
+    McpServerMenu,
     // All lucide icons
     ...LucideIcons,
     // Real window, console, and JS built-ins (in case icons shadow them)

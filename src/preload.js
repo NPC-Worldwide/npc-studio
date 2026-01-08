@@ -101,6 +101,12 @@ readDocxContent: (filePath) =>
     browserGetInstalledBrowsers: () => ipcRenderer.invoke('browser:getInstalledBrowsers'),
     browserImportExtensionsFrom: (args) => ipcRenderer.invoke('browser:importExtensionsFrom', args),
 
+    // CLI workspace opening - for launching incognide with a folder path
+    onCliOpenWorkspace: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('cli-open-workspace', handler);
+        return () => ipcRenderer.removeListener('cli-open-workspace', handler);
+    },
 
     onBrowserLoaded: (callback) => {
         const handler = (_, data) => callback(data);
@@ -525,6 +531,8 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     jupyterInterruptKernel: (args) => ipcRenderer.invoke('jupyter:interruptKernel', args),
     jupyterStopKernel: (args) => ipcRenderer.invoke('jupyter:stopKernel', args),
     jupyterGetRunningKernels: () => ipcRenderer.invoke('jupyter:getRunningKernels'),
+    jupyterGetVariables: (args) => ipcRenderer.invoke('jupyter:getVariables', args),
+    jupyterGetDataFrame: (args) => ipcRenderer.invoke('jupyter:getDataFrame', args),
     jupyterCheckInstalled: (args) => ipcRenderer.invoke('jupyter:checkInstalled', args),
     jupyterInstall: (args) => ipcRenderer.invoke('jupyter:install', args),
     jupyterRegisterKernel: (args) => ipcRenderer.invoke('jupyter:registerKernel', args),

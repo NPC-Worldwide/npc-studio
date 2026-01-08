@@ -622,9 +622,27 @@ app.whenReady().then(async () => {
   const folderArg = process.argv.find(arg => arg.startsWith('--folder='));
   const bookmarksArg = process.argv.find(arg => arg.startsWith('--bookmarks='));
 
+  // Support bare path argument: incognide /path/to/folder
+  // Look for arguments that look like paths (start with / or ~ or .)
+  const barePathArg = process.argv.slice(2).find(arg =>
+    !arg.startsWith('--') &&
+    !arg.startsWith('-') &&
+    (arg.startsWith('/') || arg.startsWith('~') || arg.startsWith('.'))
+  );
+
   if (folderArg) {
     cliArgs.folder = folderArg.split('=')[1].replace(/^"|"$/g, '');
-    log(`[CLI] Workspace folder: ${cliArgs.folder}`);
+    log(`[CLI] Workspace folder (--folder): ${cliArgs.folder}`);
+  } else if (barePathArg) {
+    // Expand ~ to home directory
+    cliArgs.folder = barePathArg.startsWith('~')
+      ? barePathArg.replace('~', os.homedir())
+      : barePathArg;
+    // Resolve relative paths
+    if (!path.isAbsolute(cliArgs.folder)) {
+      cliArgs.folder = path.resolve(process.cwd(), cliArgs.folder);
+    }
+    log(`[CLI] Workspace folder (bare path): ${cliArgs.folder}`);
   }
 
   if (bookmarksArg) {
@@ -8604,6 +8622,305 @@ ipcMain.handle('jupyter:interruptKernel', async (_, { kernelId }) => {
         if (!kernel) return { success: false, error: 'Kernel not found' };
         kernel.process.kill('SIGINT');
         return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+
+// Get variables from kernel namespace for Variables pane
+ipcMain.handle('jupyter:getVariables', async (_, { kernelId }) => {
+    try {
+        const kernel = jupyterKernels.get(kernelId);
+        if (!kernel) {
+            return { success: false, error: 'Kernel not found', variables: [] };
+        }
+
+        const { spawn } = require('child_process');
+        const pythonPath = kernel.pythonPath || 'python3';
+
+        const pythonScript = `
+import sys, json
+try:
+    from jupyter_client import BlockingKernelClient
+    client = BlockingKernelClient(connection_file=sys.argv[1])
+    client.load_connection_file()
+    client.start_channels()
+    client.wait_for_ready(timeout=10)
+
+    # Introspection code to run in kernel
+    introspect_code = '''
+import json
+def _incognide_get_variables():
+    ip = get_ipython()
+    ns = ip.user_ns
+    variables = []
+    skip_types = (type, type(json), type(lambda: None))
+    # Skip IPython internals, system vars, and common imports
+    skip_names = {
+        'In', 'Out', 'get_ipython', 'exit', 'quit',
+        '_', '__', '___', '_i', '_ii', '_iii', '_oh', '_dh', '_sh',
+        'original_ps1', 'is_wsl', 'sys', 'os', 'np', 'pd', 'plt',
+        'numpy', 'pandas', 'matplotlib', 'scipy', 'sklearn',
+        'json', 're', 'math', 'random', 'datetime', 'time',
+        'collections', 'itertools', 'functools', 'pathlib',
+        'warnings', 'logging', 'typing', 'copy', 'io', 'csv',
+        'pickle', 'gzip', 'zipfile', 'tempfile', 'shutil',
+        'subprocess', 'threading', 'multiprocessing',
+        'requests', 'urllib', 'http', 'socket',
+        'IPython', 'ipykernel', 'traitlets',
+        'display', 'HTML', 'Image', 'Markdown',
+    }
+    # Also skip anything that looks like an internal/config var
+    skip_prefixes = ('_', 'original_', 'is_', 'has_', 'PYTHON', 'LC_', 'XDG_')
+
+    for name, val in ns.items():
+        if name.startswith(skip_prefixes) or name in skip_names:
+            continue
+        if isinstance(val, skip_types):
+            continue
+        # Skip modules
+        if type(val).__name__ == 'module':
+            continue
+
+        var_info = {'name': name, 'type': type(val).__name__}
+
+        # Get size/shape info
+        try:
+            if hasattr(val, 'shape'):
+                var_info['shape'] = str(val.shape)
+                if hasattr(val, 'dtype'):
+                    var_info['dtype'] = str(val.dtype)
+            elif hasattr(val, '__len__'):
+                var_info['length'] = len(val)
+        except:
+            pass
+
+        # DataFrame specific info
+        try:
+            if type(val).__name__ == 'DataFrame':
+                var_info['columns'] = list(val.columns)[:20]
+                var_info['dtypes'] = {str(k): str(v) for k, v in val.dtypes.items()}
+                var_info['memory'] = val.memory_usage(deep=True).sum()
+                var_info['is_dataframe'] = True
+        except:
+            pass
+
+        # Series info
+        try:
+            if type(val).__name__ == 'Series':
+                var_info['dtype'] = str(val.dtype)
+                var_info['is_series'] = True
+        except:
+            pass
+
+        # Get short repr
+        try:
+            r = repr(val)
+            var_info['repr'] = r[:100] + '...' if len(r) > 100 else r
+        except:
+            var_info['repr'] = '<unable to repr>'
+
+        variables.append(var_info)
+
+    return variables
+
+print("__VARS__" + json.dumps(_incognide_get_variables()))
+del _incognide_get_variables
+'''
+
+    client.execute(introspect_code)
+    result_json = None
+    while True:
+        try:
+            msg = client.get_iopub_msg(timeout=10)
+            t, c = msg['msg_type'], msg['content']
+            if t == 'stream' and '__VARS__' in c.get('text', ''):
+                text = c.get('text', '')
+                idx = text.find('__VARS__')
+                result_json = text[idx + 8:].strip()
+                break
+            elif t == 'status' and c.get('execution_state') == 'idle':
+                break
+        except:
+            break
+
+    client.stop_channels()
+
+    if result_json:
+        variables = json.loads(result_json)
+        print(json.dumps({'success': True, 'variables': variables}))
+    else:
+        print(json.dumps({'success': True, 'variables': []}))
+except Exception as e:
+    print(json.dumps({'success': False, 'error': str(e), 'variables': []}))
+`;
+
+        return new Promise((resolve) => {
+            const proc = spawn(pythonPath, ['-c', pythonScript, kernel.connectionFile], {
+                env: { ...process.env },
+                cwd: kernel.workspacePath || process.cwd(),
+                timeout: 15000
+            });
+
+            let stdout = '';
+            proc.stdout.on('data', (data) => { stdout += data.toString(); });
+            proc.stderr.on('data', () => {});
+
+            proc.on('close', () => {
+                if (stdout) {
+                    try {
+                        const lines = stdout.trim().split('\n');
+                        const result = JSON.parse(lines[lines.length - 1]);
+                        resolve({ success: result.success, variables: result.variables || [], error: result.error });
+                    } catch (e) {
+                        resolve({ success: false, error: 'Parse error: ' + e.message + ' stdout: ' + stdout.slice(0, 200), variables: [] });
+                    }
+                } else {
+                    resolve({ success: false, error: 'No output', variables: [] });
+                }
+            });
+
+            proc.on('error', (err) => {
+                resolve({ success: false, error: err.message, variables: [] });
+            });
+        });
+    } catch (err) {
+        return { success: false, error: err.message, variables: [] };
+    }
+});
+
+// Get dataframe data for Data Explorer
+ipcMain.handle('jupyter:getDataFrame', async (_, { kernelId, varName, offset = 0, limit = 100 }) => {
+    try {
+        const kernel = jupyterKernels.get(kernelId);
+        if (!kernel) {
+            return { success: false, error: 'Kernel not found' };
+        }
+
+        const { spawn } = require('child_process');
+        const pythonPath = kernel.pythonPath || 'python3';
+
+        const pythonScript = `
+import sys, json
+try:
+    from jupyter_client import BlockingKernelClient
+    client = BlockingKernelClient(connection_file=sys.argv[1])
+    client.load_connection_file()
+    client.start_channels()
+    client.wait_for_ready(timeout=10)
+
+    var_name = sys.argv[2]
+    offset = int(sys.argv[3])
+    limit = int(sys.argv[4])
+
+    fetch_code = f'''
+import json
+import pandas as pd
+import numpy as np
+
+def _incognide_get_df_data():
+    df = {var_name}
+    total_rows = len(df)
+    total_cols = len(df.columns)
+
+    # Get slice of data
+    df_slice = df.iloc[{offset}:{offset}+{limit}]
+
+    # Convert to records, handling various types
+    def safe_val(v):
+        if pd.isna(v):
+            return None
+        if isinstance(v, (np.integer, np.floating)):
+            return float(v) if np.isfinite(v) else None
+        if isinstance(v, np.ndarray):
+            return v.tolist()
+        return str(v) if not isinstance(v, (int, float, bool, str, type(None))) else v
+
+    rows = []
+    for idx, row in df_slice.iterrows():
+        rows.append({{"__index__": safe_val(idx), **{{col: safe_val(row[col]) for col in df.columns}}}})
+
+    # Column info with stats
+    columns = []
+    for col in df.columns:
+        col_info = {{"name": str(col), "dtype": str(df[col].dtype)}}
+        try:
+            col_info["null_count"] = int(df[col].isna().sum())
+            col_info["unique_count"] = int(df[col].nunique())
+            if df[col].dtype in ['int64', 'float64', 'int32', 'float32']:
+                col_info["min"] = safe_val(df[col].min())
+                col_info["max"] = safe_val(df[col].max())
+                col_info["mean"] = safe_val(df[col].mean())
+                col_info["std"] = safe_val(df[col].std())
+        except:
+            pass
+        columns.append(col_info)
+
+    return {{"rows": rows, "columns": columns, "total_rows": total_rows, "total_cols": total_cols, "offset": {offset}}}
+
+print("__DFDATA__" + json.dumps(_incognide_get_df_data()))
+del _incognide_get_df_data
+'''
+
+    client.execute(fetch_code)
+    result_json = None
+    while True:
+        try:
+            msg = client.get_iopub_msg(timeout=15)
+            t, c = msg['msg_type'], msg['content']
+            if t == 'stream' and '__DFDATA__' in c.get('text', ''):
+                text = c.get('text', '')
+                idx = text.find('__DFDATA__')
+                result_json = text[idx + 10:].strip()
+                break
+            elif t == 'error':
+                print(json.dumps({'success': False, 'error': c.get('evalue', 'Unknown error')}))
+                sys.exit(0)
+            elif t == 'status' and c.get('execution_state') == 'idle':
+                break
+        except:
+            break
+
+    client.stop_channels()
+
+    if result_json:
+        data = json.loads(result_json)
+        print(json.dumps({'success': True, **data}))
+    else:
+        print(json.dumps({'success': False, 'error': 'No data returned'}))
+except Exception as e:
+    print(json.dumps({'success': False, 'error': str(e)}))
+`;
+
+        return new Promise((resolve) => {
+            const proc = spawn(pythonPath, ['-c', pythonScript, kernel.connectionFile, varName, String(offset), String(limit)], {
+                env: { ...process.env },
+                cwd: kernel.workspacePath || process.cwd(),
+                timeout: 30000
+            });
+
+            let stdout = '';
+            proc.stdout.on('data', (data) => { stdout += data.toString(); });
+            proc.stderr.on('data', () => {});
+
+            proc.on('close', () => {
+                if (stdout) {
+                    try {
+                        const lines = stdout.trim().split('\n');
+                        const result = JSON.parse(lines[lines.length - 1]);
+                        resolve(result);
+                    } catch (e) {
+                        resolve({ success: false, error: 'Parse error: ' + e.message });
+                    }
+                } else {
+                    resolve({ success: false, error: 'No output' });
+                }
+            });
+
+            proc.on('error', (err) => {
+                resolve({ success: false, error: err.message });
+            });
+        });
     } catch (err) {
         return { success: false, error: err.message };
     }

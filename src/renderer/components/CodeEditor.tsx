@@ -251,6 +251,33 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
         }
     }, [onContextMenu]);
 
+    // Direct keydown handler for Ctrl+Enter (or Shift+Enter) to send selection to terminal
+    useEffect(() => {
+        const editorDOM = editorRef.current?.editor;
+        if (!editorDOM || !onSendToTerminal) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ctrl+Enter or Shift+Enter (not both)
+            if (((e.ctrlKey || e.metaKey) || e.shiftKey) && e.key === 'Enter') {
+                const view = editorRef.current?.view;
+                if (view) {
+                    const { from, to } = view.state.selection.main;
+                    if (from !== to) {
+                        const selection = view.state.sliceDoc(from, to);
+                        if (selection) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onSendToTerminal(selection);
+                        }
+                    }
+                }
+            }
+        };
+
+        editorDOM.addEventListener('keydown', handleKeyDown, true); // Use capture phase
+        return () => editorDOM.removeEventListener('keydown', handleKeyDown, true);
+    }, [onSendToTerminal]);
+
     return (
         <CodeMirror
             ref={editorRef}
