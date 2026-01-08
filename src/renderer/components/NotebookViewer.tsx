@@ -589,6 +589,8 @@ const NotebookViewer = ({
             if (running?.kernels?.length > 0) {
                 kid = running.kernels[running.kernels.length - 1].kernelId;
                 kernelIdRef.current = kid;
+                setKernelId(kid);  // Also update state so refreshVariables works
+                setKernelStatus('connected');
                 return kid;
             }
         }
@@ -653,19 +655,26 @@ const NotebookViewer = ({
 
     // Refresh variables from kernel
     const refreshVariables = useCallback(async () => {
-        if (!kernelId || kernelStatus !== 'connected') return;
+        console.log('[VAR] refreshVariables called, kernelId:', kernelId, 'status:', kernelStatus);
+        if (!kernelId || kernelStatus !== 'connected') {
+            console.log('[VAR] Skipping - no kernel or not connected');
+            return;
+        }
         setVariablesLoading(true);
         try {
             const result = await (window as any).api.jupyterGetVariables({ kernelId });
+            console.log('[VAR] Got result:', result);
+            if (result?.debug_msgs) {
+                console.log('[VAR] Debug messages from kernel:', result.debug_msgs);
+            }
             if (result?.success && Array.isArray(result.variables)) {
-                // Only update if we got actual data - don't clear existing vars on empty response
-                // This prevents variables from disappearing after import-only cells
-                if (result.variables.length > 0 || variablesRef.current.length === 0) {
-                    setVariables(result.variables);
-                }
+                console.log('[VAR] Setting', result.variables.length, 'variables:', result.variables.map((v: any) => v.name));
+                setVariables(result.variables);
+            } else {
+                console.log('[VAR] Result failed or no variables array:', result?.error);
             }
         } catch (e) {
-            console.error('Failed to get variables:', e);
+            console.error('[VAR] Failed to get variables:', e);
         } finally {
             setVariablesLoading(false);
         }

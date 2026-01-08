@@ -8729,7 +8729,7 @@ def _incognide_get_variables():
                 if hasattr(val, 'dtype'):
                     var_info['dtype'] = str(val.dtype)
             elif hasattr(val, '__len__'):
-                var_info['length'] = len(val)
+                var_info['length'] = int(len(val))
         except:
             pass
 
@@ -8738,7 +8738,7 @@ def _incognide_get_variables():
             if type(val).__name__ == 'DataFrame':
                 var_info['columns'] = list(val.columns)[:20]
                 var_info['dtypes'] = {str(k): str(v) for k, v in val.dtypes.items()}
-                var_info['memory'] = val.memory_usage(deep=True).sum()
+                var_info['memory'] = int(val.memory_usage(deep=True).sum())
                 var_info['is_dataframe'] = True
         except:
             pass
@@ -8768,18 +8768,26 @@ del _incognide_get_variables
 
     client.execute(introspect_code)
     result_json = None
+    all_msgs = []
     while True:
         try:
             msg = client.get_iopub_msg(timeout=10)
             t, c = msg['msg_type'], msg['content']
+            all_msgs.append({'type': t, 'content': str(c)[:200]})
             if t == 'stream' and '__VARS__' in c.get('text', ''):
                 text = c.get('text', '')
                 idx = text.find('__VARS__')
                 result_json = text[idx + 8:].strip()
                 break
+            elif t == 'error':
+                # Capture error from introspection
+                import sys
+                sys.stderr.write(f"Introspection error: {c.get('ename')}: {c.get('evalue')}\\n")
             elif t == 'status' and c.get('execution_state') == 'idle':
                 break
-        except:
+        except Exception as loop_err:
+            import sys
+            sys.stderr.write(f"Loop error: {loop_err}\\n")
             break
 
     client.stop_channels()
@@ -8788,7 +8796,8 @@ del _incognide_get_variables
         variables = json.loads(result_json)
         print(json.dumps({'success': True, 'variables': variables}))
     else:
-        print(json.dumps({'success': True, 'variables': []}))
+        # Debug: include the messages we received
+        print(json.dumps({'success': True, 'variables': [], 'debug_msgs': all_msgs[:10]}))
 except Exception as e:
     print(json.dumps({'success': False, 'error': str(e), 'variables': []}))
 `;
@@ -8801,25 +8810,35 @@ except Exception as e:
             });
 
             let stdout = '';
+            let stderr = '';
             proc.stdout.on('data', (data) => { stdout += data.toString(); });
-            proc.stderr.on('data', () => {});
+            proc.stderr.on('data', (data) => { stderr += data.toString(); });
 
-            proc.on('close', () => {
+            proc.on('close', (code) => {
+                console.log('[getVariables] Process closed with code:', code);
+                console.log('[getVariables] stdout:', stdout.slice(0, 500));
+                console.log('[getVariables] stderr:', stderr.slice(0, 500));
                 if (stdout) {
                     try {
                         const lines = stdout.trim().split('\n');
                         const result = JSON.parse(lines[lines.length - 1]);
-                        resolve({ success: result.success, variables: result.variables || [], error: result.error });
+                        resolve({
+                            success: result.success,
+                            variables: result.variables || [],
+                            error: result.error,
+                            debug_msgs: result.debug_msgs,
+                            stderr: stderr || undefined
+                        });
                     } catch (e) {
-                        resolve({ success: false, error: 'Parse error: ' + e.message + ' stdout: ' + stdout.slice(0, 200), variables: [] });
+                        resolve({ success: false, error: 'Parse error: ' + e.message + ' stdout: ' + stdout.slice(0, 500), variables: [], stderr });
                     }
                 } else {
-                    resolve({ success: false, error: 'No output', variables: [] });
+                    resolve({ success: false, error: 'No output from python process', variables: [], stderr });
                 }
             });
 
             proc.on('error', (err) => {
-                resolve({ success: false, error: err.message, variables: [] });
+                resolve({ success: false, error: err.message, variables: [], stderr });
             });
         });
     } catch (err) {
@@ -8857,7 +8876,7 @@ import pandas as pd
 import numpy as np
 
 def _incognide_get_df_data():
-    df = {var_name}
+    df = get_ipython().user_ns["{var_name}"]
     total_rows = len(df)
     total_cols = len(df.columns)
 
@@ -8938,25 +8957,29 @@ except Exception as e:
             });
 
             let stdout = '';
+            let stderr = '';
             proc.stdout.on('data', (data) => { stdout += data.toString(); });
-            proc.stderr.on('data', () => {});
+            proc.stderr.on('data', (data) => { stderr += data.toString(); });
 
-            proc.on('close', () => {
+            proc.on('close', (code) => {
+                console.log('[getDataFrame] Process closed with code:', code);
+                console.log('[getDataFrame] stdout:', stdout.slice(0, 500));
+                console.log('[getDataFrame] stderr:', stderr.slice(0, 500));
                 if (stdout) {
                     try {
                         const lines = stdout.trim().split('\n');
                         const result = JSON.parse(lines[lines.length - 1]);
                         resolve(result);
                     } catch (e) {
-                        resolve({ success: false, error: 'Parse error: ' + e.message });
+                        resolve({ success: false, error: 'Parse error: ' + e.message + ' stdout: ' + stdout.slice(0, 300), stderr });
                     }
                 } else {
-                    resolve({ success: false, error: 'No output' });
+                    resolve({ success: false, error: 'No output', stderr });
                 }
             });
 
             proc.on('error', (err) => {
-                resolve({ success: false, error: err.message });
+                resolve({ success: false, error: err.message, stderr });
             });
         });
     } catch (err) {
