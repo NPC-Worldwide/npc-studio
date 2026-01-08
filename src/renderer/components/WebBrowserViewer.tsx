@@ -662,87 +662,29 @@ const WebBrowserViewer = memo(({
                 checkForSavedPasswords(url);
             }
 
-            // Inject ad blocking CSS and scripts if enabled
+            // Inject ad blocking CSS only (non-invasive, won't break sites)
             const isAdBlockOn = localStorage.getItem('npc-browser-adblock') !== 'false';
-            const isTrackingProtOn = localStorage.getItem('npc-browser-tracking-protection') !== 'false';
 
-            if (isAdBlockOn || isTrackingProtOn) {
+            if (isAdBlockOn) {
                 try {
                     await webview.executeJavaScript(`
                         (function() {
                             if (window.__npcAdBlockInstalled) return;
                             window.__npcAdBlockInstalled = true;
 
-                            // Inject ad-blocking CSS
+                            // CSS-only ad blocking - safe, won't break site functionality
                             const style = document.createElement('style');
                             style.textContent = \`
-                                [class*="ad-"], [class*="ads-"], [class*="advert"], [id*="ad-"], [id*="ads-"],
-                                [class*="banner"], [class*="sponsor"], [class*="promoted"], [class*="promo-"],
-                                iframe[src*="ads"], iframe[src*="doubleclick"], iframe[src*="googlesyndication"],
-                                [data-ad], [data-ads], [data-advertisement], .adsbygoogle, .ad-container,
-                                [aria-label*="advertisement"], [aria-label*="sponsored"],
-                                ins.adsbygoogle, [id*="google_ads"], [class*="GoogleAd"],
-                                [class*="ad-slot"], [class*="ad-unit"], [class*="ad-wrapper"],
-                                [id*="taboola"], [id*="outbrain"], [class*="taboola"], [class*="outbrain"] {
+                                .adsbygoogle, ins.adsbygoogle, [id*="google_ads"], [class*="GoogleAd"],
+                                [id*="taboola"], [id*="outbrain"], [class*="taboola"], [class*="outbrain"],
+                                iframe[src*="doubleclick"], iframe[src*="googlesyndication"],
+                                [data-ad], [data-ads], [data-advertisement],
+                                [aria-label="advertisement"], [aria-label="sponsored"] {
                                     display: none !important;
-                                    visibility: hidden !important;
-                                    height: 0 !important;
-                                    width: 0 !important;
-                                    overflow: hidden !important;
-                                    pointer-events: none !important;
                                 }
                             \`;
                             document.head.appendChild(style);
-
-                            // Block tracking scripts
-                            const blockedDomains = [
-                                'doubleclick.net', 'googlesyndication.com', 'googleadservices.com',
-                                'google-analytics.com', 'googletagmanager.com', 'facebook.net',
-                                'analytics', 'tracker', 'tracking', 'pixel', 'beacon',
-                                'criteo', 'outbrain', 'taboola', 'adnxs', 'hotjar', 'mixpanel'
-                            ];
-
-                            // Override fetch to block tracker requests
-                            const originalFetch = window.fetch;
-                            window.fetch = function(url, options) {
-                                const urlStr = typeof url === 'string' ? url : url.url || '';
-                                if (blockedDomains.some(d => urlStr.includes(d))) {
-                                    return Promise.reject(new Error('Blocked by NPC Studio'));
-                                }
-                                return originalFetch.apply(this, arguments);
-                            };
-
-                            // Override XMLHttpRequest to block trackers
-                            const originalOpen = XMLHttpRequest.prototype.open;
-                            XMLHttpRequest.prototype.open = function(method, url) {
-                                const urlStr = typeof url === 'string' ? url : url.toString();
-                                if (blockedDomains.some(d => urlStr.includes(d))) {
-                                    this.__blocked = true;
-                                }
-                                return originalOpen.apply(this, arguments);
-                            };
-                            const originalSend = XMLHttpRequest.prototype.send;
-                            XMLHttpRequest.prototype.send = function() {
-                                if (this.__blocked) return;
-                                return originalSend.apply(this, arguments);
-                            };
-
-                            // Block navigator.sendBeacon (used for analytics)
-                            navigator.sendBeacon = () => false;
-
-                            // Disable tracking cookies
-                            try {
-                                Object.defineProperty(document, 'cookie', {
-                                    get: function() { return ''; },
-                                    set: function(val) {
-                                        // Allow session cookies, block tracking
-                                        if (blockedDomains.some(d => val.includes(d))) return;
-                                        // Allow the cookie
-                                    }
-                                });
-                            } catch (e) {}
-
-                            console.log('[NPC Studio] Ad blocking & tracking protection active');
+                            console.log('[NPC Studio] Ad blocking (CSS-only) active');
                         })();
                     `);
                 } catch (err) {
@@ -1195,7 +1137,7 @@ const WebBrowserViewer = memo(({
                     className="absolute inset-0 w-full h-full"
                     partition={`persist:${viewId}`}
                     allowpopups="true"
-                    webpreferences="contextIsolation=no"
+                    webpreferences="contextIsolation=no, javascript=yes, webSecurity=yes, allowRunningInsecureContent=no, spellcheck=yes, enableRemoteModule=no"
                     style={{ visibility: error ? 'hidden' : 'visible' }}
                 />
 
