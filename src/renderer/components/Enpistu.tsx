@@ -57,7 +57,7 @@ import AutosizeTextarea from './AutosizeTextarea';
 import ForceGraph2D from 'react-force-graph-2d';
 import { Pie, Bar, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement } from 'chart.js';
-import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart, ImageEditor, WidgetBuilder, WidgetGrid, Widget, DataTable } from 'npcts';
+import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart, ImageEditor, WidgetBuilder, WidgetGrid, Widget, DataTable, Lightbox, ImageGrid, StarRating, RangeSlider, SortableList } from 'npcts';
 
 // Register chart.js components for jinx runtime
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement);
@@ -120,7 +120,7 @@ import ConversationLabeling from './ConversationLabeling';
 import ContextFilesPanel from './ContextFilesPanel';
 import DataLabeler from './DataLabeler';
 import ChatInput from './ChatInput';
-import { StudioContext } from '../studioActions';
+import { StudioContext, executeStudioAction } from '../studioActions';
 
 // Stable TileJinxContent component - defined at module level to prevent state loss on parent re-renders
 const TileJinxContentExternal: React.FC<{
@@ -638,6 +638,23 @@ const ChatInterface = () => {
     useEffect(() => {
         rootLayoutNodeRef.current = rootLayoutNode;
     }, [rootLayoutNode]);
+
+    // Listen for CLI workspace open command (incognide /path/to/folder)
+    useEffect(() => {
+        const api = window as any;
+        if (!api.api?.onCliOpenWorkspace) return;
+
+        const unsubscribe = api.api.onCliOpenWorkspace((data: { folder: string }) => {
+            if (data?.folder) {
+                console.log('[CLI] Opening workspace from CLI:', data.folder);
+                setCurrentPath(data.folder);
+            }
+        });
+
+        return () => {
+            if (unsubscribe) unsubscribe();
+        };
+    }, []);
 
     // Git functions
     const loadGitStatus = useCallback(async () => {
@@ -1345,6 +1362,18 @@ const ChatInterface = () => {
                 }
                 return;
             }
+
+            // Ctrl+Shift+R - Hard refresh browser pane, or refresh incognide for other panes
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'r' || e.key === 'R')) {
+                const activePane = contentDataRef.current[activeContentPaneId];
+                if (activePane?.contentType === 'browser' && activePane?.contentId) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    (window as any).api?.browserHardRefresh?.({ viewId: activePane.contentId });
+                    return;
+                }
+                // For non-browser panes, let the default Electron refresh happen
+            }
         };
 
         window.addEventListener('keydown', handleKeyDown);
@@ -1655,6 +1684,37 @@ const closeContentPane = useCallback((paneId, nodePath) => {
         return newRoot;
     });
 }, [activeContentPaneId, setActiveContentPaneId]);
+
+// Listen for external studio action execution (CLI/LLM control)
+// NOTE: This must be after performSplit and closeContentPane are defined
+useEffect(() => {
+    const api = window as any;
+    if (!api.api?.onExecuteStudioAction) return;
+
+    const unsubscribe = api.api.onExecuteStudioAction(async (data: { action: string, args: any }) => {
+        console.log('[EXTERNAL] Executing studio action:', data.action, data.args);
+
+        const ctx: StudioContext = {
+            rootLayoutNode,
+            contentDataRef,
+            activeContentPaneId,
+            setActiveContentPaneId,
+            setRootLayoutNode,
+            performSplit,
+            closeContentPane,
+            updateContentPane,
+            generateId,
+            findPanePath: (node: any, paneId: string, path: number[] = []) => findNodePath(node, paneId),
+        };
+
+        const result = await executeStudioAction(data.action, data.args || {}, ctx);
+        console.log('[EXTERNAL] Action result:', result);
+    });
+
+    return () => {
+        if (unsubscribe) unsubscribe();
+    };
+}, [rootLayoutNode, activeContentPaneId, performSplit, closeContentPane, updateContentPane]);
 
 // Message labeling handlers (defined before renderChatView to avoid reference errors)
 const handleLabelMessage = useCallback((message: any) => {
@@ -2102,26 +2162,59 @@ const handleBranchOptionsConfirm = useCallback(async (options: BranchOptions) =>
     setConversationBranches, setCurrentBranchId, setRootLayoutNode, setCurrentModel, currentModel,
     currentProvider, currentNPC, availableModels, availableNPCs, currentPath, setError, setIsStreaming]);
 
-// Handle running a Python script in a new terminal
+// Track terminals associated with scripts for reuse
+const scriptTerminalMapRef = useRef<Map<string, string>>(new Map());
+
+// Handle running a Python script - saves first, reuses terminal if available
 const handleRunScript = useCallback(async (scriptPath: string) => {
     if (!scriptPath) return;
 
-    // Create a new terminal pane
-    const newPaneId = `pane-${Date.now()}`;
+    // First, save the file if it has unsaved changes
+    const editorPaneId = Object.keys(contentDataRef.current).find(
+        id => contentDataRef.current[id]?.contentId === scriptPath && contentDataRef.current[id]?.contentType === 'editor'
+    );
+    if (editorPaneId) {
+        const paneData = contentDataRef.current[editorPaneId];
+        if (paneData?.fileChanged && paneData?.fileContent) {
+            await window.api?.writeFileContent?.(scriptPath, paneData.fileContent);
+            paneData.fileChanged = false;
+            setRootLayoutNode(p => ({ ...p }));
+        }
+    }
 
-    // Add terminal to content data
-    contentDataRef.current[newPaneId] = {
-        contentType: 'terminal',
-        contentId: newPaneId,
-        terminalId: newPaneId
-    };
+    // Check if we have an existing terminal for this script
+    let terminalPaneId = scriptTerminalMapRef.current.get(scriptPath);
 
-    // Add pane to layout using balanced grid
-    setRootLayoutNode((prev) => addPaneToLayout(prev, newPaneId));
+    // Verify the terminal still exists
+    if (terminalPaneId && !contentDataRef.current[terminalPaneId]) {
+        scriptTerminalMapRef.current.delete(scriptPath);
+        terminalPaneId = undefined;
+    }
 
-    setActiveContentPaneId(newPaneId);
+    // If no existing terminal, create a new one
+    if (!terminalPaneId) {
+        terminalPaneId = `pane-${Date.now()}`;
 
-    // Wait for terminal to initialize then send the run command
+        // Add terminal to content data
+        contentDataRef.current[terminalPaneId] = {
+            contentType: 'terminal',
+            contentId: terminalPaneId,
+            terminalId: terminalPaneId
+        };
+
+        // Add pane to layout using balanced grid
+        setRootLayoutNode((prev) => addPaneToLayout(prev, terminalPaneId));
+
+        // Track this terminal for this script
+        scriptTerminalMapRef.current.set(scriptPath, terminalPaneId);
+    }
+
+    setActiveContentPaneId(terminalPaneId);
+
+    // Wait for terminal to initialize (if new) then send the run command
+    const delay = contentDataRef.current[terminalPaneId]?.terminalInitialized ? 50 : 500;
+    const paneId = terminalPaneId; // Capture for closure
+
     setTimeout(async () => {
         // Get the script directory and filename
         const scriptDir = scriptPath.substring(0, scriptPath.lastIndexOf('/'));
@@ -2140,8 +2233,13 @@ const handleRunScript = useCallback(async (scriptPath: string) => {
 
         // Send the command to run the script
         const runCommand = `cd "${scriptDir}" && ${pythonCmd} "${scriptName}"\n`;
-        window.api?.writeToTerminal?.({ id: newPaneId, data: runCommand });
-    }, 500);
+        window.api?.writeToTerminal?.({ id: paneId, data: runCommand });
+
+        // Mark terminal as initialized for faster re-runs
+        if (contentDataRef.current[paneId]) {
+            contentDataRef.current[paneId].terminalInitialized = true;
+        }
+    }, delay);
 }, [currentPath, setRootLayoutNode, setActiveContentPaneId]);
 
 // Handle sending selected code to an open terminal (Ctrl+Enter)
@@ -2150,7 +2248,7 @@ const handleSendToTerminal = useCallback((text: string) => {
 
     // Find the first open terminal pane
     const terminalPaneId = Object.keys(contentDataRef.current).find(
-        id => contentDataRef.current[id]?.type === 'terminal'
+        id => contentDataRef.current[id]?.contentType === 'terminal'
     );
 
     if (!terminalPaneId) {
@@ -2158,8 +2256,16 @@ const handleSendToTerminal = useCallback((text: string) => {
         return;
     }
 
-    // Send the text to the terminal (add newline to execute)
-    window.api?.writeToTerminal?.({ id: terminalPaneId, data: text + '\n' });
+    // Get the terminal session ID (contentId), not the pane ID
+    const terminalSessionId = contentDataRef.current[terminalPaneId]?.contentId;
+    if (!terminalSessionId) {
+        console.warn('Terminal session not ready');
+        return;
+    }
+
+    // Use bracketed paste mode so multiline code is treated as a single block
+    const bracketedPaste = '\x1b[200~' + text + '\x1b[201~\n';
+    window.api?.writeToTerminal?.({ id: terminalSessionId, data: bracketedPaste });
 }, []);
 
 // Render functions for different content pane types
@@ -2492,6 +2598,110 @@ const renderBranchComparisonPane = useCallback(({ nodeId }) => {
     );
 }, []);
 
+const handleAICodeAction = useCallback(async (type: string, selectedText: string) => {
+    if (!selectedText) return;
+
+    const prompts = {
+        ask: `Explain this code:\n\n\`\`\`\n${selectedText}\n\`\`\``,
+        document: `Add comments and documentation to this code:\n\n\`\`\`\n${selectedText}\n\`\`\``,
+        edit: `Refactor and improve this code:\n\n\`\`\`\n${selectedText}\n\`\`\``
+    };
+
+    const streamId = `ai-action-${Date.now()}`;
+
+    setAiEditModal({
+        isOpen: true,
+        type,
+        selectedText,
+        selectionStart: 0,
+        selectionEnd: 0,
+        aiResponse: '',
+        aiResponseDiff: [],
+        showDiff: false,
+        isLoading: true,
+        streamId,
+        modelForEdit: null,
+        npcForEdit: null,
+        customEditPrompt: prompts[type] || ''
+    });
+
+    const prompt = prompts[type];
+
+    // Set up stream listeners
+    const cleanupData = window.api?.onStreamData?.((_, data) => {
+        if (data.streamId === streamId && data.chunk) {
+            try {
+                const chunk = data.chunk;
+                let content = '';
+                if (typeof chunk === 'string') {
+                    if (chunk.startsWith('data:')) {
+                        const dataContent = chunk.slice(5).trim();
+                        if (dataContent === '[DONE]') return;
+                        try {
+                            const parsed = JSON.parse(dataContent);
+                            content = parsed.choices?.[0]?.delta?.content || parsed.content || '';
+                        } catch {
+                            content = dataContent;
+                        }
+                    } else {
+                        content = chunk;
+                    }
+                }
+                if (content) {
+                    setAiEditModal(prev => ({
+                        ...prev,
+                        aiResponse: (prev.aiResponse || '') + content
+                    }));
+                }
+            } catch (e) {
+                // Partial chunk, ignore
+            }
+        }
+    });
+
+    const cleanupComplete = window.api?.onStreamComplete?.((_, data) => {
+        if (data.streamId === streamId) {
+            setAiEditModal(prev => ({ ...prev, isLoading: false }));
+            cleanupData?.();
+            cleanupComplete?.();
+        }
+    });
+
+    const cleanupError = window.api?.onStreamError?.((_, data) => {
+        if (data.streamId === streamId) {
+            setAiEditModal(prev => ({
+                ...prev,
+                aiResponse: prev.aiResponse || `Error: ${data.error}`,
+                isLoading: false
+            }));
+            cleanupData?.();
+            cleanupComplete?.();
+            cleanupError?.();
+        }
+    });
+
+    // Create a temporary conversation and start the stream
+    const conversation = await window.api?.createConversation?.({ directory_path: currentPath });
+    if (!conversation?.id) {
+        setAiEditModal(prev => ({
+            ...prev,
+            aiResponse: 'Error: Failed to create conversation',
+            isLoading: false
+        }));
+        return;
+    }
+
+    window.api?.executeCommandStream?.({
+        streamId,
+        commandstr: prompt,
+        currentPath,
+        conversationId: conversation.id,
+        model: currentModel,
+        provider: currentProvider,
+        executionMode: 'chat'
+    });
+}, [currentModel, currentProvider, currentPath]);
+
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
     if (!paneData || !paneData.contentId) {
@@ -2515,7 +2725,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             handleEditorCopy={() => {}}
             handleEditorPaste={() => {}}
             handleAddToChat={() => {}}
-            handleAIEdit={() => {}}
+            handleAIEdit={handleAICodeAction}
             startAgenticEdit={() => {}}
             onGitBlame={() => {}}
             setPromptModal={setPromptModal}
@@ -2524,7 +2734,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             onSendToTerminal={handleSendToTerminal}
         />
     );
-}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal]);
+}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal, handleAICodeAction]);
 
 const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, shell?: string }) => {
     return (
@@ -3012,6 +3222,7 @@ const tileJinxScope = useMemo(() => ({
     Modal, Tabs, Card, Button, Input, Select, ImageEditor,
     createWindowApiDatabaseClient, QueryChart,
     WidgetBuilder, WidgetGrid, Widget, DataTable,
+    Lightbox, ImageGrid, StarRating, RangeSlider, SortableList,
     // Chart.js components (Chart is alias for ChartJS)
     Pie, Bar, Line, ChartJS, Chart: ChartJS,
     ArcElement, Tooltip, Legend,
@@ -3026,6 +3237,9 @@ const tileJinxScope = useMemo(() => ({
     KnowledgeGraphEditor,
     CtxEditor,
     PythonEnvSettings,
+    NPCTeamMenu,
+    JinxMenu,
+    McpServerMenu,
     // All lucide icons
     ...LucideIcons,
     // Real window, console, and JS built-ins (in case icons shadow them)
@@ -4990,7 +5204,9 @@ ${contextPrompt}`;
 
     useEffect(() => {
         if (currentPath) {
-            localStorage.setItem(LAST_ACTIVE_PATH_KEY, currentPath);
+            // Use sessionStorage (window-specific) instead of localStorage (shared across all windows)
+            // This prevents multiple windows from overwriting each other's paths on hot-reload
+            sessionStorage.setItem(LAST_ACTIVE_PATH_KEY, currentPath);
         }
     }, [currentPath]);
 
@@ -5215,14 +5431,15 @@ ${contextPrompt}`;
             // Only determine initial path on first load (when currentPath is empty)
             if (!currentPath) {
                 let initialPathToLoad = config.baseDir;
-                const storedPath = localStorage.getItem(LAST_ACTIVE_PATH_KEY);
+                // Use sessionStorage (window-specific) so each window can have its own path
+                const storedPath = sessionStorage.getItem(LAST_ACTIVE_PATH_KEY);
                 if (storedPath) {
                     const pathExistsResponse = await window.api.readDirectoryStructure(storedPath);
                     if (!pathExistsResponse?.error) {
                         initialPathToLoad = storedPath;
                     } else {
                         console.warn(`Stored path "${storedPath}" is invalid or inaccessible. Falling back to default.`);
-                        localStorage.removeItem(LAST_ACTIVE_PATH_KEY);
+                        sessionStorage.removeItem(LAST_ACTIVE_PATH_KEY);
                     }
                 } else if (config.default_folder) {
                     initialPathToLoad = config.default_folder;
@@ -6042,6 +6259,44 @@ ${contextPrompt}`;
                                 className="px-4 py-2 theme-button-success rounded"
                             >
                                 Apply All
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* AI Code Action Modal (Explain, Add Comments, Refactor) */}
+            {aiEditModal.isOpen && ['ask', 'document', 'edit'].includes(aiEditModal.type) && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="theme-bg-secondary p-6 theme-border border rounded-lg shadow-xl max-w-3xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+                        <h3 className="text-lg font-medium mb-4">
+                            {aiEditModal.type === 'ask' ? 'Explanation' : aiEditModal.type === 'document' ? 'Comments' : 'Refactored Code'}
+                        </h3>
+                        <div className="flex-1 overflow-y-auto">
+                            {aiEditModal.isLoading ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                                    <span className="ml-2 theme-text-muted">Generating...</span>
+                                </div>
+                            ) : (
+                                <pre className="whitespace-pre-wrap text-sm theme-text-primary bg-black/20 p-4 rounded overflow-auto">
+                                    {aiEditModal.aiResponse || 'No response'}
+                                </pre>
+                            )}
+                        </div>
+                        <div className="flex justify-end gap-3 mt-4">
+                            <button
+                                onClick={() => {
+                                    if (aiEditModal.aiResponse) {
+                                        navigator.clipboard.writeText(aiEditModal.aiResponse);
+                                    }
+                                }}
+                                className="px-4 py-2 theme-button rounded"
+                            >
+                                Copy
+                            </button>
+                            <button onClick={() => setAiEditModal({ isOpen: false })} className="px-4 py-2 theme-button rounded">
+                                Close
                             </button>
                         </div>
                     </div>

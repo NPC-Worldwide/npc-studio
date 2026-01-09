@@ -448,36 +448,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                 </div>
             )}
 
-            {/* Shell/Environment Indicator */}
-            <div className="absolute bottom-1 left-1 flex items-center gap-2 z-20 pointer-events-none">
-                {/* Shell Type Indicator */}
-                <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
-                    activeShell === 'npcsh' ? 'bg-purple-600/80 text-purple-100' :
-                    activeShell === 'guac' || activeShell === 'ipython' ? 'bg-yellow-600/80 text-yellow-100' :
-                    'bg-gray-700/80 text-gray-300'
-                }`}>
-                    {activeShell === 'npcsh' ? (
-                        <Sparkles size={12} />
-                    ) : activeShell === 'guac' || activeShell === 'ipython' ? (
-                        <Code size={12} />
-                    ) : (
-                        <TerminalIcon size={12} />
-                    )}
-                    <span>
-                        {activeShell === 'npcsh' ? 'npcsh' :
-                         activeShell === 'guac' || activeShell === 'ipython' ? 'guac' :
-                         'shell'}
-                    </span>
-                </div>
 
-                {/* Python Environment Indicator */}
-                {pythonEnv && (
-                    <div className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-700/80 text-green-100">
-                        <span className="opacity-70">py:</span>
-                        <span>{pythonEnv}</span>
-                    </div>
-                )}
-            </div>
         </div>
     );
 };
