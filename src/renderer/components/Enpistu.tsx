@@ -57,7 +57,7 @@ import AutosizeTextarea from './AutosizeTextarea';
 import ForceGraph2D from 'react-force-graph-2d';
 import { Pie, Bar, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement } from 'chart.js';
-import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart, ImageEditor, WidgetBuilder, WidgetGrid, Widget, DataTable } from 'npcts';
+import { Modal, Tabs, Card, Button, Input, Select, createWindowApiDatabaseClient, QueryChart, ImageEditor, WidgetBuilder, WidgetGrid, Widget, DataTable, Lightbox, ImageGrid, StarRating, RangeSlider, SortableList } from 'npcts';
 
 // Register chart.js components for jinx runtime
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement);
@@ -3222,6 +3222,7 @@ const tileJinxScope = useMemo(() => ({
     Modal, Tabs, Card, Button, Input, Select, ImageEditor,
     createWindowApiDatabaseClient, QueryChart,
     WidgetBuilder, WidgetGrid, Widget, DataTable,
+    Lightbox, ImageGrid, StarRating, RangeSlider, SortableList,
     // Chart.js components (Chart is alias for ChartJS)
     Pie, Bar, Line, ChartJS, Chart: ChartJS,
     ArcElement, Tooltip, Legend,
@@ -5203,7 +5204,9 @@ ${contextPrompt}`;
 
     useEffect(() => {
         if (currentPath) {
-            localStorage.setItem(LAST_ACTIVE_PATH_KEY, currentPath);
+            // Use sessionStorage (window-specific) instead of localStorage (shared across all windows)
+            // This prevents multiple windows from overwriting each other's paths on hot-reload
+            sessionStorage.setItem(LAST_ACTIVE_PATH_KEY, currentPath);
         }
     }, [currentPath]);
 
@@ -5428,14 +5431,15 @@ ${contextPrompt}`;
             // Only determine initial path on first load (when currentPath is empty)
             if (!currentPath) {
                 let initialPathToLoad = config.baseDir;
-                const storedPath = localStorage.getItem(LAST_ACTIVE_PATH_KEY);
+                // Use sessionStorage (window-specific) so each window can have its own path
+                const storedPath = sessionStorage.getItem(LAST_ACTIVE_PATH_KEY);
                 if (storedPath) {
                     const pathExistsResponse = await window.api.readDirectoryStructure(storedPath);
                     if (!pathExistsResponse?.error) {
                         initialPathToLoad = storedPath;
                     } else {
                         console.warn(`Stored path "${storedPath}" is invalid or inaccessible. Falling back to default.`);
-                        localStorage.removeItem(LAST_ACTIVE_PATH_KEY);
+                        sessionStorage.removeItem(LAST_ACTIVE_PATH_KEY);
                     }
                 } else if (config.default_folder) {
                     initialPathToLoad = config.default_folder;

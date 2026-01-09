@@ -60,6 +60,8 @@ readDocxContent: (filePath) =>
     gitLog: (repoPath, options) => ipcRenderer.invoke('gitLog', repoPath, options),
     gitShowCommit: (repoPath, commitHash) => ipcRenderer.invoke('gitShowCommit', repoPath, commitHash),
     gitStash: (repoPath, action, message) => ipcRenderer.invoke('gitStash', repoPath, action, message),
+    gitShowFile: (repoPath, filePath, ref) => ipcRenderer.invoke('gitShowFile', repoPath, filePath, ref),
+    gitDiscardFile: (repoPath, filePath) => ipcRenderer.invoke('gitDiscardFile', repoPath, filePath),
 
     readFile: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
    

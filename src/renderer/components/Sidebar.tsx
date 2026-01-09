@@ -131,7 +131,7 @@ const Sidebar = (props: any) => {
         setDropTargetSection(null);
         if (draggedId === targetSectionId || !setSidebarSectionOrder) return;
 
-        const currentOrder = sidebarSectionOrder || ['websites', 'files', 'conversations'];
+        const currentOrder = sidebarSectionOrder || ['websites', 'files', 'conversations', 'git'];
         const newOrder = [...currentOrder];
         const draggedIndex = newOrder.indexOf(draggedId);
         const targetIndex = newOrder.indexOf(targetSectionId);
@@ -3506,6 +3506,195 @@ const renderFolderList = (structure) => {
         );
     };
 
+    // Git section - only shows when git is detected
+    const renderGitSection = () => {
+        // Don't render if no git status (not a git repo)
+        if (!gitStatus) return null;
+
+        const staged = Array.isArray(gitStatus.staged) ? gitStatus.staged : [];
+        const unstaged = Array.isArray(gitStatus.unstaged) ? gitStatus.unstaged : [];
+        const untracked = Array.isArray(gitStatus.untracked) ? gitStatus.untracked : [];
+        const totalChanges = staged.length + unstaged.length + untracked.length;
+
+        const openDiffViewer = (filePath: string, status: string) => {
+            // Open a diff pane for this file
+            const paneId = generateId();
+            const fullPath = filePath.startsWith('/') ? filePath : `${currentPath}/${filePath}`;
+            const newPane = {
+                id: paneId,
+                contentType: 'diff',
+                contentId: fullPath,
+                diffStatus: status
+            };
+
+            // Add pane to layout
+            if (createAndAddPaneNodeToLayout) {
+                createAndAddPaneNodeToLayout(newPane);
+            }
+        };
+
+        const header = (
+            <div
+                className={`mx-1 mt-3 transition-all duration-150 ${draggedSection === 'git' ? 'opacity-50' : ''} ${dropTargetSection === 'git' ? 'ring-2 ring-orange-500 rounded-lg' : ''}`}
+                onDragOver={handleSectionDragOver('git')}
+                onDragLeave={handleSectionDragLeave}
+                onDrop={handleSectionDrop('git')}
+            >
+                <div className="group/header flex items-center bg-gradient-to-r from-orange-900/20 to-amber-900/20 rounded-t-lg border-b border-orange-500/20">
+                    {/* Drag handle - appears on hover */}
+                    <div
+                        draggable
+                        onDragStart={handleSectionDragStart('git')}
+                        onDragEnd={handleSectionDragEnd}
+                        className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
+                        title="Drag to reorder"
+                    >
+                        <GripVertical size={10} className="text-gray-500" />
+                    </div>
+                    <div className="flex-1 flex items-center justify-between px-2 py-1.5">
+                        <div className="flex items-center gap-1.5">
+                            <GitBranch size={12} className="text-orange-400" />
+                            <span className="text-[11px] text-orange-300 font-medium">Git</span>
+                            <span className="text-[10px] text-gray-500">({gitStatus.branch})</span>
+                            {totalChanges > 0 && (
+                                <span className="text-[9px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded-full">
+                                    {totalChanges} change{totalChanges !== 1 ? 's' : ''}
+                                </span>
+                            )}
+                            {gitStatus.ahead > 0 && <span className="text-[9px] text-green-400">↑{gitStatus.ahead}</span>}
+                            {gitStatus.behind > 0 && <span className="text-[9px] text-yellow-400">↓{gitStatus.behind}</span>}
+                        </div>
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); loadGitStatus(); }}
+                                className="p-1 hover:bg-white/10 rounded"
+                                title="Refresh git status"
+                            >
+                                <RotateCcw size={10} className="text-gray-400" />
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setGitPanelCollapsed(!gitPanelCollapsed); }}
+                                className="p-1 hover:bg-white/10 rounded"
+                            >
+                                <ChevronRight size={12} className={`text-gray-400 transition-transform ${!gitPanelCollapsed ? 'rotate-90' : ''}`} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+
+        return (
+            <div className="flex flex-col">
+                {header}
+                {!gitPanelCollapsed && (
+                    <div className="mx-1 theme-bg-secondary rounded-b-lg overflow-hidden">
+                        <div className="overflow-auto max-h-[300px] p-2 space-y-2">
+                            {/* Staged files */}
+                            {staged.length > 0 && (
+                                <div>
+                                    <div className="text-[10px] font-medium text-green-400 mb-1 flex items-center gap-1">
+                                        <Check size={10} /> Staged ({staged.length})
+                                    </div>
+                                    {staged.map(file => (
+                                        <button
+                                            key={file.path}
+                                            onClick={() => openDiffViewer(file.path, file.status)}
+                                            className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-green-500/10 rounded group"
+                                        >
+                                            <span className="text-green-300 truncate flex-1 text-left">{file.path}</span>
+                                            <span className="text-green-500 text-[9px] opacity-60">{file.status}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Unstaged files */}
+                            {unstaged.length > 0 && (
+                                <div>
+                                    <div className="text-[10px] font-medium text-yellow-400 mb-1 flex items-center gap-1">
+                                        <Edit size={10} /> Modified ({unstaged.length})
+                                    </div>
+                                    {unstaged.map(file => (
+                                        <button
+                                            key={file.path}
+                                            onClick={() => openDiffViewer(file.path, file.status)}
+                                            className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-yellow-500/10 rounded group"
+                                        >
+                                            <span className="text-yellow-300 truncate flex-1 text-left">{file.path}</span>
+                                            <span className="text-yellow-500 text-[9px] opacity-60">{file.status}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Untracked files */}
+                            {untracked.length > 0 && (
+                                <div>
+                                    <div className="text-[10px] font-medium text-gray-400 mb-1 flex items-center gap-1">
+                                        <Plus size={10} /> Untracked ({untracked.length})
+                                    </div>
+                                    {untracked.map(file => (
+                                        <button
+                                            key={file.path}
+                                            onClick={() => handleFileClick(`${currentPath}/${file.path}`)}
+                                            className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-white/5 rounded group"
+                                        >
+                                            <span className="text-gray-400 truncate flex-1 text-left">{file.path}</span>
+                                            <span className="text-gray-500 text-[9px] opacity-60">new</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {totalChanges === 0 && (
+                                <div className="text-[10px] text-gray-500 text-center py-2">
+                                    No changes
+                                </div>
+                            )}
+
+                            {/* Quick actions */}
+                            <div className="pt-2 border-t border-gray-700/50 flex gap-1">
+                                <input
+                                    type="text"
+                                    value={gitCommitMessage}
+                                    onChange={e => setGitCommitMessage(e.target.value)}
+                                    placeholder="Commit message..."
+                                    className="flex-1 px-2 py-1 text-[10px] rounded theme-bg-primary theme-border border"
+                                />
+                                <button
+                                    disabled={gitLoading || !gitCommitMessage.trim() || staged.length === 0}
+                                    onClick={gitCommitChanges}
+                                    className="px-2 py-1 text-[10px] bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded"
+                                    title="Commit staged changes"
+                                >
+                                    Commit
+                                </button>
+                            </div>
+                            <div className="flex gap-1">
+                                <button
+                                    disabled={gitLoading}
+                                    onClick={gitPullChanges}
+                                    className="flex-1 px-2 py-1 text-[10px] theme-hover rounded border theme-border"
+                                >
+                                    Pull
+                                </button>
+                                <button
+                                    disabled={gitLoading}
+                                    onClick={gitPushChanges}
+                                    className="flex-1 px-2 py-1 text-[10px] theme-hover rounded border theme-border"
+                                >
+                                    Push
+                                </button>
+                            </div>
+                            {gitError && <div className="text-[9px] text-red-400">{gitError}</div>}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
         const renderContextMenu = () => (
         contextMenuPos && (
             <>
@@ -4028,7 +4217,7 @@ return (
                             setDropTargetSection(null);
                             return;
                         }
-                        const currentOrder = sidebarSectionOrder || ['websites', 'files', 'conversations'];
+                        const currentOrder = sidebarSectionOrder || ['websites', 'files', 'conversations', 'git'];
                         const newOrder = [...currentOrder];
                         const draggedIndex = newOrder.indexOf(draggedSection);
                         const targetIndex = newOrder.indexOf(dropTargetSection);
@@ -4040,15 +4229,17 @@ return (
                     }}
                 >
                     {/* Render sections in user-defined order */}
-                    {(sidebarSectionOrder || ['websites', 'files', 'conversations']).map((sectionId: string) => {
+                    {(sidebarSectionOrder || ['websites', 'files', 'conversations', 'git']).filter(s => s !== 'git' || gitStatus).map((sectionId: string) => {
                         const sectionColors: Record<string, string> = {
                             websites: 'ring-purple-500',
                             files: 'ring-yellow-500',
-                            conversations: 'ring-green-500'
+                            conversations: 'ring-green-500',
+                            git: 'ring-orange-500'
                         };
                         const isCollapsed = (sectionId === 'websites' && websitesCollapsed) ||
                                            (sectionId === 'files' && filesCollapsed) ||
-                                           (sectionId === 'conversations' && conversationsCollapsed);
+                                           (sectionId === 'conversations' && conversationsCollapsed) ||
+                                           (sectionId === 'git' && gitPanelCollapsed);
                         return (
                             <div
                                 key={sectionId}
@@ -4058,6 +4249,7 @@ return (
                                 {sectionId === 'websites' && renderWebsiteList()}
                                 {sectionId === 'files' && renderFolderList(folderStructure)}
                                 {sectionId === 'conversations' && renderConversationList(directoryConversations)}
+                                {sectionId === 'git' && renderGitSection()}
                             </div>
                         );
                     })}

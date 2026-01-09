@@ -2204,6 +2204,34 @@ ipcMain.handle('gitStash', async (event, repoPath, action = 'push', message = ''
   }
 });
 
+ipcMain.handle('gitShowFile', async (event, repoPath, filePath, ref = 'HEAD') => {
+  log(`[Git] Show file ${filePath} at ${ref} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    const content = await git.show([`${ref}:${filePath}`]);
+    return { success: true, content };
+  } catch (err) {
+    // File might not exist at that ref (new file)
+    if (err.message.includes('does not exist') || err.message.includes('fatal:')) {
+      return { success: true, content: '' };
+    }
+    console.error(`[Git] Error showing file:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitDiscardFile', async (event, repoPath, filePath) => {
+  log(`[Git] Discard changes to ${filePath} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.checkout(['--', filePath]);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error discarding file:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('browser-add-to-history', async (event, { url, title, folderPath }) => {
     try {
         if (!url || url === 'about:blank') return { success: true };

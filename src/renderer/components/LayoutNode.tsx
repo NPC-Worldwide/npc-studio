@@ -12,6 +12,7 @@ import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
 import { getFileIcon } from './utils';
 import ChatInput from './ChatInput';
+import DiffViewer from './DiffViewer';
 
 // Token cost calculator based on model pricing ($ per 1K tokens)
 // Source: Helicone LLM API Pricing - Updated Nov 2025
@@ -1028,6 +1029,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'branches') {
             headerIcon = <GitBranch size={14} className="text-purple-400" />;
             headerTitle = 'Branch Comparison';
+        } else if (contentType === 'diff') {
+            headerIcon = <GitBranch size={14} className="text-orange-400" />;
+            headerTitle = `Diff: ${contentId?.split('/').pop() || 'File'}`;
         } else if (contentId) {
             headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();
@@ -1231,6 +1235,14 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderBranchComparisonPane({ nodeId: node.id });
                 case 'help':
                     return renderHelpPane({ nodeId: node.id });
+                case 'diff':
+                    return (
+                        <DiffViewer
+                            filePath={contentId || ''}
+                            diffStatus={paneData?.diffStatus}
+                            currentPath={currentPath}
+                        />
+                    );
                 default:
                     return null;
             }

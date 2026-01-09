@@ -386,11 +386,11 @@ const WebBrowserViewer = memo(({
         let finalUrl = input;
 
         // Check if it's a URL or a search query
+        // Simple rule: if it has a dot and no spaces, treat it as a URL
         const isUrl = input.startsWith('http://') ||
                       input.startsWith('https://') ||
                       input.startsWith('localhost') ||
-                      input.startsWith('127.0.0.1') ||
-                      /^[\w-]+\.(com|org|net|io|co|ai|dev|app|me|edu|gov|info|biz|tv|cc|xyz|tech|online|site|store|blog|cloud|wiki|video|news|live|link|page|space|world|today|zone|network|solutions|digital|agency|studio|design|media|software|systems|services|group|team|labs|works)(\/.*)?$/i.test(input);
+                      (input.includes('.') && !input.includes(' '));
 
         if (isUrl) {
             // It's a URL - add protocol if missing
@@ -412,12 +412,27 @@ const WebBrowserViewer = memo(({
     const handleBack = useCallback(() => webviewRef.current?.goBack(), []);
     const handleForward = useCallback(() => webviewRef.current?.goForward(), []);
     const handleRefresh = useCallback(() => webviewRef.current?.reload(), []);
+    const handleHardRefresh = useCallback(() => webviewRef.current?.reloadIgnoringCache(), []);
 
-    // Backspace to go back in history (when not in a text field)
+    // Keyboard shortcuts: Backspace for back, Ctrl+Shift+R for hard refresh
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // Ctrl+Shift+R = hard refresh (bypass cache)
+            if (e.ctrlKey && e.shiftKey && e.key === 'R') {
+                e.preventDefault();
+                e.stopPropagation();
+                handleHardRefresh();
+                return;
+            }
+            // Ctrl+R = normal refresh
+            if (e.ctrlKey && !e.shiftKey && e.key === 'r') {
+                e.preventDefault();
+                e.stopPropagation();
+                handleRefresh();
+                return;
+            }
+            // Backspace = go back
             if (e.key === 'Backspace') {
-                // Don't intercept if typing in an input, textarea, or contenteditable
                 const target = e.target as HTMLElement;
                 const isTextInput = target.tagName === 'INPUT' ||
                                    target.tagName === 'TEXTAREA' ||
@@ -429,9 +444,9 @@ const WebBrowserViewer = memo(({
             }
         };
 
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [canGoBack, handleBack]);
+        document.addEventListener('keydown', handleKeyDown, true); // Use capture to intercept before Electron
+        return () => document.removeEventListener('keydown', handleKeyDown, true);
+    }, [canGoBack, handleBack, handleRefresh, handleHardRefresh]);
     const handleHome = useCallback(() => {
         const initial = initialUrlRef.current;
         let homeUrl = initial;
@@ -854,7 +869,14 @@ const WebBrowserViewer = memo(({
                 <div className="flex items-center gap-0.5 px-1 border-r theme-border">
                     <button onClick={handleBack} disabled={!canGoBack} className="p-1 theme-hover rounded disabled:opacity-30" title="Back"><ArrowLeft size={16} /></button>
                     <button onClick={handleForward} disabled={!canGoForward} className="p-1 theme-hover rounded disabled:opacity-30" title="Forward"><ArrowRight size={16} /></button>
-                    <button onClick={handleRefresh} className="p-1 theme-hover rounded" title="Refresh"><RotateCcw size={16} className={loading ? 'animate-spin' : ''} /></button>
+                    <button
+                        onClick={(e) => e.shiftKey ? handleHardRefresh() : handleRefresh()}
+                        onContextMenu={(e) => { e.preventDefault(); handleHardRefresh(); }}
+                        className="p-1 theme-hover rounded"
+                        title="Refresh (Ctrl+R) | Shift+Click or Right-click for Hard Refresh (Ctrl+Shift+R)"
+                    >
+                        <RotateCcw size={16} className={loading ? 'animate-spin' : ''} />
+                    </button>
                     <button onClick={handleHome} className="p-1 theme-hover rounded" title="Home"><Home size={16} /></button>
                 </div>
 
