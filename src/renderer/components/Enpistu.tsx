@@ -4,7 +4,8 @@ import {
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, ArrowDown,X, Wrench, FileText, Code2, FileJson, Paperclip,
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
-    Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen, User
+    Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen, User,
+    RefreshCw, RotateCcw, Check
 } from 'lucide-react';
 
 import { Icon } from 'lucide-react';
@@ -540,7 +541,15 @@ const ChatInterface = () => {
     // Sidebar section order: array of section IDs in display order
     const [sidebarSectionOrder, setSidebarSectionOrder] = useState<string[]>(() => {
         const saved = localStorage.getItem('sidebarSectionOrder');
-        return saved !== null ? JSON.parse(saved) : ['websites', 'files', 'conversations'];
+        if (saved !== null) {
+            const parsed = JSON.parse(saved);
+            // Ensure 'git' is in the order if it's missing (backwards compat)
+            if (!parsed.includes('git')) {
+                parsed.push('git');
+            }
+            return parsed;
+        }
+        return ['websites', 'files', 'conversations', 'git'];
     });
     const chatContainerRef = useRef(null);
 
@@ -3062,6 +3071,225 @@ const renderHelpPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return <HelpViewer />;
 }, []);
 
+// Render Git pane (embedded git panel)
+const renderGitPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <div className="flex flex-col h-full theme-bg-primary overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b theme-border">
+                <div className="flex items-center gap-3">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-400">
+                        <line x1="6" y1="3" x2="6" y2="15"></line>
+                        <circle cx="18" cy="6" r="3"></circle>
+                        <circle cx="6" cy="18" r="3"></circle>
+                        <path d="M18 9a9 9 0 0 1-9 9"></path>
+                    </svg>
+                    <h2 className="text-lg font-semibold theme-text-primary">Git</h2>
+                    {gitStatus?.branch && <span className="text-sm theme-text-muted">({gitStatus.branch})</span>}
+                </div>
+                <button onClick={() => loadGitStatus()} className="p-2 theme-hover rounded-lg" title="Refresh">
+                    <RefreshCw size={16} />
+                </button>
+            </div>
+
+            {/* Tab Bar */}
+            <div className="flex border-b theme-border px-4">
+                {(['status', 'diff', 'branches', 'history'] as const).map(tab => (
+                    <button
+                        key={tab}
+                        onClick={() => {
+                            setGitModalTab(tab);
+                            if (tab === 'diff') loadGitDiff();
+                            if (tab === 'branches') loadGitBranches();
+                            if (tab === 'history') loadGitHistory();
+                        }}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                            gitModalTab === tab
+                                ? 'border-purple-500 text-purple-400'
+                                : 'border-transparent theme-text-muted hover:theme-text-primary'
+                        }`}
+                    >
+                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </button>
+                ))}
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-auto p-4">
+                {!gitStatus ? (
+                    <div className="text-center theme-text-muted py-8">No git repository in this directory</div>
+                ) : gitModalTab === 'status' ? (
+                    /* Status Tab */
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-4 text-sm">
+                            <span className="theme-text-primary font-medium">Branch: {gitStatus.branch}</span>
+                            {gitStatus.ahead > 0 && <span className="text-green-400">↑{gitStatus.ahead} ahead</span>}
+                            {gitStatus.behind > 0 && <span className="text-yellow-400">↓{gitStatus.behind} behind</span>}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="theme-bg-secondary rounded-lg p-3">
+                                <h3 className="text-sm font-medium text-green-400 mb-2">Staged ({(gitStatus.staged || []).length})</h3>
+                                <div className="space-y-1 max-h-48 overflow-y-auto">
+                                    {(gitStatus.staged || []).length === 0 ? (
+                                        <div className="text-xs theme-text-muted">No staged files</div>
+                                    ) : (gitStatus.staged || []).map((file: any) => (
+                                        <div key={file.path} className="flex items-center justify-between text-xs group">
+                                            <button
+                                                onClick={() => loadFileDiff(file.path, true)}
+                                                className="text-green-300 truncate flex-1 text-left hover:underline"
+                                            >
+                                                {file.path}
+                                            </button>
+                                            <button onClick={() => gitUnstageFile(file.path)} className="text-red-400 hover:text-red-300 px-2 opacity-0 group-hover:opacity-100">Unstage</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="theme-bg-secondary rounded-lg p-3">
+                                <h3 className="text-sm font-medium text-yellow-400 mb-2">Unstaged ({(gitStatus.unstaged || []).length + (gitStatus.untracked || []).length})</h3>
+                                <div className="space-y-1 max-h-48 overflow-y-auto">
+                                    {(gitStatus.unstaged || []).length + (gitStatus.untracked || []).length === 0 ? (
+                                        <div className="text-xs theme-text-muted">No changes</div>
+                                    ) : [...(gitStatus.unstaged || []), ...(gitStatus.untracked || [])].map((file: any) => (
+                                        <div key={file.path} className="flex items-center justify-between text-xs group">
+                                            <button
+                                                onClick={() => loadFileDiff(file.path, false)}
+                                                className={`truncate flex-1 text-left hover:underline ${file.isUntracked ? 'text-gray-400' : 'text-yellow-300'}`}
+                                            >
+                                                {file.path}
+                                            </button>
+                                            <button onClick={() => gitStageFile(file.path)} className="text-green-400 hover:text-green-300 px-2 opacity-0 group-hover:opacity-100">Stage</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Commit Section */}
+                        <div className="theme-bg-secondary rounded-lg p-3">
+                            <h3 className="text-sm font-medium theme-text-primary mb-2">Commit</h3>
+                            <textarea
+                                value={gitCommitMessage}
+                                onChange={(e) => setGitCommitMessage(e.target.value)}
+                                placeholder="Commit message..."
+                                className="w-full px-3 py-2 text-sm theme-bg-primary border theme-border rounded-lg resize-none h-20"
+                            />
+                            <div className="flex gap-2 mt-2">
+                                <button
+                                    onClick={gitCommitChanges}
+                                    disabled={!gitCommitMessage.trim() || (gitStatus.staged || []).length === 0}
+                                    className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
+                                >
+                                    Commit
+                                </button>
+                                <button
+                                    onClick={gitPushChanges}
+                                    className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded-lg"
+                                >
+                                    Push
+                                </button>
+                                <button
+                                    onClick={gitPullChanges}
+                                    className="px-3 py-1.5 text-xs bg-purple-600 hover:bg-purple-500 rounded-lg"
+                                >
+                                    Pull
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : gitModalTab === 'diff' ? (
+                    /* Diff Tab */
+                    <div className="space-y-2">
+                        {gitDiffContent ? (
+                            <pre className="text-xs font-mono whitespace-pre-wrap theme-bg-secondary p-3 rounded-lg overflow-auto max-h-[60vh]">
+                                {(gitDiffContent.staged + '\n' + gitDiffContent.unstaged).split('\n').map((line, i) => (
+                                    <div key={i} className={
+                                        line.startsWith('+') && !line.startsWith('+++') ? 'text-green-400' :
+                                        line.startsWith('-') && !line.startsWith('---') ? 'text-red-400' :
+                                        line.startsWith('@@') ? 'text-blue-400' :
+                                        'theme-text-muted'
+                                    }>{line}</div>
+                                ))}
+                            </pre>
+                        ) : (
+                            <div className="text-center theme-text-muted py-8">No diff available</div>
+                        )}
+                    </div>
+                ) : gitModalTab === 'branches' ? (
+                    /* Branches Tab */
+                    <div className="space-y-4">
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                placeholder="New branch name..."
+                                value={gitNewBranchName}
+                                onChange={(e) => setGitNewBranchName(e.target.value)}
+                                className="flex-1 px-3 py-2 text-sm theme-bg-secondary border theme-border rounded-lg"
+                            />
+                            <button
+                                onClick={gitCreateBranch}
+                                disabled={!gitNewBranchName.trim()}
+                                className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg"
+                            >
+                                Create Branch
+                            </button>
+                        </div>
+                        <div className="space-y-1">
+                            {gitBranches?.all?.map((branch: string) => (
+                                <div
+                                    key={branch}
+                                    className={`flex items-center justify-between p-2 rounded text-sm ${
+                                        branch === gitBranches.current ? 'bg-purple-900/30 border border-purple-500/30' : 'hover:bg-white/5'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-2">
+                                        {branch === gitBranches.current && (
+                                            <span className="text-purple-400">●</span>
+                                        )}
+                                        <span className={branch === gitBranches.current ? 'text-purple-400 font-medium' : 'theme-text-primary'}>
+                                            {branch}
+                                        </span>
+                                    </div>
+                                    {branch !== gitBranches.current && (
+                                        <button
+                                            onClick={() => gitCheckoutBranch(branch)}
+                                            className="text-xs text-blue-400 hover:text-blue-300"
+                                        >
+                                            Checkout
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : gitModalTab === 'history' ? (
+                    /* History Tab */
+                    <div className="space-y-2">
+                        {gitCommitHistory?.map((commit: any, i: number) => (
+                            <div key={i} className="theme-bg-secondary rounded-lg p-3">
+                                <div className="flex items-start justify-between">
+                                    <div className="flex-1">
+                                        <div className="text-sm theme-text-primary font-medium">{commit.message}</div>
+                                        <div className="text-xs theme-text-muted mt-1">
+                                            {commit.author} • {commit.date}
+                                        </div>
+                                    </div>
+                                    <code className="text-xs text-purple-400">{commit.hash?.slice(0, 7)}</code>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : null}
+            </div>
+        </div>
+    );
+}, [gitStatus, gitModalTab, gitDiffContent, gitBranches, gitCommitHistory, gitCommitMessage, gitNewBranchName,
+    setGitCommitMessage, setGitNewBranchName, setGitModalTab,
+    loadGitStatus, loadGitDiff, loadGitBranches, loadGitHistory, loadFileDiff,
+    gitStageFile, gitUnstageFile, gitCommitChanges, gitPushChanges, gitPullChanges, gitCreateBranch, gitCheckoutBranch]);
+
 // Render FolderViewer pane (for pane-based folder browsing)
 const renderFolderViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
     const paneData = contentDataRef.current[nodeId];
@@ -3453,7 +3681,23 @@ const renderMessageContextMenu = () => (
     return null;
   }, []);
 
-  const createAndAddPaneNodeToLayout = useCallback((contentType: string, contentId: string | null) => {
+  const createAndAddPaneNodeToLayout = useCallback((contentTypeOrOptions: string | { contentType: string; contentId?: string | null; diffStatus?: string; [key: string]: any }, contentId?: string | null) => {
+  // Support both (contentType, contentId) and ({ contentType, contentId, ...extras })
+  let contentType: string;
+  let finalContentId: string | null;
+  let extraProps: Record<string, any> = {};
+
+  if (typeof contentTypeOrOptions === 'object') {
+    contentType = contentTypeOrOptions.contentType;
+    finalContentId = contentTypeOrOptions.contentId || null;
+    // Extract any extra properties (exclude id since we generate our own)
+    const { contentType: _, contentId: __, id: ___, ...rest } = contentTypeOrOptions;
+    extraProps = rest;
+  } else {
+    contentType = contentTypeOrOptions;
+    finalContentId = contentId || null;
+  }
+
   // NEVER create a pane without contentType
   if (!contentType) {
     console.error('[createAndAddPaneNodeToLayout] Cannot create pane without contentType!');
@@ -3465,7 +3709,8 @@ const renderMessageContextMenu = () => (
   // Set content BEFORE creating layout node - never create empty panes
   contentDataRef.current[newPaneId] = {
     contentType,
-    contentId
+    contentId: finalContentId,
+    ...extraProps
   };
 
   setRootLayoutNode(oldRoot => {
@@ -5021,6 +5266,14 @@ ${contextPrompt}`;
         setActiveContentPaneId(newPaneId);
     }, []);
 
+    // Create Git pane
+    const createGitPane = useCallback(async () => {
+        const newPaneId = generateId();
+        contentDataRef.current[newPaneId] = { contentType: 'git', contentId: 'git' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+        setActiveContentPaneId(newPaneId);
+    }, []);
+
     const createNewTextFile = useCallback((defaultFilename?: string) => {
         const filename = defaultFilename || localStorage.getItem('npcStudio_defaultCodeFileType') || 'untitled.py';
         const finalDefault = filename.includes('.') ? filename : `untitled.${filename}`;
@@ -5204,8 +5457,10 @@ ${contextPrompt}`;
 
     useEffect(() => {
         if (currentPath) {
-            // Use sessionStorage (window-specific) instead of localStorage (shared across all windows)
-            // This prevents multiple windows from overwriting each other's paths on hot-reload
+            // Save to BOTH:
+            // - localStorage: for persistence across app restarts
+            // - sessionStorage: for window-specific isolation during hot-reload
+            localStorage.setItem(LAST_ACTIVE_PATH_KEY, currentPath);
             sessionStorage.setItem(LAST_ACTIVE_PATH_KEY, currentPath);
         }
     }, [currentPath]);
@@ -5431,8 +5686,9 @@ ${contextPrompt}`;
             // Only determine initial path on first load (when currentPath is empty)
             if (!currentPath) {
                 let initialPathToLoad = config.baseDir;
-                // Use sessionStorage (window-specific) so each window can have its own path
-                const storedPath = sessionStorage.getItem(LAST_ACTIVE_PATH_KEY);
+                // Check sessionStorage first (for hot-reload within same window),
+                // then localStorage (for persistence across app restarts)
+                const storedPath = sessionStorage.getItem(LAST_ACTIVE_PATH_KEY) || localStorage.getItem(LAST_ACTIVE_PATH_KEY);
                 if (storedPath) {
                     const pathExistsResponse = await window.api.readDirectoryStructure(storedPath);
                     if (!pathExistsResponse?.error) {
@@ -5440,6 +5696,7 @@ ${contextPrompt}`;
                     } else {
                         console.warn(`Stored path "${storedPath}" is invalid or inaccessible. Falling back to default.`);
                         sessionStorage.removeItem(LAST_ACTIVE_PATH_KEY);
+                        localStorage.removeItem(LAST_ACTIVE_PATH_KEY);
                     }
                 } else if (config.default_folder) {
                     initialPathToLoad = config.default_folder;
@@ -7213,6 +7470,7 @@ const layoutComponentApi = useMemo(() => ({
     renderPhotoViewerPane,
     renderLibraryViewerPane,
     renderHelpPane,
+    renderGitPane,
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
@@ -7265,6 +7523,7 @@ const layoutComponentApi = useMemo(() => ({
     renderPhotoViewerPane,
     renderLibraryViewerPane,
     renderHelpPane,
+    renderGitPane,
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
@@ -7844,6 +8103,7 @@ const renderMainContent = () => {
                     gitBranch={gitStatus?.branch || null}
                     gitStatus={gitStatus}
                     setGitModalOpen={setGitModalOpen}
+                    createGitPane={createGitPane}
                     directoryConversations={directoryConversations}
                     setWorkspaceModalOpen={setWorkspaceModalOpen}
                     paneItems={[]}
@@ -7889,6 +8149,7 @@ const renderMainContent = () => {
                 gitBranch={gitBranch}
                 gitStatus={gitStatus}
                 setGitModalOpen={setGitModalOpen}
+                createGitPane={createGitPane}
                 directoryConversations={directoryConversations}
                 setWorkspaceModalOpen={setWorkspaceModalOpen}
                 paneItems={paneItems}

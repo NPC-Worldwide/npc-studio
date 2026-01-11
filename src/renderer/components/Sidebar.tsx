@@ -229,6 +229,28 @@ const Sidebar = (props: any) => {
         localStorage.setItem('npcStudio_bottomGridCollapsed', String(bottomGridCollapsed));
     }, [bottomGridCollapsed]);
 
+    // Load git status for current path
+    const loadGitStatus = useCallback(async () => {
+        if (!currentPath) return;
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            const response = await (window as any).api.gitStatus(currentPath);
+            setGitStatus(response);
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to get git status');
+            setGitStatus(null);
+        } finally {
+            setGitLoading(false);
+        }
+    }, [currentPath, setGitLoading, setGitError, setGitStatus]);
+
+    useEffect(() => {
+        if (currentPath) {
+            loadGitStatus();
+        }
+    }, [currentPath, loadGitStatus]);
+
     // Memory and Knowledge Graph sections
     const [memoriesCollapsed, setMemoriesCollapsed] = useState(true);
     const [knowledgeCollapsed, setKnowledgeCollapsed] = useState(true);
@@ -1909,25 +1931,6 @@ const renderWebsiteList = () => {
     );
 };
 
-
-const loadGitStatus = useCallback(async () => {
-    setGitLoading(true);
-    setGitError(null);
-    try {
-    const response = await window.api.gitStatus(currentPath);
-    setGitStatus(response); // { staged: [], unstaged: [], untracked: [], branch: "", ahead: 0, behind: 0 }
-    } catch (err) {
-    setGitError(err.message || 'Failed to get git status');
-    } finally {
-    setGitLoading(false);
-    }
-}, [currentPath]);
-useEffect(() => {
-    if (currentPath) {
-        loadGitStatus();
-    }
-    }, [currentPath, loadGitStatus]);
-
     // Load memories for the current path
     const loadMemories = useCallback(async () => {
         if (!currentPath) return;
@@ -3508,8 +3511,21 @@ const renderFolderList = (structure) => {
 
     // Git section - only shows when git is detected
     const renderGitSection = () => {
-        // Don't render if no git status (not a git repo)
-        if (!gitStatus) return null;
+        // Show loading state while checking for git
+        if (!gitStatus) {
+            return (
+                <div className="mx-1 mt-3">
+                    <div className="flex items-center bg-gradient-to-r from-orange-900/20 to-amber-900/20 rounded-lg px-2 py-1.5">
+                        <GitBranch size={12} className="text-orange-400 mr-1.5" />
+                        <span className="text-[11px] text-orange-300 font-medium">Git</span>
+                        <span className="text-[10px] text-gray-500 ml-1.5">(checking...)</span>
+                    </div>
+                </div>
+            );
+        }
+
+        // If gitStatus is an error or not a git repo, don't show the section
+        if (gitStatus.success === false) return null;
 
         const staged = Array.isArray(gitStatus.staged) ? gitStatus.staged : [];
         const unstaged = Array.isArray(gitStatus.unstaged) ? gitStatus.unstaged : [];
@@ -4229,7 +4245,7 @@ return (
                     }}
                 >
                     {/* Render sections in user-defined order */}
-                    {(sidebarSectionOrder || ['websites', 'files', 'conversations', 'git']).filter(s => s !== 'git' || gitStatus).map((sectionId: string) => {
+                    {(sidebarSectionOrder || ['websites', 'files', 'conversations', 'git']).map((sectionId: string) => {
                         const sectionColors: Record<string, string> = {
                             websites: 'ring-purple-500',
                             files: 'ring-yellow-500',

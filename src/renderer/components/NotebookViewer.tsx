@@ -170,6 +170,15 @@ const NotebookViewer = ({
     const [showExportMenu, setShowExportMenu] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
 
+    // Streaming state for chat cells
+    const [streamingCellIndex, setStreamingCellIndex] = useState<number | null>(null);
+    const [streamingContent, setStreamingContent] = useState<string>('');
+    const [streamingReasoningContent, setStreamingReasoningContent] = useState<string>('');
+    const [streamingToolCalls, setStreamingToolCalls] = useState<any[]>([]);
+    const streamingContentRef = useRef<string>('');
+    const streamingReasoningRef = useRef<string>('');
+    const streamingToolCallsRef = useRef<any[]>([]);
+
     const paneData = contentDataRef.current[nodeId];
     const filePath = paneData?.contentId;
     const isIncognb = filePath?.endsWith('.incognb');
@@ -901,7 +910,7 @@ except Exception as e:
         }
     }, [notebook, filePath, kernelId, save]);
 
-    // Execute chat cell - send prompt to LLM
+    // Execute chat cell - send prompt to LLM via streaming API
     const executeChatCell = useCallback(async (index: number, targetModels?: string[]) => {
         if (!notebook) return;
 
@@ -913,84 +922,255 @@ except Exception as e:
         const chatMeta = cell.metadata?.chat || {};
 
         // If targetModels provided, run on multiple models (matrix run)
-        const modelsToRun = targetModels || [chatMeta.model];
+        const modelsToRun = targetModels || [chatMeta.model || availableModels[0]?.value || 'gpt-4'];
 
-        try {
-            const outputs: any[] = [];
-
-            for (const modelValue of modelsToRun) {
-                const selectedModel = availableModels.find((m: any) => m.value === modelValue);
-                const selectedNpc = availableNPCs.find((n: any) => n.value === chatMeta.npc);
-
-                // Use the LLM API
-                const response = await fetch('http://localhost:5337/api/llm/generate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        prompt: source,
-                        model: modelValue,
-                        provider: selectedModel?.provider || 'openai',
-                        npc: selectedNpc?.name || chatMeta.npc,
-                        temperature: chatMeta.temperature || 0.7,
-                        stream: false
-                    })
-                });
-
-                if (!response.ok) {
-                    const errText = await response.text();
-                    outputs.push({
-                        output_type: 'error',
-                        ename: 'ChatError',
-                        evalue: errText,
-                        traceback: [errText],
-                        metadata: { model: modelValue, npc: chatMeta.npc }
-                    });
-                    continue;
-                }
-
-                const result = await response.json();
-                outputs.push({
-                    output_type: 'execute_result',
-                    data: {
-                        'text/markdown': [result.response || result.content || ''],
-                        'text/plain': [result.response || result.content || '']
-                    },
-                    metadata: {
-                        model: modelValue,
-                        npc: chatMeta.npc,
-                        provider: selectedModel?.provider,
-                        execution_time: new Date().toISOString()
-                    }
-                });
+        // Clear existing outputs
+        const clearedCells = [...notebook.cells];
+        clearedCells[index] = {
+            ...clearedCells[index],
+            outputs: [],
+            metadata: {
+                ...clearedCells[index].metadata,
+                modified_at: new Date().toISOString()
             }
+        };
+        setNotebook({ ...notebook, cells: clearedCells });
 
-            const newCells = [...notebook.cells];
-            newCells[index] = {
-                ...newCells[index],
-                outputs,
-                metadata: {
-                    ...newCells[index].metadata,
-                    modified_at: new Date().toISOString()
+        // Process models sequentially
+        for (const modelValue of modelsToRun) {
+            const selectedModel = availableModels.find((m: any) => m.value === modelValue);
+            const provider = selectedModel?.provider || 'openai';
+            const npc = chatMeta.npc || null;
+            const streamId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+            setStreamingCellIndex(index);
+            setStreamingContent('');
+            setStreamingReasoningContent('');
+            setStreamingToolCalls([]);
+            streamingContentRef.current = '';
+            streamingReasoningRef.current = '';
+            streamingToolCallsRef.current = [];
+
+            // Helper to process a parsed event (matches utils.tsx pattern)
+            const processEvent = (parsed: any) => {
+                let content = '', reasoningContent = '', toolCalls: any[] | null = null;
+
+                if (parsed.choices?.[0]?.delta) {
+                    content = parsed.choices[0].delta.content || '';
+                    reasoningContent = parsed.choices[0].delta.reasoning_content || '';
                 }
+
+                if (parsed.type) {
+                    const type = parsed.type;
+                    if (type === 'tool_execution_start' && Array.isArray(parsed.tool_calls)) {
+                        toolCalls = parsed.tool_calls;
+                    } else if ((type === 'tool_start' || type === 'tool_complete' || type === 'tool_result' || type === 'tool_error') && parsed.name) {
+                        toolCalls = [{
+                            id: parsed.id || '',
+                            type: 'function',
+                            function: {
+                                name: parsed.name,
+                                arguments: parsed.args ? (typeof parsed.args === 'object' ? JSON.stringify(parsed.args, null, 2) : String(parsed.args)) : ''
+                            },
+                            status: type === 'tool_error' ? 'error' : ((type === 'tool_complete' || type === 'tool_result') ? 'complete' : 'running'),
+                            result_preview: parsed.result_preview || parsed.result || parsed.error || ''
+                        }];
+                    }
+                } else if (!content && parsed.tool_calls) {
+                    toolCalls = parsed.tool_calls;
+                }
+
+                return { content, reasoningContent, toolCalls };
             };
-            setNotebook({ ...notebook, cells: newCells });
-            setHasChanges(true);
-        } catch (e: any) {
-            const newCells = [...notebook.cells];
-            newCells[index] = {
-                ...newCells[index],
-                outputs: [{
-                    output_type: 'error',
-                    ename: 'Error',
-                    evalue: e.message || 'Chat execution failed',
-                    traceback: [e.message || 'Chat execution failed']
-                }]
-            };
-            setNotebook({ ...notebook, cells: newCells });
-        } finally {
-            setIsExecuting(null);
+
+            // Set up stream listeners at call time
+            let streamComplete = false;
+            const cleanupData = (window as any).api?.onStreamData?.((_: any, data: any) => {
+                if (data.streamId === streamId && data.chunk) {
+                    try {
+                        const chunk = data.chunk;
+                        let content = '', reasoningContent = '', toolCalls: any[] | null = null;
+
+                        if (typeof chunk === 'string') {
+                            // Handle SSE format - may contain multiple events
+                            const events = chunk.split(/\n\n/).filter((e: string) => e.trim());
+                            for (const event of events) {
+                                const trimmedEvent = event.trim();
+                                if (!trimmedEvent) continue;
+
+                                if (trimmedEvent.startsWith('data:')) {
+                                    const dataContent = trimmedEvent.replace(/^data:\s*/, '').trim();
+                                    if (dataContent === '[DONE]') continue;
+                                    if (dataContent) {
+                                        try {
+                                            const parsed = JSON.parse(dataContent);
+                                            const result = processEvent(parsed);
+                                            content += result.content;
+                                            reasoningContent += result.reasoningContent;
+                                            if (result.toolCalls) toolCalls = result.toolCalls;
+                                        } catch {
+                                            content += dataContent;
+                                        }
+                                    }
+                                } else {
+                                    content += trimmedEvent;
+                                }
+                            }
+                        } else if (chunk?.choices) {
+                            content = chunk.choices[0]?.delta?.content || '';
+                            reasoningContent = chunk.choices[0]?.delta?.reasoning_content || '';
+                            toolCalls = chunk.tool_calls || null;
+                        } else if (chunk?.type) {
+                            const result = processEvent(chunk);
+                            content = result.content;
+                            reasoningContent = result.reasoningContent;
+                            toolCalls = result.toolCalls;
+                        }
+
+                        // Update content
+                        if (content) {
+                            streamingContentRef.current += content;
+                            setStreamingContent(streamingContentRef.current);
+                        }
+
+                        // Update reasoning
+                        if (reasoningContent) {
+                            streamingReasoningRef.current += reasoningContent;
+                            setStreamingReasoningContent(streamingReasoningRef.current);
+                        }
+
+                        // Update tool calls
+                        if (toolCalls) {
+                            const normalizedCalls = toolCalls.map((tc: any) => ({
+                                id: tc.id || '',
+                                type: tc.type || 'function',
+                                function: {
+                                    name: tc.function?.name || tc.name || '',
+                                    arguments: tc.args
+                                        ? (typeof tc.args === 'object' ? JSON.stringify(tc.args, null, 2) : String(tc.args))
+                                        : (tc.function?.arguments || '')
+                                },
+                                status: tc.status || 'running',
+                                result_preview: tc.result_preview || ''
+                            }));
+
+                            const existing = [...streamingToolCallsRef.current];
+                            normalizedCalls.forEach((tc: any) => {
+                                const idx = existing.findIndex((mtc: any) => mtc.id === tc.id || mtc.function.name === tc.function.name);
+                                if (idx >= 0) {
+                                    existing[idx] = { ...existing[idx], ...tc };
+                                } else {
+                                    existing.push(tc);
+                                }
+                            });
+                            streamingToolCallsRef.current = existing;
+                            setStreamingToolCalls([...existing]);
+                        }
+                    } catch {
+                        // Partial chunk, ignore
+                    }
+                }
+            });
+
+            const cleanupComplete = (window as any).api?.onStreamComplete?.((_: any, data: any) => {
+                if (data.streamId === streamId) {
+                    const finalContent = streamingContentRef.current;
+                    const finalReasoning = streamingReasoningRef.current;
+                    const finalToolCalls = streamingToolCallsRef.current;
+                    if (notebookRef.current) {
+                        const updatedCells = [...notebookRef.current.cells];
+                        const existingOutputs = updatedCells[index].outputs || [];
+                        updatedCells[index] = {
+                            ...updatedCells[index],
+                            outputs: [
+                                ...existingOutputs,
+                                {
+                                    output_type: 'execute_result',
+                                    data: {
+                                        'text/markdown': [finalContent || 'No response'],
+                                        'text/plain': [finalContent || 'No response']
+                                    },
+                                    metadata: {
+                                        model: modelValue,
+                                        execution_time: new Date().toISOString(),
+                                        reasoningContent: finalReasoning || undefined,
+                                        toolCalls: finalToolCalls.length > 0 ? finalToolCalls : undefined,
+                                    }
+                                }
+                            ],
+                            metadata: {
+                                ...updatedCells[index].metadata,
+                                modified_at: new Date().toISOString()
+                            }
+                        };
+                        setNotebook({ ...notebookRef.current, cells: updatedCells });
+                        setHasChanges(true);
+                    }
+                    streamComplete = true;
+                    cleanupData?.();
+                    cleanupComplete?.();
+                    cleanupError?.();
+                }
+            });
+
+            const cleanupError = (window as any).api?.onStreamError?.((_: any, data: any) => {
+                if (data.streamId === streamId) {
+                    if (notebookRef.current) {
+                        const updatedCells = [...notebookRef.current.cells];
+                        const existingOutputs = updatedCells[index].outputs || [];
+                        updatedCells[index] = {
+                            ...updatedCells[index],
+                            outputs: [
+                                ...existingOutputs,
+                                {
+                                    output_type: 'error',
+                                    ename: 'ChatError',
+                                    evalue: data.error || 'Stream error',
+                                    traceback: [data.error || 'Stream error'],
+                                    metadata: { model: modelValue }
+                                }
+                            ]
+                        };
+                        setNotebook({ ...notebookRef.current, cells: updatedCells });
+                    }
+                    streamComplete = true;
+                    cleanupData?.();
+                    cleanupComplete?.();
+                    cleanupError?.();
+                }
+            });
+
+            // Execute the stream
+            (window as any).api?.executeCommandStream?.({
+                streamId,
+                commandstr: source,
+                currentPath: workspacePath,
+                conversationId: `notebook-${index}-${modelValue}`,
+                model: modelValue,
+                provider,
+                npc,
+            });
+
+            // Wait for this stream to complete before starting next model
+            await new Promise<void>((resolve) => {
+                const checkInterval = setInterval(() => {
+                    if (streamComplete) {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 100);
+            });
         }
-    }, [notebook, availableModels, availableNPCs]);
+
+        setIsExecuting(null);
+        setStreamingCellIndex(null);
+        setStreamingContent('');
+        setStreamingReasoningContent('');
+        setStreamingToolCalls([]);
+        streamingContentRef.current = '';
+        streamingReasoningRef.current = '';
+        streamingToolCallsRef.current = [];
+    }, [notebook, availableModels, workspacePath]);
 
     // Execute jinx cell - run jinx workflow
     const executeJinxCell = useCallback(async (index: number) => {
@@ -1075,6 +1255,40 @@ except Exception as e:
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [onKeyDown]);
 
+    // Render a tool call with status indicator
+    const renderToolCall = (tool: any, index: number) => {
+        const statusColor = tool.status === 'error' ? 'border-red-500'
+            : tool.status === 'complete' ? 'border-green-500'
+            : 'border-blue-500';
+
+        return (
+            <div key={tool.id || index} className={`my-2 px-3 py-2 bg-gray-800 rounded-md border-l-2 ${statusColor}`}>
+                <div className="text-xs text-blue-400 mb-1 font-semibold flex items-center gap-2">
+                    <span>Tool: {tool.function?.name || 'unknown'}</span>
+                    {tool.status === 'running' && (
+                        <span className="text-yellow-400 animate-pulse">running...</span>
+                    )}
+                    {tool.status === 'complete' && (
+                        <span className="text-green-400">complete</span>
+                    )}
+                    {tool.status === 'error' && (
+                        <span className="text-red-400">error</span>
+                    )}
+                </div>
+                {tool.function?.arguments && (
+                    <pre className="text-xs text-gray-400 bg-black/20 p-1 rounded mt-1 overflow-x-auto max-h-24">
+                        {tool.function.arguments}
+                    </pre>
+                )}
+                {tool.result_preview && (
+                    <pre className={`text-xs ${tool.status === 'error' ? 'text-red-400' : 'text-gray-300'} bg-black/20 p-1 rounded mt-1 overflow-x-auto max-h-32`}>
+                        {tool.result_preview}
+                    </pre>
+                )}
+            </div>
+        );
+    };
+
     // Render cell output
     const renderOutput = (output: any, outputIndex: number) => {
         if (!output) return null;
@@ -1089,25 +1303,39 @@ except Exception as e:
 
         if (output.output_type === 'execute_result' || output.output_type === 'display_data') {
             const data = output.data;
-            if (data?.['text/html']) {
-                return (
-                    <div key={outputIndex} className="text-xs bg-gray-900 p-2 rounded"
-                         dangerouslySetInnerHTML={{ __html: Array.isArray(data['text/html']) ? data['text/html'].join('') : data['text/html'] }} />
-                );
-            }
-            if (data?.['image/png']) {
-                return (
-                    <img key={outputIndex} src={`data:image/png;base64,${data['image/png']}`}
-                         alt="Output" className="max-w-full rounded" />
-                );
-            }
-            if (data?.['text/plain']) {
-                return (
-                    <pre key={outputIndex} className="text-xs text-gray-300 whitespace-pre-wrap font-mono bg-gray-900 p-2 rounded">
-                        {Array.isArray(data['text/plain']) ? data['text/plain'].join('') : data['text/plain']}
-                    </pre>
-                );
-            }
+            const metadata = output.metadata || {};
+            const reasoningContent = metadata.reasoningContent;
+            const toolCalls = metadata.toolCalls;
+
+            return (
+                <div key={outputIndex} className="space-y-2">
+                    {/* Reasoning content */}
+                    {reasoningContent && (
+                        <div className="px-3 py-2 bg-gray-800 rounded-md border-l-2 border-yellow-500">
+                            <div className="text-xs text-yellow-400 mb-1 font-semibold">Thinking Process:</div>
+                            <div className="text-xs text-gray-300 whitespace-pre-wrap">
+                                {reasoningContent}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Tool calls */}
+                    {toolCalls?.map((tool: any, ti: number) => renderToolCall(tool, ti))}
+
+                    {/* Main content */}
+                    {data?.['text/html'] ? (
+                        <div className="text-xs bg-gray-900 p-2 rounded"
+                             dangerouslySetInnerHTML={{ __html: Array.isArray(data['text/html']) ? data['text/html'].join('') : data['text/html'] }} />
+                    ) : data?.['image/png'] ? (
+                        <img src={`data:image/png;base64,${data['image/png']}`}
+                             alt="Output" className="max-w-full rounded" />
+                    ) : data?.['text/plain'] ? (
+                        <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono bg-gray-900 p-2 rounded">
+                            {Array.isArray(data['text/plain']) ? data['text/plain'].join('') : data['text/plain']}
+                        </pre>
+                    ) : null}
+                </div>
+            );
         }
 
         if (output.output_type === 'error') {
@@ -1723,6 +1951,37 @@ except Exception as e:
                                             basicSetup={false}
                                             className="text-sm"
                                         />
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Live streaming output for chat cells */}
+                            {!isCollapsed && streamingCellIndex === index && (streamingContent || streamingReasoningContent || streamingToolCalls.length > 0) && (
+                                <div className="border-t border-gray-700 bg-gray-850 p-2 space-y-2">
+                                    <div className="flex items-center gap-2 text-xs text-purple-400 mb-2">
+                                        <Loader size={12} className="animate-spin" />
+                                        <span>Generating...</span>
+                                    </div>
+
+                                    {/* Streaming reasoning content */}
+                                    {streamingReasoningContent && (
+                                        <div className="px-3 py-2 bg-gray-800 rounded-md border-l-2 border-yellow-500">
+                                            <div className="text-xs text-yellow-400 mb-1 font-semibold">Thinking Process:</div>
+                                            <div className="text-xs text-gray-300 whitespace-pre-wrap">
+                                                {streamingReasoningContent}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Streaming tool calls */}
+                                    {streamingToolCalls.map((tool, ti) => renderToolCall(tool, ti))}
+
+                                    {/* Streaming content */}
+                                    {streamingContent && (
+                                        <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono bg-gray-900 p-2 rounded">
+                                            {streamingContent}
+                                            <span className="inline-block w-1.5 h-3 bg-purple-400 animate-pulse ml-0.5" />
+                                        </pre>
                                     )}
                                 </div>
                             )}

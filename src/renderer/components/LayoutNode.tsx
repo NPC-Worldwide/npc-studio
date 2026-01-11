@@ -565,7 +565,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderExpViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
-            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderHelpPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderHelpPane, renderGitPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -978,6 +978,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'help') {
             headerIcon = <HelpCircle size={14} className="text-blue-400" />;
             headerTitle = 'Help';
+        } else if (contentType === 'git') {
+            headerIcon = <GitBranch size={14} className="text-purple-400" />;
+            headerTitle = 'Git';
         } else if (contentType === 'projectenv') {
             headerIcon = <FolderCog size={14} className="text-orange-400" />;
             headerTitle = 'Project Environment';
@@ -1235,6 +1238,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderBranchComparisonPane({ nodeId: node.id });
                 case 'help':
                     return renderHelpPane({ nodeId: node.id });
+                case 'git':
+                    return renderGitPane({ nodeId: node.id });
                 case 'diff':
                     return (
                         <DiffViewer

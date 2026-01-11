@@ -16,6 +16,7 @@ interface StatusBarProps {
     gitBranch: string | null;
     gitStatus: any;
     setGitModalOpen: (open: boolean) => void;
+    createGitPane?: () => void;
     // Workspace
     directoryConversations: any[];
     setWorkspaceModalOpen: (open: boolean) => void;
@@ -35,6 +36,7 @@ const StatusBar: React.FC<StatusBarProps> = ({
     gitBranch,
     gitStatus,
     setGitModalOpen,
+    createGitPane,
     directoryConversations,
     setWorkspaceModalOpen,
     paneItems,
@@ -49,7 +51,7 @@ const StatusBar: React.FC<StatusBarProps> = ({
         <div className="h-6 flex-shrink-0 theme-bg-tertiary border-t theme-border flex items-center px-2 text-[10px] theme-text-muted gap-2">
             {/* Git button */}
             <button
-                onClick={() => setGitModalOpen(true)}
+                onClick={() => createGitPane ? createGitPane() : setGitModalOpen(true)}
                 className={`flex items-center gap-1 px-2 py-0.5 rounded transition-all ${gitBranch ? 'bg-purple-900/30 text-purple-300 hover:bg-purple-900/50' : 'theme-hover'}`}
                 title="Git"
             >
