@@ -814,6 +814,10 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 if (tabs[currentTabIndex]) {
                     tabs[currentTabIndex].fileContent = paneData.fileContent;
                     tabs[currentTabIndex].fileChanged = paneData.fileChanged;
+                    // IMPORTANT: Save browserUrl for browser tabs so we don't lose the current URL
+                    if (tabs[currentTabIndex].contentType === 'browser' && paneData.browserUrl) {
+                        tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                    }
                 }
 
                 paneData.activeTabIndex = index;
@@ -835,6 +839,12 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         const handleTabClose = (index: number) => {
             if (paneData && tabs.length > 0) {
+                // Save current browser URL to active tab before closing
+                const currentTabIndex = paneData.activeTabIndex || 0;
+                if (tabs[currentTabIndex] && tabs[currentTabIndex].contentType === 'browser' && paneData.browserUrl) {
+                    tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                }
+
                 const newTabs = [...tabs];
                 newTabs.splice(index, 1);
 
@@ -847,6 +857,11 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     if (paneData.activeTabIndex >= newTabs.length) {
                         paneData.activeTabIndex = newTabs.length - 1;
                     }
+                    // Restore URL from new active tab if it's a browser
+                    const newActiveTab = newTabs[paneData.activeTabIndex];
+                    if (newActiveTab?.contentType === 'browser' && newActiveTab.browserUrl) {
+                        paneData.browserUrl = newActiveTab.browserUrl;
+                    }
                     setRootLayoutNode?.(prev => ({ ...prev }));
                 }
             }
@@ -854,6 +869,12 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         const handleTabReorder = (fromIndex: number, toIndex: number) => {
             if (paneData && tabs.length > 0) {
+                // Save current browser URL to active tab before reordering
+                const currentTabIndex = paneData.activeTabIndex || 0;
+                if (tabs[currentTabIndex] && tabs[currentTabIndex].contentType === 'browser' && paneData.browserUrl) {
+                    tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                }
+
                 const newTabs = [...tabs];
                 const [movedTab] = newTabs.splice(fromIndex, 1);
                 newTabs.splice(toIndex, 0, movedTab);
