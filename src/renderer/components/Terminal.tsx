@@ -139,6 +139,28 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                 const isMeta = event.ctrlKey || event.metaKey;
                 const key = event.key.toLowerCase();
 
+                // Escape key - send ESC to terminal (needed for vim, Claude Code, etc)
+                if (event.key === 'Escape') {
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x1b' });
+                    }
+                    return false;
+                }
+
+                // Ctrl+C (not Cmd+C on Mac) - send SIGINT
+                if (event.ctrlKey && !event.metaKey && !event.shiftKey && key === 'c') {
+                    const selection = term.getSelection();
+                    if (selection) {
+                        navigator.clipboard.writeText(selection);
+                        return false;
+                    }
+                    // No selection - send SIGINT
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\x03' });
+                    }
+                    return false;
+                }
+
                 // Ctrl+Shift+V or Ctrl+V for paste
                 if (isMeta && key === 'v') {
                     navigator.clipboard.readText().then(text => {
@@ -149,7 +171,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     return false;
                 }
 
-                // Ctrl+Shift+C for copy (terminal standard - doesn't interfere with SIGINT)
+                // Ctrl+Shift+C or Cmd+Shift+C for copy (terminal standard)
                 if (isMeta && event.shiftKey && key === 'c') {
                     const selection = term.getSelection();
                     if (selection) {
@@ -158,14 +180,13 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     return false;
                 }
 
-                // Ctrl+C without shift - copy only if selection exists, otherwise pass through for SIGINT
-                if (isMeta && !event.shiftKey && key === 'c') {
+                // Cmd+C (Mac) - copy if selection exists
+                if (event.metaKey && !event.ctrlKey && !event.shiftKey && key === 'c') {
                     const selection = term.getSelection();
                     if (selection) {
                         navigator.clipboard.writeText(selection);
                         return false;
                     }
-                    // No selection - let Ctrl+C pass through as SIGINT
                 }
 
                 // Ctrl+L - Clear screen (send to terminal)

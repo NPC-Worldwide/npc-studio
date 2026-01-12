@@ -4408,19 +4408,13 @@ const tileJinxDir = path.join(os.homedir(), '.npcsh', 'incognide', 'tiles');
 
 // Map tile names to their source component files
 // Each jinx file contains the FULL component source code
+// Bottom grid tiles - 2x2 grid only
+// Moved: settings/env to top bar, npc/jinx to bottom right, graph/browsergraph/disk/team elsewhere
 const tileSourceMap = {
   'db.jinx': { source: 'DBTool.tsx', label: 'DB Tool', icon: 'Database', order: 0 },
   'photo.jinx': { source: 'PhotoViewer.tsx', label: 'Photo', icon: 'Image', order: 1 },
   'library.jinx': { source: 'LibraryViewer.tsx', label: 'Library', icon: 'BookOpen', order: 2 },
   'datadash.jinx': { source: 'DataDash.tsx', label: 'Data Dash', icon: 'BarChart3', order: 3 },
-  'graph.jinx': { source: 'GraphViewer.tsx', label: 'Graph', icon: 'GitBranch', order: 4 },
-  'browsergraph.jinx': { source: 'BrowserHistoryWeb.tsx', label: 'Browser Graph', icon: 'Network', order: 5 },
-  'team.jinx': { source: 'TeamManagement.tsx', label: 'Team', icon: 'Users', order: 6 },
-  'npc.jinx': { source: 'NPCTeamMenu.tsx', label: 'NPCs', icon: 'Bot', order: 7 },
-  'jinx.jinx': { source: 'JinxMenu.tsx', label: 'Jinxs', icon: 'Zap', order: 8 },
-  'settings.jinx': { source: 'SettingsMenu.tsx', label: 'Settings', icon: 'Settings', order: 9 },
-  'env.jinx': { source: 'ProjectEnvEditor.tsx', label: 'Env', icon: 'KeyRound', order: 10 },
-  'disk.jinx': { source: 'DiskUsageAnalyzer.tsx', label: 'Disk', icon: 'HardDrive', order: 11 },
 };
 
 // Components directory path
@@ -4442,21 +4436,36 @@ const ensureTileJinxDir = async () => {
   await fsPromises.mkdir(tileJinxDir, { recursive: true });
 
   // Write default jinx files from actual component source
+  // Sync if source is newer than jinx file
   for (const [filename, meta] of Object.entries(tileSourceMap)) {
     const jinxPath = path.join(tileJinxDir, filename);
+    const sourcePath = path.join(componentsDir, meta.source);
+
     try {
-      await fsPromises.access(jinxPath);
-      // File exists, skip
-    } catch {
-      // File doesn't exist, create from source
+      // Check if source exists
+      const sourceStats = await fsPromises.stat(sourcePath);
+
+      let shouldWrite = false;
       try {
-        const sourcePath = path.join(componentsDir, meta.source);
+        const jinxStats = await fsPromises.stat(jinxPath);
+        // Jinx exists - check if source is newer
+        if (sourceStats.mtime > jinxStats.mtime) {
+          console.log(`[Tiles] Source ${meta.source} is newer than ${filename}, syncing...`);
+          shouldWrite = true;
+        }
+      } catch {
+        // Jinx doesn't exist, create it
+        shouldWrite = true;
+      }
+
+      if (shouldWrite) {
         const sourceCode = await fsPromises.readFile(sourcePath, 'utf8');
         const header = generateJinxHeader({ ...meta, filename });
         await fsPromises.writeFile(jinxPath, header + sourceCode);
-      } catch (err) {
-        console.warn(`Could not create ${filename} from ${meta.source}:`, err.message);
+        console.log(`[Tiles] Wrote ${filename} from ${meta.source}`);
       }
+    } catch (err) {
+      console.warn(`Could not sync ${filename} from ${meta.source}:`, err.message);
     }
   }
 };
@@ -5079,6 +5088,77 @@ ipcMain.handle('kg:deleteEdge', async (event, { sourceId, targetId }) => {
   return await callBackendApi(`http://127.0.0.1:5337/api/kg/edge/${encodeURIComponent(sourceId)}/${encodeURIComponent(targetId)}`, {
     method: 'DELETE',
   });
+});
+
+// KG Search handlers
+ipcMain.handle('kg:search', async (event, { q, generation, type, limit }) => {
+  const params = new URLSearchParams();
+  if (q) params.append('q', q);
+  if (generation !== null && generation !== undefined) params.append('generation', generation);
+  if (type) params.append('type', type);
+  if (limit) params.append('limit', limit);
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/search?${params.toString()}`);
+});
+
+ipcMain.handle('kg:getFacts', async (event, { generation, limit, offset }) => {
+  const params = new URLSearchParams();
+  if (generation !== null && generation !== undefined) params.append('generation', generation);
+  if (limit) params.append('limit', limit);
+  if (offset) params.append('offset', offset);
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/facts?${params.toString()}`);
+});
+
+ipcMain.handle('kg:getConcepts', async (event, { generation, limit }) => {
+  const params = new URLSearchParams();
+  if (generation !== null && generation !== undefined) params.append('generation', generation);
+  if (limit) params.append('limit', limit);
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/concepts?${params.toString()}`);
+});
+
+ipcMain.handle('kg:search:semantic', async (event, { q, generation, limit }) => {
+  const params = new URLSearchParams();
+  if (q) params.append('q', q);
+  if (generation !== null && generation !== undefined) params.append('generation', generation);
+  if (limit) params.append('limit', limit);
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/search/semantic?${params.toString()}`);
+});
+
+ipcMain.handle('kg:embed', async (event, { generation, batch_size }) => {
+  return await callBackendApi(`http://127.0.0.1:5337/api/kg/embed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ generation, batch_size })
+  });
+});
+
+// Memory handlers
+ipcMain.handle('memory:search', async (event, { q, npc, team, directory_path, status, limit }) => {
+  const params = new URLSearchParams();
+  if (q) params.append('q', q);
+  if (npc) params.append('npc', npc);
+  if (team) params.append('team', team);
+  if (directory_path) params.append('directory_path', directory_path);
+  if (status) params.append('status', status);
+  if (limit) params.append('limit', limit);
+  return await callBackendApi(`http://127.0.0.1:5337/api/memory/search?${params.toString()}`);
+});
+
+ipcMain.handle('memory:pending', async (event, { npc, team, directory_path, limit }) => {
+  const params = new URLSearchParams();
+  if (npc) params.append('npc', npc);
+  if (team) params.append('team', team);
+  if (directory_path) params.append('directory_path', directory_path);
+  if (limit) params.append('limit', limit);
+  return await callBackendApi(`http://127.0.0.1:5337/api/memory/pending?${params.toString()}`);
+});
+
+ipcMain.handle('memory:scope', async (event, { npc, team, directory_path, status }) => {
+  const params = new URLSearchParams();
+  if (npc) params.append('npc', npc);
+  if (team) params.append('team', team);
+  if (directory_path) params.append('directory_path', directory_path);
+  if (status) params.append('status', status);
+  return await callBackendApi(`http://127.0.0.1:5337/api/memory/scope?${params.toString()}`);
 });
 
 ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
@@ -8312,6 +8392,13 @@ ipcMain.handle('get-directory-contents-recursive', async (_, directoryPath) => {
 
 // Disk usage analyzer handler
 ipcMain.handle('analyze-disk-usage', async (_, folderPath) => {
+    console.log('[DiskUsage Main] Received request for:', folderPath);
+
+    if (!folderPath) {
+        console.error('[DiskUsage Main] No folder path provided');
+        return null;
+    }
+
     // Skip virtual/system filesystems that can cause hangs or permission errors
     const SKIP_PATHS = ['/proc', '/sys', '/dev', '/run', '/snap', '/tmp/.X11-unix', '/var/run'];
     const shouldSkip = (p) => SKIP_PATHS.some(skip => p === skip || p.startsWith(skip + '/'));
@@ -8407,9 +8494,10 @@ ipcMain.handle('analyze-disk-usage', async (_, folderPath) => {
         };
 
         const result = await analyzePath(folderPath, 0, 3);
+        console.log('[DiskUsage Main] Analysis complete. Result:', result ? 'has data' : 'null');
         return result;
     } catch (err) {
-        console.error('Error analyzing disk usage:', err);
+        console.error('[DiskUsage Main] Error analyzing disk usage:', err);
         throw err;
     }
 });

@@ -5,7 +5,7 @@ import {
     ListFilter, ArrowDown,X, Wrench, FileText, Code2, FileJson, Paperclip,
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
     Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen, User,
-    RefreshCw, RotateCcw, Check
+    RefreshCw, RotateCcw, Check, KeyRound, Bot, Zap
 } from 'lucide-react';
 
 import { Icon } from 'lucide-react';
@@ -43,6 +43,9 @@ import LibraryViewer from './LibraryViewer';
 import HelpViewer from './HelpViewer';
 import FolderViewer from './FolderViewer';
 import PathSwitcher from './PathSwitcher';
+import CronDaemonPanel from './CronDaemonPanel';
+import MemoryManager from './MemoryManager';
+import SearchPane from './SearchPane';
 import { LiveProvider, LivePreview, LiveError } from 'react-live';
 // Components for tile jinx runtime rendering
 import GraphViewer from './GraphViewer';
@@ -216,6 +219,19 @@ const TileJinxContentExternal: React.FC<{
     );
 });
 
+// Web search providers (privacy-focused options)
+type WebSearchProvider = 'duckduckgo' | 'startpage' | 'ecosia' | 'brave' | 'wikipedia' | 'perplexity' | 'google' | 'sibiji';
+const WEB_SEARCH_PROVIDERS: Record<WebSearchProvider, { name: string; url: string }> = {
+    duckduckgo: { name: 'DDG', url: 'https://duckduckgo.com/?q=' },
+    startpage: { name: 'Startpage', url: 'https://www.startpage.com/sp/search?query=' },
+    ecosia: { name: 'Ecosia', url: 'https://www.ecosia.org/search?q=' },
+    brave: { name: 'Brave', url: 'https://search.brave.com/search?q=' },
+    wikipedia: { name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Special:Search?search=' },
+    perplexity: { name: 'Perplexity', url: 'https://www.perplexity.ai/search?q=' },
+    google: { name: 'Google', url: 'https://www.google.com/search?q=' },
+    sibiji: { name: 'Sibiji', url: 'https://sibiji.com/search?q=' },
+};
+
 const ChatInterface = () => {
     const [gitPanelCollapsed, setGitPanelCollapsed] = useState(true);
     const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -348,6 +364,10 @@ const ChatInterface = () => {
         const saved = localStorage.getItem('npcStudioShowDateTime');
         return saved !== null ? JSON.parse(saved) : false;
     });
+    const [showCronDaemonPanel, setShowCronDaemonPanel] = useState(false);
+    const [showMemoryManager, setShowMemoryManager] = useState(false);
+    const [pendingMemoryCount, setPendingMemoryCount] = useState(0);
+    const [kgGeneration, setKgGeneration] = useState<number | null>(null);
     const [gitModalOpen, setGitModalOpen] = useState(false);
     const [gitModalTab, setGitModalTab] = useState<'status' | 'diff' | 'branches' | 'history'>('status');
     const [gitDiffContent, setGitDiffContent] = useState<{ staged: string; unstaged: string } | null>(null);
@@ -554,6 +574,10 @@ const ChatInterface = () => {
     const chatContainerRef = useRef(null);
 
     const [searchTerm, setSearchTerm] = useState('');
+    const [webSearchTerm, setWebSearchTerm] = useState('');
+    const [webSearchProvider, setWebSearchProvider] = useState<WebSearchProvider>(() => {
+        return (localStorage.getItem('web-search-provider') as WebSearchProvider) || 'duckduckgo';
+    });
     const [isSearching, setIsSearching] = useState(false);
     const [isGlobalSearch, setIsGlobalSearch] = useState(false);
     const [searchLoading, setSearchLoading] = useState(false);
@@ -897,6 +921,35 @@ const ChatInterface = () => {
             return matchesStatus && matchesSearch;
         });
     }, [memories, memoryFilter, memorySearchTerm]);
+
+    // Fetch pending memory count and KG generation for status bar
+    useEffect(() => {
+        const fetchStatusBarData = async () => {
+            try {
+                // Fetch pending memory count
+                const pendingResult = await (window as any).api?.memory_pending?.({
+                    directory_path: currentPath,
+                    limit: 100
+                });
+                if (pendingResult?.memories) {
+                    setPendingMemoryCount(pendingResult.memories.length);
+                }
+
+                // Fetch KG generation
+                const kgResult = await (window as any).api?.kg_getStatus?.();
+                if (kgResult?.generation !== undefined) {
+                    setKgGeneration(kgResult.generation);
+                }
+            } catch (err) {
+                console.error('Error fetching status bar data:', err);
+            }
+        };
+
+        fetchStatusBarData();
+        // Refresh every 30 seconds
+        const interval = setInterval(fetchStatusBarData, 30000);
+        return () => clearInterval(interval);
+    }, [currentPath]);
 
     // Load theme colors from localStorage on startup
     useEffect(() => {
@@ -3366,6 +3419,29 @@ const renderDiskUsagePane = useCallback(({ nodeId }: { nodeId: string }) => {
     );
 }, [isDarkMode]);
 
+// Render MemoryManager pane (for pane-based viewing)
+const renderMemoryManagerPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <MemoryManager
+            isPane={true}
+            currentPath={currentPathRef.current}
+            currentNpc={currentNPC}
+        />
+    );
+}, [currentNPC]);
+
+// Render CronDaemonPanel pane (for pane-based viewing)
+const renderCronDaemonPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <CronDaemonPanel
+            isPane={true}
+            currentPath={currentPathRef.current}
+            npcList={availableNPCs}
+            jinxList={availableJinxs}
+        />
+    );
+}, [availableNPCs, availableJinxs]);
+
 // Markdown Preview Component (needs to be a proper component for hooks)
 const MarkdownPreviewContent: React.FC<{ filePath: string }> = ({ filePath }) => {
     const [content, setContent] = useState<string>('');
@@ -4015,6 +4091,30 @@ const renderMessageContextMenu = () => (
         setActiveContentPaneId(newPaneId);
     }, []);
 
+    // Create MemoryManager pane
+    const createMemoryManagerPane = useCallback(async () => {
+        const newPaneId = generateId();
+        contentDataRef.current[newPaneId] = { contentType: 'memory-manager', contentId: 'memory-manager' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+        setActiveContentPaneId(newPaneId);
+    }, []);
+
+    // Create CronDaemon pane
+    const createCronDaemonPane = useCallback(async () => {
+        const newPaneId = generateId();
+        contentDataRef.current[newPaneId] = { contentType: 'cron-daemon', contentId: 'cron-daemon' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+        setActiveContentPaneId(newPaneId);
+    }, []);
+
+    // Create Search pane
+    const createSearchPane = useCallback(async (initialQuery?: string) => {
+        const newPaneId = generateId();
+        contentDataRef.current[newPaneId] = { contentType: 'search', contentId: 'search', initialQuery: initialQuery || '' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+        setActiveContentPaneId(newPaneId);
+    }, []);
+
     // Create BrowserHistoryWeb pane (browser navigation graph)
     const createBrowserGraphPane = useCallback(async () => {
         const newPaneId = generateId();
@@ -4197,6 +4297,16 @@ useEffect(() => {
     });
     return () => cleanup?.();
 }, [createNewBrowser]);
+
+// Render SearchPane (for pane-based unified search)
+const renderSearchPane = useCallback(({ nodeId, initialQuery }: { nodeId: string; initialQuery?: string }) => {
+    return (
+        <SearchPane
+            initialQuery={initialQuery || ''}
+            currentPath={currentPathRef.current}
+        />
+    );
+}, []);
 
 const renderBrowserViewer = useCallback(({ nodeId }) => {
     return (
@@ -7474,6 +7584,9 @@ const layoutComponentApi = useMemo(() => ({
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
+    renderMemoryManagerPane,
+    renderCronDaemonPane,
+    renderSearchPane,
     renderMarkdownPreviewPane,
     renderTileJinxPane,
     renderBranchComparisonPane,
@@ -7527,6 +7640,9 @@ const layoutComponentApi = useMemo(() => ({
     renderFolderViewerPane,
     renderProjectEnvPane,
     renderDiskUsagePane,
+    renderMemoryManagerPane,
+    renderCronDaemonPane,
+    renderSearchPane,
     renderMarkdownPreviewPane,
     renderTileJinxPane,
     renderBranchComparisonPane,
@@ -7966,12 +8082,22 @@ const renderMainContent = () => {
     // Top bar component - always visible
     const topBar = (
         <div className="flex-shrink-0 h-8 px-2 flex items-center gap-3 text-[11px] theme-bg-secondary border-b theme-border">
-            {/* Path Switcher - left */}
+            {/* Settings - left of path */}
+            <button
+                onClick={() => createSettingsPane?.()}
+                className="p-1 theme-hover rounded theme-text-muted"
+                title="Settings"
+            >
+                <Settings size={14} />
+            </button>
+
+            {/* Path Switcher with Env button inside */}
             <PathSwitcher
                 currentPath={currentPath}
                 baseDir={baseDir}
                 onPathChange={switchToPath}
                 onGoUp={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
+                onOpenEnv={() => createProjectEnvPane?.()}
             />
 
             <div className="flex-1" />
@@ -7995,7 +8121,8 @@ const renderMainContent = () => {
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' && searchTerm.trim()) {
                             e.preventDefault();
-                            setSearchResultsModalOpen(true);
+                            createSearchPane(searchTerm.trim());
+                            setSearchTerm('');
                         }
                     }}
                     placeholder={isGlobalSearch ? "Global search (Ctrl+Shift+F)..." : "Search (Ctrl+F)..."}
@@ -8025,22 +8152,68 @@ const renderMainContent = () => {
                 )}
             </div>
 
+            {/* Web Search - separate input */}
+            <div className="flex items-center gap-2 max-w-xs w-full">
+                <Globe size={14} className="text-cyan-400 flex-shrink-0" />
+                <input
+                    type="text"
+                    value={webSearchTerm}
+                    onChange={(e) => setWebSearchTerm(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && webSearchTerm.trim()) {
+                            e.preventDefault();
+                            const provider = WEB_SEARCH_PROVIDERS[webSearchProvider];
+                            const url = provider.url + encodeURIComponent(webSearchTerm.trim());
+                            createNewBrowser(url);
+                            setWebSearchTerm('');
+                        }
+                    }}
+                    placeholder={`Web (${WEB_SEARCH_PROVIDERS[webSearchProvider].name})`}
+                    className="flex-1 bg-transparent theme-text-primary text-xs focus:outline-none"
+                />
+                <select
+                    value={webSearchProvider}
+                    onChange={(e) => {
+                        setWebSearchProvider(e.target.value as WebSearchProvider);
+                        localStorage.setItem('web-search-provider', e.target.value);
+                    }}
+                    className="bg-transparent text-[10px] theme-text-muted focus:outline-none cursor-pointer"
+                >
+                    {Object.entries(WEB_SEARCH_PROVIDERS).map(([key, { name }]) => (
+                        <option key={key} value={key} className="bg-gray-800">{name}</option>
+                    ))}
+                </select>
+            </div>
+
             <div className="flex-1" />
 
-            {/* DateTime - right */}
+            {/* Right side - Disk Usage, Cron/Daemon, DateTime */}
             <div className="flex items-center gap-2">
                 <button
-                    onClick={() => setShowDateTime(!showDateTime)}
+                    onClick={() => createDiskUsagePane?.()}
                     className="p-1 theme-hover rounded theme-text-muted"
-                    title={showDateTime ? "Hide date/time" : "Show date/time"}
+                    title="Disk Usage Analyzer"
+                >
+                    <HardDrive size={14} />
+                </button>
+                <button
+                    onClick={() => createCronDaemonPane()}
+                    className="p-1 theme-hover rounded theme-text-muted"
+                    title="Cron Jobs & Daemons"
                 >
                     <Clock size={14} />
                 </button>
-                {showDateTime && (
-                    <span className="theme-text-muted tabular-nums text-[10px]">
-                        {new Date().toLocaleDateString()} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                )}
+                <span
+                    className="theme-text-muted tabular-nums text-[10px] cursor-pointer hover:text-gray-300"
+                    onClick={() => setShowDateTime(!showDateTime)}
+                    title={showDateTime ? "Hide date/time" : "Show date/time"}
+                >
+                    {showDateTime ? (
+                        `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    ) : (
+                        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    )}
+                </span>
             </div>
         </div>
     );
@@ -8113,6 +8286,12 @@ const renderMainContent = () => {
                     isPredictiveTextEnabled={isPredictiveTextEnabled}
                     setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
                     createHelpPane={createHelpPane}
+                    pendingMemoryCount={pendingMemoryCount}
+                    createMemoryManagerPane={createMemoryManagerPane}
+                    kgGeneration={kgGeneration}
+                    createGraphViewerPane={createGraphViewerPane}
+                    createNPCTeamPane={createNPCTeamPane}
+                    createJinxPane={createJinxPane}
                 />
             </main>
         );
@@ -8159,6 +8338,12 @@ const renderMainContent = () => {
                 isPredictiveTextEnabled={isPredictiveTextEnabled}
                 setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
                 createHelpPane={createHelpPane}
+                pendingMemoryCount={pendingMemoryCount}
+                createMemoryManagerPane={createMemoryManagerPane}
+                kgGeneration={kgGeneration}
+                createGraphViewerPane={createGraphViewerPane}
+                createNPCTeamPane={createNPCTeamPane}
+                createJinxPane={createJinxPane}
             />
         </main>
     );
@@ -8410,6 +8595,12 @@ const renderMainContent = () => {
                                     return renderProjectEnvPane({ nodeId: zenModePaneId });
                                 case 'diskusage':
                                     return renderDiskUsagePane({ nodeId: zenModePaneId });
+                                case 'memory-manager':
+                                    return renderMemoryManagerPane({ nodeId: zenModePaneId });
+                                case 'cron-daemon':
+                                    return renderCronDaemonPane({ nodeId: zenModePaneId });
+                                case 'search':
+                                    return renderSearchPane({ nodeId: zenModePaneId, initialQuery: zenPaneData?.initialQuery });
                                 case 'markdown-preview':
                                     return renderMarkdownPreviewPane({ nodeId: zenModePaneId });
                                 case 'help':

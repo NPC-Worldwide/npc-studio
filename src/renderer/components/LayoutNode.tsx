@@ -565,7 +565,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderExpViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
-            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderHelpPane, renderGitPane, renderProjectEnvPane, renderDiskUsagePane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderHelpPane, renderGitPane, renderProjectEnvPane, renderDiskUsagePane, renderMemoryManagerPane, renderCronDaemonPane, renderSearchPane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -1223,6 +1223,12 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderProjectEnvPane({ nodeId: node.id });
                 case 'diskusage':
                     return renderDiskUsagePane({ nodeId: node.id });
+                case 'memory-manager':
+                    return renderMemoryManagerPane({ nodeId: node.id });
+                case 'cron-daemon':
+                    return renderCronDaemonPane({ nodeId: node.id });
+                case 'search':
+                    return renderSearchPane({ nodeId: node.id, initialQuery: paneData?.initialQuery });
                 case 'zip':
                     return renderZipViewer({ nodeId: node.id });
                 case 'folder':

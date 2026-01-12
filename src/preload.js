@@ -259,6 +259,16 @@ readDocxContent: (filePath) =>
     kg_deleteNode: (args) => ipcRenderer.invoke('kg:deleteNode', args),
     kg_addEdge: (args) => ipcRenderer.invoke('kg:addEdge', args),
     kg_deleteEdge: (args) => ipcRenderer.invoke('kg:deleteEdge', args),
+    kg_search: (args) => ipcRenderer.invoke('kg:search', args),
+    kg_search_semantic: (args) => ipcRenderer.invoke('kg:search:semantic', args),
+    kg_embed: (args) => ipcRenderer.invoke('kg:embed', args),
+    kg_getFacts: (args) => ipcRenderer.invoke('kg:getFacts', args),
+    kg_getConcepts: (args) => ipcRenderer.invoke('kg:getConcepts', args),
+
+    // Memory APIs
+    memory_search: (args) => ipcRenderer.invoke('memory:search', args),
+    memory_pending: (args) => ipcRenderer.invoke('memory:pending', args),
+    memory_scope: (args) => ipcRenderer.invoke('memory:scope', args),
 
     resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
 

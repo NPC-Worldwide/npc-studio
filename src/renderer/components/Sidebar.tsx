@@ -511,20 +511,13 @@ const Sidebar = (props: any) => {
     const [showLivePreview, setShowLivePreview] = useState(false);
     const [livePreviewCode, setLivePreviewCode] = useState('');
 
-    // Fallback config (used until jinxes load)
+    // Fallback config (used until jinxes load) - 2x2 grid
+    // Moved: settings/env to top bar, npc/jinx to bottom right
     const [bottomGridConfig, setBottomGridConfig] = useState([
         { id: 'db', label: 'DB Tool', icon: 'Database', enabled: true, order: 0 },
         { id: 'photo', label: 'Photo', icon: 'Image', enabled: true, order: 1 },
         { id: 'library', label: 'Library', icon: 'BookOpen', enabled: true, order: 2 },
         { id: 'datadash', label: 'Data Dash', icon: 'BarChart3', enabled: true, order: 3 },
-        { id: 'graph', label: 'Graph', icon: 'GitBranch', enabled: true, order: 4 },
-        { id: 'browsergraph', label: 'Browser Graph', icon: 'Network', enabled: true, order: 5 },
-        { id: 'team', label: 'Team', icon: 'Users', enabled: true, order: 6 },
-        { id: 'npc', label: 'NPCs', icon: 'Bot', enabled: true, order: 7 },
-        { id: 'jinx', label: 'Jinxs', icon: 'Zap', enabled: true, order: 8 },
-        { id: 'settings', label: 'Settings', icon: 'Settings', enabled: true, order: 9 },
-        { id: 'env', label: 'Env', icon: 'KeyRound', enabled: true, order: 10 },
-        { id: 'disk', label: 'Disk', icon: 'HardDrive', enabled: true, order: 11 },
     ]);
     const [draggedBottomTileId, setDraggedBottomTileId] = useState<string | null>(null);
     const [draggedTileId, setDraggedTileId] = useState<string | null>(null);
@@ -1643,6 +1636,13 @@ const renderWebsiteList = () => {
                             title="Refresh"
                         >
                             <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); createBrowserGraphPane?.(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-cyan-400"
+                            title="Browser History Graph"
+                        >
+                            <Network size={12} />
                         </button>
                         <button
                             onClick={(e) => { e.stopPropagation(); setWebsitesCollapsed(!websitesCollapsed); }}
@@ -4612,7 +4612,7 @@ return (
             {!sidebarCollapsed && bottomGridEditMode && (
                 <div className="mb-2 p-2 bg-gray-800/50 rounded-lg border border-gray-700">
                     <div className="text-[10px] text-gray-400 mb-2">Drag to reorder • Click to edit</div>
-                    <div className="grid grid-cols-3 gap-1">
+                    <div className="grid grid-cols-2 gap-1">
                         {(tileJinxesLoaded ? tileJinxes : bottomGridConfig.map(t => ({ ...t, filename: `${t.id}.jinx`, jinx_name: `tile.${t.id}`, action: t.id, rawContent: '' }))).map((tile, idx) => (
                             <div
                                 key={tile.filename || tile.id}
@@ -4744,9 +4744,9 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                 </div>
             )}
 
-            {/* 4x3 Grid - uses jinx tiles when loaded */}
+            {/* 2x2 Grid - uses jinx tiles when loaded */}
             {!sidebarCollapsed && !bottomGridEditMode && (
-                <div className="grid grid-cols-3 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
+                <div className="grid grid-cols-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
                     {(() => {
                         // Fallback actions for when jinxes haven't loaded yet
                         const fallbackActions: Record<string, () => void> = {
