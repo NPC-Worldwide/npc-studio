@@ -2700,10 +2700,7 @@ const renderFolderList = (structure) => {
         return filtered;
     };
     const filteredStructure = filterStructure(structure, fileSearch);
-
-    if (Object.keys(structure).length === 0) {
-        return <div className="p-2 text-xs text-gray-500">Empty directory</div>;
-    }
+    const isEmpty = Object.keys(structure).length === 0;
 
     const header = (
         <div
@@ -3092,7 +3089,9 @@ const renderFolderList = (structure) => {
             {header}
             {!filesCollapsed && (
                 <div className="mx-1 bg-black/10 rounded-b-lg flex-1 min-h-0 overflow-y-auto">
-                    {fileSearch.trim() && Object.keys(filteredStructure).length === 0 ? (
+                    {isEmpty ? (
+                        <div className="px-3 py-3 text-[11px] text-gray-500 text-center">Empty directory</div>
+                    ) : fileSearch.trim() && Object.keys(filteredStructure).length === 0 ? (
                         <div className="px-3 py-3 text-[11px] text-gray-500 text-center">No files match "{fileSearch}"</div>
                     ) : (
                         <div className="py-1">{renderFolderContents(fileSearch.trim() ? filteredStructure : structure)}</div>

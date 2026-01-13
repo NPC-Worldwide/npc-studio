@@ -147,6 +147,7 @@ readDocxContent: (filePath) =>
     browserSaveImage: (imageUrl, currentPath) => ipcRenderer.invoke('browser-save-image', { imageUrl, currentPath }),
     browserSaveLink: (url, suggestedFilename, currentPath) => ipcRenderer.invoke('browser-save-link', { url, suggestedFilename, currentPath }),
     browserOpenExternal: (url) => ipcRenderer.invoke('browser-open-external', { url }),
+    setWorkspacePath: (workspacePath) => ipcRenderer.send('set-workspace-path', workspacePath),
 
     // Listen for download requests from main process (for automatic downloads)
     onBrowserDownloadRequested: (callback) => {
@@ -160,6 +161,13 @@ readDocxContent: (filePath) =>
         const handler = (_, data) => callback(data);
         ipcRenderer.on('browser-open-in-new-tab', handler);
         return () => ipcRenderer.removeListener('browser-open-in-new-tab', handler);
+    },
+
+    // Listen for Ctrl+T shortcut from main process
+    onBrowserNewTab: (callback) => {
+        const handler = () => callback();
+        ipcRenderer.on('browser-new-tab', handler);
+        return () => ipcRenderer.removeListener('browser-new-tab', handler);
     },
 
     onDownloadProgress: (callback) => {

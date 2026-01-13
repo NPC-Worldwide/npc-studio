@@ -46,6 +46,7 @@ import PathSwitcher from './PathSwitcher';
 import CronDaemonPanel from './CronDaemonPanel';
 import MemoryManager from './MemoryManager';
 import SearchPane from './SearchPane';
+import DownloadManager, { getActiveDownloadsCount } from './DownloadManager';
 import { LiveProvider, LivePreview, LiveError } from 'react-live';
 // Components for tile jinx runtime rendering
 import GraphViewer from './GraphViewer';
@@ -258,6 +259,7 @@ const ChatInterface = () => {
     const [editedPath, setEditedPath] = useState('');
     const [isHovering, setIsHovering] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
     const [projectEnvEditorOpen, setProjectEnvEditorOpen] = useState(false);
     const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
     const [photoViewerType, setPhotoViewerType] = useState('images');
@@ -502,6 +504,13 @@ const ChatInterface = () => {
         }
     }, [currentNPC, availableNPCs]);
 
+    // Sync workspace path to main process for downloads
+    useEffect(() => {
+        if (currentPath) {
+            (window as any).api?.setWorkspacePath?.(currentPath);
+        }
+    }, [currentPath]);
+
     const [displayedMessageCount, setDisplayedMessageCount] = useState(10);
     const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
     const streamToPaneRef = useRef({});
@@ -633,6 +642,57 @@ const ChatInterface = () => {
 
     // Zen mode state - when set to a paneId, that pane renders full-screen
     const [zenModePaneId, setZenModePaneId] = useState<string | null>(null);
+
+    // Global keyboard shortcuts (must be after activeContentPaneId and contentDataRef are defined)
+    useEffect(() => {
+        const handleGlobalKeyDown = (e: KeyboardEvent) => {
+            // Ctrl+R = refresh browser page (when active pane is browser)
+            if (e.ctrlKey && !e.shiftKey && e.key === 'r') {
+                const activePane = contentDataRef.current[activeContentPaneId];
+                if (activePane?.contentType === 'browser') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Find webview in the active pane
+                    const activePaneEl = document.querySelector(`[data-pane-id="${activeContentPaneId}"]`);
+                    const webview = activePaneEl?.querySelector('webview') as any;
+                    if (webview?.reload) {
+                        webview.reload();
+                    }
+                    return;
+                }
+                // For non-browser panes, prevent default to avoid Electron refresh
+                e.preventDefault();
+            }
+            // Ctrl+Shift+R = hard refresh browser or refresh Electron window
+            if (e.ctrlKey && e.shiftKey && e.key === 'R') {
+                const activePane = contentDataRef.current[activeContentPaneId];
+                if (activePane?.contentType === 'browser') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Find webview in the active pane and hard reload it
+                    const activePaneEl = document.querySelector(`[data-pane-id="${activeContentPaneId}"]`);
+                    const webview = activePaneEl?.querySelector('webview') as any;
+                    if (webview?.reloadIgnoringCache) {
+                        webview.reloadIgnoringCache();
+                    }
+                    return;
+                }
+                // For non-browser panes, refresh Electron window
+                e.preventDefault();
+                e.stopPropagation();
+                window.location.reload();
+            }
+            // Ctrl+J = open download manager
+            if (e.ctrlKey && !e.shiftKey && e.key === 'j') {
+                e.preventDefault();
+                e.stopPropagation();
+                setDownloadManagerOpen(prev => !prev);
+            }
+        };
+
+        document.addEventListener('keydown', handleGlobalKeyDown, true); // Use capture phase
+        return () => document.removeEventListener('keydown', handleGlobalKeyDown, true);
+    }, [activeContentPaneId]);
 
     // Resize handlers for sidebar and input area
     const handleSidebarResize = useCallback((e) => {
@@ -4283,9 +4343,57 @@ const handleGlobalDragEnd = () => {
 }, [currentPath, updateContentPane, findEmptyPaneId]);
 
 // Handle opening a new browser tab/pane with a URL
-const handleNewBrowserTab = useCallback((url: string) => {
-    if (!url) return;
-    createNewBrowser(url);
+// If paneId is provided and it's a browser pane, adds a tab to that pane
+// Otherwise creates a new browser pane
+const handleNewBrowserTab = useCallback((url: string, paneId?: string) => {
+    const targetUrl = url || 'about:blank';
+
+    // If paneId is provided, try to add tab to that existing browser pane
+    if (paneId) {
+        const paneData = contentDataRef.current[paneId];
+        if (paneData?.contentType === 'browser') {
+            // Initialize tabs array if needed
+            if (!paneData.tabs || paneData.tabs.length === 0) {
+                paneData.tabs = [{
+                    id: `tab_${Date.now()}_0`,
+                    contentType: 'browser',
+                    contentId: paneData.browserUrl || 'about:blank',
+                    browserUrl: paneData.browserUrl || 'about:blank',
+                    browserTitle: paneData.browserTitle || 'Browser'
+                }];
+                paneData.activeTabIndex = 0;
+            }
+
+            // Save current tab's state before switching
+            const currentTabIndex = paneData.activeTabIndex || 0;
+            if (paneData.tabs[currentTabIndex]) {
+                paneData.tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                paneData.tabs[currentTabIndex].browserTitle = paneData.browserTitle;
+            }
+
+            // Create and add new tab
+            const newTab = {
+                id: `tab_${Date.now()}_${paneData.tabs.length}`,
+                contentType: 'browser',
+                contentId: targetUrl,
+                browserUrl: targetUrl,
+                browserTitle: 'New Tab'
+            };
+            paneData.tabs.push(newTab);
+            paneData.activeTabIndex = paneData.tabs.length - 1;
+
+            // Update main paneData for the new active tab
+            paneData.browserUrl = targetUrl;
+            paneData.browserTitle = 'New Tab';
+
+            // Trigger re-render
+            setRootLayoutNode(prev => ({ ...prev }));
+            return;
+        }
+    }
+
+    // No paneId or pane isn't a browser - create new browser pane
+    createNewBrowser(url || null);
 }, [createNewBrowser]);
 
 // Listen for ctrl+click / middle-click on browser links from main process
@@ -4298,6 +4406,58 @@ useEffect(() => {
     return () => cleanup?.();
 }, [createNewBrowser]);
 
+// Listen for Ctrl+T from main process - create new browser tab in active browser pane
+useEffect(() => {
+    const cleanup = (window as any).api?.onBrowserNewTab?.(() => {
+        // Check if active pane is a browser
+        const paneData = contentDataRef.current[activeContentPaneId];
+
+        if (paneData?.contentType === 'browser') {
+            // Active pane is browser - add new tab to it
+            // Initialize tabs array if needed (convert current content to first tab)
+            if (!paneData.tabs || paneData.tabs.length === 0) {
+                paneData.tabs = [{
+                    id: `tab_${Date.now()}_0`,
+                    contentType: 'browser',
+                    contentId: paneData.browserUrl || 'about:blank',
+                    browserUrl: paneData.browserUrl || 'about:blank',
+                    browserTitle: paneData.browserTitle || 'Browser'
+                }];
+                paneData.activeTabIndex = 0;
+            }
+
+            // Save current tab's state before switching
+            const currentTabIndex = paneData.activeTabIndex || 0;
+            if (paneData.tabs[currentTabIndex]) {
+                paneData.tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                paneData.tabs[currentTabIndex].browserTitle = paneData.browserTitle;
+            }
+
+            // Create and add new tab
+            const newTab = {
+                id: `tab_${Date.now()}_${paneData.tabs.length}`,
+                contentType: 'browser',
+                contentId: 'about:blank',
+                browserUrl: 'about:blank',
+                browserTitle: 'New Tab'
+            };
+            paneData.tabs.push(newTab);
+            paneData.activeTabIndex = paneData.tabs.length - 1;
+
+            // Update main paneData for the new active tab
+            paneData.browserUrl = 'about:blank';
+            paneData.browserTitle = 'New Tab';
+
+            // Trigger re-render
+            setRootLayoutNode(prev => ({ ...prev }));
+        } else {
+            // No active browser - create a new browser pane
+            createNewBrowser('about:blank');
+        }
+    });
+    return () => cleanup?.();
+}, [activeContentPaneId, createNewBrowser]);
+
 // Render SearchPane (for pane-based unified search)
 const renderSearchPane = useCallback(({ nodeId, initialQuery }: { nodeId: string; initialQuery?: string }) => {
     return (
@@ -4308,7 +4468,7 @@ const renderSearchPane = useCallback(({ nodeId, initialQuery }: { nodeId: string
     );
 }, []);
 
-const renderBrowserViewer = useCallback(({ nodeId }) => {
+const renderBrowserViewer = useCallback(({ nodeId, hasTabBar, onToggleZen, isZenMode }) => {
     return (
         <WebBrowserViewer
             nodeId={nodeId}
@@ -4322,9 +4482,13 @@ const renderBrowserViewer = useCallback(({ nodeId }) => {
             setDraggedItem={setDraggedItem}
             setPaneContextMenu={setPaneContextMenu}
             closeContentPane={closeContentPane}
+            performSplit={performSplit}
+            hasTabBar={hasTabBar}
+            onToggleZen={onToggleZen}
+            isZenMode={isZenMode}
         />
     );
-}, [currentPath, rootLayoutNode, closeContentPane, handleNewBrowserTab]);
+}, [currentPath, rootLayoutNode, closeContentPane, handleNewBrowserTab, performSplit]);
 
 const handleBrowserDialogNavigate = (url) => {
         createNewBrowser(url);
@@ -6141,6 +6305,12 @@ ${contextPrompt}`;
     availableModels={availableModels} // Pass available models for dropdown
 />
 
+<DownloadManager
+    isOpen={downloadManagerOpen}
+    onClose={() => setDownloadManagerOpen(false)}
+    currentPath={currentPath}
+/>
+
         {messageContextMenuPos && (
             <>
                 {/* Backdrop to catch outside clicks */}
@@ -7610,6 +7780,8 @@ const layoutComponentApi = useMemo(() => ({
     handleConfirmRename,
     // Script running
     onRunScript: handleRunScript,
+    // Browser tab creation
+    handleNewBrowserTab,
 }), [
     rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
@@ -7654,7 +7826,7 @@ const layoutComponentApi = useMemo(() => ({
     getChatInputProps,
     zenModePaneId,
     renamingPaneId, editedFileName, handleConfirmRename,
-    handleRunScript,
+    handleRunScript, handleNewBrowserTab,
 ]);
 
 // Handle conversation selection - opens conversation in a pane
@@ -8292,6 +8464,8 @@ const renderMainContent = () => {
                     createGraphViewerPane={createGraphViewerPane}
                     createNPCTeamPane={createNPCTeamPane}
                     createJinxPane={createJinxPane}
+                    activeDownloadsCount={getActiveDownloadsCount()}
+                    openDownloadManager={() => setDownloadManagerOpen(true)}
                 />
             </main>
         );
@@ -8344,6 +8518,8 @@ const renderMainContent = () => {
                 createGraphViewerPane={createGraphViewerPane}
                 createNPCTeamPane={createNPCTeamPane}
                 createJinxPane={createJinxPane}
+                activeDownloadsCount={getActiveDownloadsCount()}
+                openDownloadManager={() => setDownloadManagerOpen(true)}
             />
         </main>
     );

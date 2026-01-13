@@ -6,13 +6,14 @@ import {
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
     Image as ImageIcon, Tag, Folder, Users, Settings, Images, BookOpen,
     FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2, Maximize2, Minimize2,
-    FlaskConical, HelpCircle
+    FlaskConical, HelpCircle, Search
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
 import { getFileIcon } from './utils';
 import ChatInput from './ChatInput';
 import DiffViewer from './DiffViewer';
+import { ChatHeaderContent } from './pane-headers';
 
 // Token cost calculator based on model pricing ($ per 1K tokens)
 // Source: Helicone LLM API Pricing - Updated Nov 2025
@@ -814,9 +815,10 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 if (tabs[currentTabIndex]) {
                     tabs[currentTabIndex].fileContent = paneData.fileContent;
                     tabs[currentTabIndex].fileChanged = paneData.fileChanged;
-                    // IMPORTANT: Save browserUrl for browser tabs so we don't lose the current URL
-                    if (tabs[currentTabIndex].contentType === 'browser' && paneData.browserUrl) {
-                        tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                    // IMPORTANT: Save browserUrl and browserTitle for browser tabs
+                    if (tabs[currentTabIndex].contentType === 'browser') {
+                        if (paneData.browserUrl) tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                        if (paneData.browserTitle) tabs[currentTabIndex].browserTitle = paneData.browserTitle;
                     }
                 }
 
@@ -828,9 +830,10 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 // Restore fileContent and fileChanged from the selected tab
                 paneData.fileContent = selectedTab.fileContent;
                 paneData.fileChanged = selectedTab.fileChanged || false;
-                // Preserve browserUrl for browser tabs
-                if (selectedTab.contentType === 'browser' && selectedTab.browserUrl) {
-                    paneData.browserUrl = selectedTab.browserUrl;
+                // Preserve browserUrl and browserTitle for browser tabs
+                if (selectedTab.contentType === 'browser') {
+                    paneData.browserUrl = selectedTab.browserUrl || 'about:blank';
+                    paneData.browserTitle = selectedTab.browserTitle || 'Browser';
                 }
                 // Force re-render
                 setRootLayoutNode?.(prev => ({ ...prev }));
@@ -839,10 +842,11 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         const handleTabClose = (index: number) => {
             if (paneData && tabs.length > 0) {
-                // Save current browser URL to active tab before closing
+                // Save current browser URL/title to active tab before closing
                 const currentTabIndex = paneData.activeTabIndex || 0;
-                if (tabs[currentTabIndex] && tabs[currentTabIndex].contentType === 'browser' && paneData.browserUrl) {
-                    tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                if (tabs[currentTabIndex] && tabs[currentTabIndex].contentType === 'browser') {
+                    if (paneData.browserUrl) tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                    if (paneData.browserTitle) tabs[currentTabIndex].browserTitle = paneData.browserTitle;
                 }
 
                 const newTabs = [...tabs];
@@ -1061,11 +1065,10 @@ export const LayoutNode = memo(({ node, path, component }) => {
             headerTitle = contentId.split('/').pop();
         }
 
-        // Stats dropdown state
-        const [statsExpanded, setStatsExpanded] = useState(false);
-
-        // Conditionally construct children for PaneHeader (chat-specific buttons)
+        // Conditionally construct children for PaneHeader (type-specific buttons)
         let paneHeaderChildren = null;
+        // Custom header content for panes that need full header customization
+        let headerContent = null;
 
         // Markdown preview button for .md files
         const isMarkdownFile = contentType === 'editor' && contentId?.toLowerCase().endsWith('.md');
@@ -1088,77 +1091,23 @@ export const LayoutNode = memo(({ node, path, component }) => {
             );
         }
 
+        // Chat pane uses custom header content
         if (contentType === 'chat') {
             const chatStats = paneData?.chatStats || { messageCount: 0, tokenCount: 0, models: new Set(), agents: new Set(), providers: new Set() };
-            const tokenCost = calculateTokenCost(chatStats.tokenCount, chatStats.models);
-            paneHeaderChildren = (
-                <>
-                    {/* Stats dropdown */}
-                    <div className="relative mr-2">
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setStatsExpanded(!statsExpanded); }}
-                            className="flex items-center gap-1 px-2 py-1 text-[10px] text-gray-400 hover:text-gray-200 rounded theme-hover"
-                            title="Toggle stats"
-                        >
-                            <BarChart3 size={12} />
-                            <span>{chatStats.messageCount}m</span>
-                            <span>~{(chatStats.tokenCount / 1000).toFixed(1)}k</span>
-                            {tokenCost > 0 && <span className="text-green-500">${tokenCost.toFixed(2)}</span>}
-                            {statsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                        </button>
-                        {statsExpanded && (
-                            <div className="absolute top-full left-0 mt-1 p-2 rounded theme-bg-secondary theme-border border shadow-lg z-50 min-w-[180px]">
-                                <div className="text-[10px] space-y-1">
-                                    <div className="flex justify-between"><span className="text-gray-500">Messages:</span><span>{chatStats.messageCount}</span></div>
-                                    <div className="flex justify-between"><span className="text-gray-500">Tokens:</span><span>~{chatStats.tokenCount?.toLocaleString()}</span></div>
-                                    {tokenCost > 0 && <div className="flex justify-between"><span className="text-gray-500">Est. Cost:</span><span className="text-green-400">${tokenCost.toFixed(4)}</span></div>}
-                                    {chatStats.agents?.size > 0 && (
-                                        <div className="flex justify-between"><span className="text-gray-500">Agents:</span><span className="text-purple-400" title={Array.from(chatStats.agents).join(', ')}>{chatStats.agents.size}</span></div>
-                                    )}
-                                    {chatStats.models?.size > 0 && (
-                                        <div className="flex justify-between"><span className="text-gray-500">Models:</span><span className="text-blue-400" title={Array.from(chatStats.models).join(', ')}>{chatStats.models.size}</span></div>
-                                    )}
-                                    {chatStats.providers?.size > 0 && (
-                                        <div className="flex justify-between"><span className="text-gray-500">Providers:</span><span className="text-cyan-400">{chatStats.providers.size}</span></div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setAutoScrollEnabled(!autoScrollEnabled); }}
-                        className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
-                            autoScrollEnabled ? 'theme-button-success' : 'theme-button'
-                        } theme-hover`}
-                        title={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
-                    >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M12 5v14M19 12l-7 7-7-7"/>
-                        </svg>
-                        {autoScrollEnabled ? 'Auto' : 'Manual'}
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); toggleMessageSelectionMode(); }}
-                        className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`}
-                    >
-                        <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setShowBranchingUI(!showBranchingUI); }}
-                        className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
-                            showBranchingUI ? 'theme-button-primary' : 'theme-button theme-hover'
-                        }`}
-                        title="Manage conversation branches"
-                    >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <line x1="6" y1="3" x2="6" y2="15"></line>
-                            <circle cx="18" cy="6" r="3"></circle>
-                            <circle cx="6" cy="18" r="3"></circle>
-                            <path d="M18 9a9 9 0 0 1-9 9"></path>
-                        </svg>
-                        {conversationBranches.size > 0 && `(${conversationBranches.size})`}
-                    </button>
-                </>
+            headerContent = (
+                <ChatHeaderContent
+                    icon={headerIcon}
+                    title={headerTitle}
+                    chatStats={chatStats}
+                    autoScrollEnabled={autoScrollEnabled}
+                    setAutoScrollEnabled={setAutoScrollEnabled}
+                    messageSelectionMode={messageSelectionMode}
+                    toggleMessageSelectionMode={toggleMessageSelectionMode}
+                    selectedMessages={selectedMessages}
+                    showBranchingUI={showBranchingUI}
+                    setShowBranchingUI={setShowBranchingUI}
+                    conversationBranches={conversationBranches}
+                />
             );
         }
 // DUPLICATE/CONFLICTING DECLARATION COMMENTED OUT - closeContentPane is expected to be passed via props
@@ -1205,7 +1154,12 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 case 'docx':
                     return renderDocxViewer({ nodeId: node.id });
                 case 'browser':
-                    return renderBrowserViewer({ nodeId: node.id });
+                    return renderBrowserViewer({
+                        nodeId: node.id,
+                        hasTabBar: showTabBar,
+                        onToggleZen: toggleZenMode ? () => toggleZenMode(node.id) : undefined,
+                        isZenMode: zenModePaneId === node.id
+                    });
                 case 'pptx':
                     return renderPptxViewer({ nodeId: node.id });
                 case 'latex':
@@ -1284,6 +1238,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
             <div
                 className={`flex-1 flex flex-col border ${isActive ? 'border-blue-500 ring-1 ring-blue-500' : 'theme-border'}`}
                 style={{ position: 'relative', overflow: 'hidden' }}
+                data-pane-id={node.id}
+                data-pane-type={contentType}
                 onClick={() => setActiveContentPaneId(node.id)}
                 onContextMenu={(e) => {
                     e.preventDefault();
@@ -1313,6 +1269,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         onToggleZen={contentType === 'browser' && toggleZenMode ? () => toggleZenMode(node.id) : undefined}
                         isZenMode={contentType === 'browser' ? zenModePaneId === node.id : undefined}
                         onClosePane={contentType === 'browser' ? () => closeContentPane(node.id, path) : undefined}
+                        onTabAdd={contentType === 'browser' && component.handleNewBrowserTab ? () => component.handleNewBrowserTab('', node.id) : undefined}
                     />
                 )}
 
@@ -1323,6 +1280,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         nodeId={node.id}
                         icon={headerIcon}
                         title={headerTitle}
+                        // Custom header content for panes that override the default
+                        headerContent={headerContent}
                         findNodePath={findNodePath}
                         rootLayoutNode={rootLayoutNode}
                         setDraggedItem={setDraggedItem}
@@ -1353,29 +1312,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         {paneHeaderChildren} {/* Pass the conditional children here */}
                     </PaneHeader>
                 )}
-                {/* Browser gets a minimal header bar with close/expand - only when no tabs showing */}
-                {contentType === 'browser' && !showTabBar && (
-                    <div
-                        className="flex items-center justify-between px-1 theme-bg-secondary"
-                        style={{ height: '32px', borderBottom: '1px solid var(--border-color)' }}
-                    >
-                        <button
-                            onClick={(e) => { e.stopPropagation(); toggleZenMode?.(node.id); }}
-                            className={`p-1.5 theme-hover rounded flex-shrink-0 ${zenModePaneId === node.id ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
-                            title={zenModePaneId === node.id ? "Exit zen mode (Esc)" : "Enter zen mode"}
-                        >
-                            {zenModePaneId === node.id ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                        </button>
-                        <span className="text-xs text-gray-500 truncate flex-1 px-2">Browser</span>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); closeContentPane(node.id, path); }}
-                            className="p-1.5 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-red-400"
-                            title="Close pane"
-                        >
-                            <X size={14} />
-                        </button>
-                    </div>
-                )}
+                {/* Browser handles its own header with zen/close buttons inside WebBrowserViewer */}
 
                 {draggedItem && (
                     <>

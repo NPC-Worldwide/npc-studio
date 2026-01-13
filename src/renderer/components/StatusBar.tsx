@@ -1,7 +1,7 @@
 import React from 'react';
 import {
     Folder, MessageSquare, Terminal, Globe, FileText, File as FileIcon,
-    BrainCircuit, ArrowDown, HelpCircle, Database, GitBranch, Clock, Bot, Zap
+    BrainCircuit, ArrowDown, HelpCircle, Database, GitBranch, Clock, Bot, Zap, Download
 } from 'lucide-react';
 
 interface PaneItem {
@@ -40,6 +40,9 @@ interface StatusBarProps {
     // NPCs and Jinxs - bottom right
     createNPCTeamPane?: () => void;
     createJinxPane?: () => void;
+    // Downloads
+    activeDownloadsCount?: number;
+    openDownloadManager?: () => void;
 }
 
 const StatusBar: React.FC<StatusBarProps> = ({
@@ -63,6 +66,8 @@ const StatusBar: React.FC<StatusBarProps> = ({
     createGraphViewerPane,
     createNPCTeamPane,
     createJinxPane,
+    activeDownloadsCount = 0,
+    openDownloadManager,
 }) => {
     return (
         <div className="h-6 flex-shrink-0 theme-bg-tertiary border-t theme-border flex items-center px-2 text-[10px] theme-text-muted gap-2">
@@ -134,6 +139,25 @@ const StatusBar: React.FC<StatusBarProps> = ({
                     <span className="opacity-60 ml-1">Gen {kgGeneration}</span>
                 )}
                 {kgScheduleEnabled && <Clock size={10} className="text-emerald-400 ml-1" />}
+            </button>
+
+            {/* Downloads button */}
+            <button
+                onClick={() => openDownloadManager?.()}
+                className={`px-2 py-0.5 rounded flex items-center gap-1 text-[10px] transition-all ${
+                    activeDownloadsCount > 0
+                        ? 'bg-blue-900/30 text-blue-300 hover:bg-blue-900/50 border border-blue-700/30'
+                        : 'hover:bg-gray-700/50 text-gray-400'
+                }`}
+                title="Downloads (Ctrl+J)"
+            >
+                <Download size={12} />
+                {activeDownloadsCount > 0 && (
+                    <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                        <span className="text-blue-200">{activeDownloadsCount}</span>
+                    </span>
+                )}
             </button>
 
             <div className="flex-1" />

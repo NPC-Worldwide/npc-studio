@@ -731,12 +731,13 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
             <div className="flex flex-wrap gap-2 p-2 border-b theme-border">
                 {uploadedFiles.map((file: any) => {
                     const ext = file.name.split('.').pop()?.toLowerCase();
-                    const isClickable = file.path && ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext);
+                    const isClickable = !!file.path;
                     return (
                         <div
                             key={file.id}
                             className={`relative group ${isClickable ? 'cursor-pointer' : ''}`}
-                            onClick={() => isClickable && onOpenFile?.(file.path)}
+                            onDoubleClick={() => isClickable && onOpenFile?.(file.path)}
+                            title={isClickable ? `Double-click to open: ${file.path}` : file.name}
                         >
                             {file.preview ? (
                                 <img src={file.preview} alt={file.name} className="w-16 h-16 object-cover rounded border theme-border" />

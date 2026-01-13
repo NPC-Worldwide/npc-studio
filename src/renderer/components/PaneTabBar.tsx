@@ -10,6 +10,8 @@ interface Tab {
     contentType: string;
     contentId: string;
     title?: string;
+    browserTitle?: string;
+    browserUrl?: string;
 }
 
 interface PaneTabBarProps {
@@ -99,6 +101,11 @@ const getTabTitle = (tab: Tab): string => {
         case 'terminal':
             return 'Terminal';
         case 'browser':
+            // Use browserTitle if available, truncate long titles
+            if (tab.browserTitle && tab.browserTitle !== 'Browser') {
+                const title = tab.browserTitle;
+                return title.length > 25 ? title.slice(0, 22) + '...' : title;
+            }
             return 'Browser';
         case 'dbtool':
             return 'Database Tool';

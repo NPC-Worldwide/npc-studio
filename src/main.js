@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog } = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -28,7 +28,6 @@ const daemons = new Map();   // id => {id, name, command, npc, jinx, process}
 const sqlite3 = require('sqlite3');
 const dbPath = path.join(os.homedir(), 'npcsh_history.db');
 const fetch = require('node-fetch');
-const { dialog } = require('electron');
 const crypto = require('crypto');
 
 // Centralized logging setup - all logs go to ~/.npcsh/incognide/logs/
@@ -394,6 +393,39 @@ async function ensureBaseDir() {
 // Track sessions we've set up download handlers for
 const sessionsWithDownloadHandler = new WeakSet();
 
+// Track workspace path per window (webContents ID -> path)
+const workspacePathByWindow = new Map();
+
+ipcMain.on('set-workspace-path', (event, workspacePath) => {
+  if (workspacePath && typeof workspacePath === 'string') {
+    const windowId = event.sender.id;
+    workspacePathByWindow.set(windowId, workspacePath);
+    log(`[DOWNLOAD] Workspace path for window ${windowId}: ${workspacePath}`);
+  }
+});
+
+// Helper to get workspace path for a webContents (checks parent windows too)
+function getWorkspacePathForWebContents(webContents) {
+  // Try direct ID first
+  if (workspacePathByWindow.has(webContents.id)) {
+    return workspacePathByWindow.get(webContents.id);
+  }
+  // Try to find parent window
+  const allWindows = BrowserWindow.getAllWindows();
+  for (const win of allWindows) {
+    if (win.webContents && workspacePathByWindow.has(win.webContents.id)) {
+      // Check if this webContents belongs to this window
+      if (win.webContents.id === webContents.hostWebContents?.id ||
+          win.webContents === webContents.hostWebContents) {
+        return workspacePathByWindow.get(win.webContents.id);
+      }
+    }
+  }
+  // Fallback: return most recently set path or downloads folder
+  const paths = Array.from(workspacePathByWindow.values());
+  return paths.length > 0 ? paths[paths.length - 1] : app.getPath('downloads');
+}
+
 // Handle web contents created (for webviews and all web contents)
 // This sets up download and context menu handling for all web contents including webviews
 app.on('web-contents-created', (event, contents) => {
@@ -449,7 +481,7 @@ app.on('web-contents-created', (event, contents) => {
     });
   }
 
-  // Handle downloads from webviews - forward to renderer which has currentPath
+  // Handle downloads from webviews - send to renderer's download manager
   if (contents.getType() === 'webview') {
     const session = contents.session;
     if (session && !sessionsWithDownloadHandler.has(session)) {
@@ -461,10 +493,10 @@ app.on('web-contents-created', (event, contents) => {
 
         log(`[DOWNLOAD] Intercepted download: ${filename} from ${url}`);
 
-        // Cancel the default download - renderer will handle it via IPC
+        // Cancel immediately - renderer will handle via download manager
         item.cancel();
 
-        // Send to renderer to handle with currentPath
+        // Send to renderer's download manager
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('browser-download-requested', {
             url,
@@ -1026,6 +1058,14 @@ function registerGlobalShortcut(win) {
         isCapturingScreenshot = false;
       }
     });
+
+    // Ctrl+T for new browser tab - intercept before Chromium handles it
+    const ctrlTSuccess = globalShortcut.register('Ctrl+T', () => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('browser-new-tab');
+      }
+    });
+    console.log('Ctrl+T shortcut registered:', ctrlTSuccess);
 
   } catch (error) {
     console.error('Failed to register global shortcut:', error);

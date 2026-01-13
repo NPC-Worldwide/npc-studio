@@ -443,14 +443,14 @@ export const ChatMessage = memo(({
                         {message.attachments.map((attachment, idx) => {
                             const isImage = attachment.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
                             const isPdf = attachment.name?.match(/\.pdf$/i);
-                            const isClickable = attachment.path && (isImage || isPdf);
+                            const isClickable = !!attachment.path;
                             const imageSrc = attachment.preview || (attachment.path ? `media://${attachment.path}` : attachment.data);
                             return (
                                 <div
                                     key={idx}
                                     className={`text-xs theme-bg-tertiary rounded px-2 py-1 flex items-center gap-1 ${isClickable ? 'cursor-pointer hover:bg-blue-500/20' : ''}`}
-                                    onClick={() => isClickable && onOpenFile?.(attachment.path)}
-                                    title={isClickable ? `Click to open ${attachment.name}` : attachment.name}
+                                    onDoubleClick={() => isClickable && onOpenFile?.(attachment.path)}
+                                    title={isClickable ? `Double-click to open: ${attachment.path}` : attachment.name}
                                 >
                                     <Paperclip size={12} className="flex-shrink-0" />
                                     <span className="truncate">{attachment.name}</span>

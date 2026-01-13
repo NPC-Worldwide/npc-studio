@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, memo, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X, Plus, Settings, Trash2, Lock, GripVertical, Puzzle, Download, FolderOpen, Key, Eye, EyeOff, Shield, Check } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X, Plus, Settings, Trash2, Lock, GripVertical, Puzzle, Download, FolderOpen, Key, Eye, EyeOff, Shield, Check, Maximize2, Minimize2 } from 'lucide-react';
 
 const WebBrowserViewer = memo(({
     nodeId,
@@ -12,7 +12,13 @@ const WebBrowserViewer = memo(({
     rootLayoutNode,
     setDraggedItem,
     setPaneContextMenu,
-    closeContentPane
+    closeContentPane,
+    performSplit,
+    // Zen mode props for unified header behavior
+    onToggleZen,
+    isZenMode,
+    // Whether we're showing as part of tab bar (hides our zen/close)
+    hasTabBar
 }) => {
     const webviewRef = useRef(null);
     const [currentUrl, setCurrentUrl] = useState('');
@@ -274,7 +280,7 @@ const WebBrowserViewer = memo(({
 
             if (shouldOpenInNewTab && handleNewBrowserTab) {
                 // Open in a new tab within the same pane
-                handleNewBrowserTab(url);
+                handleNewBrowserTab(url, nodeId);
             } else {
                 // Open in the same webview (default behavior for regular link clicks)
                 webview.src = url;
@@ -414,9 +420,26 @@ const WebBrowserViewer = memo(({
     const handleRefresh = useCallback(() => webviewRef.current?.reload(), []);
     const handleHardRefresh = useCallback(() => webviewRef.current?.reloadIgnoringCache(), []);
 
-    // Keyboard shortcuts: Backspace for back, Ctrl+Shift+R for hard refresh
+    // Keyboard shortcuts: Backspace for back, Ctrl+Shift+R for hard refresh, Ctrl+T new tab, Ctrl+N new pane
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // Ctrl+T = new tab in this pane
+            if (e.ctrlKey && !e.shiftKey && e.key === 't') {
+                e.preventDefault();
+                e.stopPropagation();
+                handleNewBrowserTab?.('');
+                return;
+            }
+            // Ctrl+N = new browser in next pane
+            if (e.ctrlKey && !e.shiftKey && e.key === 'n') {
+                e.preventDefault();
+                e.stopPropagation();
+                const nodePath = findNodePath(rootLayoutNode, nodeId);
+                if (nodePath && performSplit) {
+                    performSplit(nodePath, 'right', 'browser', 'about:blank');
+                }
+                return;
+            }
             // Ctrl+Shift+R = hard refresh (bypass cache)
             if (e.ctrlKey && e.shiftKey && e.key === 'R') {
                 e.preventDefault();
@@ -446,7 +469,7 @@ const WebBrowserViewer = memo(({
 
         document.addEventListener('keydown', handleKeyDown, true); // Use capture to intercept before Electron
         return () => document.removeEventListener('keydown', handleKeyDown, true);
-    }, [canGoBack, handleBack, handleRefresh, handleHardRefresh]);
+    }, [canGoBack, handleBack, handleRefresh, handleHardRefresh, handleNewBrowserTab, findNodePath, rootLayoutNode, nodeId, performSplit]);
     const handleHome = useCallback(() => {
         const initial = initialUrlRef.current;
         let homeUrl = initial;
@@ -865,6 +888,17 @@ const WebBrowserViewer = memo(({
                     setPaneContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, nodeId, nodePath });
                 }}
             >
+                {/* Zen mode button - only show when no tab bar */}
+                {!hasTabBar && onToggleZen && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleZen(); }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className={`p-1.5 theme-hover rounded flex-shrink-0 ${isZenMode ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
+                        title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
+                    >
+                        {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                    </button>
+                )}
                 {/* Left: Nav buttons */}
                 <div className="flex items-center gap-0.5 px-1 border-r theme-border">
                     <button onClick={handleBack} disabled={!canGoBack} className="p-1 theme-hover rounded disabled:opacity-30" title="Back"><ArrowLeft size={16} /></button>
@@ -880,22 +914,14 @@ const WebBrowserViewer = memo(({
                     <button onClick={handleHome} className="p-1 theme-hover rounded" title="Home"><Home size={16} /></button>
                 </div>
 
-                {/* Right: Title row + Address row */}
-                <div className="flex-1 flex flex-col min-w-0 py-0.5 gap-0.5">
-                    {/* Title row */}
-                    <div className="flex items-center gap-1 px-1.5 h-5">
-                        <GripVertical size={12} className="flex-shrink-0 theme-text-muted" />
-                        <Globe size={12} className="text-blue-400 flex-shrink-0" />
-                        <span className="flex-1 text-xs theme-text-primary truncate" title={title}>{title}</span>
+                {/* Center: Address bar */}
+                <div className="flex-1 flex items-center min-w-0 px-1 gap-1">
+                    <GripVertical size={12} className="flex-shrink-0 theme-text-muted" />
+                    <div className="flex-1 max-w-[60%] flex items-center gap-1 min-w-0 theme-bg-secondary rounded px-1.5 py-1">
+                        {isSecure ? <Lock size={12} className="text-green-400 flex-shrink-0" /> : <Globe size={12} className="text-gray-400 flex-shrink-0" />}
+                        <input type="text" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleNavigate()} placeholder="Search or enter URL..." className="flex-1 bg-transparent text-xs theme-text-primary outline-none min-w-0" onDragStart={(e) => e.stopPropagation()} draggable={false} />
                     </div>
-                    {/* Address row */}
-                    <div className="flex items-center gap-1 px-1.5 h-5">
-                        <div className="flex-1 max-w-[50%] flex items-center gap-1 min-w-0 theme-bg-secondary rounded px-1.5 h-full">
-                            {isSecure ? <Lock size={12} className="text-green-400 flex-shrink-0" /> : <Globe size={12} className="text-gray-400 flex-shrink-0" />}
-                            <input type="text" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleNavigate()} placeholder="Search or enter URL..." className="flex-1 bg-transparent text-xs theme-text-primary outline-none min-w-0" onDragStart={(e) => e.stopPropagation()} draggable={false} />
-                        </div>
-                        <button onClick={() => handleNewBrowserTab('')} className="p-0.5 theme-hover rounded" title="New browser"><Plus size={12} /></button>
-                    </div>
+                    <button onClick={() => handleNewBrowserTab('', nodeId)} className="p-0.5 theme-hover rounded" title="New tab (Ctrl+T)"><Plus size={12} /></button>
                 </div>
 
                 {/* Far right: Passwords + Permissions + Extensions + Settings + Close in one row */}
@@ -1138,7 +1164,21 @@ const WebBrowserViewer = memo(({
                             </>
                         )}
                     </div>
-                    {/* Close button removed - PaneTabBar or minimal header already handles closing */}
+                    {/* Close button - only show when no tab bar */}
+                    {!hasTabBar && closeContentPane && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const nodePath = findNodePath(rootLayoutNode, nodeId);
+                                closeContentPane(nodeId, nodePath);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="p-1.5 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-red-400"
+                            title="Close pane"
+                        >
+                            <X size={14} />
+                        </button>
+                    )}
                 </div>
             </div>
 
