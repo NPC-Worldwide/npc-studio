@@ -447,6 +447,7 @@ app.on('web-contents-created', (event, contents) => {
 
       // Send context menu event to renderer
       if (mainWindow && !mainWindow.isDestroyed()) {
+        // params.x/y from context-menu event are already content-relative
         mainWindow.webContents.send('browser-show-context-menu', {
           x: params.x,
           y: params.y,
@@ -2440,30 +2441,62 @@ ipcMain.handle('browser-save-image', async (event, { imageUrl, currentPath }) =>
 
 ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, currentPath }) => {
     try {
-        if (!currentPath) {
-            return { success: false, error: 'No workspace directory provided' };
-        }
+        // Use workspace path or downloads folder
+        const saveDir = currentPath || app.getPath('downloads');
         const filename = suggestedFilename || path.basename(new URL(url).pathname) || 'download';
-        const defaultPath = path.join(currentPath, filename);
 
-        const result = await dialog.showSaveDialog(mainWindow, {
-            title: 'Save Link As',
-            defaultPath: defaultPath,
-            filters: [{ name: 'All Files', extensions: ['*'] }]
-        });
-
-        if (result.canceled || !result.filePath) {
-            return { success: false, canceled: true };
+        // Ensure unique filename if it already exists
+        let finalPath = path.join(saveDir, filename);
+        let counter = 1;
+        while (fs.existsSync(finalPath)) {
+            const ext = path.extname(filename);
+            const base = path.basename(filename, ext);
+            finalPath = path.join(saveDir, `${base} (${counter})${ext}`);
+            counter++;
         }
 
-        // Download the file
+        log(`[BROWSER] Starting download: ${filename} to ${finalPath}`);
+
+        // Download the file with progress tracking
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const buffer = await response.buffer();
-        await fsPromises.writeFile(result.filePath, buffer);
 
-        log(`[BROWSER] Link saved to: ${result.filePath}`);
-        return { success: true, path: result.filePath };
+        const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+        let received = 0;
+
+        // Stream the response to file
+        const fileStream = fs.createWriteStream(finalPath);
+        const reader = response.body;
+
+        for await (const chunk of reader) {
+            fileStream.write(chunk);
+            received += chunk.length;
+
+            // Send progress to renderer
+            if (contentLength > 0 && mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('download-progress', {
+                    filename: path.basename(finalPath),
+                    received,
+                    total: contentLength,
+                    percent: Math.round((received / contentLength) * 100)
+                });
+            }
+        }
+
+        fileStream.end();
+
+        log(`[BROWSER] Download completed: ${finalPath}`);
+
+        // Send completion event
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('download-complete', {
+                filename: path.basename(finalPath),
+                path: finalPath,
+                state: 'completed'
+            });
+        }
+
+        return { success: true, path: finalPath };
     } catch (err) {
         log(`[BROWSER] Error saving link: ${err.message}`);
         return { success: false, error: err.message };

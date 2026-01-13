@@ -1,4 +1,5 @@
  import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Folder, File as FileIcon,  Globe, ChevronRight, ChevronLeft, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
@@ -1509,15 +1510,14 @@ const ChatInterface = () => {
     
     
     useEffect(() => {
-        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText, linkURL, pageURL }) => {
-            console.log('[REACT BROWSER CONTEXT] Received context menu event', { x, y, selectedText, linkURL });
-
-            setBrowserContextMenuPos({ x, y, selectedText, linkURL, pageURL });
+        const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText, linkURL, pageURL, srcURL, isEditable, mediaType, canSaveImage }) => {
+            const webview = document.querySelector('webview');
+            const rect = webview?.getBoundingClientRect();
+            const finalX = rect ? x - rect.left / 6 : x;
+            const finalY = rect ? y - rect.top / 6 : y;
+            setBrowserContextMenuPos({ x: finalX, y: finalY, selectedText, linkURL, pageURL, srcURL, isEditable, mediaType, canSaveImage });
         });
-    
-        return () => {
-            cleanup();
-        };
+        return () => cleanup();
     }, []);
     
     useEffect(() => {
@@ -8147,16 +8147,128 @@ const renderBrowserContextMenu = () => {
 
     const closeMenu = () => setBrowserContextMenuPos(null);
 
-    // Find the pane to get webview reference
-    const paneData = browserContextMenuPos.viewId ? contentDataRef.current[browserContextMenuPos.viewId] : null;
+    // Find the active browser pane
+    const activeBrowserPaneId = Object.keys(contentDataRef.current).find(
+        id => contentDataRef.current[id]?.contentType === 'browser'
+    );
+    const paneData = activeBrowserPaneId ? contentDataRef.current[activeBrowserPaneId] : null;
 
-    return (
+    // Get webview for navigation actions
+    const getWebview = () => document.querySelector('[data-pane-type="browser"] webview') as any;
+
+    const handleBack = () => {
+        const webview = getWebview();
+        if (webview?.canGoBack?.()) webview.goBack();
+        closeMenu();
+    };
+
+    const handleForward = () => {
+        const webview = getWebview();
+        if (webview?.canGoForward?.()) webview.goForward();
+        closeMenu();
+    };
+
+    const handleReload = () => {
+        const webview = getWebview();
+        webview?.reload?.();
+        closeMenu();
+    };
+
+    const handleSaveImage = async () => {
+        if (browserContextMenuPos.srcURL) {
+            try {
+                // Trigger download via main process
+                (window as any).api?.downloadFile?.(browserContextMenuPos.srcURL);
+            } catch (err) {
+                console.error('Failed to save image:', err);
+            }
+        }
+        closeMenu();
+    };
+
+    const handleCopyImage = async () => {
+        if (browserContextMenuPos.srcURL) {
+            try {
+                const response = await fetch(browserContextMenuPos.srcURL);
+                const blob = await response.blob();
+                await navigator.clipboard.write([
+                    new ClipboardItem({ [blob.type]: blob })
+                ]);
+            } catch (err) {
+                console.error('Failed to copy image:', err);
+            }
+        }
+        closeMenu();
+    };
+
+    const handleSearch = () => {
+        if (browserContextMenuPos.selectedText) {
+            // Use configured search engine (stored in localStorage)
+            const searchEngines: Record<string, string> = {
+                duckduckgo: 'https://duckduckgo.com/?q=',
+                google: 'https://www.google.com/search?q=',
+                bing: 'https://www.bing.com/search?q=',
+                brave: 'https://search.brave.com/search?q=',
+                startpage: 'https://www.startpage.com/do/search?q=',
+                ecosia: 'https://www.ecosia.org/search?q='
+            };
+            const engine = localStorage.getItem('npc-browser-search-engine') || 'duckduckgo';
+            const searchBase = searchEngines[engine] || searchEngines.duckduckgo;
+            const searchUrl = searchBase + encodeURIComponent(browserContextMenuPos.selectedText);
+            handleNewBrowserTab(searchUrl, activeBrowserPaneId);
+        }
+        closeMenu();
+    };
+
+    // Get search engine name for display
+    const getSearchEngineName = () => {
+        const names: Record<string, string> = {
+            duckduckgo: 'DuckDuckGo',
+            google: 'Google',
+            bing: 'Bing',
+            brave: 'Brave',
+            startpage: 'Startpage',
+            ecosia: 'Ecosia'
+        };
+        const engine = localStorage.getItem('npc-browser-search-engine') || 'duckduckgo';
+        return names[engine] || 'DuckDuckGo';
+    };
+
+    const menuItemClass = "flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary hover:bg-gray-700/50 text-left cursor-pointer";
+    const disabledClass = "flex items-center gap-2 w-full px-3 py-1.5 text-xs text-gray-500 text-left cursor-not-allowed";
+
+    // Use portal to render outside filtered body - directly at document body level
+    const menuContent = (
         <>
-            <div className="fixed inset-0 z-40" onClick={closeMenu} />
             <div
-                className="fixed z-50 min-w-[180px] theme-bg-secondary border theme-border rounded-lg shadow-xl py-1"
-                style={{ left: browserContextMenuPos.x, top: browserContextMenuPos.y }}
+                className="z-[9998]"
+                style={{ position: 'fixed', inset: 0 }}
+                onClick={closeMenu}
+            />
+            <div
+                className="z-[9999] min-w-[200px] theme-bg-secondary border theme-border rounded-lg shadow-xl py-1"
+                style={{
+                    position: 'fixed',
+                    left: browserContextMenuPos.x,
+                    top: browserContextMenuPos.y,
+                    // Force this element out of any containing block
+                    transform: 'none',
+                    willChange: 'auto'
+                }}
             >
+                {/* Navigation */}
+                <button onClick={handleBack} className={menuItemClass}>
+                    ← Back
+                </button>
+                <button onClick={handleForward} className={menuItemClass}>
+                    → Forward
+                </button>
+                <button onClick={handleReload} className={menuItemClass}>
+                    ↻ Reload
+                </button>
+                <div className="border-t theme-border my-1" />
+
+                {/* Text selection options */}
                 {browserContextMenuPos.selectedText && (
                     <>
                         <button
@@ -8164,50 +8276,107 @@ const renderBrowserContextMenu = () => {
                                 navigator.clipboard.writeText(browserContextMenuPos.selectedText);
                                 closeMenu();
                             }}
-                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
+                            className={menuItemClass}
                         >
-                            Copy Selected Text
+                            Copy
+                        </button>
+                        <button onClick={handleSearch} className={menuItemClass}>
+                            Search {getSearchEngineName()} for "{browserContextMenuPos.selectedText.substring(0, 20)}{browserContextMenuPos.selectedText.length > 20 ? '...' : ''}"
                         </button>
                         <div className="border-t theme-border my-1" />
                     </>
                 )}
+
+                {/* Link options */}
                 {browserContextMenuPos.linkURL && (
-                    <button
-                        onClick={() => {
-                            handleNewBrowserTab(browserContextMenuPos.linkURL);
-                            closeMenu();
-                        }}
-                        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
-                    >
-                        Open Link in New Pane
-                    </button>
+                    <>
+                        <button
+                            onClick={() => {
+                                handleNewBrowserTab(browserContextMenuPos.linkURL, activeBrowserPaneId);
+                                closeMenu();
+                            }}
+                            className={menuItemClass}
+                        >
+                            Open Link in New Tab
+                        </button>
+                        <button
+                            onClick={() => {
+                                handleNewBrowserTab(browserContextMenuPos.linkURL);
+                                closeMenu();
+                            }}
+                            className={menuItemClass}
+                        >
+                            Open Link in New Pane
+                        </button>
+                        <button
+                            onClick={() => {
+                                navigator.clipboard.writeText(browserContextMenuPos.linkURL);
+                                closeMenu();
+                            }}
+                            className={menuItemClass}
+                        >
+                            Copy Link Address
+                        </button>
+                        <div className="border-t theme-border my-1" />
+                    </>
                 )}
-                {(browserContextMenuPos.pageURL || paneData?.browserUrl) && (
-                    <button
-                        onClick={() => {
-                            handleNewBrowserTab(browserContextMenuPos.pageURL || paneData?.browserUrl);
-                            closeMenu();
-                        }}
-                        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
-                    >
-                        Open Page in New Pane
-                    </button>
+
+                {/* Image options */}
+                {browserContextMenuPos.mediaType === 'image' && browserContextMenuPos.srcURL && (
+                    <>
+                        <button onClick={handleSaveImage} className={menuItemClass}>
+                            Save Image As...
+                        </button>
+                        <button onClick={handleCopyImage} className={menuItemClass}>
+                            Copy Image
+                        </button>
+                        <button
+                            onClick={() => {
+                                navigator.clipboard.writeText(browserContextMenuPos.srcURL);
+                                closeMenu();
+                            }}
+                            className={menuItemClass}
+                        >
+                            Copy Image Address
+                        </button>
+                        <button
+                            onClick={() => {
+                                handleNewBrowserTab(browserContextMenuPos.srcURL, activeBrowserPaneId);
+                                closeMenu();
+                            }}
+                            className={menuItemClass}
+                        >
+                            Open Image in New Tab
+                        </button>
+                        <div className="border-t theme-border my-1" />
+                    </>
                 )}
-                <div className="border-t theme-border my-1" />
+
+                {/* Page options */}
                 <button
                     onClick={() => {
-                        if (paneData?.browserUrl) {
-                            navigator.clipboard.writeText(paneData.browserUrl);
-                        }
+                        const url = browserContextMenuPos.pageURL || paneData?.browserUrl;
+                        if (url) navigator.clipboard.writeText(url);
                         closeMenu();
                     }}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-text-primary theme-hover text-left"
+                    className={menuItemClass}
                 >
                     Copy Page URL
+                </button>
+                <button
+                    onClick={() => {
+                        const url = browserContextMenuPos.pageURL || paneData?.browserUrl;
+                        if (url) handleNewBrowserTab(url);
+                        closeMenu();
+                    }}
+                    className={menuItemClass}
+                >
+                    Open Page in New Pane
                 </button>
             </div>
         </>
     );
+    return createPortal(menuContent, document.body);
 };
 
 // Sidebar rendering function
