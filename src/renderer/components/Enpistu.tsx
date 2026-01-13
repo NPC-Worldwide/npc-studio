@@ -1511,11 +1511,9 @@ const ChatInterface = () => {
     
     useEffect(() => {
         const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText, linkURL, pageURL, srcURL, isEditable, mediaType, canSaveImage }) => {
-            const webview = document.querySelector('webview');
-            const rect = webview?.getBoundingClientRect();
-            const finalX = rect ? x - rect.left / 6.2 : x;
-            const finalY = rect ? y - rect.top / 6.1 : y;
-            setBrowserContextMenuPos({ x: finalX, y: finalY, selectedText, linkURL, pageURL, srcURL, isEditable, mediaType, canSaveImage });
+            // Electron params are in physical pixels, convert to CSS pixels
+            const dpr = window.devicePixelRatio || 1;
+            setBrowserContextMenuPos({ x: x / dpr, y: y / dpr, selectedText, linkURL, pageURL, srcURL, isEditable, mediaType, canSaveImage });
         });
         return () => cleanup();
     }, []);
