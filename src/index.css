@@ -310,6 +310,11 @@ body.resizing-input * {
     user-select: none;
 }
 
+body.resizing-sidebar webview,
+body.resizing-input webview {
+    pointer-events: none !important;
+}
+
 /* DARK MODE PROSE STYLES - using theme variables */
 .prose {
     max-width: none !important;
