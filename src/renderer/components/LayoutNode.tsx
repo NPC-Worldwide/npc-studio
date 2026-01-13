@@ -566,7 +566,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderExpViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
-            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderHelpPane, renderGitPane, renderProjectEnvPane, renderDiskUsagePane, renderMemoryManagerPane, renderCronDaemonPane, renderSearchPane, renderFolderViewerPane, renderMarkdownPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderHelpPane, renderGitPane, renderProjectEnvPane, renderDiskUsagePane, renderMemoryManagerPane, renderCronDaemonPane, renderSearchPane, renderFolderViewerPane, renderMarkdownPreviewPane, renderHtmlPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -1030,6 +1030,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'markdown-preview') {
             headerIcon = <FileIcon size={14} className="text-blue-400" />;
             headerTitle = `Preview: ${contentId?.split('/').pop() || 'Markdown'}`;
+        } else if (contentType === 'html-preview') {
+            headerIcon = <Globe size={14} className="text-orange-400" />;
+            headerTitle = `Preview: ${contentId?.split('/').pop() || 'HTML'}`;
         } else if (contentType === 'pdf') {
             headerIcon = <FileIcon size={14} className="text-red-400" />;
             headerTitle = contentId?.split('/').pop() || 'PDF Viewer';
@@ -1072,6 +1075,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         // Markdown preview button for .md files
         const isMarkdownFile = contentType === 'editor' && contentId?.toLowerCase().endsWith('.md');
+        // HTML preview button for .html/.htm files
+        const isHtmlFile = contentType === 'editor' && (contentId?.toLowerCase().endsWith('.html') || contentId?.toLowerCase().endsWith('.htm'));
+
         if (isMarkdownFile) {
             paneHeaderChildren = (
                 <button
@@ -1084,6 +1090,23 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     }}
                     className="px-3 py-1 rounded text-xs transition-all flex items-center gap-1 theme-button theme-hover"
                     title="Preview Markdown (Ctrl+Shift+V)"
+                >
+                    <Play size={14} />
+                    Preview
+                </button>
+            );
+        } else if (isHtmlFile) {
+            paneHeaderChildren = (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        const nodePath = findNodePath(rootLayoutNode, node.id);
+                        if (nodePath) {
+                            performSplit(nodePath, 'right', 'html-preview', contentId);
+                        }
+                    }}
+                    className="px-3 py-1 rounded text-xs transition-all flex items-center gap-1 theme-button theme-hover"
+                    title="Preview HTML"
                 >
                     <Play size={14} />
                     Preview
@@ -1210,6 +1233,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderFolderViewerPane({ nodeId: node.id });
                 case 'markdown-preview':
                     return renderMarkdownPreviewPane({ nodeId: node.id });
+                case 'html-preview':
+                    return renderHtmlPreviewPane({ nodeId: node.id });
                 case 'tilejinx':
                     return renderTileJinxPane({ nodeId: node.id });
                 case 'python':

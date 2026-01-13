@@ -3553,6 +3553,50 @@ const renderMarkdownPreviewPane = useCallback(({ nodeId }: { nodeId: string }) =
     return <MarkdownPreviewContent filePath={filePath} />;
 }, []);
 
+// Render HTML Preview pane - renders HTML file in an iframe
+const renderHtmlPreviewPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    const paneData = contentDataRef.current[nodeId];
+    const filePath = paneData?.contentId;
+
+    if (!filePath) {
+        return (
+            <div className="flex-1 flex items-center justify-center theme-text-muted">
+                No file selected
+            </div>
+        );
+    }
+
+    // Use file:// protocol to load local HTML files
+    const fileUrl = `file://${filePath}`;
+
+    return (
+        <div className="flex-1 flex flex-col min-h-0">
+            <div className="px-3 py-1.5 theme-bg-tertiary border-b theme-border flex items-center gap-2">
+                <Globe size={14} className="text-orange-400" />
+                <span className="text-xs theme-text-primary truncate">{filePath.split('/').pop()}</span>
+                <button
+                    onClick={() => {
+                        // Reload the iframe
+                        const iframe = document.querySelector(`iframe[data-html-preview="${nodeId}"]`) as HTMLIFrameElement;
+                        if (iframe) iframe.src = iframe.src;
+                    }}
+                    className="ml-auto p-1 theme-hover rounded"
+                    title="Reload"
+                >
+                    <RotateCcw size={12} />
+                </button>
+            </div>
+            <iframe
+                data-html-preview={nodeId}
+                src={fileUrl}
+                className="flex-1 w-full bg-white"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                title={`HTML Preview: ${filePath.split('/').pop()}`}
+            />
+        </div>
+    );
+}, []);
+
 // Render DBTool pane (for pane-based viewing)
 const renderDBToolPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
@@ -7758,6 +7802,7 @@ const layoutComponentApi = useMemo(() => ({
     renderCronDaemonPane,
     renderSearchPane,
     renderMarkdownPreviewPane,
+    renderHtmlPreviewPane,
     renderTileJinxPane,
     renderBranchComparisonPane,
     setPaneContextMenu,
@@ -7816,6 +7861,7 @@ const layoutComponentApi = useMemo(() => ({
     renderCronDaemonPane,
     renderSearchPane,
     renderMarkdownPreviewPane,
+    renderHtmlPreviewPane,
     renderTileJinxPane,
     renderBranchComparisonPane,
     setActiveContentPaneId, setDraggedItem, setDropTarget,
@@ -8948,6 +8994,8 @@ const renderMainContent = () => {
                                     return renderSearchPane({ nodeId: zenModePaneId, initialQuery: zenPaneData?.initialQuery });
                                 case 'markdown-preview':
                                     return renderMarkdownPreviewPane({ nodeId: zenModePaneId });
+                                case 'html-preview':
+                                    return renderHtmlPreviewPane({ nodeId: zenModePaneId });
                                 case 'help':
                                     return renderHelpPane({ nodeId: zenModePaneId });
                                 default:
