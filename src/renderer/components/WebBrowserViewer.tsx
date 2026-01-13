@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, memo, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X, Plus, Settings, Trash2, Lock, GripVertical, Puzzle, Download, FolderOpen, Key, Eye, EyeOff, Shield, Check } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCcw, Globe, Home, X, Plus, Settings, Trash2, Lock, GripVertical, Puzzle, Download, FolderOpen, Key, Eye, EyeOff, Shield, Check, Maximize2, Minimize2 } from 'lucide-react';
 
 const WebBrowserViewer = memo(({
     nodeId,
@@ -12,7 +12,13 @@ const WebBrowserViewer = memo(({
     rootLayoutNode,
     setDraggedItem,
     setPaneContextMenu,
-    closeContentPane
+    closeContentPane,
+    performSplit,
+    // Zen mode props for unified header behavior
+    onToggleZen,
+    isZenMode,
+    // Whether we're showing as part of tab bar (hides our zen/close)
+    hasTabBar
 }) => {
     const webviewRef = useRef(null);
     const [currentUrl, setCurrentUrl] = useState('');
@@ -78,9 +84,13 @@ const WebBrowserViewer = memo(({
     const paneData = contentDataRef.current[nodeId];
     // Capture initial URL only once using a ref to prevent reload loops
     const initialUrlRef = useRef(paneData?.browserUrl || 'about:blank');
-    // Use 'default' as the shared session to persist cookies across all browser panes
-    // This ensures users stay logged into sites when opening new browser tabs
-    const viewId = 'default-browser-session';
+    // Use project-based session so each folder has its own cookies/logins
+    // This allows users to be logged into different accounts per project
+    // Hash the path to create a valid partition name
+    const projectPartition = currentPath
+        ? `project-${currentPath.replace(/[^a-zA-Z0-9]/g, '-').substring(0, 50)}`
+        : 'default-browser-session';
+    const viewId = projectPartition;
 
     // Expose getPageContent method through contentDataRef for context gathering
     useEffect(() => {
@@ -270,7 +280,7 @@ const WebBrowserViewer = memo(({
 
             if (shouldOpenInNewTab && handleNewBrowserTab) {
                 // Open in a new tab within the same pane
-                handleNewBrowserTab(url);
+                handleNewBrowserTab(url, nodeId);
             } else {
                 // Open in the same webview (default behavior for regular link clicks)
                 webview.src = url;
@@ -382,11 +392,11 @@ const WebBrowserViewer = memo(({
         let finalUrl = input;
 
         // Check if it's a URL or a search query
+        // Simple rule: if it has a dot and no spaces, treat it as a URL
         const isUrl = input.startsWith('http://') ||
                       input.startsWith('https://') ||
                       input.startsWith('localhost') ||
-                      input.startsWith('127.0.0.1') ||
-                      /^[\w-]+\.(com|org|net|io|co|ai|dev|app|me|edu|gov|info|biz|tv|cc|xyz|tech|online|site|store|blog|cloud|wiki|video|news|live|link|page|space|world|today|zone|network|solutions|digital|agency|studio|design|media|software|systems|services|group|team|labs|works)(\/.*)?$/i.test(input);
+                      (input.includes('.') && !input.includes(' '));
 
         if (isUrl) {
             // It's a URL - add protocol if missing
@@ -408,12 +418,44 @@ const WebBrowserViewer = memo(({
     const handleBack = useCallback(() => webviewRef.current?.goBack(), []);
     const handleForward = useCallback(() => webviewRef.current?.goForward(), []);
     const handleRefresh = useCallback(() => webviewRef.current?.reload(), []);
+    const handleHardRefresh = useCallback(() => webviewRef.current?.reloadIgnoringCache(), []);
 
-    // Backspace to go back in history (when not in a text field)
+    // Keyboard shortcuts: Backspace for back, Ctrl+Shift+R for hard refresh, Ctrl+T new tab, Ctrl+N new pane
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // Ctrl+T = new tab in this pane
+            if (e.ctrlKey && !e.shiftKey && e.key === 't') {
+                e.preventDefault();
+                e.stopPropagation();
+                handleNewBrowserTab?.('');
+                return;
+            }
+            // Ctrl+N = new browser in next pane
+            if (e.ctrlKey && !e.shiftKey && e.key === 'n') {
+                e.preventDefault();
+                e.stopPropagation();
+                const nodePath = findNodePath(rootLayoutNode, nodeId);
+                if (nodePath && performSplit) {
+                    performSplit(nodePath, 'right', 'browser', 'about:blank');
+                }
+                return;
+            }
+            // Ctrl+Shift+R = hard refresh (bypass cache)
+            if (e.ctrlKey && e.shiftKey && e.key === 'R') {
+                e.preventDefault();
+                e.stopPropagation();
+                handleHardRefresh();
+                return;
+            }
+            // Ctrl+R = normal refresh
+            if (e.ctrlKey && !e.shiftKey && e.key === 'r') {
+                e.preventDefault();
+                e.stopPropagation();
+                handleRefresh();
+                return;
+            }
+            // Backspace = go back
             if (e.key === 'Backspace') {
-                // Don't intercept if typing in an input, textarea, or contenteditable
                 const target = e.target as HTMLElement;
                 const isTextInput = target.tagName === 'INPUT' ||
                                    target.tagName === 'TEXTAREA' ||
@@ -425,9 +467,9 @@ const WebBrowserViewer = memo(({
             }
         };
 
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [canGoBack, handleBack]);
+        document.addEventListener('keydown', handleKeyDown, true); // Use capture to intercept before Electron
+        return () => document.removeEventListener('keydown', handleKeyDown, true);
+    }, [canGoBack, handleBack, handleRefresh, handleHardRefresh, handleNewBrowserTab, findNodePath, rootLayoutNode, nodeId, performSplit]);
     const handleHome = useCallback(() => {
         const initial = initialUrlRef.current;
         let homeUrl = initial;
@@ -658,87 +700,29 @@ const WebBrowserViewer = memo(({
                 checkForSavedPasswords(url);
             }
 
-            // Inject ad blocking CSS and scripts if enabled
+            // Inject ad blocking CSS only (non-invasive, won't break sites)
             const isAdBlockOn = localStorage.getItem('npc-browser-adblock') !== 'false';
-            const isTrackingProtOn = localStorage.getItem('npc-browser-tracking-protection') !== 'false';
 
-            if (isAdBlockOn || isTrackingProtOn) {
+            if (isAdBlockOn) {
                 try {
                     await webview.executeJavaScript(`
                         (function() {
                             if (window.__npcAdBlockInstalled) return;
                             window.__npcAdBlockInstalled = true;
 
-                            // Inject ad-blocking CSS
+                            // CSS-only ad blocking - safe, won't break site functionality
                             const style = document.createElement('style');
                             style.textContent = \`
-                                [class*="ad-"], [class*="ads-"], [class*="advert"], [id*="ad-"], [id*="ads-"],
-                                [class*="banner"], [class*="sponsor"], [class*="promoted"], [class*="promo-"],
-                                iframe[src*="ads"], iframe[src*="doubleclick"], iframe[src*="googlesyndication"],
-                                [data-ad], [data-ads], [data-advertisement], .adsbygoogle, .ad-container,
-                                [aria-label*="advertisement"], [aria-label*="sponsored"],
-                                ins.adsbygoogle, [id*="google_ads"], [class*="GoogleAd"],
-                                [class*="ad-slot"], [class*="ad-unit"], [class*="ad-wrapper"],
-                                [id*="taboola"], [id*="outbrain"], [class*="taboola"], [class*="outbrain"] {
+                                .adsbygoogle, ins.adsbygoogle, [id*="google_ads"], [class*="GoogleAd"],
+                                [id*="taboola"], [id*="outbrain"], [class*="taboola"], [class*="outbrain"],
+                                iframe[src*="doubleclick"], iframe[src*="googlesyndication"],
+                                [data-ad], [data-ads], [data-advertisement],
+                                [aria-label="advertisement"], [aria-label="sponsored"] {
                                     display: none !important;
-                                    visibility: hidden !important;
-                                    height: 0 !important;
-                                    width: 0 !important;
-                                    overflow: hidden !important;
-                                    pointer-events: none !important;
                                 }
                             \`;
                             document.head.appendChild(style);
-
-                            // Block tracking scripts
-                            const blockedDomains = [
-                                'doubleclick.net', 'googlesyndication.com', 'googleadservices.com',
-                                'google-analytics.com', 'googletagmanager.com', 'facebook.net',
-                                'analytics', 'tracker', 'tracking', 'pixel', 'beacon',
-                                'criteo', 'outbrain', 'taboola', 'adnxs', 'hotjar', 'mixpanel'
-                            ];
-
-                            // Override fetch to block tracker requests
-                            const originalFetch = window.fetch;
-                            window.fetch = function(url, options) {
-                                const urlStr = typeof url === 'string' ? url : url.url || '';
-                                if (blockedDomains.some(d => urlStr.includes(d))) {
-                                    return Promise.reject(new Error('Blocked by NPC Studio'));
-                                }
-                                return originalFetch.apply(this, arguments);
-                            };
-
-                            // Override XMLHttpRequest to block trackers
-                            const originalOpen = XMLHttpRequest.prototype.open;
-                            XMLHttpRequest.prototype.open = function(method, url) {
-                                const urlStr = typeof url === 'string' ? url : url.toString();
-                                if (blockedDomains.some(d => urlStr.includes(d))) {
-                                    this.__blocked = true;
-                                }
-                                return originalOpen.apply(this, arguments);
-                            };
-                            const originalSend = XMLHttpRequest.prototype.send;
-                            XMLHttpRequest.prototype.send = function() {
-                                if (this.__blocked) return;
-                                return originalSend.apply(this, arguments);
-                            };
-
-                            // Block navigator.sendBeacon (used for analytics)
-                            navigator.sendBeacon = () => false;
-
-                            // Disable tracking cookies
-                            try {
-                                Object.defineProperty(document, 'cookie', {
-                                    get: function() { return ''; },
-                                    set: function(val) {
-                                        // Allow session cookies, block tracking
-                                        if (blockedDomains.some(d => val.includes(d))) return;
-                                        // Allow the cookie
-                                    }
-                                });
-                            } catch (e) {}
-
-                            console.log('[NPC Studio] Ad blocking & tracking protection active');
+                            console.log('[NPC Studio] Ad blocking (CSS-only) active');
                         })();
                     `);
                 } catch (err) {
@@ -904,30 +888,40 @@ const WebBrowserViewer = memo(({
                     setPaneContextMenu({ isOpen: true, x: e.clientX, y: e.clientY, nodeId, nodePath });
                 }}
             >
+                {/* Zen mode button - only show when no tab bar */}
+                {!hasTabBar && onToggleZen && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleZen(); }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className={`p-1.5 theme-hover rounded flex-shrink-0 ${isZenMode ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
+                        title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
+                    >
+                        {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                    </button>
+                )}
                 {/* Left: Nav buttons */}
                 <div className="flex items-center gap-0.5 px-1 border-r theme-border">
                     <button onClick={handleBack} disabled={!canGoBack} className="p-1 theme-hover rounded disabled:opacity-30" title="Back"><ArrowLeft size={16} /></button>
                     <button onClick={handleForward} disabled={!canGoForward} className="p-1 theme-hover rounded disabled:opacity-30" title="Forward"><ArrowRight size={16} /></button>
-                    <button onClick={handleRefresh} className="p-1 theme-hover rounded" title="Refresh"><RotateCcw size={16} className={loading ? 'animate-spin' : ''} /></button>
+                    <button
+                        onClick={(e) => e.shiftKey ? handleHardRefresh() : handleRefresh()}
+                        onContextMenu={(e) => { e.preventDefault(); handleHardRefresh(); }}
+                        className="p-1 theme-hover rounded"
+                        title="Refresh (Ctrl+R) | Shift+Click or Right-click for Hard Refresh (Ctrl+Shift+R)"
+                    >
+                        <RotateCcw size={16} className={loading ? 'animate-spin' : ''} />
+                    </button>
                     <button onClick={handleHome} className="p-1 theme-hover rounded" title="Home"><Home size={16} /></button>
                 </div>
 
-                {/* Right: Title row + Address row */}
-                <div className="flex-1 flex flex-col min-w-0 py-0.5 gap-0.5">
-                    {/* Title row */}
-                    <div className="flex items-center gap-1 px-1.5 h-5">
-                        <GripVertical size={12} className="flex-shrink-0 theme-text-muted" />
-                        <Globe size={12} className="text-blue-400 flex-shrink-0" />
-                        <span className="flex-1 text-xs theme-text-primary truncate" title={title}>{title}</span>
+                {/* Center: Address bar */}
+                <div className="flex-1 flex items-center min-w-0 px-1 gap-1">
+                    <GripVertical size={12} className="flex-shrink-0 theme-text-muted" />
+                    <div className="flex-1 max-w-[60%] flex items-center gap-1 min-w-0 theme-bg-secondary rounded px-1.5 py-1">
+                        {isSecure ? <Lock size={12} className="text-green-400 flex-shrink-0" /> : <Globe size={12} className="text-gray-400 flex-shrink-0" />}
+                        <input type="text" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleNavigate()} placeholder="Search or enter URL..." className="flex-1 bg-transparent text-xs theme-text-primary outline-none min-w-0" onDragStart={(e) => e.stopPropagation()} draggable={false} />
                     </div>
-                    {/* Address row */}
-                    <div className="flex items-center gap-1 px-1.5 h-5">
-                        <div className="flex-1 max-w-[50%] flex items-center gap-1 min-w-0 theme-bg-secondary rounded px-1.5 h-full">
-                            {isSecure ? <Lock size={12} className="text-green-400 flex-shrink-0" /> : <Globe size={12} className="text-gray-400 flex-shrink-0" />}
-                            <input type="text" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleNavigate()} placeholder="Search or enter URL..." className="flex-1 bg-transparent text-xs theme-text-primary outline-none min-w-0" onDragStart={(e) => e.stopPropagation()} draggable={false} />
-                        </div>
-                        <button onClick={() => handleNewBrowserTab('')} className="p-0.5 theme-hover rounded" title="New browser"><Plus size={12} /></button>
-                    </div>
+                    <button onClick={() => handleNewBrowserTab('', nodeId)} className="p-0.5 theme-hover rounded" title="New tab (Ctrl+T)"><Plus size={12} /></button>
                 </div>
 
                 {/* Far right: Passwords + Permissions + Extensions + Settings + Close in one row */}
@@ -1170,7 +1164,21 @@ const WebBrowserViewer = memo(({
                             </>
                         )}
                     </div>
-                    {/* Close button removed - PaneTabBar or minimal header already handles closing */}
+                    {/* Close button - only show when no tab bar */}
+                    {!hasTabBar && closeContentPane && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const nodePath = findNodePath(rootLayoutNode, nodeId);
+                                closeContentPane(nodeId, nodePath);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="p-1.5 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-red-400"
+                            title="Close pane"
+                        >
+                            <X size={14} />
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -1190,6 +1198,8 @@ const WebBrowserViewer = memo(({
                     ref={webviewRef}
                     className="absolute inset-0 w-full h-full"
                     partition={`persist:${viewId}`}
+                    allowpopups="true"
+                    webpreferences="contextIsolation=no, javascript=yes, webSecurity=yes, allowRunningInsecureContent=no, spellcheck=yes, enableRemoteModule=no"
                     style={{ visibility: error ? 'hidden' : 'visible' }}
                 />
 

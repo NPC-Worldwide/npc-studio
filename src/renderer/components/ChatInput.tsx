@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-    Send, Paperclip, Maximize2, ChevronDown, Star, ListFilter, FolderTree, Minimize2, Mic, MicOff, Volume2, GitBranch, SlidersHorizontal, Save, Trash2, Zap, X
+    Send, Paperclip, Maximize2, ChevronDown, Star, ListFilter, FolderTree, Minimize2, Mic, MicOff, Volume2, GitBranch, SlidersHorizontal, Save, Trash2, Zap, X, Brain, Database
 } from 'lucide-react';
 import ContextFilesPanel from './ContextFilesPanel';
 
@@ -161,6 +161,22 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
     const modelSearchRef = useRef<HTMLInputElement>(null);
     const npcSearchRef = useRef<HTMLInputElement>(null);
     const jinxSearchRef = useRef<HTMLInputElement>(null);
+
+    // KG/Memory search toggles
+    const [useKgSearch, setUseKgSearch] = useState(() => {
+        try { return localStorage.getItem('incognide-use-kg-search') === 'true'; } catch { return false; }
+    });
+    const [useMemorySearch, setUseMemorySearch] = useState(() => {
+        try { return localStorage.getItem('incognide-use-memory-search') === 'true'; } catch { return false; }
+    });
+
+    // Persist KG/Memory toggles
+    useEffect(() => {
+        try { localStorage.setItem('incognide-use-kg-search', String(useKgSearch)); } catch {}
+    }, [useKgSearch]);
+    useEffect(() => {
+        try { localStorage.setItem('incognide-use-memory-search', String(useMemorySearch)); } catch {}
+    }, [useMemorySearch]);
 
     // Generation parameters
     const [genParams, setGenParams] = useState({
@@ -715,12 +731,13 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
             <div className="flex flex-wrap gap-2 p-2 border-b theme-border">
                 {uploadedFiles.map((file: any) => {
                     const ext = file.name.split('.').pop()?.toLowerCase();
-                    const isClickable = file.path && ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext);
+                    const isClickable = !!file.path;
                     return (
                         <div
                             key={file.id}
                             className={`relative group ${isClickable ? 'cursor-pointer' : ''}`}
-                            onClick={() => isClickable && onOpenFile?.(file.path)}
+                            onDoubleClick={() => isClickable && onOpenFile?.(file.path)}
+                            title={isClickable ? `Double-click to open: ${file.path}` : file.name}
                         >
                             {file.preview ? (
                                 <img src={file.preview} alt={file.name} className="w-16 h-16 object-cover rounded border theme-border" />
@@ -782,7 +799,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     if (shouldBroadcast) {
                                         onBroadcast(selectedModels, selectedNPCs);
                                     } else {
-                                        handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                        handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch });
                                         setUsedVoiceInput(false);
                                     }
                                     setIsInputExpanded(false);
@@ -807,7 +824,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 if (shouldBroadcast) {
                                     onBroadcast(selectedModels, selectedNPCs);
                                 } else {
-                                    handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                    handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch });
                                     setUsedVoiceInput(false);
                                 }
                                 setIsInputExpanded(false);
@@ -940,7 +957,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                                 if (shouldBroadcast) {
                                                     onBroadcast(selectedModels, selectedNPCs);
                                                 } else {
-                                                    handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                                    handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch });
                                                     setUsedVoiceInput(false);
                                                 }
                                             }
@@ -1031,7 +1048,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     if (shouldBroadcast && canSend) {
                                         onBroadcast(selectedModels, selectedNPCs);
                                     } else {
-                                        handleInputSubmit(e, { voiceInput: usedVoiceInput });
+                                        handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch });
                                         setUsedVoiceInput(false);
                                     }
                                 }}
@@ -1485,6 +1502,34 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             )}
                         </div>
                     )}
+
+                    {/* KG/Memory toggles */}
+                    <div className="flex items-center gap-0.5 pl-1 border-l border-white/10 ml-1">
+                        <button
+                            onClick={() => setUseKgSearch(!useKgSearch)}
+                            className={`h-9 px-2 rounded-lg text-[10px] font-medium flex items-center gap-1 transition-all ${
+                                useKgSearch
+                                    ? 'bg-gradient-to-br from-green-500/30 to-emerald-600/30 text-green-300 border border-green-500/40'
+                                    : 'bg-white/5 text-gray-500 border border-white/10 hover:text-gray-300 hover:bg-white/10'
+                            }`}
+                            title={useKgSearch ? "KG Search enabled - facts will augment your prompt" : "Enable Knowledge Graph search"}
+                        >
+                            <Brain size={12} />
+                            <span className="hidden sm:inline">KG</span>
+                        </button>
+                        <button
+                            onClick={() => setUseMemorySearch(!useMemorySearch)}
+                            className={`h-9 px-2 rounded-lg text-[10px] font-medium flex items-center gap-1 transition-all ${
+                                useMemorySearch
+                                    ? 'bg-gradient-to-br from-purple-500/30 to-violet-600/30 text-purple-300 border border-purple-500/40'
+                                    : 'bg-white/5 text-gray-500 border border-white/10 hover:text-gray-300 hover:bg-white/10'
+                            }`}
+                            title={useMemorySearch ? "Memory Search enabled - past memories will augment your prompt" : "Enable Memory search"}
+                        >
+                            <Database size={12} />
+                            <span className="hidden sm:inline">Mem</span>
+                        </button>
+                    </div>
                 </div>
                 </div>
 

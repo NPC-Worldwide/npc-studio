@@ -87,7 +87,9 @@ const Message = ({ message, isSelected, onSelect, isDarkMode }) => {
                         {message.attachments.map((attachment, index) => (
                             <div
                                 key={index}
-                                className="text-xs bg-gray-800 rounded px-2 py-1"
+                                className={`text-xs bg-gray-800 rounded px-2 py-1 ${attachment.path ? 'cursor-pointer hover:bg-gray-700' : ''}`}
+                                onDoubleClick={() => attachment.path && (window as any).api?.openFile?.(attachment.path)}
+                                title={attachment.path ? `Double-click to open: ${attachment.path}` : attachment.name}
                             >
                                 📎 {attachment.name}
                             </div>

@@ -1,11 +1,31 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Check, Play, Plus, MessageSquare, Terminal, Globe, BookOpen, Code2, FlaskConical, X, Maximize2, Minimize2 } from 'lucide-react';
+import React, { useCallback, useRef, useEffect } from 'react';
+import { Check, Play, X, Maximize2, Minimize2 } from 'lucide-react';
+
+// Common props interface for custom header content components
+export interface HeaderContentProps {
+    icon?: React.ReactNode;
+    title?: string;
+    filePath?: string;
+    fileChanged?: boolean;
+    isRenaming?: boolean;
+    editedFileName?: string;
+    setEditedFileName?: (name: string) => void;
+    onConfirmRename?: () => void;
+    onCancelRename?: () => void;
+    onStartRename?: () => void;
+    onRunScript?: (path: string) => void;
+    children?: React.ReactNode;
+}
 
 export const PaneHeader = React.memo(({
     nodeId,
     icon,
     title,
     children,
+    // Custom header content - when provided, replaces the default icon+title+children
+    headerContent,
+    // Height override for custom headers (e.g., browser toolbar needs more space)
+    headerHeight,
     findNodePath,
     rootLayoutNode,
     setDraggedItem,
@@ -20,16 +40,17 @@ export const PaneHeader = React.memo(({
     onCancelRename,
     filePath,
     onRunScript,
-    onAddTab,
     hasMultipleTabs,
     onClose,
     onToggleZen,
-    isZenMode
+    isZenMode,
+    // Option to hide zen/close buttons (for panes that render their own)
+    hideZenButton,
+    hideCloseButton
 }) => {
     const isPythonFile = filePath?.endsWith('.py');
-    const nodePath = findNodePath(rootLayoutNode, nodeId);
+    const nodePath = findNodePath?.(rootLayoutNode, nodeId);
     const inputRef = useRef(null);
-    const [showAddTabMenu, setShowAddTabMenu] = useState(false);
 
     useEffect(() => {
         if (isRenaming && inputRef.current) {
@@ -48,6 +69,71 @@ export const PaneHeader = React.memo(({
         }
     }, [onConfirmRename, onCancelRename]);
 
+    // Default content when no headerContent is provided
+    const defaultContent = (
+        <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '4px 8px', gap: '8px' }}>
+            <span style={{ flexShrink: 0 }}>{icon}</span>
+
+            {isRenaming && filePath ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={editedFileName}
+                        onChange={(e) => setEditedFileName?.(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        onBlur={() => onCancelRename?.()}
+                        className="px-1 py-0.5 text-xs theme-bg-tertiary theme-border border rounded outline-none focus:ring-1 focus:ring-blue-500"
+                        style={{ width: '120px' }}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onConfirmRename?.(); }}
+                        onMouseDown={(e) => e.preventDefault()}
+                        className="p-0.5 theme-hover rounded text-green-400"
+                    >
+                        <Check size={12} />
+                    </button>
+                </div>
+            ) : (
+                <span
+                    style={{
+                        flex: '0 1 auto',
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 600
+                    }}
+                    title={filePath ? `Double-click to rename: ${title}` : title}
+                    onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        if (onStartRename && filePath) onStartRename();
+                    }}
+                >
+                    {title}{fileChanged ? ' *' : ''}
+                </span>
+            )}
+
+            {/* Buttons area - can shrink and hide */}
+            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+                {children}
+
+                {isPythonFile && onRunScript && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onRunScript(filePath); }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="p-1 theme-hover rounded-full"
+                        title="Run Python script"
+                        style={{ flexShrink: 0 }}
+                    >
+                        <Play size={14} className="text-green-400" />
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+
     return (
         <div
             draggable={!isRenaming}
@@ -59,14 +145,14 @@ export const PaneHeader = React.memo(({
                 e.dataTransfer.effectAllowed = 'move';
                 e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pane', id: nodeId, nodePath }));
                 setTimeout(() => {
-                    setDraggedItem({ type: 'pane', id: nodeId, nodePath });
+                    setDraggedItem?.({ type: 'pane', id: nodeId, nodePath });
                 }, 0);
             }}
-            onDragEnd={() => setDraggedItem(null)}
+            onDragEnd={() => setDraggedItem?.(null)}
             onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                setPaneContextMenu({
+                setPaneContextMenu?.({
                     isOpen: true,
                     x: e.clientX,
                     y: e.clientY,
@@ -80,7 +166,7 @@ export const PaneHeader = React.memo(({
                 width: '100%',
                 minWidth: 0,
                 maxWidth: '100%',
-                minHeight: '32px',
+                minHeight: headerHeight || '32px',
                 borderBottom: '1px solid var(--border-color, #374151)',
                 fontSize: '12px',
                 flexShrink: 0,
@@ -89,129 +175,32 @@ export const PaneHeader = React.memo(({
             }}
             className="theme-bg-secondary theme-border theme-text-muted"
         >
-            {/* Expand/Zen button - left side, always visible */}
-            <button
-                onClick={(e) => { e.stopPropagation(); onToggleZen?.(); }}
-                onMouseDown={(e) => e.stopPropagation()}
-                className={`p-1.5 theme-hover rounded flex-shrink-0 ${isZenMode ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
-                title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
-            >
-                {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
+            {/* Expand/Zen button - left side */}
+            {!hideZenButton && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onToggleZen?.(); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`p-1.5 theme-hover rounded flex-shrink-0 ${isZenMode ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
+                    title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
+                >
+                    {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </button>
+            )}
 
-            {/* Content - can shrink */}
-            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '4px 8px', gap: '8px' }}>
-                <span style={{ flexShrink: 0 }}>{icon}</span>
+            {/* Content - either custom headerContent or default */}
+            {headerContent || defaultContent}
 
-                {isRenaming && filePath ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            value={editedFileName}
-                            onChange={(e) => setEditedFileName?.(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            onBlur={() => onCancelRename?.()}
-                            className="px-1 py-0.5 text-xs theme-bg-tertiary theme-border border rounded outline-none focus:ring-1 focus:ring-blue-500"
-                            style={{ width: '120px' }}
-                            onClick={(e) => e.stopPropagation()}
-                        />
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onConfirmRename?.(); }}
-                            onMouseDown={(e) => e.preventDefault()}
-                            className="p-0.5 theme-hover rounded text-green-400"
-                        >
-                            <Check size={12} />
-                        </button>
-                    </div>
-                ) : (
-                    <span
-                        style={{
-                            flex: '0 1 auto',
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontWeight: 600
-                        }}
-                        title={filePath ? `Double-click to rename: ${title}` : title}
-                        onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            if (onStartRename && filePath) onStartRename();
-                        }}
-                    >
-                        {title}{fileChanged ? ' *' : ''}
-                    </span>
-                )}
-
-                {/* Buttons area - can shrink and hide */}
-                <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
-                    {children}
-
-                    {onAddTab && (
-                        <div style={{ position: 'relative', flexShrink: 0 }}>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setShowAddTabMenu(!showAddTabMenu); }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="p-1 theme-hover rounded-full"
-                                title="Add new tab"
-                            >
-                                <Plus size={14} className="text-blue-400" />
-                            </button>
-                            {showAddTabMenu && (
-                                <>
-                                    <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setShowAddTabMenu(false)} />
-                                    <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[140px] py-1">
-                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('chat'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
-                                            <MessageSquare size={12} className="text-blue-400" /> Chat
-                                        </button>
-                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('terminal'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
-                                            <Terminal size={12} className="text-green-400" /> Terminal
-                                        </button>
-                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('browser'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
-                                            <Globe size={12} className="text-cyan-400" /> Browser
-                                        </button>
-                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('library'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
-                                            <BookOpen size={12} className="text-red-400" /> Library
-                                        </button>
-                                        <div className="border-t theme-border my-1" />
-                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('python'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
-                                            <Code2 size={12} className="text-yellow-400" /> Python
-                                        </button>
-                                        <button onClick={(e) => { e.stopPropagation(); onAddTab('notebook'); setShowAddTabMenu(false); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left">
-                                            <FlaskConical size={12} className="text-orange-400" /> Notebook
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    )}
-
-                    {isPythonFile && onRunScript && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onRunScript(filePath); }}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            className="p-1 theme-hover rounded-full"
-                            title="Run Python script"
-                            style={{ flexShrink: 0 }}
-                        >
-                            <Play size={14} className="text-green-400" />
-                        </button>
-                    )}
-
-                </div>
-            </div>
-
-            {/* Close button - right side, always visible */}
-            <button
-                onClick={(e) => { e.stopPropagation(); onClose?.(); }}
-                onMouseDown={(e) => e.stopPropagation()}
-                className="p-1.5 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-red-400"
-                title="Close pane"
-            >
-                <X size={14} />
-            </button>
-
+            {/* Close button - right side */}
+            {!hideCloseButton && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onClose?.(); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="p-1.5 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-red-400"
+                    title="Close pane"
+                >
+                    <X size={14} />
+                </button>
+            )}
         </div>
     );
 });
