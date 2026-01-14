@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-    Folder, MessageSquare, Terminal, Globe, FileText, File as FileIcon,
-    BrainCircuit, ArrowDown, HelpCircle, Database, GitBranch, Clock, Bot, Zap, Download,
-    Check, AlertCircle, RefreshCw, ExternalLink
+    MessageSquare, Terminal, Globe, FileText, File as FileIcon,
+    BrainCircuit, Database, Clock, Bot, Zap
 } from 'lucide-react';
 
 interface PaneItem {
@@ -18,19 +17,12 @@ interface StatusBarProps {
     gitStatus: any;
     setGitModalOpen: (open: boolean) => void;
     createGitPane?: () => void;
-    // Workspace
-    directoryConversations: any[];
-    setWorkspaceModalOpen: (open: boolean) => void;
     // Panes
     paneItems: PaneItem[];
     setActiveContentPaneId: (id: string) => void;
     // Toggles
-    autoScrollEnabled: boolean;
-    setAutoScrollEnabled: (enabled: boolean) => void;
     isPredictiveTextEnabled: boolean;
     setIsPredictiveTextEnabled: (enabled: boolean) => void;
-    // Help pane
-    createHelpPane?: () => void;
     // Memory
     pendingMemoryCount?: number;
     createMemoryManagerPane?: () => void;
@@ -38,16 +30,9 @@ interface StatusBarProps {
     kgGeneration?: number | null;
     kgScheduleEnabled?: boolean;
     createGraphViewerPane?: () => void;
-    // NPCs and Jinxs - bottom right
+    // NPCs and Jinxs
     createNPCTeamPane?: () => void;
     createJinxPane?: () => void;
-    // Downloads
-    activeDownloadsCount?: number;
-    openDownloadManager?: () => void;
-    // Version
-    appVersion?: string;
-    updateAvailable?: { latestVersion: string; releaseUrl: string } | null;
-    onCheckForUpdates?: () => Promise<void>;
 }
 
 const StatusBar: React.FC<StatusBarProps> = ({
@@ -55,15 +40,10 @@ const StatusBar: React.FC<StatusBarProps> = ({
     gitStatus,
     setGitModalOpen,
     createGitPane,
-    directoryConversations,
-    setWorkspaceModalOpen,
     paneItems,
     setActiveContentPaneId,
-    autoScrollEnabled,
-    setAutoScrollEnabled,
     isPredictiveTextEnabled,
     setIsPredictiveTextEnabled,
-    createHelpPane,
     pendingMemoryCount = 0,
     createMemoryManagerPane,
     kgGeneration,
@@ -71,112 +51,54 @@ const StatusBar: React.FC<StatusBarProps> = ({
     createGraphViewerPane,
     createNPCTeamPane,
     createJinxPane,
-    activeDownloadsCount = 0,
-    openDownloadManager,
-    appVersion,
-    updateAvailable,
-    onCheckForUpdates,
 }) => {
-    const [checkingUpdates, setCheckingUpdates] = useState(false);
-
-    const handleCheckUpdates = async () => {
-        if (checkingUpdates || !onCheckForUpdates) return;
-        setCheckingUpdates(true);
-        try {
-            await onCheckForUpdates();
-        } finally {
-            setCheckingUpdates(false);
-        }
-    };
     return (
-        <div className="h-6 flex-shrink-0 theme-bg-tertiary border-t theme-border flex items-center px-2 text-[10px] theme-text-muted gap-2">
+        <div className="h-10 flex-shrink-0 theme-bg-tertiary border-t theme-border flex items-center px-3 text-[12px] theme-text-muted gap-2">
+            {/* Left side - 3 buttons */}
             {/* Git button */}
             <button
                 onClick={() => createGitPane ? createGitPane() : setGitModalOpen(true)}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded transition-all ${gitBranch ? 'bg-purple-900/30 text-purple-300 hover:bg-purple-900/50' : 'theme-hover'}`}
-                title="Git"
+                className={`p-1.5 rounded transition-all flex items-center gap-1 ${gitBranch ? 'bg-purple-900/30 text-purple-300 hover:bg-purple-900/50' : 'theme-hover'}`}
+                title={gitBranch ? `Git: ${gitBranch}` : "Git"}
             >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="6" y1="3" x2="6" y2="15"></line>
                     <circle cx="18" cy="6" r="3"></circle>
                     <circle cx="6" cy="18" r="3"></circle>
                     <path d="M18 9a9 9 0 0 1-9 9"></path>
                 </svg>
-                {gitBranch && <span className="truncate max-w-[80px]">{gitBranch}</span>}
-                {gitStatus?.hasChanges && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400"></span>}
+                {gitStatus?.hasChanges && <span className="w-2.5 h-2.5 rounded-full bg-yellow-400"></span>}
             </button>
 
-            {/* Workspace button */}
-            <button
-                onClick={() => setWorkspaceModalOpen(true)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded theme-hover"
-                title="Workspace Info"
-            >
-                <Folder size={12} />
-                <span className="opacity-60">{directoryConversations.length} convos</span>
-            </button>
-
-            {/* Memory button - fancier style */}
+            {/* Memory button */}
             <button
                 onClick={() => createMemoryManagerPane?.()}
-                className="px-2 py-0.5 rounded flex items-center gap-1 text-[10px] bg-amber-900/30 text-amber-300 hover:bg-amber-900/50 border border-amber-700/30 transition-all"
-                title={pendingMemoryCount > 0 ? `${pendingMemoryCount} memories pending review` : "Memory Manager"}
+                className="p-1.5 rounded flex items-center gap-1 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50 transition-all"
+                title={pendingMemoryCount > 0 ? `Memory: ${pendingMemoryCount} pending` : "Memory Manager"}
             >
-                <Database size={12} />
-                <span>Memory</span>
-                {pendingMemoryCount > 0 && (
-                    <span className="flex items-center gap-1 ml-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                        <span className="text-amber-200">{pendingMemoryCount}</span>
-                    </span>
-                )}
+                <Database size={20} />
+                {pendingMemoryCount > 0 && <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>}
             </button>
 
-            {/* KG button - fancier style */}
+            {/* KG button */}
             <button
                 onClick={() => createGraphViewerPane?.()}
-                className="px-2 py-0.5 rounded flex items-center gap-1 text-[10px] bg-emerald-900/30 text-emerald-300 hover:bg-emerald-900/50 border border-emerald-700/30 transition-all"
-                title={kgScheduleEnabled ? "KG Schedule Active" : "Knowledge Graph"}
+                className="p-1.5 rounded flex items-center gap-1 bg-emerald-900/30 text-emerald-300 hover:bg-emerald-900/50 transition-all"
+                title={kgGeneration !== null && kgGeneration !== undefined ? `Knowledge Graph (Gen ${kgGeneration})` : "Knowledge Graph"}
             >
-                {/* Custom KG graph icon - asymmetric network */}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    {/* Nodes in organic cloud layout */}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="6" cy="8" r="2.5" />
                     <circle cx="18" cy="6" r="2" />
                     <circle cx="12" cy="14" r="3" />
                     <circle cx="5" cy="18" r="2" />
                     <circle cx="19" cy="17" r="2.5" />
-                    {/* Connecting edges - irregular network */}
                     <line x1="8" y1="9" x2="10" y2="12" />
                     <line x1="16" y1="7" x2="14" y2="12" />
                     <line x1="7" y1="17" x2="9.5" y2="15.5" />
                     <line x1="14.5" y1="15.5" x2="17" y2="16" />
                     <line x1="7" y1="10" x2="5" y2="16" />
                 </svg>
-                <span>KG</span>
-                {kgGeneration !== null && kgGeneration !== undefined && (
-                    <span className="opacity-60 ml-1">Gen {kgGeneration}</span>
-                )}
-                {kgScheduleEnabled && <Clock size={10} className="text-emerald-400 ml-1" />}
-            </button>
-
-            {/* Downloads button */}
-            <button
-                onClick={() => openDownloadManager?.()}
-                className={`px-2 py-0.5 rounded flex items-center gap-1 text-[10px] transition-all ${
-                    activeDownloadsCount > 0
-                        ? 'bg-blue-900/30 text-blue-300 hover:bg-blue-900/50 border border-blue-700/30'
-                        : 'hover:bg-gray-700/50 text-gray-400'
-                }`}
-                title="Downloads (Ctrl+J)"
-            >
-                <Download size={12} />
-                {activeDownloadsCount > 0 && (
-                    <span className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
-                        <span className="text-blue-200">{activeDownloadsCount}</span>
-                    </span>
-                )}
+                {kgScheduleEnabled && <Clock size={16} className="text-emerald-400" />}
             </button>
 
             <div className="flex-1" />
@@ -187,114 +109,56 @@ const StatusBar: React.FC<StatusBarProps> = ({
                     <button
                         key={pane.id}
                         onClick={() => setActiveContentPaneId(pane.id)}
-                        className={`px-2 py-0.5 rounded text-[10px] transition-all flex items-center gap-1 ${
+                        className={`p-1.5 rounded transition-all ${
                             pane.isActive
                                 ? 'bg-blue-600 text-white'
                                 : 'theme-hover theme-text-muted hover:text-white'
                         }`}
                         title={pane.title}
                     >
-                        {pane.type === 'chat' && <MessageSquare size={10} />}
-                        {pane.type === 'editor' && <FileIcon size={10} />}
-                        {pane.type === 'terminal' && <Terminal size={10} />}
-                        {pane.type === 'browser' && <Globe size={10} />}
-                        {pane.type === 'pdf' && <FileText size={10} />}
-                        {!['chat', 'editor', 'terminal', 'browser', 'pdf'].includes(pane.type) && <FileIcon size={10} />}
-                        <span className="truncate max-w-[60px]">{pane.title}</span>
+                        {pane.type === 'chat' && <MessageSquare size={20} />}
+                        {pane.type === 'editor' && <FileIcon size={20} />}
+                        {pane.type === 'terminal' && <Terminal size={20} />}
+                        {pane.type === 'browser' && <Globe size={20} />}
+                        {pane.type === 'pdf' && <FileText size={20} />}
+                        {!['chat', 'editor', 'terminal', 'browser', 'pdf'].includes(pane.type) && <FileIcon size={20} />}
                     </button>
                 ))}
             </div>
 
             <div className="flex-1" />
 
-            {/* Right side - Auto-scroll, Predictive text, and Help */}
+            {/* Right side - 3 buttons */}
             <div className="flex items-center gap-1">
-                <button
-                    onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
-                    className={`p-1 rounded flex items-center gap-1 text-[10px] ${
-                        autoScrollEnabled
-                            ? 'bg-blue-600/30 text-blue-400 hover:bg-blue-600/50'
-                            : 'theme-hover theme-text-muted'
-                    }`}
-                    title={autoScrollEnabled ? "Disable Auto-scroll" : "Enable Auto-scroll"}
-                >
-                    <ArrowDown size={12} />
-                    <span className="hidden sm:inline">Scroll</span>
-                </button>
+                {/* AI/Predictive Text button */}
                 <button
                     onClick={() => setIsPredictiveTextEnabled(!isPredictiveTextEnabled)}
-                    className={`p-1 rounded flex items-center gap-1 text-[10px] ${
+                    className={`p-1.5 rounded ${
                         isPredictiveTextEnabled
                             ? 'bg-purple-600/30 text-purple-400 hover:bg-purple-600/50'
                             : 'theme-hover theme-text-muted'
                     }`}
-                    title={isPredictiveTextEnabled ? "Disable Predictive Text" : "Enable Predictive Text"}
+                    title={isPredictiveTextEnabled ? "Predictive Text: ON" : "Predictive Text: OFF"}
                 >
-                    <BrainCircuit size={12} />
-                    <span className="hidden sm:inline">AI</span>
+                    <BrainCircuit size={20} />
                 </button>
 
-                {/* NPCs button - bottom right */}
+                {/* NPCs button */}
                 <button
                     onClick={() => createNPCTeamPane?.()}
-                    className="px-2 py-0.5 rounded flex items-center gap-1 text-[10px] bg-cyan-900/30 text-cyan-300 hover:bg-cyan-900/50 border border-cyan-700/30"
+                    className="p-1.5 rounded bg-cyan-900/30 text-cyan-300 hover:bg-cyan-900/50"
                     title="NPCs"
                 >
-                    <Bot size={12} />
-                    <span>NPCs</span>
+                    <Bot size={20} />
                 </button>
 
-                {/* Jinxs button - bottom right */}
+                {/* Jinxs button */}
                 <button
                     onClick={() => createJinxPane?.()}
-                    className="px-2 py-0.5 rounded flex items-center gap-1 text-[10px] bg-yellow-900/30 text-yellow-300 hover:bg-yellow-900/50 border border-yellow-700/30"
+                    className="p-1.5 rounded bg-yellow-900/30 text-yellow-300 hover:bg-yellow-900/50"
                     title="Jinxs"
                 >
-                    <Zap size={12} />
-                    <span>Jinxs</span>
-                </button>
-
-                {/* Version indicator */}
-                {appVersion && (
-                    <button
-                        onClick={handleCheckUpdates}
-                        className={`group p-1 rounded flex items-center gap-1 text-[10px] transition-all ${
-                            updateAvailable
-                                ? 'bg-green-900/30 text-green-300 hover:bg-green-900/50 border border-green-700/30'
-                                : 'hover:bg-gray-700/50 text-gray-400'
-                        }`}
-                        title={updateAvailable
-                            ? `Update available: v${updateAvailable.latestVersion}`
-                            : `Version ${appVersion} - Click to check for updates`}
-                    >
-                        {checkingUpdates ? (
-                            <RefreshCw size={12} className="animate-spin" />
-                        ) : updateAvailable ? (
-                            <AlertCircle size={12} className="text-green-400" />
-                        ) : (
-                            <Check size={12} className="text-green-400" />
-                        )}
-                        <span className="hidden group-hover:inline">v{appVersion}</span>
-                        {updateAvailable && (
-                            <span
-                                className="hidden group-hover:inline text-green-200 hover:underline"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    (window as any).api?.browserOpenExternal?.(updateAvailable.releaseUrl);
-                                }}
-                            >
-                                → v{updateAvailable.latestVersion}
-                            </span>
-                        )}
-                    </button>
-                )}
-
-                <button
-                    onClick={() => createHelpPane?.()}
-                    className="p-1 rounded flex items-center gap-1 text-[10px] theme-hover theme-text-muted"
-                    title="Open Help Pane"
-                >
-                    <HelpCircle size={12} />
+                    <Zap size={20} />
                 </button>
             </div>
         </div>

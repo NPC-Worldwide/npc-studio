@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
-    Terminal, Image, Trash, Users, Plus, ArrowUp, MessageSquare,
+    Terminal, Image, Trash, Users, Plus, Minus, ArrowUp, MessageSquare,
     X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
     Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
     Star, Clock, Activity, Lock, Archive, BookOpen, Sparkles, Box, GripVertical, Play,
@@ -3612,14 +3612,31 @@ const renderFolderList = (structure) => {
                                         <Check size={10} /> Staged ({staged.length})
                                     </div>
                                     {staged.map(file => (
-                                        <button
+                                        <div
                                             key={file.path}
-                                            onClick={() => openDiffViewer(file.path, file.status)}
                                             className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-green-500/10 rounded group"
                                         >
-                                            <span className="text-green-300 truncate flex-1 text-left">{file.path}</span>
-                                            <span className="text-green-500 text-[9px] opacity-60">{file.status}</span>
-                                        </button>
+                                            <button
+                                                onClick={() => openDiffViewer(file.path, file.status)}
+                                                className="text-green-300 truncate flex-1 text-left hover:underline"
+                                            >
+                                                {file.path}
+                                            </button>
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-green-500 text-[9px] opacity-60">{file.status}</span>
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        await (window as any).api?.gitUnstageFile?.(currentPath, file.path);
+                                                        loadGitStatus();
+                                                    }}
+                                                    className="p-0.5 hover:bg-red-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    title="Unstage file"
+                                                >
+                                                    <Minus size={10} className="text-red-400" />
+                                                </button>
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
                             )}
@@ -3631,14 +3648,31 @@ const renderFolderList = (structure) => {
                                         <Edit size={10} /> Modified ({unstaged.length})
                                     </div>
                                     {unstaged.map(file => (
-                                        <button
+                                        <div
                                             key={file.path}
-                                            onClick={() => openDiffViewer(file.path, file.status)}
                                             className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-yellow-500/10 rounded group"
                                         >
-                                            <span className="text-yellow-300 truncate flex-1 text-left">{file.path}</span>
-                                            <span className="text-yellow-500 text-[9px] opacity-60">{file.status}</span>
-                                        </button>
+                                            <button
+                                                onClick={() => openDiffViewer(file.path, file.status)}
+                                                className="text-yellow-300 truncate flex-1 text-left hover:underline"
+                                            >
+                                                {file.path}
+                                            </button>
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-yellow-500 text-[9px] opacity-60">{file.status}</span>
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        await (window as any).api?.gitStageFile?.(currentPath, file.path);
+                                                        loadGitStatus();
+                                                    }}
+                                                    className="p-0.5 hover:bg-green-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    title="Stage file"
+                                                >
+                                                    <Plus size={10} className="text-green-400" />
+                                                </button>
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
                             )}
@@ -3650,14 +3684,31 @@ const renderFolderList = (structure) => {
                                         <Plus size={10} /> Untracked ({untracked.length})
                                     </div>
                                     {untracked.map(file => (
-                                        <button
+                                        <div
                                             key={file.path}
-                                            onClick={() => handleFileClick(`${currentPath}/${file.path}`)}
                                             className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-white/5 rounded group"
                                         >
-                                            <span className="text-gray-400 truncate flex-1 text-left">{file.path}</span>
-                                            <span className="text-gray-500 text-[9px] opacity-60">new</span>
-                                        </button>
+                                            <button
+                                                onClick={() => handleFileClick(`${currentPath}/${file.path}`)}
+                                                className="text-gray-400 truncate flex-1 text-left hover:underline"
+                                            >
+                                                {file.path}
+                                            </button>
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-gray-500 text-[9px] opacity-60">new</span>
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        await (window as any).api?.gitStageFile?.(currentPath, file.path);
+                                                        loadGitStatus();
+                                                    }}
+                                                    className="p-0.5 hover:bg-green-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    title="Stage file"
+                                                >
+                                                    <Plus size={10} className="text-green-400" />
+                                                </button>
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
                             )}
@@ -3665,6 +3716,42 @@ const renderFolderList = (structure) => {
                             {totalChanges === 0 && (
                                 <div className="text-[10px] text-gray-500 text-center py-2">
                                     No changes
+                                </div>
+                            )}
+
+                            {/* Stage All / Unstage All buttons */}
+                            {(unstaged.length > 0 || untracked.length > 0 || staged.length > 0) && (
+                                <div className="flex gap-1 pt-2 border-t border-gray-700/50">
+                                    {(unstaged.length > 0 || untracked.length > 0) && (
+                                        <button
+                                            disabled={gitLoading}
+                                            onClick={async () => {
+                                                for (const file of [...unstaged, ...untracked]) {
+                                                    await (window as any).api?.gitStageFile?.(currentPath, file.path);
+                                                }
+                                                loadGitStatus();
+                                            }}
+                                            className="flex-1 px-2 py-1 text-[10px] bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded flex items-center justify-center gap-1"
+                                            title="Stage all changes"
+                                        >
+                                            <Plus size={10} /> Stage All
+                                        </button>
+                                    )}
+                                    {staged.length > 0 && (
+                                        <button
+                                            disabled={gitLoading}
+                                            onClick={async () => {
+                                                for (const file of staged) {
+                                                    await (window as any).api?.gitUnstageFile?.(currentPath, file.path);
+                                                }
+                                                loadGitStatus();
+                                            }}
+                                            className="flex-1 px-2 py-1 text-[10px] bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded flex items-center justify-center gap-1"
+                                            title="Unstage all changes"
+                                        >
+                                            <Minus size={10} /> Unstage All
+                                        </button>
+                                    )}
                                 </div>
                             )}
 
