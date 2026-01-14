@@ -857,13 +857,14 @@ body.dark-mode .cm-activeLineGutter {
     padding: 8px 12px;
     display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     transition-property: background-color, color, transform, box-shadow;
     transition-duration: 0.15s;
     transition-timing-function: ease-out;
     background-color: var(--theme-bg-secondary);
     color: var(--theme-text-muted);
-    border: none;
+    border: 1px solid #374151;
+    margin: -0.5px;
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
@@ -1339,28 +1340,28 @@ body.light-mode [class*="bg-blue-500/20"] {
 /* Ensure grip handles are visible */
 body.light-mode .text-gray-500.cursor-grab { color: #94a3b8 !important; }
 body.light-mode svg[class*="GripVertical"] { color: #94a3b8 !important; }
-/* Force scrollbars to be visible */
-.overflow-auto {
+/* Thin scrollbars */
+.overflow-auto, .overflow-y-auto {
     scrollbar-width: thin;
-    scrollbar-color: var(--theme-border-secondary) var(--theme-bg-tertiary);
+    scrollbar-color: rgba(100,100,100,0.3) transparent;
 }
 
-.overflow-auto::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
+.overflow-auto::-webkit-scrollbar, .overflow-y-auto::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
 }
 
-.overflow-auto::-webkit-scrollbar-track {
-    background: var(--theme-bg-tertiary);
+.overflow-auto::-webkit-scrollbar-track, .overflow-y-auto::-webkit-scrollbar-track {
+    background: transparent;
 }
 
-.overflow-auto::-webkit-scrollbar-thumb {
-    background: var(--theme-border-secondary);
-    border-radius: 6px;
+.overflow-auto::-webkit-scrollbar-thumb, .overflow-y-auto::-webkit-scrollbar-thumb {
+    background: rgba(100,100,100,0.3);
+    border-radius: 2px;
 }
 
-.overflow-auto::-webkit-scrollbar-thumb:hover {
-    background: var(--theme-text-muted);
+.overflow-auto::-webkit-scrollbar-thumb:hover, .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+    background: rgba(100,100,100,0.5);
 }
 
 /* Exception for PPTX slide content - let inline styles win */

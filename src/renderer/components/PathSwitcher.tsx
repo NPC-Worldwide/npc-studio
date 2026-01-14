@@ -139,15 +139,15 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
     };
 
     return (
-        <div className="relative flex items-center gap-1" ref={dropdownRef}>
+        <div className="relative flex w-full" ref={dropdownRef}>
             {/* Go up button */}
             <button
                 onClick={onGoUp}
                 disabled={isAtRoot}
-                className={`p-1.5 rounded-lg theme-bg-tertiary border theme-border transition-all ${
+                className={`flex-1 py-2 theme-bg-tertiary border-y border-l theme-border transition-all flex items-center justify-center ${
                     isAtRoot
                         ? 'opacity-40 cursor-not-allowed'
-                        : 'hover:border-green-500/50 hover:bg-green-500/10'
+                        : 'hover:bg-green-500/10'
                 }`}
                 title="Go up one folder"
             >
@@ -157,7 +157,7 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
             {/* Main path display button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg theme-bg-tertiary border theme-border hover:border-purple-500/50 transition-all group min-w-[180px] max-w-[400px]"
+                className="flex-[4] flex items-center gap-2 px-3 py-2 theme-bg-tertiary border theme-border hover:bg-purple-500/10 transition-all min-w-0"
             >
                 {/* Folder icon */}
                 <div className="flex-shrink-0">
@@ -199,17 +199,6 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
                     )}
                 </div>
 
-                {/* Env settings button */}
-                {onOpenEnv && (
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onOpenEnv(); }}
-                        className="p-1 rounded hover:bg-amber-500/20 transition-colors flex-shrink-0"
-                        title="Environment Settings"
-                    >
-                        <KeyRound size={12} className="text-amber-400" />
-                    </button>
-                )}
-
                 {/* Dropdown indicator */}
                 <ChevronDown
                     size={12}
@@ -220,11 +209,22 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
             {/* Native folder picker button */}
             <button
                 onClick={handleOpenFolderPicker}
-                className="p-1.5 rounded-lg theme-bg-tertiary border theme-border hover:border-blue-500/50 hover:bg-blue-500/10 transition-all"
+                className="flex-1 py-2 theme-bg-tertiary border-y theme-border hover:bg-blue-500/10 transition-all flex items-center justify-center"
                 title="Browse folders (native picker)"
             >
                 <FolderPlus size={14} className="text-blue-400" />
             </button>
+
+            {/* Env settings button */}
+            {onOpenEnv && (
+                <button
+                    onClick={onOpenEnv}
+                    className="flex-1 py-2 theme-bg-tertiary border-y border-r theme-border hover:bg-amber-500/10 transition-all flex items-center justify-center"
+                    title="Environment Settings"
+                >
+                    <KeyRound size={14} className="text-amber-400" />
+                </button>
+            )}
 
             {/* Dropdown menu */}
             {isOpen && (
