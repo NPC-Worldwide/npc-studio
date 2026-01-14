@@ -205,24 +205,50 @@ const [captionMode, setCaptionMode] = useState('auto');
 const [manualCaptions, setManualCaptions] = useState({});
 const [showFineTuneModal, setShowFineTuneModal] = useState(false);
 const [isFineTuning, setIsFineTuning] = useState(false);
-const [fineTuneStatus, setFineTuneStatus] = useState(null);
-const pollFineTuneStatus = async (jobId) => {
+const [fineTuneStatus, setFineTuneStatus] = useState<{
+    status: string;
+    epoch?: number;
+    total_epochs?: number;
+    batch?: number;
+    total_batches?: number;
+    step?: number;
+    loss?: number;
+    loss_history?: number[];
+    outputPath?: string;
+    message?: string;
+} | null>(null);
+
+const pollFineTuneStatus = async (jobId: string) => {
     const interval = setInterval(async () => {
         const status = await window.api?.getFineTuneStatus?.(jobId);
-        if (status?.complete) {
+        if (status?.status === 'complete' || status?.complete) {
             clearInterval(interval);
-            setFineTuneStatus(`Complete! Model saved to ${status.outputPath}`);
+            setFineTuneStatus({
+                status: 'complete',
+                outputPath: status.outputPath,
+                loss_history: status.loss_history || [],
+                message: `Complete! Model saved to ${status.outputPath}`
+            });
             setIsFineTuning(false);
             await loadImagesForAllSources(imageSources);
-        } else if (status?.error) {
+        } else if (status?.status === 'error' || status?.error) {
             clearInterval(interval);
             setFineTuneStatus(null);
             setIsFineTuning(false);
-            setError('Training failed: ' + status.error);
-        } else if (status?.step) {
-            setFineTuneStatus(`Epoch ${status.step}/${status.total}`);
+            setError('Training failed: ' + (status.error || 'Unknown error'));
+        } else if (status?.status === 'running') {
+            setFineTuneStatus({
+                status: 'running',
+                epoch: status.epoch || 0,
+                total_epochs: status.total_epochs || 0,
+                batch: status.batch || 0,
+                total_batches: status.total_batches || 0,
+                step: status.step || 0,
+                loss: status.loss,
+                loss_history: status.loss_history || []
+            });
         }
-    }, 5000);
+    }, 1000);  // Poll more frequently for real-time feel
 };
 
 const handleStartFineTune = async () => {
@@ -232,7 +258,7 @@ const handleStartFineTune = async () => {
     }
     
     setIsFineTuning(true);
-    setFineTuneStatus('Preparing training...');
+    setFineTuneStatus({ status: 'preparing', message: 'Preparing training...' });
     
     const imagePaths = Array.from(selectedImageGroup).map(
         p => p.replace('media://', '')
@@ -281,7 +307,7 @@ const handleStartFineTune = async () => {
         setFineTuneStatus(null);
         setIsFineTuning(false);
     } else if (response?.status === 'started') {
-        setFineTuneStatus('Training started...');
+        setFineTuneStatus({ status: 'running', message: 'Training started...' });
         pollFineTuneStatus(response.jobId);
     }
 };
@@ -438,10 +464,88 @@ const renderFineTuneModal = () => {
                 </div>
                 
                 {fineTuneStatus && (
-                    <div className="bg-blue-900/30 p-3 rounded text-sm 
-                        flex items-center gap-2">
-                        <Loader size={14} className="animate-spin" />
-                        {fineTuneStatus}
+                    <div className="bg-blue-900/30 p-4 rounded text-sm space-y-3">
+                        {fineTuneStatus.status === 'running' ? (
+                            <>
+                                <div className="flex items-center gap-2">
+                                    <Loader size={14} className="animate-spin" />
+                                    <span className="font-medium">Training in progress...</span>
+                                </div>
+
+                                {/* Epoch Progress */}
+                                <div className="space-y-1">
+                                    <div className="flex justify-between text-xs">
+                                        <span>Epoch {fineTuneStatus.epoch}/{fineTuneStatus.total_epochs}</span>
+                                        <span>{fineTuneStatus.total_epochs ? Math.round((fineTuneStatus.epoch! / fineTuneStatus.total_epochs) * 100) : 0}%</span>
+                                    </div>
+                                    <div className="w-full bg-gray-700 rounded-full h-2">
+                                        <div
+                                            className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                                            style={{ width: `${fineTuneStatus.total_epochs ? (fineTuneStatus.epoch! / fineTuneStatus.total_epochs) * 100 : 0}%` }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Batch Progress */}
+                                {fineTuneStatus.total_batches > 0 && (
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between text-xs text-gray-400">
+                                            <span>Batch {fineTuneStatus.batch}/{fineTuneStatus.total_batches}</span>
+                                            <span>{Math.round((fineTuneStatus.batch! / fineTuneStatus.total_batches) * 100)}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-700 rounded-full h-1.5">
+                                            <div
+                                                className="bg-blue-400 h-1.5 rounded-full transition-all duration-150"
+                                                style={{ width: `${(fineTuneStatus.batch! / fineTuneStatus.total_batches) * 100}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Current Loss */}
+                                {fineTuneStatus.loss != null && (
+                                    <div className="flex items-center gap-4 text-xs">
+                                        <span className="text-gray-400">Current Loss:</span>
+                                        <span className="font-mono text-yellow-400">{fineTuneStatus.loss.toFixed(4)}</span>
+                                        <span className="text-gray-400">Step:</span>
+                                        <span className="font-mono">{fineTuneStatus.step}</span>
+                                    </div>
+                                )}
+
+                                {/* Mini Loss Chart */}
+                                {fineTuneStatus.loss_history && fineTuneStatus.loss_history.length > 1 && (
+                                    <div className="mt-2">
+                                        <div className="text-xs text-gray-400 mb-1">Loss History (per epoch avg)</div>
+                                        <div className="flex items-end gap-0.5 h-12 bg-gray-800 rounded p-1">
+                                            {fineTuneStatus.loss_history.slice(-20).map((loss, i) => {
+                                                const maxLoss = Math.max(...fineTuneStatus.loss_history!.slice(-20));
+                                                const minLoss = Math.min(...fineTuneStatus.loss_history!.slice(-20));
+                                                const range = maxLoss - minLoss || 1;
+                                                const height = ((loss - minLoss) / range) * 100;
+                                                return (
+                                                    <div
+                                                        key={i}
+                                                        className="flex-1 bg-gradient-to-t from-green-600 to-green-400 rounded-t"
+                                                        style={{ height: `${Math.max(5, 100 - height)}%` }}
+                                                        title={`Epoch ${fineTuneStatus.loss_history!.length - 20 + i + 1}: ${loss.toFixed(4)}`}
+                                                    />
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        ) : fineTuneStatus.status === 'complete' ? (
+                            <div className="flex items-center gap-2 text-green-400">
+                                <Check size={16} />
+                                <span>{fineTuneStatus.message}</span>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <Loader size={14} className="animate-spin" />
+                                <span>{fineTuneStatus.message || 'Processing...'}</span>
+                            </div>
+                        )}
                     </div>
                 )}
                 
