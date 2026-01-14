@@ -21,6 +21,7 @@ const WebBrowserViewer = memo(({
     hasTabBar
 }) => {
     const webviewRef = useRef(null);
+    const urlInputRef = useRef<HTMLInputElement>(null);
     const [currentUrl, setCurrentUrl] = useState('');
     const [urlInput, setUrlInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -133,18 +134,22 @@ const WebBrowserViewer = memo(({
             hasInitializedRef.current = true;
             const initialUrl = initialUrlRef.current;
             let urlToLoad = initialUrl;
-            if (!initialUrl.startsWith('http')) {
-                if (initialUrl === 'about:blank') {
-                    urlToLoad = 'https://google.com';
-                } else {
-                    const isLocalhost = initialUrl.startsWith('localhost') || initialUrl.startsWith('127.0.0.1');
-                    urlToLoad = isLocalhost ? `http://${initialUrl}` : `https://${initialUrl}`;
-                }
+            if (!initialUrl.startsWith('http') && initialUrl !== 'about:blank') {
+                const isLocalhost = initialUrl.startsWith('localhost') || initialUrl.startsWith('127.0.0.1');
+                urlToLoad = isLocalhost ? `http://${initialUrl}` : `https://${initialUrl}`;
             }
 
             setCurrentUrl(urlToLoad);
-            setUrlInput(urlToLoad);
+            setUrlInput(urlToLoad === 'about:blank' ? '' : urlToLoad);
             webview.src = urlToLoad;
+
+            // Focus URL input for blank tabs
+            if (urlToLoad === 'about:blank') {
+                setTimeout(() => {
+                    urlInputRef.current?.focus();
+                    urlInputRef.current?.select();
+                }, 100);
+            }
         }
         webview.setAttribute('partition', `persist:${viewId}`); // Ensure persistence per pane
 
@@ -364,13 +369,9 @@ const WebBrowserViewer = memo(({
             const currentWebviewUrl = webview.getURL?.() || '';
 
             let urlToLoad = paneUrl;
-            if (!paneUrl.startsWith('http')) {
-                if (paneUrl === 'about:blank') {
-                    urlToLoad = 'https://google.com';
-                } else {
-                    const isLocalhost = paneUrl.startsWith('localhost') || paneUrl.startsWith('127.0.0.1');
-                    urlToLoad = isLocalhost ? `http://${paneUrl}` : `https://${paneUrl}`;
-                }
+            if (!paneUrl.startsWith('http') && paneUrl !== 'about:blank') {
+                const isLocalhost = paneUrl.startsWith('localhost') || paneUrl.startsWith('127.0.0.1');
+                urlToLoad = isLocalhost ? `http://${paneUrl}` : `https://${paneUrl}`;
             }
 
             // Only actually navigate if the webview is showing a different URL
@@ -473,15 +474,16 @@ const WebBrowserViewer = memo(({
     const handleHome = useCallback(() => {
         const initial = initialUrlRef.current;
         let homeUrl = initial;
-        if (!initial.startsWith('http')) {
-            if (initial === 'about:blank') {
-                homeUrl = 'https://google.com';
-            } else {
-                const isLocalhost = initial.startsWith('localhost') || initial.startsWith('127.0.0.1');
-                homeUrl = isLocalhost ? `http://${initial}` : `https://${initial}`;
-            }
+        if (!initial.startsWith('http') && initial !== 'about:blank') {
+            const isLocalhost = initial.startsWith('localhost') || initial.startsWith('127.0.0.1');
+            homeUrl = isLocalhost ? `http://${initial}` : `https://${initial}`;
         }
         if (webviewRef.current) webviewRef.current.src = homeUrl;
+        // Focus URL input if going to blank page
+        if (initial === 'about:blank' && urlInputRef.current) {
+            urlInputRef.current.focus();
+            urlInputRef.current.select();
+        }
     }, []);
 
     const handleClearSessionData = useCallback(async () => {
@@ -919,7 +921,7 @@ const WebBrowserViewer = memo(({
                     <GripVertical size={12} className="flex-shrink-0 theme-text-muted" />
                     <div className="flex-1 max-w-[60%] flex items-center gap-1 min-w-0 theme-bg-secondary rounded px-1.5 py-1">
                         {isSecure ? <Lock size={12} className="text-green-400 flex-shrink-0" /> : <Globe size={12} className="text-gray-400 flex-shrink-0" />}
-                        <input type="text" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleNavigate()} placeholder="Search or enter URL..." className="flex-1 bg-transparent text-xs theme-text-primary outline-none min-w-0" onDragStart={(e) => e.stopPropagation()} draggable={false} />
+                        <input ref={urlInputRef} type="text" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleNavigate()} placeholder="Search or enter URL..." className="flex-1 bg-transparent text-xs theme-text-primary outline-none min-w-0" onDragStart={(e) => e.stopPropagation()} draggable={false} />
                     </div>
                     <button onClick={() => handleNewBrowserTab('', nodeId)} className="p-0.5 theme-hover rounded" title="New tab (Ctrl+T)"><Plus size={12} /></button>
                 </div>

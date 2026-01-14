@@ -180,6 +180,9 @@ readDocxContent: (filePath) =>
         ipcRenderer.on('download-complete', handler);
         return () => ipcRenderer.removeListener('download-complete', handler);
     },
+    cancelDownload: (filename) => ipcRenderer.invoke('cancel-download', filename),
+    pauseDownload: (filename) => ipcRenderer.invoke('pause-download', filename),
+    resumeDownload: (filename) => ipcRenderer.invoke('resume-download', filename),
 
 
     onThumbnailCreated: (callback) => {
@@ -573,4 +576,8 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
         ipcRenderer.on('jupyter:installProgress', handler);
         return () => ipcRenderer.removeListener('jupyter:installProgress', handler);
     },
+
+    // Version and Update APIs
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 });

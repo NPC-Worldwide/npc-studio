@@ -2439,7 +2439,12 @@ ipcMain.handle('browser-save-image', async (event, { imageUrl, currentPath }) =>
     }
 });
 
+// Track active downloads for cancel/pause support
+const activeDownloads = new Map();
+
 ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, currentPath }) => {
+    const controller = new AbortController();
+
     try {
         // Use workspace path or downloads folder
         const saveDir = currentPath || app.getPath('downloads');
@@ -2455,10 +2460,15 @@ ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, curr
             counter++;
         }
 
+        const downloadFilename = path.basename(finalPath);
+
+        // Track this download
+        activeDownloads.set(downloadFilename, { controller, paused: false });
+
         log(`[BROWSER] Starting download: ${filename} to ${finalPath}`);
 
         // Download the file with progress tracking
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
@@ -2469,13 +2479,20 @@ ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, curr
         const reader = response.body;
 
         for await (const chunk of reader) {
+            // Check if cancelled
+            if (controller.signal.aborted) {
+                fileStream.destroy();
+                fs.unlinkSync(finalPath);
+                throw new Error('Download cancelled');
+            }
+
             fileStream.write(chunk);
             received += chunk.length;
 
             // Send progress to renderer
             if (contentLength > 0 && mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('download-progress', {
-                    filename: path.basename(finalPath),
+                    filename: downloadFilename,
                     received,
                     total: contentLength,
                     percent: Math.round((received / contentLength) * 100)
@@ -2484,13 +2501,14 @@ ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, curr
         }
 
         fileStream.end();
+        activeDownloads.delete(downloadFilename);
 
         log(`[BROWSER] Download completed: ${finalPath}`);
 
         // Send completion event
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('download-complete', {
-                filename: path.basename(finalPath),
+                filename: downloadFilename,
                 path: finalPath,
                 state: 'completed'
             });
@@ -2498,9 +2516,56 @@ ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, curr
 
         return { success: true, path: finalPath };
     } catch (err) {
+        const downloadFilename = suggestedFilename || 'download';
+        activeDownloads.delete(downloadFilename);
+
+        if (err.name === 'AbortError' || err.message === 'Download cancelled') {
+            log(`[BROWSER] Download cancelled: ${downloadFilename}`);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('download-complete', {
+                    filename: downloadFilename,
+                    state: 'cancelled'
+                });
+            }
+            return { success: false, cancelled: true };
+        }
+
         log(`[BROWSER] Error saving link: ${err.message}`);
         return { success: false, error: err.message };
     }
+});
+
+ipcMain.handle('cancel-download', async (event, filename) => {
+    const download = activeDownloads.get(filename);
+    if (download) {
+        download.controller.abort();
+        activeDownloads.delete(filename);
+        log(`[BROWSER] Cancelled download: ${filename}`);
+        return { success: true };
+    }
+    return { success: false, error: 'Download not found' };
+});
+
+ipcMain.handle('pause-download', async (event, filename) => {
+    // Note: Pause/resume with fetch requires range request support - this is a placeholder
+    const download = activeDownloads.get(filename);
+    if (download) {
+        download.paused = true;
+        log(`[BROWSER] Pause requested for: ${filename} (not fully implemented)`);
+        return { success: true };
+    }
+    return { success: false, error: 'Download not found' };
+});
+
+ipcMain.handle('resume-download', async (event, filename) => {
+    // Note: Pause/resume with fetch requires range request support - this is a placeholder
+    const download = activeDownloads.get(filename);
+    if (download) {
+        download.paused = false;
+        log(`[BROWSER] Resume requested for: ${filename} (not fully implemented)`);
+        return { success: true };
+    }
+    return { success: false, error: 'Download not found' };
 });
 
 ipcMain.handle('browser-open-external', async (event, { url }) => {
@@ -9308,3 +9373,49 @@ ipcMain.handle('jupyter:registerKernel', async (_, { workspacePath, kernelName =
         return { success: false, error: err.message };
     }
 });
+
+// Version update checker
+const packageJson = require('../package.json');
+const APP_VERSION = packageJson.version;
+const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/npcww/npc-core/main/incognide/package.json';
+
+ipcMain.handle('check-for-updates', async () => {
+    try {
+        log(`[UPDATE] Checking for updates. Current version: ${APP_VERSION}`);
+        const response = await fetch(UPDATE_MANIFEST_URL);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const manifest = await response.json();
+        const latestVersion = manifest.version;
+
+        // Compare versions (simple semver comparison)
+        const compareVersions = (a, b) => {
+            const pa = a.split('.').map(Number);
+            const pb = b.split('.').map(Number);
+            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                const na = pa[i] || 0;
+                const nb = pb[i] || 0;
+                if (na > nb) return 1;
+                if (na < nb) return -1;
+            }
+            return 0;
+        };
+
+        const hasUpdate = compareVersions(latestVersion, APP_VERSION) > 0;
+
+        log(`[UPDATE] Latest version: ${latestVersion}, Has update: ${hasUpdate}`);
+
+        return {
+            success: true,
+            currentVersion: APP_VERSION,
+            latestVersion,
+            hasUpdate,
+            releaseUrl: 'https://github.com/npcww/npc-core/releases'
+        };
+    } catch (err) {
+        log(`[UPDATE] Error checking for updates: ${err.message}`);
+        return { success: false, error: err.message, currentVersion: APP_VERSION };
+    }
+});
+
+ipcMain.handle('get-app-version', () => APP_VERSION);
