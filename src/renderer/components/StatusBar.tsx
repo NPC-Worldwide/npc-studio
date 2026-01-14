@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     Folder, MessageSquare, Terminal, Globe, FileText, File as FileIcon,
-    BrainCircuit, ArrowDown, HelpCircle, Database, GitBranch, Clock, Bot, Zap, Download
+    BrainCircuit, ArrowDown, HelpCircle, Database, GitBranch, Clock, Bot, Zap, Download,
+    Check, AlertCircle, RefreshCw, ExternalLink
 } from 'lucide-react';
 
 interface PaneItem {
@@ -43,6 +44,10 @@ interface StatusBarProps {
     // Downloads
     activeDownloadsCount?: number;
     openDownloadManager?: () => void;
+    // Version
+    appVersion?: string;
+    updateAvailable?: { latestVersion: string; releaseUrl: string } | null;
+    onCheckForUpdates?: () => Promise<void>;
 }
 
 const StatusBar: React.FC<StatusBarProps> = ({
@@ -68,7 +73,21 @@ const StatusBar: React.FC<StatusBarProps> = ({
     createJinxPane,
     activeDownloadsCount = 0,
     openDownloadManager,
+    appVersion,
+    updateAvailable,
+    onCheckForUpdates,
 }) => {
+    const [checkingUpdates, setCheckingUpdates] = useState(false);
+
+    const handleCheckUpdates = async () => {
+        if (checkingUpdates || !onCheckForUpdates) return;
+        setCheckingUpdates(true);
+        try {
+            await onCheckForUpdates();
+        } finally {
+            setCheckingUpdates(false);
+        }
+    };
     return (
         <div className="h-6 flex-shrink-0 theme-bg-tertiary border-t theme-border flex items-center px-2 text-[10px] theme-text-muted gap-2">
             {/* Git button */}
@@ -234,6 +253,41 @@ const StatusBar: React.FC<StatusBarProps> = ({
                     <Zap size={12} />
                     <span>Jinxs</span>
                 </button>
+
+                {/* Version indicator */}
+                {appVersion && (
+                    <button
+                        onClick={handleCheckUpdates}
+                        className={`group p-1 rounded flex items-center gap-1 text-[10px] transition-all ${
+                            updateAvailable
+                                ? 'bg-green-900/30 text-green-300 hover:bg-green-900/50 border border-green-700/30'
+                                : 'hover:bg-gray-700/50 text-gray-400'
+                        }`}
+                        title={updateAvailable
+                            ? `Update available: v${updateAvailable.latestVersion}`
+                            : `Version ${appVersion} - Click to check for updates`}
+                    >
+                        {checkingUpdates ? (
+                            <RefreshCw size={12} className="animate-spin" />
+                        ) : updateAvailable ? (
+                            <AlertCircle size={12} className="text-green-400" />
+                        ) : (
+                            <Check size={12} className="text-green-400" />
+                        )}
+                        <span className="hidden group-hover:inline">v{appVersion}</span>
+                        {updateAvailable && (
+                            <span
+                                className="hidden group-hover:inline text-green-200 hover:underline"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    (window as any).api?.browserOpenExternal?.(updateAvailable.releaseUrl);
+                                }}
+                            >
+                                → v{updateAvailable.latestVersion}
+                            </span>
+                        )}
+                    </button>
+                )}
 
                 <button
                     onClick={() => createHelpPane?.()}
