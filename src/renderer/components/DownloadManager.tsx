@@ -1,18 +1,25 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Download, FolderOpen, CheckCircle, XCircle, Loader, Trash2, ExternalLink } from 'lucide-react';
+import { X, Download, FolderOpen, CheckCircle, XCircle, Loader, Trash2, ExternalLink, Pause, Play, Square } from 'lucide-react';
 
 interface DownloadItem {
     id: string;
     url: string;
     filename: string;
+    tempFilename?: string;
     savePath: string | null;
-    status: 'pending' | 'downloading' | 'completed' | 'failed' | 'cancelled';
+    status: 'pending' | 'downloading' | 'paused' | 'completed' | 'failed' | 'cancelled';
     progress: number;
     received: number;
     total: number;
     error?: string;
     startTime: number;
 }
+
+// Toast notification for new downloads
+let toastCallback: ((message: string, filename: string) => void) | null = null;
+export const setDownloadToastCallback = (cb: (message: string, filename: string) => void) => {
+    toastCallback = cb;
+};
 
 interface DownloadManagerProps {
     isOpen: boolean;
@@ -33,6 +40,7 @@ export const addDownload = (url: string, filename: string) => {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         url,
         filename,
+        tempFilename: `${filename}.downloading`,
         savePath: null,
         status: 'pending',
         progress: 0,
@@ -42,7 +50,42 @@ export const addDownload = (url: string, filename: string) => {
     };
     globalDownloads.unshift(download);
     notifyListeners();
+
+    // Show toast notification
+    if (toastCallback) {
+        toastCallback('Download started', filename);
+    }
+
     return download.id;
+};
+
+export const cancelDownload = (id: string) => {
+    const download = globalDownloads.find(d => d.id === id);
+    if (download && (download.status === 'downloading' || download.status === 'pending' || download.status === 'paused')) {
+        (window as any).api?.cancelDownload?.(download.filename);
+        updateDownload(id, { status: 'cancelled' });
+    }
+};
+
+export const pauseDownload = (id: string) => {
+    const download = globalDownloads.find(d => d.id === id);
+    if (download && download.status === 'downloading') {
+        (window as any).api?.pauseDownload?.(download.filename);
+        updateDownload(id, { status: 'paused' });
+    }
+};
+
+export const resumeDownload = (id: string) => {
+    const download = globalDownloads.find(d => d.id === id);
+    if (download && download.status === 'paused') {
+        (window as any).api?.resumeDownload?.(download.filename);
+        updateDownload(id, { status: 'downloading' });
+    }
+};
+
+export const deleteDownload = (id: string) => {
+    globalDownloads = globalDownloads.filter(d => d.id !== id);
+    notifyListeners();
 };
 
 export const updateDownload = (id: string, updates: Partial<DownloadItem>) => {
@@ -240,25 +283,33 @@ const DownloadManager: React.FC<DownloadManagerProps> = ({ isOpen, onClose, curr
                                                 {download.status === 'cancelled' && (
                                                     <XCircle size={14} className="text-gray-400 flex-shrink-0" />
                                                 )}
-                                                {(download.status === 'downloading' || download.status === 'pending') && (
+                                                {download.status === 'downloading' && (
                                                     <Loader size={14} className="text-blue-400 flex-shrink-0 animate-spin" />
                                                 )}
+                                                {download.status === 'pending' && (
+                                                    <Loader size={14} className="text-yellow-400 flex-shrink-0 animate-spin" />
+                                                )}
+                                                {download.status === 'paused' && (
+                                                    <Pause size={14} className="text-yellow-400 flex-shrink-0" />
+                                                )}
                                                 <span className="font-medium theme-text-primary truncate">
-                                                    {download.filename}
+                                                    {(download.status === 'downloading' || download.status === 'pending' || download.status === 'paused')
+                                                        ? download.tempFilename || `${download.filename}.downloading`
+                                                        : download.filename}
                                                 </span>
                                             </div>
 
-                                            {download.status === 'downloading' && (
+                                            {(download.status === 'downloading' || download.status === 'paused') && (
                                                 <div className="mt-2">
                                                     <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
                                                         <div
-                                                            className="h-full bg-blue-500 transition-all duration-300"
+                                                            className={`h-full transition-all duration-300 ${download.status === 'paused' ? 'bg-yellow-500' : 'bg-blue-500'}`}
                                                             style={{ width: `${download.progress}%` }}
                                                         />
                                                     </div>
                                                     <div className="flex justify-between mt-1 text-xs text-gray-400">
                                                         <span>{formatBytes(download.received)} / {formatBytes(download.total)}</span>
-                                                        <span>{download.progress}%</span>
+                                                        <span>{download.progress}% {download.status === 'paused' && '(Paused)'}</span>
                                                     </div>
                                                 </div>
                                             )}
@@ -276,6 +327,67 @@ const DownloadManager: React.FC<DownloadManagerProps> = ({ isOpen, onClose, curr
                                             <span className="text-xs text-gray-500">
                                                 {formatTime(Date.now() - download.startTime)}
                                             </span>
+
+                                            {/* Control buttons for active downloads */}
+                                            {download.status === 'downloading' && (
+                                                <>
+                                                    <button
+                                                        onClick={() => pauseDownload(download.id)}
+                                                        className="p-1 theme-hover rounded text-yellow-400"
+                                                        title="Pause"
+                                                    >
+                                                        <Pause size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => cancelDownload(download.id)}
+                                                        className="p-1 theme-hover rounded text-red-400"
+                                                        title="Stop"
+                                                    >
+                                                        <Square size={14} />
+                                                    </button>
+                                                </>
+                                            )}
+
+                                            {download.status === 'paused' && (
+                                                <>
+                                                    <button
+                                                        onClick={() => resumeDownload(download.id)}
+                                                        className="p-1 theme-hover rounded text-green-400"
+                                                        title="Resume"
+                                                    >
+                                                        <Play size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => cancelDownload(download.id)}
+                                                        className="p-1 theme-hover rounded text-red-400"
+                                                        title="Stop"
+                                                    >
+                                                        <Square size={14} />
+                                                    </button>
+                                                </>
+                                            )}
+
+                                            {download.status === 'pending' && (
+                                                <button
+                                                    onClick={() => cancelDownload(download.id)}
+                                                    className="p-1 theme-hover rounded text-red-400"
+                                                    title="Cancel"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            )}
+
+                                            {/* Delete button for completed/failed/cancelled */}
+                                            {(download.status === 'completed' || download.status === 'failed' || download.status === 'cancelled') && (
+                                                <button
+                                                    onClick={() => deleteDownload(download.id)}
+                                                    className="p-1 theme-hover rounded text-gray-400"
+                                                    title="Remove from list"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
+
                                             {download.status === 'completed' && download.savePath && (
                                                 <>
                                                     <button

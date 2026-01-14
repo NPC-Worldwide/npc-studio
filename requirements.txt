@@ -12,3 +12,11 @@ ollama
 openai
 docstring_parser
 litellm
+
+# Pin versions to fix macOS ARM mutex/protobuf conflict
+pyarrow<=16.1.0
+protobuf>=3.20.0,<4.0.0
+sentence-transformers>=3.0.0,<3.3.0
+transformers>=4.41.0,<4.46.0
+torch>=2.1.0,<2.5.0
+accelerate>=0.31.0
