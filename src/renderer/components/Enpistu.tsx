@@ -8574,15 +8574,6 @@ const renderMainContent = () => {
                 <HelpCircle size={14} />
             </button>
 
-            {/* Path Switcher with Env button inside */}
-            <PathSwitcher
-                currentPath={currentPath}
-                baseDir={baseDir}
-                onPathChange={switchToPath}
-                onGoUp={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
-                onOpenEnv={() => createProjectEnvPane?.()}
-            />
-
             <div className="flex-1" />
 
             {/* App Search */}

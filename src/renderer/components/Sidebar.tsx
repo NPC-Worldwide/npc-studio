@@ -38,6 +38,7 @@ import LibraryViewer from './LibraryViewer';
 import GraphViewer from './GraphViewer';
 import PhotoViewer from './PhotoViewer';
 import SettingsMenu from './SettingsMenu';
+import { PathSwitcher } from './PathSwitcher';
 import npcLogo from '../../assets/icon.png';
 
 const Sidebar = (props: any) => {
@@ -1600,63 +1601,58 @@ const renderWebsiteList = () => {
 
     const header = (
         <div
-            className={`mx-1 mt-3 transition-all duration-150 ${draggedSection === 'websites' ? 'opacity-50' : ''} ${dropTargetSection === 'websites' ? 'ring-2 ring-purple-500 rounded-lg' : ''}`}
+            className={`transition-all duration-150 ${draggedSection === 'websites' ? 'opacity-50' : ''} ${dropTargetSection === 'websites' ? 'ring-2 ring-purple-500' : ''}`}
             onDragOver={handleSectionDragOver('websites')}
             onDragLeave={handleSectionDragLeave}
             onDrop={handleSectionDrop('websites')}
         >
-            <div className="group/header flex items-center bg-gradient-to-r from-purple-900/20 to-indigo-900/20 rounded-t-lg border-b border-purple-500/20">
-                {/* Drag handle - appears on hover */}
+            <div
+                className="flex w-full bg-gradient-to-r from-purple-900/20 to-indigo-900/20"
+            >
+                {/* Label */}
                 <div
                     draggable
                     onDragStart={handleSectionDragStart('websites')}
                     onDragEnd={handleSectionDragEnd}
-                    className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
-                    title="Drag to reorder"
+                    className="flex-1 flex items-center gap-1.5 px-2 py-1.5 cursor-grab active:cursor-grabbing"
                 >
-                    <GripVertical size={10} className="text-gray-500" />
+                    <Globe size={12} className="text-purple-400" />
+                    <span className="text-[11px] text-purple-300 font-medium">Websites</span>
+                    <span className="text-[10px] text-gray-500">({openBrowsers.length + allWebsites.length})</span>
                 </div>
-                <div className="flex-1 flex items-center justify-between px-2 py-1.5">
-                    <div className="flex items-center gap-1.5">
-                        <Globe size={12} className="text-purple-400" />
-                        <span className="text-[11px] text-purple-300 font-medium">Websites</span>
-                        <span className="text-[10px] text-gray-500">({openBrowsers.length + allWebsites.length})</span>
-                    </div>
-                    <div className="flex items-center gap-0.5">
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setShowWebsitesSettings(!showWebsitesSettings); }}
-                            className={`p-1 hover:bg-white/10 rounded transition-all ${showWebsitesSettings ? 'text-purple-400' : 'text-gray-400 hover:text-purple-400'}`}
-                            title="Settings"
-                        >
-                            <Settings size={12} />
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
-                            title="Refresh"
-                        >
-                            <RefreshCw size={12} />
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); createBrowserGraphPane?.(); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-cyan-400"
-                            title="Browser History Graph"
-                        >
-                            <Network size={12} />
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setWebsitesCollapsed(!websitesCollapsed); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
-                            title={websitesCollapsed ? "Expand" : "Collapse"}
-                        >
-                            <ChevronRight size={14} className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`} />
-                        </button>
-                    </div>
-                </div>
+                {/* Action buttons */}
+                <button
+                    onClick={(e) => { e.stopPropagation(); setShowWebsitesSettings(!showWebsitesSettings); }}
+                    className={`px-2 py-1.5 hover:bg-white/10 transition-all ${showWebsitesSettings ? 'text-purple-400' : 'text-gray-400 hover:text-purple-400'}`}
+                    title="Settings"
+                >
+                    <Settings size={12} />
+                </button>
+                <button
+                    onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
+                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-purple-400"
+                    title="Refresh"
+                >
+                    <RefreshCw size={12} />
+                </button>
+                <button
+                    onClick={(e) => { e.stopPropagation(); createBrowserGraphPane?.(); }}
+                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-cyan-400"
+                    title="Browser History Graph"
+                >
+                    <Network size={12} />
+                </button>
+                <button
+                    onClick={(e) => { e.stopPropagation(); setWebsitesCollapsed(!websitesCollapsed); }}
+                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400"
+                    title={websitesCollapsed ? "Expand" : "Collapse"}
+                >
+                    <ChevronRight size={14} className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`} />
+                </button>
             </div>
             {/* Websites Settings Panel */}
             {showWebsitesSettings && (
-                <div className="mx-1 p-2 bg-purple-900/20 border border-purple-500/30 rounded text-[10px] space-y-2">
+                <div className="p-2 bg-purple-900/20 border-y border-purple-500/30 text-[10px] space-y-2">
                     <div className="flex items-center justify-between">
                         <label className="text-gray-300">Group by domain</label>
                         <input
@@ -1729,7 +1725,7 @@ const renderWebsiteList = () => {
             {header}
 
             {!websitesCollapsed && (
-                <div className="mx-1 bg-black/10 rounded-b-lg flex-1 min-h-0 overflow-y-auto">
+                <div className="bg-black/10 flex-1 min-h-0 overflow-y-auto">
                     {/* Currently Open Browsers */}
                     {openBrowsers.length > 0 && (
                         <div className="border-b border-white/5">
@@ -1988,8 +1984,8 @@ const renderWebsiteList = () => {
             : memories;
 
         return (
-            <div className="mx-1 mt-3">
-                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-purple-900/20 to-pink-900/20 rounded-t-lg border-b border-purple-500/20">
+            <div className="mt-3">
+                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-purple-900/20 to-pink-900/20 border-b border-purple-500/20">
                     <div className="flex items-center gap-1.5">
                         <BrainCircuit size={12} className="text-purple-400" />
                         <span className="text-[11px] text-purple-300 font-medium">Memories</span>
@@ -2035,7 +2031,7 @@ const renderWebsiteList = () => {
                         </div>
 
                         {/* Memory list */}
-                        <div className="bg-black/10 rounded-b-lg max-h-[200px] overflow-y-auto">
+                        <div className="bg-black/10 max-h-[200px] overflow-y-auto">
                             {loadingMemories ? (
                                 <div className="px-3 py-3 text-[11px] text-gray-500 text-center">Loading...</div>
                             ) : filteredMemories.length === 0 ? (
@@ -2077,8 +2073,8 @@ const renderWebsiteList = () => {
             : knowledgeEntities;
 
         return (
-            <div className="mx-1 mt-3">
-                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 rounded-t-lg border-b border-cyan-500/20">
+            <div className="mt-3">
+                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border-b border-cyan-500/20">
                     <div className="flex items-center gap-1.5">
                         <Network size={12} className="text-cyan-400" />
                         <span className="text-[11px] text-cyan-300 font-medium">Knowledge</span>
@@ -2124,7 +2120,7 @@ const renderWebsiteList = () => {
                         </div>
 
                         {/* Entity list */}
-                        <div className="bg-black/10 rounded-b-lg max-h-[200px] overflow-y-auto">
+                        <div className="bg-black/10 max-h-[200px] overflow-y-auto">
                             {loadingKnowledge ? (
                                 <div className="px-3 py-3 text-[11px] text-gray-500 text-center">Loading...</div>
                             ) : filteredEntities.length === 0 ? (
@@ -2704,75 +2700,69 @@ const renderFolderList = (structure) => {
 
     const header = (
         <div
-            className={`mx-1 mt-3 transition-all duration-150 ${draggedSection === 'files' ? 'opacity-50' : ''} ${dropTargetSection === 'files' ? 'ring-2 ring-yellow-500 rounded-lg' : ''}`}
+            className={`transition-all duration-150 ${draggedSection === 'files' ? 'opacity-50' : ''} ${dropTargetSection === 'files' ? 'ring-2 ring-yellow-500' : ''}`}
             onDragOver={handleSectionDragOver('files')}
             onDragLeave={handleSectionDragLeave}
             onDrop={handleSectionDrop('files')}
         >
-            <div className="group/header flex items-center bg-gradient-to-r from-yellow-900/20 to-orange-900/20 rounded-t-lg border-b border-yellow-500/20">
-                {/* Drag handle - appears on hover */}
+            <div
+                className="flex w-full bg-gradient-to-r from-yellow-900/20 to-orange-900/20"
+            >
+                {/* Label */}
                 <div
                     draggable
                     onDragStart={handleSectionDragStart('files')}
                     onDragEnd={handleSectionDragEnd}
-                    className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
-                    title="Drag to reorder"
+                    className="flex-1 flex items-center gap-1.5 px-2 py-1.5 cursor-grab active:cursor-grabbing"
                 >
-                    <GripVertical size={10} className="text-gray-500" />
+                    <FolderOpen size={12} className="text-yellow-400" />
+                    <span className="text-[11px] text-yellow-300 font-medium">Files</span>
+                    <span className="text-[10px] text-gray-500">({fileCount})</span>
+                    {activeTypeFilters.length > 0 && (
+                        <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                            {activeTypeFilters.length} filter{activeTypeFilters.length !== 1 ? 's' : ''}
+                        </span>
+                    )}
                 </div>
-                <div className="flex-1 flex items-center justify-between px-2 py-1.5">
-                    <div className="flex items-center gap-1.5">
-                        <FolderOpen size={12} className="text-yellow-400" />
-                        <span className="text-[11px] text-yellow-300 font-medium">Files</span>
-                        <span className="text-[10px] text-gray-500">({fileCount})</span>
-                        {activeTypeFilters.length > 0 && (
-                            <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
-                                {activeTypeFilters.length} filter{activeTypeFilters.length !== 1 ? 's' : ''}
-                            </span>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-0.5">
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setShowFilesSettings(!showFilesSettings); }}
-                            className={`p-1 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
-                            title="Settings"
-                        >
-                            <Settings size={12} />
-                        </button>
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (showFileTypeFilter) {
-                                    // Closing filter - clear the filter value
-                                    setFileTypeFilter('');
-                                }
-                                setShowFileTypeFilter(!showFileTypeFilter);
-                            }}
-                            className={`p-1 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
-                            title="Filter by file type"
-                        >
-                            <Filter size={12} />
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
-                            title="Refresh files"
-                        >
-                            <RefreshCw size={12} />
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setFilesCollapsed(!filesCollapsed); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
-                            title={filesCollapsed ? "Expand" : "Collapse"}
-                        >
-                            <ChevronRight size={14} className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`} />
-                        </button>
-                    </div>
-                </div>
+                {/* Action buttons */}
+                <button
+                    onClick={(e) => { e.stopPropagation(); setShowFilesSettings(!showFilesSettings); }}
+                    className={`px-2 py-1.5 hover:bg-white/10 transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                    title="Settings"
+                >
+                    <Settings size={12} />
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (showFileTypeFilter) {
+                            setFileTypeFilter('');
+                        }
+                        setShowFileTypeFilter(!showFileTypeFilter);
+                    }}
+                    className={`px-2 py-1.5 hover:bg-white/10 transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                    title="Filter by file type"
+                >
+                    <Filter size={12} />
+                </button>
+                <button
+                    onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
+                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-yellow-400"
+                    title="Refresh files"
+                >
+                    <RefreshCw size={12} />
+                </button>
+                <button
+                    onClick={(e) => { e.stopPropagation(); setFilesCollapsed(!filesCollapsed); }}
+                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400"
+                    title={filesCollapsed ? "Expand" : "Collapse"}
+                >
+                    <ChevronRight size={14} className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`} />
+                </button>
             </div>
             {/* Files Settings Panel */}
             {showFilesSettings && (
-                <div className="mx-1 p-2 bg-yellow-900/20 border border-yellow-500/30 rounded text-[10px] space-y-2">
+                <div className="p-2 bg-yellow-900/20 border-y border-yellow-500/30 text-[10px] space-y-2">
                     <div className="flex items-center justify-between">
                         <label className="text-gray-300">Show hidden files</label>
                         <input
@@ -2914,7 +2904,7 @@ const renderFolderList = (structure) => {
             <div>
                 {header}
                 {activeFile && (
-                    <div className="mx-1 bg-black/10 rounded-b-lg p-1">
+                    <div className="bg-black/10 p-1">
                         <button
                             onClick={() => handleFileClick(activeFile.content.path)}
                             className="flex items-center gap-2 px-2 py-1.5 w-full hover:bg-white/5 text-left rounded transition-all border-l-2 border-yellow-500"
@@ -3088,7 +3078,7 @@ const renderFolderList = (structure) => {
         <div className="flex flex-col h-full">
             {header}
             {!filesCollapsed && (
-                <div className="mx-1 bg-black/10 rounded-b-lg flex-1 min-h-0 overflow-y-auto">
+                <div className="bg-black/10 flex-1 min-h-0 overflow-y-auto">
                     {isEmpty ? (
                         <div className="px-3 py-3 text-[11px] text-gray-500 text-center">Empty directory</div>
                     ) : fileSearch.trim() && Object.keys(filteredStructure).length === 0 ? (
@@ -3166,78 +3156,72 @@ const renderFolderList = (structure) => {
 
         const header = (
             <div
-                className={`mx-1 mt-3 transition-all duration-150 ${draggedSection === 'conversations' ? 'opacity-50' : ''} ${dropTargetSection === 'conversations' ? 'ring-2 ring-green-500 rounded-lg' : ''}`}
+                className={`transition-all duration-150 ${draggedSection === 'conversations' ? 'opacity-50' : ''} ${dropTargetSection === 'conversations' ? 'ring-2 ring-green-500' : ''}`}
                 onDragOver={handleSectionDragOver('conversations')}
                 onDragLeave={handleSectionDragLeave}
                 onDrop={handleSectionDrop('conversations')}
             >
-                <div className="group/header flex items-center bg-gradient-to-r from-green-900/20 to-emerald-900/20 rounded-t-lg border-b border-green-500/20">
-                    {/* Drag handle - appears on hover */}
+                <div
+                    className="flex w-full bg-gradient-to-r from-green-900/20 to-emerald-900/20"
+                >
+                    {/* Label */}
                     <div
                         draggable
                         onDragStart={handleSectionDragStart('conversations')}
                         onDragEnd={handleSectionDragEnd}
-                        className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
-                        title="Drag to reorder"
+                        className="flex-1 flex items-center gap-1.5 px-2 py-1.5 cursor-grab active:cursor-grabbing"
                     >
-                        <GripVertical size={10} className="text-gray-500" />
+                        <MessageSquare size={12} className="text-green-400" />
+                        <span className="text-[11px] text-green-300 font-medium">Conversations</span>
+                        <span className="text-[10px] text-gray-500">({filteredConversations.length})</span>
+                        {activeFilterCount > 0 && (
+                            <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full">
+                                {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
+                            </span>
+                        )}
                     </div>
-                    <div className="flex-1 flex items-center justify-between px-2 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                            <MessageSquare size={12} className="text-green-400" />
-                            <span className="text-[11px] text-green-300 font-medium">Conversations</span>
-                            <span className="text-[10px] text-gray-500">({filteredConversations.length})</span>
-                            {activeFilterCount > 0 && (
-                                <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full">
-                                    {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
-                                </span>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-0.5">
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setShowConversationsSettings(!showConversationsSettings); }}
-                                className={`p-1 hover:bg-white/10 rounded transition-all ${showConversationsSettings ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
-                                title="Settings"
-                            >
-                                <Settings size={12} />
-                            </button>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (showConvoFilters) {
-                                        // Closing filter - clear all filter values
-                                        setConvoNpcFilter('');
-                                        setConvoModelFilter('');
-                                        setConvoDateFrom('');
-                                        setConvoDateTo('');
-                                    }
-                                    setShowConvoFilters(!showConvoFilters);
-                                }}
-                                className={`p-1 hover:bg-white/10 rounded transition-all ${activeFilterCount > 0 || showConvoFilters ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
-                                title="Filter conversations"
-                            >
-                                <Filter size={12} />
-                            </button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
-                                className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
-                                title="Refresh conversations"
-                            >
-                                <RefreshCw size={12} />
-                            </button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setConversationsCollapsed(!conversationsCollapsed); }}
-                                className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
-                                title={conversationsCollapsed ? "Expand" : "Collapse"}
-                            >
-                                <ChevronRight size={14} className={`transform transition-transform ${conversationsCollapsed ? "" : "rotate-90"}`} />
-                            </button>
-                        </div>
-                    </div>
+                    {/* Action buttons */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setShowConversationsSettings(!showConversationsSettings); }}
+                        className={`px-2 py-1.5 hover:bg-white/10 transition-all ${showConversationsSettings ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
+                        title="Settings"
+                    >
+                        <Settings size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (showConvoFilters) {
+                                setConvoNpcFilter('');
+                                setConvoModelFilter('');
+                                setConvoDateFrom('');
+                                setConvoDateTo('');
+                            }
+                            setShowConvoFilters(!showConvoFilters);
+                        }}
+                        className={`px-2 py-1.5 hover:bg-white/10 transition-all ${activeFilterCount > 0 || showConvoFilters ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
+                        title="Filter conversations"
+                    >
+                        <Filter size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
+                        className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-green-400"
+                        title="Refresh conversations"
+                    >
+                        <RefreshCw size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setConversationsCollapsed(!conversationsCollapsed); }}
+                        className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400"
+                        title={conversationsCollapsed ? "Expand" : "Collapse"}
+                    >
+                        <ChevronRight size={14} className={`transform transition-transform ${conversationsCollapsed ? "" : "rotate-90"}`} />
+                    </button>
                 </div>
                 {/* Conversations Settings Panel */}
                 {showConversationsSettings && (
-                    <div className="mx-1 p-2 bg-green-900/20 border border-green-500/30 rounded text-[10px] space-y-2">
+                    <div className="p-2 bg-green-900/20 border-y border-green-500/30 text-[10px] space-y-2">
                         <div>
                             <label className="text-gray-400 block mb-1">Sort by</label>
                             <select
@@ -3419,7 +3403,7 @@ const renderFolderList = (structure) => {
             return (
                 <div>
                     {header}
-                    <div className="mx-1 px-3 py-3 text-[11px] text-gray-500 bg-black/10 rounded-b-lg text-center">No conversations yet</div>
+                    <div className="px-3 py-3 text-[11px] text-gray-500 bg-black/10 text-center">No conversations yet</div>
                 </div>
             );
         }
@@ -3430,7 +3414,7 @@ const renderFolderList = (structure) => {
                 <div>
                     {header}
                     {activeConversation && !currentFile && (
-                        <div className="mx-1 bg-black/10 rounded-b-lg p-1">
+                        <div className="bg-black/10 p-1">
                             <button
                                 onClick={() => handleConversationSelect(activeConversation.id)}
                                 className="flex items-center gap-2 px-2 py-1.5 w-full hover:bg-white/5 text-left rounded transition-all border-l-2 border-green-500"
@@ -3450,7 +3434,7 @@ const renderFolderList = (structure) => {
             <div className="flex flex-col h-full">
                 {header}
                 {!conversationsCollapsed && (
-                    <div className="mx-1 bg-black/10 rounded-b-lg flex-1 min-h-0 overflow-y-auto">
+                    <div className="bg-black/10 flex-1 min-h-0 overflow-y-auto">
                         {filteredConversations.length === 0 ? (
                             <div className="px-3 py-3 text-[11px] text-gray-500 text-center">No matches for "{convoSearch}"</div>
                         ) : (
@@ -3513,8 +3497,8 @@ const renderFolderList = (structure) => {
         // Show loading state while checking for git
         if (!gitStatus) {
             return (
-                <div className="mx-1 mt-3">
-                    <div className="flex items-center bg-gradient-to-r from-orange-900/20 to-amber-900/20 rounded-lg px-2 py-1.5">
+                <div>
+                    <div className="flex items-center bg-gradient-to-r from-orange-900/20 to-amber-900/20 px-2 py-1.5">
                         <GitBranch size={12} className="text-orange-400 mr-1.5" />
                         <span className="text-[11px] text-orange-300 font-medium">Git</span>
                         <span className="text-[10px] text-gray-500 ml-1.5">(checking...)</span>
@@ -3550,51 +3534,47 @@ const renderFolderList = (structure) => {
 
         const header = (
             <div
-                className={`mx-1 mt-3 transition-all duration-150 ${draggedSection === 'git' ? 'opacity-50' : ''} ${dropTargetSection === 'git' ? 'ring-2 ring-orange-500 rounded-lg' : ''}`}
+                className={`transition-all duration-150 ${draggedSection === 'git' ? 'opacity-50' : ''} ${dropTargetSection === 'git' ? 'ring-2 ring-orange-500' : ''}`}
                 onDragOver={handleSectionDragOver('git')}
                 onDragLeave={handleSectionDragLeave}
                 onDrop={handleSectionDrop('git')}
             >
-                <div className="group/header flex items-center bg-gradient-to-r from-orange-900/20 to-amber-900/20 rounded-t-lg border-b border-orange-500/20">
-                    {/* Drag handle - appears on hover */}
+                <div
+                    className="flex w-full bg-gradient-to-r from-orange-900/20 to-amber-900/20"
+                >
+                    {/* Label */}
                     <div
                         draggable
                         onDragStart={handleSectionDragStart('git')}
                         onDragEnd={handleSectionDragEnd}
-                        className="w-0 group-hover/header:w-5 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-150 opacity-0 group-hover/header:opacity-100 self-stretch"
-                        title="Drag to reorder"
+                        className="flex-1 flex items-center gap-1.5 px-2 py-1.5 cursor-grab active:cursor-grabbing"
                     >
-                        <GripVertical size={10} className="text-gray-500" />
+                        <GitBranch size={12} className="text-orange-400" />
+                        <span className="text-[11px] text-orange-300 font-medium">Git</span>
+                        <span className="text-[10px] text-gray-500">({gitStatus.branch})</span>
+                        {totalChanges > 0 && (
+                            <span className="text-[9px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded-full">
+                                {totalChanges} change{totalChanges !== 1 ? 's' : ''}
+                            </span>
+                        )}
+                        {gitStatus.ahead > 0 && <span className="text-[9px] text-green-400">↑{gitStatus.ahead}</span>}
+                        {gitStatus.behind > 0 && <span className="text-[9px] text-yellow-400">↓{gitStatus.behind}</span>}
                     </div>
-                    <div className="flex-1 flex items-center justify-between px-2 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                            <GitBranch size={12} className="text-orange-400" />
-                            <span className="text-[11px] text-orange-300 font-medium">Git</span>
-                            <span className="text-[10px] text-gray-500">({gitStatus.branch})</span>
-                            {totalChanges > 0 && (
-                                <span className="text-[9px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded-full">
-                                    {totalChanges} change{totalChanges !== 1 ? 's' : ''}
-                                </span>
-                            )}
-                            {gitStatus.ahead > 0 && <span className="text-[9px] text-green-400">↑{gitStatus.ahead}</span>}
-                            {gitStatus.behind > 0 && <span className="text-[9px] text-yellow-400">↓{gitStatus.behind}</span>}
-                        </div>
-                        <div className="flex items-center gap-0.5">
-                            <button
-                                onClick={(e) => { e.stopPropagation(); loadGitStatus(); }}
-                                className="p-1 hover:bg-white/10 rounded"
-                                title="Refresh git status"
-                            >
-                                <RotateCcw size={10} className="text-gray-400" />
-                            </button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setGitPanelCollapsed(!gitPanelCollapsed); }}
-                                className="p-1 hover:bg-white/10 rounded"
-                            >
-                                <ChevronRight size={12} className={`text-gray-400 transition-transform ${!gitPanelCollapsed ? 'rotate-90' : ''}`} />
-                            </button>
-                        </div>
-                    </div>
+                    {/* Action buttons */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); loadGitStatus(); }}
+                        className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-orange-400"
+                        title="Refresh git status"
+                    >
+                        <RotateCcw size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setGitPanelCollapsed(!gitPanelCollapsed); }}
+                        className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400"
+                        title={gitPanelCollapsed ? "Expand" : "Collapse"}
+                    >
+                        <ChevronRight size={14} className={`transition-transform ${!gitPanelCollapsed ? 'rotate-90' : ''}`} />
+                    </button>
                 </div>
             </div>
         );
@@ -3603,7 +3583,7 @@ const renderFolderList = (structure) => {
             <div className="flex flex-col">
                 {header}
                 {!gitPanelCollapsed && (
-                    <div className="mx-1 theme-bg-secondary rounded-b-lg overflow-hidden">
+                    <div className="theme-bg-secondary overflow-hidden">
                         <div className="overflow-auto max-h-[300px] p-2 space-y-2">
                             {/* Staged files */}
                             {staged.length > 0 && (
@@ -4038,8 +4018,8 @@ return (
         )}
 
         {/* Header Actions */}
-        <div className={`px-4 py-2 border-b theme-border flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
-            <div className={`grid grid-cols-2 ${headerActionsExpanded ? 'grid-rows-4' : ''} divide-x divide-y divide-theme-border border theme-border rounded-lg`}>
+        <div className={`border-b border-gray-700 flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
+            <div className={`grid grid-cols-2 ${headerActionsExpanded ? 'grid-rows-4' : ''} divide-x divide-y divide-gray-700`}>
                 <button onClick={toggleTheme} className="action-grid-button-wide" aria-label="Toggle Theme" title="Toggle Theme">
                     {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}<span className="text-[10px] ml-1.5">Theme</span>
                 </button>
@@ -4069,7 +4049,7 @@ return (
                             {defaultNewPaneType === 'code' && <><Code2 size={14} className="text-purple-400" /><span className="text-[10px]">Code</span></>}
                             {defaultNewPaneType === 'chat' && <><Plus size={14} /><span className="text-[10px]">Chat</span></>}
                         </button>
-                        <button onClick={() => setChatPlusDropdownOpen(!chatPlusDropdownOpen)} className="px-1.5 border-l theme-border theme-hover flex items-center" aria-label="More options" title="More options">
+                        <button onClick={() => setChatPlusDropdownOpen(!chatPlusDropdownOpen)} className="px-1.5 theme-hover flex items-center" aria-label="More options" title="More options">
                             <ChevronDown size={10} />
                         </button>
                     </div>
@@ -4094,7 +4074,7 @@ return (
                                 case 'terminal':
                                     return (
                                         <div key={tile.id} className="relative flex" data-dropdown="terminal">
-                                            <button onClick={() => createNewTerminal?.(defaultNewTerminalType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Terminal" title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal (Ctrl+Shift+T)`}>
+                                            <button onClick={() => createNewTerminal?.(defaultNewTerminalType)} className="action-grid-button-wide border-r-0" aria-label="New Terminal" title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal (Ctrl+Shift+T)`}>
                                                 {defaultNewTerminalType === 'system' && <Terminal size={16} className="text-green-400" />}
                                                 {defaultNewTerminalType === 'npcsh' && <Sparkles size={16} className="text-purple-400" />}
                                                 {defaultNewTerminalType === 'guac' && <Code2 size={16} className="text-yellow-400" />}
@@ -4102,13 +4082,13 @@ return (
                                             </button>
                                             <button
                                                 onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)}
-                                                className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700"
+                                                className="px-1 theme-bg-tertiary border-y border-r theme-border hover:bg-gray-700"
                                                 aria-label="Terminal options"
                                             >
                                                 <ChevronDown size={10} />
                                             </button>
                                             {terminalDropdownOpen && (
-                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1 min-w-[140px]">
+                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 shadow-xl z-[9999] py-1 min-w-[140px]">
                                                     <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
                                                         <Terminal size={14} className="text-green-400" /><span>Bash</span>
                                                     </button>
@@ -4271,14 +4251,27 @@ return (
             )}
         </div>
 
-        <div className={`flex-1 overflow-y-auto px-2 py-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
+        {/* Path Switcher - below Less button, above sections */}
+        {!sidebarCollapsed && (
+            <div className="flex-shrink-0 py-2">
+                <PathSwitcher
+                    currentPath={currentPath}
+                    baseDir={baseDir}
+                    onPathChange={switchToPath}
+                    onGoUp={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
+                    onOpenEnv={() => createProjectEnvPane?.()}
+                />
+            </div>
+        )}
+
+        <div className={`flex-1 flex flex-col overflow-hidden ${sidebarCollapsed ? 'hidden' : ''}`}>
             {loading ? (
                 <div className="p-4 theme-text-muted">Loading...</div>
             ) : isSearching ? (
                 renderSearchResults()
             ) : (
                 <div
-                    className="flex flex-col h-full"
+                    className="flex flex-col flex-1 min-h-0 overflow-y-auto"
                     onDragOver={(e) => {
                         if (!draggedSection) return;
                         e.preventDefault();
@@ -4346,7 +4339,8 @@ return (
                             <div
                                 key={sectionId}
                                 data-section-id={sectionId}
-                                className={`transition-all duration-150 ${isCollapsed ? 'flex-shrink-0' : 'flex-1 min-h-0'} ${draggedSection === sectionId ? 'opacity-50 scale-95' : ''} ${dropTargetSection === sectionId && draggedSection !== sectionId ? `ring-2 ${sectionColors[sectionId]} rounded-lg bg-white/5` : ''}`}
+                                className={`transition-all duration-150 ${isCollapsed ? 'flex-shrink-0' : 'min-h-0'} ${draggedSection === sectionId ? 'opacity-50 scale-95' : ''} ${dropTargetSection === sectionId && draggedSection !== sectionId ? `ring-2 ${sectionColors[sectionId]} rounded-lg bg-white/5` : ''}`}
+                                style={isCollapsed ? {} : { flex: sectionId === 'websites' ? '1 1 0%' : '1.4 1 0%' }}
                             >
                                 {sectionId === 'websites' && renderWebsiteList()}
                                 {sectionId === 'files' && renderFolderList(folderStructure)}
@@ -4693,7 +4687,7 @@ return (
 
         {/* Bottom grid section - collapsible */}
         {!bottomGridCollapsed && (
-        <div className="p-4 border-t theme-border flex-shrink-0">
+        <div className="border-t border-gray-700 flex-shrink-0">
             {/* Bottom Grid Edit Mode - uses jinx tiles when loaded */}
             {!sidebarCollapsed && bottomGridEditMode && (
                 <div className="mb-2 p-2 bg-gray-800/50 rounded-lg border border-gray-700">
@@ -4832,7 +4826,7 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
 
             {/* 2x2 Grid - uses jinx tiles when loaded */}
             {!sidebarCollapsed && !bottomGridEditMode && (
-                <div className="grid grid-cols-2 divide-x divide-y divide-theme-border border theme-border rounded-lg overflow-hidden mb-2">
+                <div className="grid grid-cols-2 divide-x divide-y divide-gray-700">
                     {(() => {
                         // Fallback actions for when jinxes haven't loaded yet
                         const fallbackActions: Record<string, () => void> = {
@@ -4887,7 +4881,7 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                                         else console.log(`No action for ${tile.action}`);
                                     }
                                 }}
-                                className="action-grid-button"
+                                className="action-grid-button-wide"
                                 aria-label={tile.label}
                                 title={tile.label}
                             >
