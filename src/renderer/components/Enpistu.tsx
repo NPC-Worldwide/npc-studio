@@ -6,7 +6,7 @@ import {
     ListFilter, ArrowDown,X, Wrench, FileText, Code2, FileJson, Paperclip,
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
     Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen, User,
-    RefreshCw, RotateCcw, Check, KeyRound, Bot, Zap
+    RefreshCw, RotateCcw, Check, KeyRound, Bot, Zap, HelpCircle, AlertCircle
 } from 'lucide-react';
 
 import { Icon } from 'lucide-react';
@@ -8565,20 +8565,25 @@ const renderMainContent = () => {
                 <Settings size={14} />
             </button>
 
-            {/* Path Switcher with Env button inside */}
-            <PathSwitcher
-                currentPath={currentPath}
-                baseDir={baseDir}
-                onPathChange={switchToPath}
-                onGoUp={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
-                onOpenEnv={() => createProjectEnvPane?.()}
-            />
+            {/* Help button - after settings */}
+            <button
+                onClick={() => createHelpPane?.()}
+                className="p-1 theme-hover rounded theme-text-muted"
+                title="Help"
+            >
+                <HelpCircle size={14} />
+            </button>
 
             <div className="flex-1" />
 
-            {/* Search - center */}
-            <div className="flex items-center gap-2 max-w-md w-full">
-                <Search size={14} className="theme-text-muted flex-shrink-0" />
+            {/* App Search */}
+            <div className="flex items-center gap-2 w-48 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400/30 transition-all">
+                {/* Custom app search icon - magnifying glass with document */}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
+                    <circle cx="10" cy="10" r="6" />
+                    <line x1="14.5" y1="14.5" x2="20" y2="20" />
+                    <rect x="7" y="7" width="6" height="6" rx="1" className="opacity-50" strokeWidth="1.5" />
+                </svg>
                 <input
                     ref={searchInputRef}
                     type="text"
@@ -8599,15 +8604,14 @@ const renderMainContent = () => {
                             setSearchTerm('');
                         }
                     }}
-                    placeholder={isGlobalSearch ? "Global search (Ctrl+Shift+F)..." : "Search (Ctrl+F)..."}
-                    className="flex-1 bg-transparent theme-text-primary text-xs focus:outline-none"
+                    className="flex-1 bg-transparent text-gray-100 text-xs focus:outline-none min-w-0"
                 />
                 {(deepSearchResults.length > 0 || messageSearchResults.length > 0) && (
                     <button
                         onClick={() => setSearchResultsModalOpen(true)}
-                        className="px-2 py-0.5 text-[10px] bg-blue-600 text-white rounded"
+                        className="px-1.5 py-0.5 text-[9px] bg-blue-500 text-white rounded"
                     >
-                        {deepSearchResults.length + messageSearchResults.length} results
+                        {deepSearchResults.length + messageSearchResults.length}
                     </button>
                 )}
                 {searchTerm && (
@@ -8619,15 +8623,15 @@ const renderMainContent = () => {
                             setMessageSearchResults([]);
                             setSearchResultsModalOpen(false);
                         }}
-                        className="p-1 theme-hover rounded"
+                        className="p-0.5 hover:bg-gray-600 rounded"
                     >
-                        <X size={12} className="theme-text-muted" />
+                        <X size={10} className="text-gray-300" />
                     </button>
                 )}
             </div>
 
-            {/* Web Search - separate input */}
-            <div className="flex items-center gap-2 max-w-xs w-full">
+            {/* Web Search */}
+            <div className="flex items-center gap-2 w-40 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400/30 transition-all">
                 <Globe size={14} className="text-cyan-400 flex-shrink-0" />
                 <input
                     type="text"
@@ -8642,27 +8646,34 @@ const renderMainContent = () => {
                             setWebSearchTerm('');
                         }
                     }}
-                    placeholder={`Web (${WEB_SEARCH_PROVIDERS[webSearchProvider].name})`}
-                    className="flex-1 bg-transparent theme-text-primary text-xs focus:outline-none"
+                    className="flex-1 bg-transparent text-gray-100 text-xs focus:outline-none min-w-0"
                 />
-                <select
-                    value={webSearchProvider}
-                    onChange={(e) => {
-                        setWebSearchProvider(e.target.value as WebSearchProvider);
-                        localStorage.setItem('web-search-provider', e.target.value);
-                    }}
-                    className="bg-transparent text-[10px] theme-text-muted focus:outline-none cursor-pointer"
-                >
-                    {Object.entries(WEB_SEARCH_PROVIDERS).map(([key, { name }]) => (
-                        <option key={key} value={key} className="bg-gray-800">{name}</option>
-                    ))}
-                </select>
             </div>
 
             <div className="flex-1" />
 
-            {/* Right side - Disk Usage, Cron/Daemon, DateTime */}
+            {/* Right side - Version, Disk Usage, Cron/Daemon, DateTime */}
             <div className="flex items-center gap-2">
+                {/* Version indicator */}
+                {appVersion && (
+                    <button
+                        onClick={checkForUpdates}
+                        className={`p-1 rounded flex items-center gap-1 transition-all ${
+                            updateAvailable
+                                ? 'bg-green-900/30 text-green-300 hover:bg-green-900/50'
+                                : 'theme-hover theme-text-muted'
+                        }`}
+                        title={updateAvailable
+                            ? `v${appVersion} → v${updateAvailable.latestVersion} available`
+                            : `v${appVersion} - Click to check for updates`}
+                    >
+                        {updateAvailable ? (
+                            <AlertCircle size={14} className="text-green-400" />
+                        ) : (
+                            <Check size={14} className="text-green-400" />
+                        )}
+                    </button>
+                )}
                 <button
                     onClick={() => createDiskUsagePane?.()}
                     className="p-1 theme-hover rounded theme-text-muted"
@@ -8751,26 +8762,16 @@ const renderMainContent = () => {
                     gitStatus={gitStatus}
                     setGitModalOpen={setGitModalOpen}
                     createGitPane={createGitPane}
-                    directoryConversations={directoryConversations}
-                    setWorkspaceModalOpen={setWorkspaceModalOpen}
                     paneItems={[]}
                     setActiveContentPaneId={setActiveContentPaneId}
-                    autoScrollEnabled={autoScrollEnabled}
-                    setAutoScrollEnabled={setAutoScrollEnabled}
                     isPredictiveTextEnabled={isPredictiveTextEnabled}
                     setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
-                    createHelpPane={createHelpPane}
                     pendingMemoryCount={pendingMemoryCount}
                     createMemoryManagerPane={createMemoryManagerPane}
                     kgGeneration={kgGeneration}
                     createGraphViewerPane={createGraphViewerPane}
                     createNPCTeamPane={createNPCTeamPane}
                     createJinxPane={createJinxPane}
-                    activeDownloadsCount={getActiveDownloadsCount()}
-                    openDownloadManager={() => setDownloadManagerOpen(true)}
-                    appVersion={appVersion}
-                    updateAvailable={updateAvailable}
-                    onCheckForUpdates={checkForUpdates}
                 />
             </main>
         );
@@ -8808,26 +8809,16 @@ const renderMainContent = () => {
                 gitStatus={gitStatus}
                 setGitModalOpen={setGitModalOpen}
                 createGitPane={createGitPane}
-                directoryConversations={directoryConversations}
-                setWorkspaceModalOpen={setWorkspaceModalOpen}
                 paneItems={paneItems}
                 setActiveContentPaneId={setActiveContentPaneId}
-                autoScrollEnabled={autoScrollEnabled}
-                setAutoScrollEnabled={setAutoScrollEnabled}
                 isPredictiveTextEnabled={isPredictiveTextEnabled}
                 setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
-                createHelpPane={createHelpPane}
                 pendingMemoryCount={pendingMemoryCount}
                 createMemoryManagerPane={createMemoryManagerPane}
                 kgGeneration={kgGeneration}
                 createGraphViewerPane={createGraphViewerPane}
                 createNPCTeamPane={createNPCTeamPane}
                 createJinxPane={createJinxPane}
-                activeDownloadsCount={getActiveDownloadsCount()}
-                openDownloadManager={() => setDownloadManagerOpen(true)}
-                appVersion={appVersion}
-                updateAvailable={updateAvailable}
-                onCheckForUpdates={checkForUpdates}
             />
         </main>
     );
