@@ -161,10 +161,12 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     return false;
                 }
 
-                // Ctrl+Shift+V or Ctrl+V for paste
+                // Ctrl+V / Cmd+V paste - handle manually, prevent browser default
                 if (isMeta && key === 'v') {
+                    event.preventDefault();
+                    event.stopPropagation();
                     navigator.clipboard.readText().then(text => {
-                        if (isSessionReady.current) {
+                        if (isSessionReady.current && text) {
                             window.api.writeToTerminal({ id: terminalId, data: text });
                         }
                     });
@@ -343,6 +345,13 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                 if (result.success) {
                     isSessionReady.current = true;
                     setActiveShell(result.shell || 'system');
+                    // Immediately send resize to ensure PTY knows exact dimensions
+                    fitAddonRef.current?.fit();
+                    window.api.resizeTerminal?.({
+                        id: terminalId,
+                        cols: xtermInstance.current.cols,
+                        rows: xtermInstance.current.rows
+                    });
                     if (activeContentPaneId === nodeId) {
                         xtermInstance.current.focus();
                     }
