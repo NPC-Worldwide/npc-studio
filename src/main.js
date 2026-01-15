@@ -7241,7 +7241,7 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
 
 
 
-ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) => {
+ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, shellType }) => {
   if (!pty) {
     return { success: false, error: ptyLoadError?.message || 'Terminal functionality not available (node-pty not loaded)' };
   }
@@ -7356,8 +7356,8 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) =>
   try {
     const ptyProcess = pty.spawn(shell, args, {
       name: 'xterm-256color',
-      cols: 80,
-      rows: 24,
+      cols: cols || 80,
+      rows: rows || 24,
       cwd: workingDir,
       env: cleanEnv
     });
@@ -7388,8 +7388,8 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) =>
       try {
         const ptyProcess = pty.spawn('ipython', [], {
           name: 'xterm-256color',
-          cols: 80,
-          rows: 24,
+          cols: cols || 80,
+          rows: rows || 24,
           cwd: workingDir,
           env: cleanEnv
         });
