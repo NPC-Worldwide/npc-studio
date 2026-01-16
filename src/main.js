@@ -5687,6 +5687,19 @@ ipcMain.handle('open-new-window', async (event, initialPath) => {
     createWindow(initialPath); // Your existing window creation function
 });
 
+ipcMain.handle('open-in-native-explorer', async (event, folderPath) => {
+    const { shell } = require('electron');
+    try {
+        const expandedPath = folderPath.startsWith('~')
+            ? path.join(os.homedir(), folderPath.slice(1))
+            : folderPath;
+        await shell.openPath(expandedPath);
+        return { success: true };
+    } catch (error) {
+        return { error: error.message };
+    }
+});
+
 // =============================================================================
 // Multi-Database Connection Support
 // Supports: SQLite, PostgreSQL, MySQL, MSSQL, Snowflake via connection strings

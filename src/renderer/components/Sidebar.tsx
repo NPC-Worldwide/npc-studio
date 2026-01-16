@@ -7,7 +7,7 @@ import {
     Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
     Star, Clock, Activity, Lock, Archive, BookOpen, Sparkles, Box, GripVertical, Play,
     Search, RefreshCw, Download, Upload, Copy, Check, AlertCircle, Info, Eye, EyeOff,
-    Palette, Code, Save, FolderOpen, Home, ArrowLeft, ArrowRight, Menu, MoreVertical,
+    Palette, Code, Save, FolderOpen, FolderPlus, Home, ArrowLeft, ArrowRight, Menu, MoreVertical,
     Loader2, ExternalLink, Link, Unlink, Filter, SortAsc, SortDesc, Table, Grid,
     List, Maximize2, Minimize2, Move, RotateCcw, ZoomIn, ZoomOut, Layers, Layout,
     Pause, Server, Mail, Cpu, Wifi, WifiOff, Power, PowerOff, Hash, AtSign, FlaskConical,
@@ -40,7 +40,6 @@ import LibraryViewer from './LibraryViewer';
 import GraphViewer from './GraphViewer';
 import PhotoViewer from './PhotoViewer';
 import SettingsMenu from './SettingsMenu';
-import { PathSwitcher } from './PathSwitcher';
 import npcLogo from '../../assets/icon.png';
 
 const Sidebar = (props: any) => {
@@ -281,6 +280,15 @@ const Sidebar = (props: any) => {
     const [chatPlusDropdownOpen, setChatPlusDropdownOpen] = useState(false);
     // Code file dropdown state
     const [codeFileDropdownOpen, setCodeFileDropdownOpen] = useState(false);
+    // Folder dropdown state
+    const [folderDropdownOpen, setFolderDropdownOpen] = useState(false);
+    // Recent paths for folder dropdown
+    const [recentPaths, setRecentPaths] = useState<string[]>(() => {
+        try {
+            const stored = localStorage.getItem('incognide-recent-paths');
+            return stored ? JSON.parse(stored) : [];
+        } catch { return []; }
+    });
     const [defaultCodeFileType, setDefaultCodeFileType] = useState<string>(() =>
         localStorage.getItem('npcStudio_defaultCodeFileType') || 'py'
     );
@@ -324,6 +332,18 @@ const Sidebar = (props: any) => {
         }
     };
 
+    // Save to recent paths when currentPath changes
+    useEffect(() => {
+        if (currentPath && currentPath !== baseDir) {
+            setRecentPaths(prev => {
+                const filtered = prev.filter(p => p !== currentPath);
+                const updated = [currentPath, ...filtered].slice(0, 10);
+                localStorage.setItem('incognide-recent-paths', JSON.stringify(updated));
+                return updated;
+            });
+        }
+    }, [currentPath, baseDir]);
+
     // Close dropdowns when clicking outside
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -340,10 +360,14 @@ const Sidebar = (props: any) => {
             if (terminalDropdownOpen && !target.closest('[data-dropdown="terminal"]')) {
                 setTerminalDropdownOpen(false);
             }
+            // Close folder dropdown if clicking outside
+            if (folderDropdownOpen && !target.closest('[data-dropdown="folder"]')) {
+                setFolderDropdownOpen(false);
+            }
         };
         document.addEventListener('click', handleClickOutside);
         return () => document.removeEventListener('click', handleClickOutside);
-    }, [codeFileDropdownOpen, docDropdownOpen, terminalDropdownOpen]);
+    }, [codeFileDropdownOpen, docDropdownOpen, terminalDropdownOpen, folderDropdownOpen]);
     // Website context menu state
     const [websiteContextMenu, setWebsiteContextMenu] = useState<{ x: number; y: number; url: string; title: string } | null>(null);
     // Zip modal state
@@ -2709,27 +2733,114 @@ const renderFolderList = (structure) => {
             onDragOver={handleSectionDragOver('files')}
             onDragLeave={handleSectionDragLeave}
             onDrop={handleSectionDrop('files')}
+            data-dropdown="folder"
         >
             <div
                 className="flex w-full bg-gradient-to-r from-yellow-900/20 to-orange-900/20"
             >
-                {/* Left side: Icon only */}
-                <div className="flex items-center px-4">
-                    <FolderOpen size={16} className="text-yellow-400" />
+                {/* Left side: Folder selector with dropdown */}
+                <div className="flex items-center flex-1 min-w-0 relative">
+                    {/* Go up button */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); if (currentPath !== baseDir) goUpDirectory(currentPath, baseDir, switchToPath, setError); }}
+                        disabled={currentPath === baseDir}
+                        className={`px-2 py-4 flex items-center justify-center transition-colors ${currentPath === baseDir ? 'opacity-40' : 'hover:bg-green-500/20'}`}
+                        title="Go up one folder"
+                    >
+                        <ArrowUp size={14} className={currentPath === baseDir ? 'text-gray-500' : 'text-green-400'} />
+                    </button>
+                    {/* Folder name + dropdown trigger */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setFolderDropdownOpen(!folderDropdownOpen); }}
+                        className="flex items-center gap-1.5 px-2 py-4 hover:bg-purple-500/20 transition-colors min-w-0 flex-1"
+                        title={currentPath}
+                    >
+                        <FolderOpen size={14} className="text-yellow-400 flex-shrink-0" />
+                        <span className="text-[11px] font-medium truncate">{currentPath?.split('/').pop() || 'Root'}</span>
+                        <ChevronDown size={10} className={`text-gray-400 flex-shrink-0 transition-transform ${folderDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {/* Folder dropdown */}
+                    {folderDropdownOpen && (
+                        <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-[9999] py-1 min-w-[200px]">
+                            <div className="px-2 py-1 border-b border-gray-700">
+                                <div className="text-[9px] text-gray-500 truncate" title={currentPath}>{currentPath}</div>
+                            </div>
+                            {/* Action buttons */}
+                            <div className="flex gap-1 p-1.5 border-b border-gray-700">
+                                <button
+                                    onClick={() => { createAndAddPaneNodeToLayout?.({ contentType: 'folder', contentId: currentPath }); setFolderDropdownOpen(false); }}
+                                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[10px] bg-green-600/20 text-green-400 rounded hover:bg-green-600/30"
+                                    title="Open in pane"
+                                >
+                                    <FolderOpen size={10} /> Open
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        try {
+                                            const result = await (window as any).api.open_directory_picker();
+                                            if (result) { switchToPath(result); setFolderDropdownOpen(false); }
+                                        } catch {}
+                                    }}
+                                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[10px] bg-blue-600/20 text-blue-400 rounded hover:bg-blue-600/30"
+                                    title="Browse"
+                                >
+                                    <FolderPlus size={10} /> Browse
+                                </button>
+                                <button
+                                    onClick={() => { createProjectEnvPane?.(); setFolderDropdownOpen(false); }}
+                                    className="flex items-center justify-center px-2 py-1 text-[10px] bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/30"
+                                    title="Env"
+                                >
+                                    <KeyRound size={10} />
+                                </button>
+                                <button
+                                    onClick={() => { (window as any).api?.openInNativeExplorer?.(currentPath); setFolderDropdownOpen(false); }}
+                                    className="flex items-center justify-center px-2 py-1 text-[10px] bg-teal-600/20 text-teal-400 rounded hover:bg-teal-600/30"
+                                    title="Open in Finder/Explorer"
+                                >
+                                    <ExternalLink size={10} />
+                                </button>
+                            </div>
+                            {/* Recent paths */}
+                            {recentPaths.filter(p => p !== currentPath).length > 0 && (
+                                <>
+                                    <div className="px-2 py-0.5 text-[8px] text-gray-500 uppercase">Recent</div>
+                                    {recentPaths.filter(p => p !== currentPath).slice(0, 5).map((path, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => { switchToPath(path); setFolderDropdownOpen(false); }}
+                                            className="w-full flex items-center gap-2 px-2 py-1 text-[10px] text-gray-300 hover:bg-gray-700"
+                                        >
+                                            <Folder size={10} className="text-yellow-400" />
+                                            <span className="truncate">{path.split('/').pop()}</span>
+                                        </button>
+                                    ))}
+                                </>
+                            )}
+                            {currentPath !== baseDir && (
+                                <button
+                                    onClick={() => { switchToPath(baseDir); setFolderDropdownOpen(false); }}
+                                    className="w-full flex items-center gap-2 px-2 py-1 text-[10px] text-purple-400 hover:bg-gray-700 border-t border-gray-700"
+                                >
+                                    <Folder size={10} /> {baseDir?.split('/').pop() || 'root'}
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
-                {/* Right side: actions and dropdown */}
+                {/* Right side: actions and collapse */}
                 <div
                     draggable
                     onDragStart={handleSectionDragStart('files')}
                     onDragEnd={handleSectionDragEnd}
                     onClick={() => setFilesCollapsed(!filesCollapsed)}
-                    className="flex-1 flex items-center justify-end gap-2 px-2 py-4 cursor-pointer hover:bg-white/5"
+                    className="flex items-center justify-end gap-1 px-2 py-4 cursor-pointer hover:bg-white/5"
                 >
                     {!filesCollapsed && (
                         <>
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowFilesSettings(!showFilesSettings); }}
-                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                                className={`p-1 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
                                 title="Settings"
                             >
                                 <Settings size={12} />
@@ -2742,7 +2853,7 @@ const renderFolderList = (structure) => {
                                     }
                                     setShowFileTypeFilter(!showFileTypeFilter);
                                 }}
-                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                                className={`p-1 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
                                 title="Filter by file type"
                             >
                                 <Filter size={12} />
@@ -2751,7 +2862,7 @@ const renderFolderList = (structure) => {
                     )}
                     <button
                         onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
-                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
                         title="Refresh files"
                     >
                         <RefreshCw size={12} />
@@ -4022,12 +4133,12 @@ return (
                 <div className="relative" data-dropdown="terminal">
                     <button
                         onClick={() => createNewTerminal?.(defaultNewTerminalType)}
-                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-3 relative transition-colors"
+                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-4 relative transition-colors"
                         title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal`}
                     >
-                        {defaultNewTerminalType === 'system' && <Terminal size={14} className="text-green-400" />}
-                        {defaultNewTerminalType === 'npcsh' && <Sparkles size={14} className="text-purple-400" />}
-                        {defaultNewTerminalType === 'guac' && <Code2 size={14} className="text-yellow-400" />}
+                        {defaultNewTerminalType === 'system' && <Terminal size={18} className="text-green-400" />}
+                        {defaultNewTerminalType === 'npcsh' && <Sparkles size={18} className="text-purple-400" />}
+                        {defaultNewTerminalType === 'guac' && <Code2 size={18} className="text-yellow-400" />}
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); setTerminalDropdownOpen(!terminalDropdownOpen); }}
@@ -4070,10 +4181,10 @@ return (
                 <div className="relative" data-dropdown="notebook">
                     <button
                         onClick={() => defaultNewNotebookType === 'notebook' ? createNewNotebook?.() : createNewExperiment?.()}
-                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-3 relative transition-colors"
+                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-4 relative transition-colors"
                         title={`New ${defaultNewNotebookType === 'notebook' ? 'Notebook' : 'Experiment'}`}
                     >
-                        {defaultNewNotebookType === 'notebook' ? <FileText size={14} className="text-orange-400" /> : <FlaskConical size={14} className="text-purple-400" />}
+                        {defaultNewNotebookType === 'notebook' ? <FileText size={18} className="text-orange-400" /> : <FlaskConical size={18} className="text-purple-400" />}
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); setChatPlusDropdownOpen(!chatPlusDropdownOpen); }}
@@ -4108,10 +4219,10 @@ return (
                 <div className="relative" data-dropdown="code-file">
                     <button
                         onClick={() => createFileWithExtension(defaultCodeFileType)}
-                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-3 relative transition-colors"
+                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-4 relative transition-colors"
                         title={`New .${defaultCodeFileType} file`}
                     >
-                        <Code2 size={14} className="text-cyan-400" />
+                        <Code2 size={18} className="text-cyan-400" />
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); setCodeFileDropdownOpen(!codeFileDropdownOpen); }}
@@ -4143,10 +4254,10 @@ return (
                 <div className="relative" data-dropdown="doc">
                     <button
                         onClick={() => createNewDocument?.(defaultNewDocumentType)}
-                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-3 relative transition-colors"
+                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-4 relative transition-colors"
                         title={`New ${defaultNewDocumentType.toUpperCase()} document`}
                     >
-                        <FileStack size={14} className="text-rose-400" />
+                        <FileStack size={18} className="text-rose-400" />
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); setDocDropdownOpen(!docDropdownOpen); }}
@@ -4234,26 +4345,6 @@ return (
                 </div>
             )}
         </div>
-
-        {/* Path Switcher - below Less button, above sections */}
-        {!sidebarCollapsed && (
-            <div className="flex-shrink-0 py-2 flex items-center">
-                <PathSwitcher
-                    currentPath={currentPath}
-                    baseDir={baseDir}
-                    onPathChange={switchToPath}
-                    onGoUp={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
-                    onOpenEnv={() => createProjectEnvPane?.()}
-                />
-                <button
-                    onClick={() => (window as any).api?.openNewWindow?.('~/.npcsh')}
-                    className="flex-shrink-0 py-2 px-2 theme-bg-tertiary border-y border-r theme-border hover:bg-teal-500/20 transition-all flex items-center justify-center"
-                    title="Open New Window"
-                >
-                    <ExternalLink size={14} className="text-teal-400" />
-                </button>
-            </div>
-        )}
 
         <div className={`flex-1 flex flex-col overflow-hidden ${sidebarCollapsed ? 'hidden' : ''}`}>
             {loading ? (

@@ -34,8 +34,9 @@ readDocxContent: (filePath) =>
     generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),
 
     openNewWindow: (path) => ipcRenderer.invoke('open-new-window', path),
+    openInNativeExplorer: (path) => ipcRenderer.invoke('open-in-native-explorer', path),
 
-   
+
     deleteConversation: (id) => ipcRenderer.invoke('deleteConversation', id),
     getConversations: (path) => ipcRenderer.invoke('getConversations', path),
     getConversationsInDirectory: (path) => ipcRenderer.invoke('getConversationsInDirectory', path),

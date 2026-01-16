@@ -26,6 +26,7 @@ interface PathSwitcherProps {
     onPathChange: (path: string) => void;
     onGoUp: () => void;
     onOpenEnv?: () => void;
+    onOpenFolderPane?: (path: string) => void;
 }
 
 const RECENT_PATHS_KEY = 'incognide-recent-paths';
@@ -36,7 +37,8 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
     baseDir,
     onPathChange,
     onGoUp,
-    onOpenEnv
+    onOpenEnv,
+    onOpenFolderPane
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -140,31 +142,26 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
 
     return (
         <div className="relative flex w-full" ref={dropdownRef}>
-            {/* Go up button */}
+            {/* Open folder in pane button */}
             <button
-                onClick={onGoUp}
-                disabled={isAtRoot}
-                className={`flex-1 py-2 theme-bg-tertiary border-y border-l theme-border transition-all flex items-center justify-center ${
-                    isAtRoot
-                        ? 'opacity-40 cursor-not-allowed'
-                        : 'hover:bg-green-500/10'
-                }`}
-                title="Go up one folder"
+                onClick={() => onOpenFolderPane?.(currentPath)}
+                className="flex-1 py-4 theme-bg-tertiary border-y border-l theme-border transition-all flex items-center justify-center hover:bg-green-500/10"
+                title="Open current folder in pane"
             >
-                <ArrowUp size={14} className={isAtRoot ? 'text-gray-500' : 'text-green-400'} />
+                <FolderOpen size={18} className="text-green-400" />
             </button>
 
             {/* Main path display button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex-[4] flex items-center gap-2 px-3 py-2 theme-bg-tertiary border theme-border hover:bg-purple-500/10 transition-all min-w-0"
+                className="flex-[4] flex items-center gap-2 px-3 py-4 theme-bg-tertiary border theme-border hover:bg-purple-500/10 transition-all min-w-0"
             >
                 {/* Folder icon */}
                 <div className="flex-shrink-0">
                     {isAtRoot ? (
-                        <Folder size={14} className="text-purple-400" />
+                        <Folder size={18} className="text-purple-400" />
                     ) : (
-                        <FolderOpen size={14} className="text-yellow-400" />
+                        <FolderOpen size={18} className="text-yellow-400" />
                     )}
                 </div>
 
@@ -185,20 +182,20 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
             {/* Native folder picker button */}
             <button
                 onClick={handleOpenFolderPicker}
-                className="flex-1 py-2 theme-bg-tertiary border-y theme-border hover:bg-blue-500/10 transition-all flex items-center justify-center"
+                className="flex-1 py-4 theme-bg-tertiary border-y theme-border hover:bg-blue-500/10 transition-all flex items-center justify-center"
                 title="Browse folders (native picker)"
             >
-                <FolderPlus size={14} className="text-blue-400" />
+                <FolderPlus size={18} className="text-blue-400" />
             </button>
 
             {/* Env settings button */}
             {onOpenEnv && (
                 <button
                     onClick={onOpenEnv}
-                    className="flex-1 py-2 theme-bg-tertiary border-y border-r theme-border hover:bg-amber-500/10 transition-all flex items-center justify-center"
+                    className="flex-1 py-4 theme-bg-tertiary border-y border-r theme-border hover:bg-amber-500/10 transition-all flex items-center justify-center"
                     title="Environment Settings"
                 >
-                    <KeyRound size={14} className="text-amber-400" />
+                    <KeyRound size={18} className="text-amber-400" />
                 </button>
             )}
 

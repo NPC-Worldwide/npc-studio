@@ -2925,9 +2925,10 @@ const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, she
             currentPath={currentPath}
             activeContentPaneId={activeContentPaneId}
             shell={shell}
+            isDarkMode={isDarkMode}
         />
     );
-}, [currentPath, activeContentPaneId]);
+}, [currentPath, activeContentPaneId, isDarkMode]);
 
 // PDF highlight handlers
 const handleCopyPdfText = useCallback((text: string) => {
