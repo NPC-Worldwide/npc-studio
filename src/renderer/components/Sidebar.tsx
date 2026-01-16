@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, Minus, ArrowUp, MessageSquare,
@@ -29,6 +30,7 @@ import KnowledgeGraphEditor from './KnowledgeGraphEditor';
 import LabeledDataManager from './LabeledDataManager';
 import McpServerMenu from './McpServerMenu';
 import MemoryManagement from './MemoryManagement';
+import MemoryIcon from './MemoryIcon';
 import MessageLabeling from './MessageLabeling';
 import NPCTeamMenu from './NPCTeamMenu';
 import PythonEnvSettings from './PythonEnvSettings';
@@ -355,6 +357,9 @@ const Sidebar = (props: any) => {
     // Default new terminal type (system/bash, npcsh, guac)
     const [defaultNewTerminalType, setDefaultNewTerminalType] = useState<string>(() =>
         localStorage.getItem('npcStudio_defaultNewTerminalType') || 'system'
+    );
+    const [defaultNewNotebookType, setDefaultNewNotebookType] = useState<string>(() =>
+        localStorage.getItem('npcStudio_defaultNewNotebookType') || 'notebook'
     );
     // Default new document type (docx, xlsx, pptx, mapx)
     const [defaultNewDocumentType, setDefaultNewDocumentType] = useState<string>(() =>
@@ -1609,46 +1614,52 @@ const renderWebsiteList = () => {
             <div
                 className="flex w-full bg-gradient-to-r from-purple-900/20 to-indigo-900/20"
             >
-                {/* Label */}
+                {/* Left side: Icon only */}
+                <div className="flex items-center px-4">
+                    <Globe size={16} className="text-purple-400" />
+                </div>
+                {/* Right side: actions and dropdown */}
                 <div
                     draggable
                     onDragStart={handleSectionDragStart('websites')}
                     onDragEnd={handleSectionDragEnd}
-                    className="flex-1 flex items-center gap-1.5 px-2 py-1.5 cursor-grab active:cursor-grabbing"
+                    onClick={() => setWebsitesCollapsed(!websitesCollapsed)}
+                    className="flex-1 flex items-center justify-end gap-2 px-2 py-4 cursor-pointer hover:bg-white/5"
                 >
-                    <Globe size={12} className="text-purple-400" />
-                    <span className="text-[11px] text-purple-300 font-medium">Websites</span>
-                    <span className="text-[10px] text-gray-500">({openBrowsers.length + allWebsites.length})</span>
+                    {!websitesCollapsed && (
+                        <>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowWebsitesSettings(!showWebsitesSettings); }}
+                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${showWebsitesSettings ? 'text-purple-400' : 'text-gray-400 hover:text-purple-400'}`}
+                                title="Settings"
+                            >
+                                <Settings size={12} />
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); createBrowserGraphPane?.(); }}
+                                className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-cyan-400"
+                                title="Browser History Graph"
+                            >
+                                <Network size={12} />
+                            </button>
+                        </>
+                    )}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
+                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                        title="Refresh"
+                    >
+                        <RefreshCw size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); createNewBrowser?.(); }}
+                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                        title="New Browser"
+                    >
+                        <Plus size={12} />
+                    </button>
+                    <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${websitesCollapsed ? "" : "rotate-90"}`} />
                 </div>
-                {/* Action buttons */}
-                <button
-                    onClick={(e) => { e.stopPropagation(); setShowWebsitesSettings(!showWebsitesSettings); }}
-                    className={`px-2 py-1.5 hover:bg-white/10 transition-all ${showWebsitesSettings ? 'text-purple-400' : 'text-gray-400 hover:text-purple-400'}`}
-                    title="Settings"
-                >
-                    <Settings size={12} />
-                </button>
-                <button
-                    onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
-                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-purple-400"
-                    title="Refresh"
-                >
-                    <RefreshCw size={12} />
-                </button>
-                <button
-                    onClick={(e) => { e.stopPropagation(); createBrowserGraphPane?.(); }}
-                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-cyan-400"
-                    title="Browser History Graph"
-                >
-                    <Network size={12} />
-                </button>
-                <button
-                    onClick={(e) => { e.stopPropagation(); setWebsitesCollapsed(!websitesCollapsed); }}
-                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400"
-                    title={websitesCollapsed ? "Expand" : "Collapse"}
-                >
-                    <ChevronRight size={14} className={`transform transition-transform ${websitesCollapsed ? "" : "rotate-90"}`} />
-                </button>
             </div>
             {/* Websites Settings Panel */}
             {showWebsitesSettings && (
@@ -1752,7 +1763,7 @@ const renderWebsiteList = () => {
                                     }}
                                     className={`flex items-center gap-2 px-2 py-1.5 w-full text-left transition-all group ${
                                         activeContentPaneId === browser.paneId
-                                            ? 'bg-blue-500/20 border-l-2 border-blue-500'
+                                            ? 'bg-teal-500/20 border-l-2 border-teal-500'
                                             : 'hover:bg-white/5 border-l-2 border-transparent'
                                     }`}
                                 >
@@ -1985,27 +1996,24 @@ const renderWebsiteList = () => {
 
         return (
             <div className="mt-3">
-                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-purple-900/20 to-pink-900/20 border-b border-purple-500/20">
-                    <div className="flex items-center gap-1.5">
-                        <BrainCircuit size={12} className="text-purple-400" />
-                        <span className="text-[11px] text-purple-300 font-medium">Memories</span>
-                        <span className="text-[10px] text-gray-500">({filteredMemories.length})</span>
-                    </div>
-                    <div className="flex items-center gap-0.5">
+                <div className="flex w-full bg-gradient-to-r from-purple-900/20 to-pink-900/20 border-b border-purple-500/20">
+                    {/* Left side: Icon + action buttons */}
+                    <div className="flex items-center gap-0.5 px-2">
+                        <MemoryIcon size={12} className="text-purple-400 mr-1" />
                         <button
                             onClick={(e) => { e.stopPropagation(); loadMemories(); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                            className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
                             title="Refresh memories"
                         >
                             <RefreshCw size={12} />
                         </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setMemoriesCollapsed(!memoriesCollapsed); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
-                            title={memoriesCollapsed ? "Expand" : "Collapse"}
-                        >
-                            <ChevronRight size={14} className={`transform transition-transform ${memoriesCollapsed ? "" : "rotate-90"}`} />
-                        </button>
+                    </div>
+                    {/* Right side: Clickable dropdown area */}
+                    <div
+                        onClick={() => setMemoriesCollapsed(!memoriesCollapsed)}
+                        className="flex-1 flex items-center justify-end gap-1.5 px-2 py-4 cursor-pointer hover:bg-white/5"
+                    >
+                        <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${memoriesCollapsed ? "" : "rotate-90"}`} />
                     </div>
                 </div>
 
@@ -2074,27 +2082,24 @@ const renderWebsiteList = () => {
 
         return (
             <div className="mt-3">
-                <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border-b border-cyan-500/20">
-                    <div className="flex items-center gap-1.5">
-                        <Network size={12} className="text-cyan-400" />
-                        <span className="text-[11px] text-cyan-300 font-medium">Knowledge</span>
-                        <span className="text-[10px] text-gray-500">({filteredEntities.length})</span>
-                    </div>
-                    <div className="flex items-center gap-0.5">
+                <div className="flex w-full bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border-b border-cyan-500/20">
+                    {/* Left side: Icon + action buttons */}
+                    <div className="flex items-center gap-0.5 px-2">
+                        <Network size={12} className="text-cyan-400 mr-1" />
                         <button
                             onClick={(e) => { e.stopPropagation(); loadKnowledgeEntities(); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-cyan-400"
+                            className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-cyan-400"
                             title="Refresh knowledge graph"
                         >
                             <RefreshCw size={12} />
                         </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setKnowledgeCollapsed(!knowledgeCollapsed); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400"
-                            title={knowledgeCollapsed ? "Expand" : "Collapse"}
-                        >
-                            <ChevronRight size={14} className={`transform transition-transform ${knowledgeCollapsed ? "" : "rotate-90"}`} />
-                        </button>
+                    </div>
+                    {/* Right side: Clickable dropdown area */}
+                    <div
+                        onClick={() => setKnowledgeCollapsed(!knowledgeCollapsed)}
+                        className="flex-1 flex items-center justify-end gap-1.5 px-2 py-4 cursor-pointer hover:bg-white/5"
+                    >
+                        <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${knowledgeCollapsed ? "" : "rotate-90"}`} />
                     </div>
                 </div>
 
@@ -2539,7 +2544,7 @@ const renderWebsiteList = () => {
                                 handleApplyPromptToFilesInInput('custom', `Here is the content of the file(s):`);
                                 setSidebarItemContextMenuPos(null);
                             }}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                            className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                         >
                             <MessageSquare size={16} />
                             <span>Add Content to Chat ({selectedFilePaths.length})</span>
@@ -2550,7 +2555,7 @@ const renderWebsiteList = () => {
                                 setInput(prev => `${prev}${prev ? ' ' : ''}${fileNames}`);
                                 setSidebarItemContextMenuPos(null);
                             }}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                            className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                         >
                             <File size={16} />
                             <span>Add Filename(s) to Chat</span>
@@ -2563,7 +2568,7 @@ const renderWebsiteList = () => {
                     <>
                         <button
                             onClick={() => handleOpenFolderAsWorkspace(path)}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                            className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                         >
                             <Folder size={16} />
                             <span>Open as Workspace</span>
@@ -2578,7 +2583,7 @@ const renderWebsiteList = () => {
                         setPermissionDialog({ path, type: 'chmod' });
                         setSidebarItemContextMenuPos(null);
                     }}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                 >
                     <KeyRound size={16} />
                     <span>Change Permissions (chmod)</span>
@@ -2588,7 +2593,7 @@ const renderWebsiteList = () => {
                         setPermissionDialog({ path, type: 'chown' });
                         setSidebarItemContextMenuPos(null);
                     }}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                 >
                     <Users size={16} />
                     <span>Change Owner (chown)</span>
@@ -2599,7 +2604,7 @@ const renderWebsiteList = () => {
                     <>
                         <button
                             onClick={handleSidebarRenameStart}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                            className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                         >
                             <Edit size={16} />
                             <span>Rename</span>
@@ -2607,7 +2612,7 @@ const renderWebsiteList = () => {
 
                         <button
                             onClick={handleZipItems}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                            className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                         >
                             <Archive size={16} />
                             <span>Zip{selectedFiles.size > 1 ? ` (${selectedFiles.size} items)` : ''}</span>
@@ -2619,7 +2624,7 @@ const renderWebsiteList = () => {
 
                 <button
                     onClick={handleSidebarItemDelete}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400"
+                    className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left text-red-400"
                 >
                     <Trash size={16} />
                     <span>Delete</span>
@@ -2708,57 +2713,58 @@ const renderFolderList = (structure) => {
             <div
                 className="flex w-full bg-gradient-to-r from-yellow-900/20 to-orange-900/20"
             >
-                {/* Label */}
+                {/* Left side: Icon only */}
+                <div className="flex items-center px-4">
+                    <FolderOpen size={16} className="text-yellow-400" />
+                </div>
+                {/* Right side: actions and dropdown */}
                 <div
                     draggable
                     onDragStart={handleSectionDragStart('files')}
                     onDragEnd={handleSectionDragEnd}
-                    className="flex-1 flex items-center gap-1.5 px-2 py-1.5 cursor-grab active:cursor-grabbing"
+                    onClick={() => setFilesCollapsed(!filesCollapsed)}
+                    className="flex-1 flex items-center justify-end gap-2 px-2 py-4 cursor-pointer hover:bg-white/5"
                 >
-                    <FolderOpen size={12} className="text-yellow-400" />
-                    <span className="text-[11px] text-yellow-300 font-medium">Files</span>
-                    <span className="text-[10px] text-gray-500">({fileCount})</span>
-                    {activeTypeFilters.length > 0 && (
-                        <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
-                            {activeTypeFilters.length} filter{activeTypeFilters.length !== 1 ? 's' : ''}
-                        </span>
+                    {!filesCollapsed && (
+                        <>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowFilesSettings(!showFilesSettings); }}
+                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                                title="Settings"
+                            >
+                                <Settings size={12} />
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (showFileTypeFilter) {
+                                        setFileTypeFilter('');
+                                    }
+                                    setShowFileTypeFilter(!showFileTypeFilter);
+                                }}
+                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                                title="Filter by file type"
+                            >
+                                <Filter size={12} />
+                            </button>
+                        </>
                     )}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
+                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                        title="Refresh files"
+                    >
+                        <RefreshCw size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleCreateNewFolder?.(); }}
+                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                        title="New Folder"
+                    >
+                        <Plus size={12} />
+                    </button>
+                    <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${filesCollapsed ? "" : "rotate-90"}`} />
                 </div>
-                {/* Action buttons */}
-                <button
-                    onClick={(e) => { e.stopPropagation(); setShowFilesSettings(!showFilesSettings); }}
-                    className={`px-2 py-1.5 hover:bg-white/10 transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
-                    title="Settings"
-                >
-                    <Settings size={12} />
-                </button>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        if (showFileTypeFilter) {
-                            setFileTypeFilter('');
-                        }
-                        setShowFileTypeFilter(!showFileTypeFilter);
-                    }}
-                    className={`px-2 py-1.5 hover:bg-white/10 transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
-                    title="Filter by file type"
-                >
-                    <Filter size={12} />
-                </button>
-                <button
-                    onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
-                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-yellow-400"
-                    title="Refresh files"
-                >
-                    <RefreshCw size={12} />
-                </button>
-                <button
-                    onClick={(e) => { e.stopPropagation(); setFilesCollapsed(!filesCollapsed); }}
-                    className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400"
-                    title={filesCollapsed ? "Expand" : "Collapse"}
-                >
-                    <ChevronRight size={14} className={`transform transition-transform ${filesCollapsed ? "" : "rotate-90"}`} />
-                </button>
             </div>
             {/* Files Settings Panel */}
             {showFilesSettings && (
@@ -3041,7 +3047,7 @@ const renderFolderList = (structure) => {
                         }}
                         onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'file')}
                         className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded transition-all duration-200
-                            ${isActiveFile ? 'conversation-selected border-l-2 border-blue-500' : 
+                            ${isActiveFile ? 'conversation-selected border-l-2 border-teal-500' : 
                               isSelected ? 'conversation-selected' : 'hover:bg-gray-800'}`}
                         title={`Edit ${name}`}
                     >
@@ -3164,60 +3170,61 @@ const renderFolderList = (structure) => {
                 <div
                     className="flex w-full bg-gradient-to-r from-green-900/20 to-emerald-900/20"
                 >
-                    {/* Label */}
+                    {/* Left side: Icon only */}
+                    <div className="flex items-center px-4">
+                        <MessageSquare size={16} className="text-green-400" />
+                    </div>
+                    {/* Right side: actions and dropdown */}
                     <div
                         draggable
                         onDragStart={handleSectionDragStart('conversations')}
                         onDragEnd={handleSectionDragEnd}
-                        className="flex-1 flex items-center gap-1.5 px-2 py-1.5 cursor-grab active:cursor-grabbing"
+                        onClick={() => setConversationsCollapsed(!conversationsCollapsed)}
+                        className="flex-1 flex items-center justify-end gap-2 px-2 py-4 cursor-pointer hover:bg-white/5"
                     >
-                        <MessageSquare size={12} className="text-green-400" />
-                        <span className="text-[11px] text-green-300 font-medium">Conversations</span>
-                        <span className="text-[10px] text-gray-500">({filteredConversations.length})</span>
-                        {activeFilterCount > 0 && (
-                            <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full">
-                                {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
-                            </span>
+                        {!conversationsCollapsed && (
+                            <>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setShowConversationsSettings(!showConversationsSettings); }}
+                                    className={`p-1.5 hover:bg-white/10 rounded transition-all ${showConversationsSettings ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
+                                    title="Settings"
+                                >
+                                    <Settings size={12} />
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (showConvoFilters) {
+                                            setConvoNpcFilter('');
+                                            setConvoModelFilter('');
+                                            setConvoDateFrom('');
+                                            setConvoDateTo('');
+                                        }
+                                        setShowConvoFilters(!showConvoFilters);
+                                    }}
+                                    className={`p-1.5 hover:bg-white/10 rounded transition-all ${activeFilterCount > 0 || showConvoFilters ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
+                                    title="Filter conversations"
+                                >
+                                    <Filter size={12} />
+                                </button>
+                            </>
                         )}
+                        <button
+                            onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
+                            className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
+                            title="Refresh conversations"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); createNewConversation?.(); }}
+                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
+                            title="New Chat"
+                        >
+                            <Plus size={12} />
+                        </button>
+                        <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${conversationsCollapsed ? "" : "rotate-90"}`} />
                     </div>
-                    {/* Action buttons */}
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setShowConversationsSettings(!showConversationsSettings); }}
-                        className={`px-2 py-1.5 hover:bg-white/10 transition-all ${showConversationsSettings ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
-                        title="Settings"
-                    >
-                        <Settings size={12} />
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            if (showConvoFilters) {
-                                setConvoNpcFilter('');
-                                setConvoModelFilter('');
-                                setConvoDateFrom('');
-                                setConvoDateTo('');
-                            }
-                            setShowConvoFilters(!showConvoFilters);
-                        }}
-                        className={`px-2 py-1.5 hover:bg-white/10 transition-all ${activeFilterCount > 0 || showConvoFilters ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
-                        title="Filter conversations"
-                    >
-                        <Filter size={12} />
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
-                        className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-green-400"
-                        title="Refresh conversations"
-                    >
-                        <RefreshCw size={12} />
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setConversationsCollapsed(!conversationsCollapsed); }}
-                        className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400"
-                        title={conversationsCollapsed ? "Expand" : "Collapse"}
-                    >
-                        <ChevronRight size={14} className={`transform transition-transform ${conversationsCollapsed ? "" : "rotate-90"}`} />
-                    </button>
                 </div>
                 {/* Conversations Settings Panel */}
                 {showConversationsSettings && (
@@ -3403,7 +3410,7 @@ const renderFolderList = (structure) => {
             return (
                 <div>
                     {header}
-                    <div className="px-3 py-3 text-[11px] text-gray-500 bg-black/10 text-center">No conversations yet</div>
+                    {/* Empty state - no message needed */}
                 </div>
             );
         }
@@ -3475,7 +3482,7 @@ const renderFolderList = (structure) => {
                                     }}
                                     className={`flex items-center gap-2 px-2 py-1.5 w-full text-left transition-all group
                                         ${isActive ? 'bg-green-500/20 border-l-2 border-green-500' : 'hover:bg-white/5 border-l-2 border-transparent'}
-                                        ${isSelected ? 'bg-blue-500/10' : ''}`}
+                                        ${isSelected ? 'bg-teal-500/10' : ''}`}
                                 >
                                     <MessageSquare size={13} className={`flex-shrink-0 ${isActive ? 'text-green-400' : 'text-gray-500 group-hover:text-gray-400'}`} />
                                     <div className="flex flex-col overflow-hidden min-w-0 flex-1">
@@ -3498,10 +3505,13 @@ const renderFolderList = (structure) => {
         if (!gitStatus) {
             return (
                 <div>
-                    <div className="flex items-center bg-gradient-to-r from-orange-900/20 to-amber-900/20 px-2 py-1.5">
-                        <GitBranch size={12} className="text-orange-400 mr-1.5" />
-                        <span className="text-[11px] text-orange-300 font-medium">Git</span>
-                        <span className="text-[10px] text-gray-500 ml-1.5">(checking...)</span>
+                    <div className="flex w-full bg-gradient-to-r from-orange-900/20 to-amber-900/20">
+                        <div className="flex items-center gap-0.5 px-2">
+                            <GitBranch size={12} className="text-orange-400 mr-1" />
+                        </div>
+                        <div className="flex-1 flex items-center justify-end px-2 py-4">
+                            <ChevronRight size={14} className="text-gray-400" />
+                        </div>
                     </div>
                 </div>
             );
@@ -3542,39 +3552,27 @@ const renderFolderList = (structure) => {
                 <div
                     className="flex w-full bg-gradient-to-r from-orange-900/20 to-amber-900/20"
                 >
-                    {/* Label */}
+                    {/* Left side: Icon + action buttons */}
+                    <div className="flex items-center gap-0.5 px-2">
+                        <GitBranch size={12} className="text-orange-400 mr-1" />
+                        <button
+                            onClick={(e) => { e.stopPropagation(); loadGitStatus(); }}
+                            className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-orange-400"
+                            title="Refresh git status"
+                        >
+                            <RotateCcw size={12} />
+                        </button>
+                    </div>
+                    {/* Right side: Clickable dropdown area */}
                     <div
                         draggable
                         onDragStart={handleSectionDragStart('git')}
                         onDragEnd={handleSectionDragEnd}
-                        className="flex-1 flex items-center gap-1.5 px-2 py-1.5 cursor-grab active:cursor-grabbing"
+                        onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)}
+                        className="flex-1 flex items-center justify-end gap-1.5 px-2 py-4 cursor-pointer hover:bg-white/5"
                     >
-                        <GitBranch size={12} className="text-orange-400" />
-                        <span className="text-[11px] text-orange-300 font-medium">Git</span>
-                        <span className="text-[10px] text-gray-500">({gitStatus.branch})</span>
-                        {totalChanges > 0 && (
-                            <span className="text-[9px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded-full">
-                                {totalChanges} change{totalChanges !== 1 ? 's' : ''}
-                            </span>
-                        )}
-                        {gitStatus.ahead > 0 && <span className="text-[9px] text-green-400">↑{gitStatus.ahead}</span>}
-                        {gitStatus.behind > 0 && <span className="text-[9px] text-yellow-400">↓{gitStatus.behind}</span>}
+                        <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${!gitPanelCollapsed ? 'rotate-90' : ''}`} />
                     </div>
-                    {/* Action buttons */}
-                    <button
-                        onClick={(e) => { e.stopPropagation(); loadGitStatus(); }}
-                        className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400 hover:text-orange-400"
-                        title="Refresh git status"
-                    >
-                        <RotateCcw size={12} />
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setGitPanelCollapsed(!gitPanelCollapsed); }}
-                        className="px-2 py-1.5 hover:bg-white/10 transition-all text-gray-400"
-                        title={gitPanelCollapsed ? "Expand" : "Collapse"}
-                    >
-                        <ChevronRight size={14} className={`transition-transform ${!gitPanelCollapsed ? 'rotate-90' : ''}`} />
-                    </button>
                 </div>
             </div>
         );
@@ -3792,21 +3790,21 @@ const renderFolderList = (structure) => {
                 >
                     <button
                         onClick={() => handleSummarizeAndStart()}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <MessageSquare size={16} />
                         <span>Summarize & Start ({selectedConvos?.size || 0})</span>
                     </button>
                     <button
                         onClick={() => handleSummarizeAndDraft()}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <Edit size={16} />
                         <span>Summarize & Draft ({selectedConvos?.size || 0})</span>
                     </button>
                     <button
                         onClick={() => handleSummarizeAndPrompt()}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <MessageSquare size={16} />
                         <span>Summarize & Prompt ({selectedConvos?.size || 0})</span>
@@ -3814,7 +3812,7 @@ const renderFolderList = (structure) => {
                 <div className="border-t theme-border my-1"></div>
                 <button
                     onClick={handleAnalyzeInDashboard}
-                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                    className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                 >
                     <BarChart3 size={16} />
                     <span>Analyze in Dashboard ({selectedConvos?.size || 0})</span>
@@ -3839,14 +3837,14 @@ const renderFolderList = (structure) => {
                 >
                     <button
                         onClick={() => handleApplyPromptToFiles('summarize')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <MessageSquare size={16} />
                         <span>Summarize Files ({selectedFiles.size})</span>
                     </button>
                     <button
                         onClick={() => handleApplyPromptToFilesInInput('summarize')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <MessageSquare size={16} />
                         <span>Summarize in Input Field ({selectedFiles.size})</span>
@@ -3854,14 +3852,14 @@ const renderFolderList = (structure) => {
                     <div className="border-t theme-border my-1"></div>
                     <button
                         onClick={() => handleApplyPromptToFiles('analyze')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <Edit size={16} />
                         <span>Analyze Files ({selectedFiles.size})</span>
                     </button>
                     <button
                         onClick={() => handleApplyPromptToFilesInInput('analyze')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <Edit size={16} />
                         <span>Analyze in Input Field ({selectedFiles.size})</span>
@@ -3869,14 +3867,14 @@ const renderFolderList = (structure) => {
                     <div className="border-t theme-border my-1"></div>
                     <button
                         onClick={() => handleApplyPromptToFiles('refactor')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <Code2 size={16} />
                         <span>Refactor Code ({selectedFiles.size})</span>
                     </button>
                     <button
                         onClick={() => handleApplyPromptToFiles('document')}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <FileText size={16} />
                         <span>Document Code ({selectedFiles.size})</span>
@@ -3905,7 +3903,7 @@ const renderFolderList = (structure) => {
                             createNewBrowser(websiteContextMenu.url);
                             setWebsiteContextMenu(null);
                         }}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <Globe size={16} />
                         <span>Open</span>
@@ -3921,7 +3919,7 @@ const renderFolderList = (structure) => {
                                 }
                                 setWebsiteContextMenu(null);
                             }}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-red-400"
+                            className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left text-red-400"
                         >
                             <Star size={16} className="fill-current" />
                             <span>Remove Bookmark</span>
@@ -3938,7 +3936,7 @@ const renderFolderList = (structure) => {
                                 loadBookmarks();
                                 setWebsiteContextMenu(null);
                             }}
-                            className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                            className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                         >
                             <Star size={16} />
                             <span>Add to Bookmarks</span>
@@ -3955,7 +3953,7 @@ const renderFolderList = (structure) => {
                             }
                             setWebsiteContextMenu(null);
                         }}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <Clock size={16} />
                         <span>Set Limits</span>
@@ -3966,7 +3964,7 @@ const renderFolderList = (structure) => {
                             navigator.clipboard.writeText(websiteContextMenu.url);
                             setWebsiteContextMenu(null);
                         }}
-                        className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left theme-text-primary"
+                        className="flex items-center gap-2 px-4 py-3 theme-hover w-full text-left theme-text-primary"
                     >
                         <FileText size={16} />
                         <span>Copy URL</span>
@@ -4000,8 +3998,8 @@ return (
     <div
         className="border-r theme-border flex flex-col flex-shrink-0 theme-sidebar relative"
         style={{
-            width: sidebarCollapsed ? '32px' : `${sidebarWidth}px`,
-            transition: sidebarCollapsed ? 'width 0.2s ease' : 'none'
+            width: sidebarCollapsed ? '40px' : `${sidebarWidth}px`,
+            transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
         }}
     >
         {!sidebarCollapsed && (
@@ -4019,196 +4017,182 @@ return (
 
         {/* Header Actions */}
         <div className={`border-b border-gray-700 flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
-            <div className={`grid grid-cols-2 ${headerActionsExpanded ? 'grid-rows-4' : ''} divide-x divide-y divide-gray-700`}>
-                <button onClick={toggleTheme} className="action-grid-button-wide" aria-label="Toggle Theme" title="Toggle Theme">
-                    {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}<span className="text-[10px] ml-1.5">Theme</span>
-                </button>
-                {headerActionsExpanded ? (
-                    <button onClick={createNewConversation} className="action-grid-button-wide" aria-label="New Chat" title="New Chat (Ctrl+Shift+C)">
-                        <Plus size={16} /><span className="text-[10px] ml-1.5">Chat</span>
+            <div className="grid grid-cols-4 divide-x divide-gray-700">
+                {/* Terminals dropdown */}
+                <div className="relative" data-dropdown="terminal">
+                    <button
+                        onClick={() => createNewTerminal?.(defaultNewTerminalType)}
+                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-3 relative transition-colors"
+                        title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal`}
+                    >
+                        {defaultNewTerminalType === 'system' && <Terminal size={14} className="text-green-400" />}
+                        {defaultNewTerminalType === 'npcsh' && <Sparkles size={14} className="text-purple-400" />}
+                        {defaultNewTerminalType === 'guac' && <Code2 size={14} className="text-yellow-400" />}
                     </button>
-                ) : (
-                    <div className="flex w-full h-full">
-                        <button
-                            onClick={() => {
-                                switch (defaultNewPaneType) {
-                                    case 'browser': createNewBrowser?.(); break;
-                                    case 'terminal': createNewTerminal?.(); break;
-                                    case 'folder': handleCreateNewFolder?.(); break;
-                                    case 'code': createNewTextFile?.(); break;
-                                    default: createNewConversation?.();
-                                }
-                            }}
-                            className="flex-1 flex items-center justify-center gap-1 theme-hover"
-                            aria-label={`New ${defaultNewPaneType}`}
-                            title={`New ${defaultNewPaneType.charAt(0).toUpperCase() + defaultNewPaneType.slice(1)}`}
-                        >
-                            {defaultNewPaneType === 'browser' && <><Globe size={14} className="text-cyan-400" /><span className="text-[10px]">Browser</span></>}
-                            {defaultNewPaneType === 'terminal' && <><Terminal size={14} className="text-green-400" /><span className="text-[10px]">Terminal</span></>}
-                            {defaultNewPaneType === 'folder' && <><Folder size={14} className="text-yellow-400" /><span className="text-[10px]">Folder</span></>}
-                            {defaultNewPaneType === 'code' && <><Code2 size={14} className="text-purple-400" /><span className="text-[10px]">Code</span></>}
-                            {defaultNewPaneType === 'chat' && <><Plus size={14} /><span className="text-[10px]">Chat</span></>}
-                        </button>
-                        <button onClick={() => setChatPlusDropdownOpen(!chatPlusDropdownOpen)} className="px-1.5 theme-hover flex items-center" aria-label="More options" title="More options">
-                            <ChevronDown size={10} />
-                        </button>
-                    </div>
-                )}
-                {/* Expanded rows - rendered based on tile config order */}
-                {headerActionsExpanded && (
-                    <>
-                        {enabledTiles.filter(t => !['theme', 'chat'].includes(t.id)).map((tile) => {
-                            switch (tile.id) {
-                                case 'folder':
-                                    return (
-                                        <button key={tile.id} onClick={handleCreateNewFolder} className="action-grid-button-wide" aria-label="New Folder" title="New Folder (Ctrl+N)">
-                                            <Folder size={16} /><span className="text-[10px] ml-1.5">Folder</span>
-                                        </button>
-                                    );
-                                case 'browser':
-                                    return (
-                                        <button key={tile.id} onClick={() => createNewBrowser?.()} className="action-grid-button-wide" aria-label="New Browser" title="New Browser (Ctrl+Shift+B)">
-                                            <Globe size={16} /><span className="text-[10px] ml-1.5">Browser</span>
-                                        </button>
-                                    );
-                                case 'terminal':
-                                    return (
-                                        <div key={tile.id} className="relative flex" data-dropdown="terminal">
-                                            <button onClick={() => createNewTerminal?.(defaultNewTerminalType)} className="action-grid-button-wide border-r-0" aria-label="New Terminal" title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal (Ctrl+Shift+T)`}>
-                                                {defaultNewTerminalType === 'system' && <Terminal size={16} className="text-green-400" />}
-                                                {defaultNewTerminalType === 'npcsh' && <Sparkles size={16} className="text-purple-400" />}
-                                                {defaultNewTerminalType === 'guac' && <Code2 size={16} className="text-yellow-400" />}
-                                                <span className="text-[10px] ml-1.5">{defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType}</span>
-                                            </button>
-                                            <button
-                                                onClick={() => setTerminalDropdownOpen(!terminalDropdownOpen)}
-                                                className="px-1 theme-bg-tertiary border-y border-r theme-border hover:bg-gray-700"
-                                                aria-label="Terminal options"
-                                            >
-                                                <ChevronDown size={10} />
-                                            </button>
-                                            {terminalDropdownOpen && (
-                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 shadow-xl z-[9999] py-1 min-w-[140px]">
-                                                    <button onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <Terminal size={14} className="text-green-400" /><span>Bash</span>
-                                                    </button>
-                                                    <button onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <Sparkles size={14} className="text-purple-400" /><span>npcsh</span>
-                                                    </button>
-                                                    <button onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <Code2 size={14} className="text-yellow-400" /><span>guac</span>
-                                                    </button>
-                                                    <div className="border-t border-gray-700 my-1" />
-                                                    <button onClick={() => { createNewTerminal?.('python3'); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <Code2 size={14} className="text-blue-400" /><span>Python</span>
-                                                    </button>
-                                                    <div className="border-t border-gray-700 my-1" />
-                                                    <button onClick={() => { createNewNotebook?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <FileText size={14} className="text-orange-400" /><span>Notebook (.ipynb)</span>
-                                                    </button>
-                                                    <button onClick={() => { createNewExperiment?.(); setTerminalDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <FlaskConical size={14} className="text-purple-400" /><span>Experiment (.exp)</span>
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                case 'code':
-                                    const defaultType = commonFileTypes.find(t => t.ext === defaultCodeFileType) || commonFileTypes[0];
-                                    return (
-                                        <div key={tile.id} className="relative flex" data-dropdown="code-file">
-                                            <button onClick={() => createFileWithExtension(defaultCodeFileType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Code File" title={`New ${defaultType.label} file (Ctrl+Shift+F)`}>
-                                                <Code2 size={16} /><span className="text-[10px] ml-1.5">.{defaultCodeFileType}</span>
-                                            </button>
-                                            <button
-                                                onClick={() => setCodeFileDropdownOpen(!codeFileDropdownOpen)}
-                                                className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700"
-                                                aria-label="File type options"
-                                            >
-                                                <ChevronDown size={10} />
-                                            </button>
-                                            {codeFileDropdownOpen && (
-                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1 min-w-[180px] max-h-80 overflow-y-auto">
-                                                    <div className="px-3 py-1.5 border-b border-gray-700">
-                                                        <div className="text-[9px] text-gray-500">Click to create, right-click to set default</div>
-                                                    </div>
-                                                    {commonFileTypes.map(type => (
-                                                        <button
-                                                            key={type.ext}
-                                                            onClick={() => { createFileWithExtension(type.ext); setCodeFileDropdownOpen(false); }}
-                                                            onContextMenu={(e) => { e.preventDefault(); setDefaultCodeFileType(type.ext); setCodeFileDropdownOpen(false); }}
-                                                            className={`flex items-center gap-2 w-full px-3 py-1.5 text-left text-[11px] hover:bg-gray-700 ${defaultCodeFileType === type.ext ? 'bg-blue-900/30 text-blue-300' : 'text-gray-200'}`}
-                                                        >
-                                                            <span className="w-4 text-center">{type.icon}</span>
-                                                            <span className="flex-1">{type.label}</span>
-                                                            <span className="text-[9px] text-gray-500">.{type.ext}</span>
-                                                            {defaultCodeFileType === type.ext && <Star size={10} className="text-yellow-400" />}
-                                                        </button>
-                                                    ))}
-                                                    <div className="border-t border-gray-700">
-                                                        <button
-                                                            onClick={() => { setCodeFileDropdownOpen(false); createNewTextFile?.(); }}
-                                                            className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] text-gray-400 hover:bg-gray-700"
-                                                        >
-                                                            <span className="w-4 text-center">✏️</span>
-                                                            <span>Custom filename...</span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                case 'document':
-                                    return (
-                                        <div key={tile.id} className="relative flex" data-dropdown="doc">
-                                            <button onClick={() => createNewDocument?.(defaultNewDocumentType)} className="action-grid-button-wide rounded-r-none border-r-0" aria-label="New Document" title={`New ${defaultNewDocumentType.toUpperCase()} Document`}>
-                                                {defaultNewDocumentType === 'docx' && <FileText size={16} className="text-blue-300" />}
-                                                {defaultNewDocumentType === 'xlsx' && <FileJson size={16} className="text-green-300" />}
-                                                {defaultNewDocumentType === 'pptx' && <BarChart3 size={16} className="text-orange-300" />}
-                                                {defaultNewDocumentType === 'mapx' && <Share2 size={16} className="text-pink-300" />}
-                                                <span className="text-[10px] ml-1.5">{defaultNewDocumentType === 'mapx' ? 'Map' : defaultNewDocumentType.slice(0, -1).toUpperCase()}</span>
-                                            </button>
-                                            <button onClick={() => setDocDropdownOpen(!docDropdownOpen)} className="px-1 theme-bg-tertiary border theme-border rounded-r-lg hover:bg-gray-700" aria-label="Document options">
-                                                <ChevronDown size={10} />
-                                            </button>
-                                            {docDropdownOpen && (
-                                                <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-[9999] py-1 min-w-[150px]">
-                                                    <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">New Document</div>
-                                                    <button onClick={() => { createNewDocument?.('docx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <FileText size={16} className="text-blue-300" /><span>Word (.docx)</span>
-                                                    </button>
-                                                    <button onClick={() => { createNewDocument?.('xlsx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <FileJson size={16} className="text-green-300" /><span>Excel (.xlsx)</span>
-                                                    </button>
-                                                    <button onClick={() => { createNewDocument?.('pptx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <BarChart3 size={16} className="text-orange-300" /><span>PowerPoint (.pptx)</span>
-                                                    </button>
-                                                    <button onClick={() => { createNewDocument?.('mapx'); setDocDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                                                        <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                case 'workspace':
-                                    return (
-                                        <button key={tile.id} onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }} className="action-grid-button-wide" aria-label="New Workspace" title="New Workspace (Ctrl+Shift+N)">
-                                            <img src={npcLogo} alt="Incognide" style={{ width: 16, height: 16, minWidth: 16, minHeight: 16 }} className="rounded-full" />
-                                            <span className="text-[10px] ml-1.5">Incognide</span>
-                                        </button>
-                                    );
-                                default:
-                                    return null;
-                            }
-                        })}
-                    </>
-                )}
-            </div>
-            {/* Expand/collapse toggle */}
-            <div className="flex items-center mt-1">
-                <button onClick={() => setHeaderActionsExpanded(!headerActionsExpanded)} className="flex-1 py-1 text-[10px] text-gray-500 hover:text-gray-300 flex items-center justify-center gap-1">
-                    {headerActionsExpanded ? <><ChevronUp size={10} /> Less</> : <><ChevronDown size={10} /> More</>}
-                </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setTerminalDropdownOpen(!terminalDropdownOpen); }}
+                        className="absolute top-0 right-0 w-1/2 h-1/2 flex items-center justify-center hover:bg-white/10 rounded-bl transition-colors"
+                        title="More terminal options"
+                    >
+                        <ChevronDown size={7} className="text-gray-500" />
+                    </button>
+                    {terminalDropdownOpen && (
+                        <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-[9999] py-1 min-w-[110px]">
+                            <div className="px-2 py-0.5 text-[8px] text-gray-500 uppercase">Right-click to set default</div>
+                            <button
+                                onClick={() => { createNewTerminal?.('system'); setTerminalDropdownOpen(false); }}
+                                onContextMenu={(e) => { e.preventDefault(); setDefaultNewTerminalType('system'); setTerminalDropdownOpen(false); }}
+                                className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultNewTerminalType === 'system' ? 'bg-green-900/30 text-green-300' : 'text-gray-200'}`}
+                            >
+                                <Terminal size={11} className="text-green-400" /><span>Bash</span>
+                                {defaultNewTerminalType === 'system' && <Star size={8} className="text-yellow-400 ml-auto" />}
+                            </button>
+                            <button
+                                onClick={() => { createNewTerminal?.('npcsh'); setTerminalDropdownOpen(false); }}
+                                onContextMenu={(e) => { e.preventDefault(); setDefaultNewTerminalType('npcsh'); setTerminalDropdownOpen(false); }}
+                                className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultNewTerminalType === 'npcsh' ? 'bg-purple-900/30 text-purple-300' : 'text-gray-200'}`}
+                            >
+                                <Sparkles size={11} className="text-purple-400" /><span>npcsh</span>
+                                {defaultNewTerminalType === 'npcsh' && <Star size={8} className="text-yellow-400 ml-auto" />}
+                            </button>
+                            <button
+                                onClick={() => { createNewTerminal?.('guac'); setTerminalDropdownOpen(false); }}
+                                onContextMenu={(e) => { e.preventDefault(); setDefaultNewTerminalType('guac'); setTerminalDropdownOpen(false); }}
+                                className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultNewTerminalType === 'guac' ? 'bg-yellow-900/30 text-yellow-300' : 'text-gray-200'}`}
+                            >
+                                <Code2 size={11} className="text-yellow-400" /><span>guac</span>
+                                {defaultNewTerminalType === 'guac' && <Star size={8} className="text-yellow-400 ml-auto" />}
+                            </button>
+                        </div>
+                    )}
+                </div>
+                {/* Notebooks/Experiments dropdown */}
+                <div className="relative" data-dropdown="notebook">
+                    <button
+                        onClick={() => defaultNewNotebookType === 'notebook' ? createNewNotebook?.() : createNewExperiment?.()}
+                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-3 relative transition-colors"
+                        title={`New ${defaultNewNotebookType === 'notebook' ? 'Notebook' : 'Experiment'}`}
+                    >
+                        {defaultNewNotebookType === 'notebook' ? <FileText size={14} className="text-orange-400" /> : <FlaskConical size={14} className="text-purple-400" />}
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setChatPlusDropdownOpen(!chatPlusDropdownOpen); }}
+                        className="absolute top-0 right-0 w-1/2 h-1/2 flex items-center justify-center hover:bg-white/10 rounded-bl transition-colors"
+                        title="More options"
+                    >
+                        <ChevronDown size={7} className="text-gray-500" />
+                    </button>
+                    {chatPlusDropdownOpen && (
+                        <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-[9999] py-1 min-w-[120px]">
+                            <div className="px-2 py-0.5 text-[8px] text-gray-500 uppercase">Right-click to set default</div>
+                            <button
+                                onClick={() => { createNewNotebook?.(); setChatPlusDropdownOpen(false); }}
+                                onContextMenu={(e) => { e.preventDefault(); setDefaultNewNotebookType('notebook'); setChatPlusDropdownOpen(false); }}
+                                className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultNewNotebookType === 'notebook' ? 'bg-orange-900/30 text-orange-300' : 'text-gray-200'}`}
+                            >
+                                <FileText size={11} className="text-orange-400" /><span>Notebook</span>
+                                {defaultNewNotebookType === 'notebook' && <Star size={8} className="text-yellow-400 ml-auto" />}
+                            </button>
+                            <button
+                                onClick={() => { createNewExperiment?.(); setChatPlusDropdownOpen(false); }}
+                                onContextMenu={(e) => { e.preventDefault(); setDefaultNewNotebookType('experiment'); setChatPlusDropdownOpen(false); }}
+                                className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultNewNotebookType === 'experiment' ? 'bg-purple-900/30 text-purple-300' : 'text-gray-200'}`}
+                            >
+                                <FlaskConical size={11} className="text-purple-400" /><span>Experiment</span>
+                                {defaultNewNotebookType === 'experiment' && <Star size={8} className="text-yellow-400 ml-auto" />}
+                            </button>
+                        </div>
+                    )}
+                </div>
+                {/* Code Files dropdown */}
+                <div className="relative" data-dropdown="code-file">
+                    <button
+                        onClick={() => createFileWithExtension(defaultCodeFileType)}
+                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-3 relative transition-colors"
+                        title={`New .${defaultCodeFileType} file`}
+                    >
+                        <Code2 size={14} className="text-cyan-400" />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setCodeFileDropdownOpen(!codeFileDropdownOpen); }}
+                        className="absolute top-0 right-0 w-1/2 h-1/2 flex items-center justify-center hover:bg-white/10 rounded-bl transition-colors"
+                        title="More file types"
+                    >
+                        <ChevronDown size={7} className="text-gray-500" />
+                    </button>
+                    {codeFileDropdownOpen && (
+                        <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-[9999] py-1 min-w-[150px] max-h-60 overflow-y-auto">
+                            <div className="px-2 py-0.5 text-[8px] text-gray-500 uppercase">Right-click to set default</div>
+                            {commonFileTypes.map(type => (
+                                <button
+                                    key={type.ext}
+                                    onClick={() => { createFileWithExtension(type.ext); setCodeFileDropdownOpen(false); }}
+                                    onContextMenu={(e) => { e.preventDefault(); setDefaultCodeFileType(type.ext); setCodeFileDropdownOpen(false); }}
+                                    className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultCodeFileType === type.ext ? 'bg-cyan-900/30 text-cyan-300' : 'text-gray-200'}`}
+                                >
+                                    <span className="w-3 text-center text-[10px]">{type.icon}</span>
+                                    <span className="flex-1">{type.label}</span>
+                                    <span className="text-[9px] text-gray-500">.{type.ext}</span>
+                                    {defaultCodeFileType === type.ext && <Star size={8} className="text-yellow-400" />}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                {/* Business Documents dropdown */}
+                <div className="relative" data-dropdown="doc">
+                    <button
+                        onClick={() => createNewDocument?.(defaultNewDocumentType)}
+                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-3 relative transition-colors"
+                        title={`New ${defaultNewDocumentType.toUpperCase()} document`}
+                    >
+                        <FileStack size={14} className="text-rose-400" />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setDocDropdownOpen(!docDropdownOpen); }}
+                        className="absolute top-0 right-0 w-1/2 h-1/2 flex items-center justify-center hover:bg-white/10 rounded-bl transition-colors"
+                        title="More document types"
+                    >
+                        <ChevronDown size={7} className="text-gray-500" />
+                    </button>
+                    {docDropdownOpen && (
+                        <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-[9999] py-1 min-w-[130px]">
+                            <div className="px-2 py-0.5 text-[8px] text-gray-500 uppercase">Right-click to set default</div>
+                            <button
+                                onClick={() => { createNewDocument?.('docx'); setDocDropdownOpen(false); }}
+                                onContextMenu={(e) => { e.preventDefault(); setDefaultNewDocumentType('docx'); setDocDropdownOpen(false); }}
+                                className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultNewDocumentType === 'docx' ? 'bg-blue-900/30 text-blue-300' : 'text-gray-200'}`}
+                            >
+                                <FileText size={11} className="text-blue-300" /><span>Word</span>
+                                {defaultNewDocumentType === 'docx' && <Star size={8} className="text-yellow-400 ml-auto" />}
+                            </button>
+                            <button
+                                onClick={() => { createNewDocument?.('xlsx'); setDocDropdownOpen(false); }}
+                                onContextMenu={(e) => { e.preventDefault(); setDefaultNewDocumentType('xlsx'); setDocDropdownOpen(false); }}
+                                className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultNewDocumentType === 'xlsx' ? 'bg-green-900/30 text-green-300' : 'text-gray-200'}`}
+                            >
+                                <FileJson size={11} className="text-green-300" /><span>Excel</span>
+                                {defaultNewDocumentType === 'xlsx' && <Star size={8} className="text-yellow-400 ml-auto" />}
+                            </button>
+                            <button
+                                onClick={() => { createNewDocument?.('pptx'); setDocDropdownOpen(false); }}
+                                onContextMenu={(e) => { e.preventDefault(); setDefaultNewDocumentType('pptx'); setDocDropdownOpen(false); }}
+                                className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultNewDocumentType === 'pptx' ? 'bg-orange-900/30 text-orange-300' : 'text-gray-200'}`}
+                            >
+                                <BarChart3 size={11} className="text-orange-300" /><span>PowerPoint</span>
+                                {defaultNewDocumentType === 'pptx' && <Star size={8} className="text-yellow-400 ml-auto" />}
+                            </button>
+                            <button
+                                onClick={() => { createNewDocument?.('mapx'); setDocDropdownOpen(false); }}
+                                onContextMenu={(e) => { e.preventDefault(); setDefaultNewDocumentType('mapx'); setDocDropdownOpen(false); }}
+                                className={`flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-gray-700 text-xs ${defaultNewDocumentType === 'mapx' ? 'bg-pink-900/30 text-pink-300' : 'text-gray-200'}`}
+                            >
+                                <Share2 size={11} className="text-pink-300" /><span>Mind Map</span>
+                                {defaultNewDocumentType === 'mapx' && <Star size={8} className="text-yellow-400 ml-auto" />}
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
             {/* Tile edit mode panel */}
             {tileEditMode && (
@@ -4223,7 +4207,7 @@ return (
                                 onDragOver={handleTileDragOver}
                                 onDrop={(e) => handleTileDrop(e, tile.id)}
                                 className={`flex items-center gap-2 px-2 py-1 rounded text-xs cursor-move ${
-                                    draggedTileId === tile.id ? 'bg-blue-600/30 border border-blue-500' : 'bg-gray-700/50 hover:bg-gray-700'
+                                    draggedTileId === tile.id ? 'bg-blue-600/30 border border-teal-500' : 'bg-gray-700/50 hover:bg-gray-700'
                                 }`}
                             >
                                 <span className="text-gray-500">⋮⋮</span>
@@ -4253,7 +4237,7 @@ return (
 
         {/* Path Switcher - below Less button, above sections */}
         {!sidebarCollapsed && (
-            <div className="flex-shrink-0 py-2">
+            <div className="flex-shrink-0 py-2 flex items-center">
                 <PathSwitcher
                     currentPath={currentPath}
                     baseDir={baseDir}
@@ -4261,6 +4245,13 @@ return (
                     onGoUp={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
                     onOpenEnv={() => createProjectEnvPane?.()}
                 />
+                <button
+                    onClick={() => (window as any).api?.openNewWindow?.('~/.npcsh')}
+                    className="flex-shrink-0 py-2 px-2 theme-bg-tertiary border-y border-r theme-border hover:bg-teal-500/20 transition-all flex items-center justify-center"
+                    title="Open New Window"
+                >
+                    <ExternalLink size={14} className="text-teal-400" />
+                </button>
             </div>
         )}
 
@@ -4660,33 +4651,56 @@ return (
 
         {sidebarCollapsed && <div className="flex-1"></div>}
 
-        {/* Edit + Delete + Collapse toggle buttons - always visible when sidebar expanded */}
-        <div className={`flex justify-center items-center gap-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
+        {/* Expand button when bottom is collapsed */}
+        {bottomGridCollapsed && !sidebarCollapsed && (
+            <div className="flex justify-center py-2">
+                <button
+                    onClick={() => setBottomGridCollapsed(false)}
+                    className="p-2 rounded-full hover:bg-teal-500/20 text-gray-400 hover:text-white transition-all"
+                    title="Show quick actions"
+                >
+                    <ChevronUp size={20} />
+                </button>
+            </div>
+        )}
+
+        {/* Theme + Edit + Delete + Collapse toggle buttons - collapsible with bottom grid */}
+        {!bottomGridCollapsed && !sidebarCollapsed && (
+        <div className="flex justify-center items-center gap-2 py-2">
+            <button
+                onClick={toggleTheme}
+                className="p-2 rounded-full hover:bg-teal-500/20 transition-all"
+                aria-label="Toggle Theme"
+                title="Toggle Theme"
+            >
+                {isDarkMode ? <Moon size={20} className="text-blue-400" /> : <Sun size={20} className="text-yellow-400" />}
+            </button>
             <button
                 onClick={() => setBottomGridEditMode(!bottomGridEditMode)}
-                className={`p-2 rounded-full transition-all ${bottomGridEditMode ? 'bg-purple-600 text-white' : 'theme-hover text-gray-400 hover:text-purple-400'}`}
+                className={`p-2 rounded-full transition-all ${bottomGridEditMode ? 'bg-purple-600 text-white' : 'hover:bg-teal-500/20 text-gray-400 hover:text-purple-400'}`}
                 title="Edit tiles"
             >
                 <Edit size={20} />
             </button>
             <button
                 onClick={deleteSelectedConversations}
-                className="p-2 theme-hover rounded-full text-red-400 transition-all"
+                className={`p-2 rounded-full hover:bg-teal-500/20 transition-all ${(selectedFiles?.size > 0 || selectedConvos?.size > 0) ? 'text-red-400' : 'text-gray-400'}`}
                 title="Delete selected items"
             >
                 <Trash size={24} />
             </button>
             <button
                 onClick={() => setBottomGridCollapsed(!bottomGridCollapsed)}
-                className="p-2 theme-hover rounded-full text-gray-400 hover:text-white transition-all"
+                className="p-2 rounded-full hover:bg-teal-500/20 text-gray-400 hover:text-white transition-all"
                 title={bottomGridCollapsed ? "Show quick actions" : "Hide quick actions"}
             >
-                {bottomGridCollapsed ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                <ChevronDown size={20} />
             </button>
         </div>
+        )}
 
         {/* Bottom grid section - collapsible */}
-        {!bottomGridCollapsed && (
+        {!bottomGridCollapsed && !sidebarCollapsed && (
         <div className="border-t border-gray-700 flex-shrink-0">
             {/* Bottom Grid Edit Mode - uses jinx tiles when loaded */}
             {!sidebarCollapsed && bottomGridEditMode && (
@@ -4824,9 +4838,9 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                 </div>
             )}
 
-            {/* 2x2 Grid - uses jinx tiles when loaded */}
+            {/* Row of 4 - uses jinx tiles when loaded */}
             {!sidebarCollapsed && !bottomGridEditMode && (
-                <div className="grid grid-cols-2 divide-x divide-y divide-gray-700">
+                <div className="grid grid-cols-4 divide-x divide-gray-700 border-t border-gray-700">
                     {(() => {
                         // Fallback actions for when jinxes haven't loaded yet
                         const fallbackActions: Record<string, () => void> = {
@@ -4844,28 +4858,28 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                             env: () => createProjectEnvPane?.(),
                             disk: () => createDiskUsagePane?.(),
                         };
-                        // Icon map
+                        // Icon map with colors
                         const iconMap: Record<string, React.ReactNode> = {
-                            Database: <Database size={16} />,
-                            Image: <Image size={16} />,
-                            BookOpen: <BookOpen size={16} />,
-                            Info: <Info size={16} />,
-                            BarChart3: <BarChart3 size={16} />,
-                            GitBranch: <GitBranch size={16} />,
-                            Network: <Network size={16} />,
-                            Users: <Users size={16} />,
-                            Bot: <Bot size={16} />,
-                            Zap: <Zap size={16} />,
-                            Settings: <Settings size={16} />,
-                            KeyRound: <KeyRound size={16} />,
-                            HardDrive: <HardDrive size={16} />,
-                            Box: <Box size={16} />,
+                            Database: <Database size={18} className="text-emerald-400" />,
+                            Image: <Image size={18} className="text-pink-400" />,
+                            BookOpen: <BookOpen size={18} className="text-amber-400" />,
+                            Info: <Info size={18} className="text-sky-400" />,
+                            BarChart3: <BarChart3 size={18} className="text-violet-400" />,
+                            GitBranch: <GitBranch size={18} className="text-orange-400" />,
+                            Network: <Network size={18} className="text-cyan-400" />,
+                            Users: <Users size={18} className="text-indigo-400" />,
+                            Bot: <Bot size={18} className="text-lime-400" />,
+                            Zap: <Zap size={18} className="text-yellow-400" />,
+                            Settings: <Settings size={18} className="text-slate-400" />,
+                            KeyRound: <KeyRound size={18} className="text-amber-400" />,
+                            HardDrive: <HardDrive size={18} className="text-teal-400" />,
+                            Box: <Box size={18} className="text-gray-400" />,
                         };
 
                         // Use jinx tiles if loaded, otherwise fallback
                         const tiles = tileJinxesLoaded
-                            ? tileJinxes.filter(t => t.enabled)
-                            : bottomGridConfig.filter(t => t.enabled).map(t => ({ ...t, action: t.id }));
+                            ? tileJinxes.filter(t => t.enabled).slice(0, 4)
+                            : bottomGridConfig.filter(t => t.enabled).slice(0, 4).map(t => ({ ...t, action: t.id }));
 
                         return tiles.map((tile) => (
                             <button
@@ -4881,11 +4895,11 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
                                         else console.log(`No action for ${tile.action}`);
                                     }
                                 }}
-                                className="action-grid-button-wide"
+                                className="flex items-center justify-center py-4 hover:bg-teal-500/20 transition-colors"
                                 aria-label={tile.label}
                                 title={tile.label}
                             >
-                                {iconMap[tile.icon] || <Box size={16} />}
+                                {iconMap[tile.icon] || <Box size={18} className="text-gray-400" />}
                             </button>
                         ));
                     })()}
@@ -4896,68 +4910,17 @@ export default function CustomTile({ onClose, theme }: { onClose?: () => void; t
         )}
 
         {/* Sidebar collapse button - always visible at bottom */}
-        <div className={`flex items-center gap-2 p-2 ${sidebarCollapsed ? '' : ''}`}>
+        <div className="border-t border-gray-700">
             <button
                 onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="flex-1 p-2 theme-button theme-hover rounded-lg transition-all group"
+                className="w-full flex items-center justify-center h-14 hover:bg-teal-500/20 transition-all"
                 title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-                <div className="flex items-center gap-1 group-hover:gap-0 transition-all duration-200 justify-center">
-                    <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                    <ChevronRight size={14} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} group-hover:scale-75 transition-all duration-200`} />
-                    <div className="w-1 h-4 bg-current rounded group-hover:w-0.5 transition-all duration-200"></div>
-                </div>
+                <ChevronRight size={16} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} text-gray-400`} />
             </button>
         </div>
     </div>
 
-    {/* Chat Plus Dropdown - using portal to render to body */}
-    {chatPlusDropdownOpen && createPortal(
-        <>
-            <div className="fixed inset-0 z-[9998]" onClick={() => setChatPlusDropdownOpen(false)} />
-            <div className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-2xl py-2 z-[9999]" style={{ top: '80px', left: '10px', minWidth: '180px' }}>
-                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Create New</div>
-                <button onClick={() => { createNewConversation?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <MessageSquare size={16} className="text-blue-400" /><span>Chat</span>
-                </button>
-                <button onClick={() => { handleCreateNewFolder?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Folder size={16} className="text-yellow-400" /><span>Folder</span>
-                </button>
-                <button onClick={() => { createNewBrowser?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Globe size={16} className="text-cyan-400" /><span>Browser</span>
-                </button>
-                <div className="border-t border-gray-700 my-1"></div>
-                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Terminal</div>
-                <button onClick={() => { createNewTerminal?.('system'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Terminal size={16} className="text-green-400" /><span>Bash</span>
-                </button>
-                <button onClick={() => { createNewTerminal?.('npcsh'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Sparkles size={16} className="text-purple-400" /><span>npcsh</span>
-                </button>
-                <button onClick={() => { createNewTerminal?.('guac'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Code2 size={16} className="text-yellow-400" /><span>guac</span>
-                </button>
-                <button onClick={() => { createNewTextFile?.(); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Code2 size={16} className="text-purple-400" /><span>Code File</span>
-                </button>
-                <div className="border-t border-gray-700 my-1"></div>
-                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase tracking-wider">Documents</div>
-                <button onClick={() => { createNewDocument?.('docx'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <FileText size={16} className="text-blue-300" /><span>Word (.docx)</span>
-                </button>
-                <button onClick={() => { createNewDocument?.('xlsx'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <FileJson size={16} className="text-green-300" /><span>Excel (.xlsx)</span>
-                </button>
-                <button onClick={() => { createNewDocument?.('pptx'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <BarChart3 size={16} className="text-orange-300" /><span>PowerPoint (.pptx)</span>
-                </button>
-                <button onClick={() => { createNewDocument?.('mapx'); setChatPlusDropdownOpen(false); }} className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-700 text-sm text-gray-200">
-                    <Share2 size={16} className="text-pink-300" /><span>Mind Map (.mapx)</span>
-                </button>
-            </div>
-        </>,
-        document.body
-    )}
 
 </>
 );

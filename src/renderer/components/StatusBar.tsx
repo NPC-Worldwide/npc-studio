@@ -1,8 +1,9 @@
 import React from 'react';
 import {
     MessageSquare, Terminal, Globe, FileText, File as FileIcon,
-    BrainCircuit, Database, Clock, Bot, Zap
+    BrainCircuit, Clock, Bot, Zap
 } from 'lucide-react';
+import MemoryIcon from './MemoryIcon';
 
 interface PaneItem {
     id: string;
@@ -53,15 +54,15 @@ const StatusBar: React.FC<StatusBarProps> = ({
     createJinxPane,
 }) => {
     return (
-        <div className="h-10 flex-shrink-0 theme-bg-tertiary border-t theme-border flex items-center px-3 text-[12px] theme-text-muted gap-2">
+        <div className="h-14 flex-shrink-0 theme-bg-tertiary border-t theme-border flex items-center px-3 text-[12px] theme-text-muted gap-2">
             {/* Left side - 3 buttons */}
             {/* Git button */}
             <button
                 onClick={() => createGitPane ? createGitPane() : setGitModalOpen(true)}
-                className={`p-1.5 rounded transition-all flex items-center gap-1 ${gitBranch ? 'bg-purple-900/30 text-purple-300 hover:bg-purple-900/50' : 'theme-hover'}`}
+                className={`p-2 rounded transition-all flex items-center gap-1 ${gitBranch ? 'bg-purple-900/30 text-purple-300 hover:bg-purple-900/50' : 'theme-hover'}`}
                 title={gitBranch ? `Git: ${gitBranch}` : "Git"}
             >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="6" y1="3" x2="6" y2="15"></line>
                     <circle cx="18" cy="6" r="3"></circle>
                     <circle cx="6" cy="18" r="3"></circle>
@@ -73,20 +74,20 @@ const StatusBar: React.FC<StatusBarProps> = ({
             {/* Memory button */}
             <button
                 onClick={() => createMemoryManagerPane?.()}
-                className="p-1.5 rounded flex items-center gap-1 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50 transition-all"
+                className="p-2 rounded flex items-center gap-1 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50 transition-all"
                 title={pendingMemoryCount > 0 ? `Memory: ${pendingMemoryCount} pending` : "Memory Manager"}
             >
-                <Database size={20} />
+                <MemoryIcon size={22} />
                 {pendingMemoryCount > 0 && <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>}
             </button>
 
             {/* KG button */}
             <button
                 onClick={() => createGraphViewerPane?.()}
-                className="p-1.5 rounded flex items-center gap-1 bg-emerald-900/30 text-emerald-300 hover:bg-emerald-900/50 transition-all"
+                className="p-2 rounded flex items-center gap-1 bg-emerald-900/30 text-emerald-300 hover:bg-emerald-900/50 transition-all"
                 title={kgGeneration !== null && kgGeneration !== undefined ? `Knowledge Graph (Gen ${kgGeneration})` : "Knowledge Graph"}
             >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="6" cy="8" r="2.5" />
                     <circle cx="18" cy="6" r="2" />
                     <circle cx="12" cy="14" r="3" />
@@ -109,19 +110,19 @@ const StatusBar: React.FC<StatusBarProps> = ({
                     <button
                         key={pane.id}
                         onClick={() => setActiveContentPaneId(pane.id)}
-                        className={`p-1.5 rounded transition-all ${
+                        className={`p-2 rounded transition-all ${
                             pane.isActive
                                 ? 'bg-blue-600 text-white'
                                 : 'theme-hover theme-text-muted hover:text-white'
                         }`}
                         title={pane.title}
                     >
-                        {pane.type === 'chat' && <MessageSquare size={20} />}
-                        {pane.type === 'editor' && <FileIcon size={20} />}
-                        {pane.type === 'terminal' && <Terminal size={20} />}
-                        {pane.type === 'browser' && <Globe size={20} />}
-                        {pane.type === 'pdf' && <FileText size={20} />}
-                        {!['chat', 'editor', 'terminal', 'browser', 'pdf'].includes(pane.type) && <FileIcon size={20} />}
+                        {pane.type === 'chat' && <MessageSquare size={22} />}
+                        {pane.type === 'editor' && <FileIcon size={22} />}
+                        {pane.type === 'terminal' && <Terminal size={22} />}
+                        {pane.type === 'browser' && <Globe size={22} />}
+                        {pane.type === 'pdf' && <FileText size={22} />}
+                        {!['chat', 'editor', 'terminal', 'browser', 'pdf'].includes(pane.type) && <FileIcon size={22} />}
                     </button>
                 ))}
             </div>
@@ -133,32 +134,32 @@ const StatusBar: React.FC<StatusBarProps> = ({
                 {/* AI/Predictive Text button */}
                 <button
                     onClick={() => setIsPredictiveTextEnabled(!isPredictiveTextEnabled)}
-                    className={`p-1.5 rounded ${
+                    className={`p-2 rounded ${
                         isPredictiveTextEnabled
                             ? 'bg-purple-600/30 text-purple-400 hover:bg-purple-600/50'
                             : 'theme-hover theme-text-muted'
                     }`}
                     title={isPredictiveTextEnabled ? "Predictive Text: ON" : "Predictive Text: OFF"}
                 >
-                    <BrainCircuit size={20} />
+                    <BrainCircuit size={22} />
                 </button>
 
                 {/* NPCs button */}
                 <button
                     onClick={() => createNPCTeamPane?.()}
-                    className="p-1.5 rounded bg-cyan-900/30 text-cyan-300 hover:bg-cyan-900/50"
+                    className="p-2 rounded bg-cyan-900/30 text-cyan-300 hover:bg-cyan-900/50"
                     title="NPCs"
                 >
-                    <Bot size={20} />
+                    <Bot size={22} />
                 </button>
 
                 {/* Jinxs button */}
                 <button
                     onClick={() => createJinxPane?.()}
-                    className="p-1.5 rounded bg-yellow-900/30 text-yellow-300 hover:bg-yellow-900/50"
+                    className="p-2 rounded bg-yellow-900/30 text-yellow-300 hover:bg-yellow-900/50"
                     title="Jinxs"
                 >
-                    <Zap size={20} />
+                    <Zap size={22} />
                 </button>
             </div>
         </div>

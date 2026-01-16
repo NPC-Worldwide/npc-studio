@@ -280,6 +280,7 @@ readDocxContent: (filePath) =>
     memory_search: (args) => ipcRenderer.invoke('memory:search', args),
     memory_pending: (args) => ipcRenderer.invoke('memory:pending', args),
     memory_scope: (args) => ipcRenderer.invoke('memory:scope', args),
+    memory_approve: (args) => ipcRenderer.invoke('memory:approve', args),
 
     resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
 

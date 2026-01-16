@@ -5299,6 +5299,23 @@ ipcMain.handle('memory:scope', async (event, { npc, team, directory_path, status
   return await callBackendApi(`http://127.0.0.1:5337/api/memory/scope?${params.toString()}`);
 });
 
+ipcMain.handle('memory:approve', async (event, { approvals }) => {
+  try {
+    const response = await fetch('http://127.0.0.1:5337/api/memory/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approvals })
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('[Main Process] Memory approve error:', error);
+    return { error: error.message };
+  }
+});
+
 ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
   log(`[Main Process] Received request to interrupt stream: ${streamIdToInterrupt}`);
   

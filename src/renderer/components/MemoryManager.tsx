@@ -44,6 +44,8 @@ const MemoryManager: React.FC<MemoryManagerProps> = ({
         setError(null);
         try {
             let result;
+            console.log('[MemoryManager] Fetching memories with filter:', statusFilter);
+
             if (searchQuery.trim()) {
                 result = await (window as any).api?.memory_search?.({
                     q: searchQuery,
@@ -69,13 +71,33 @@ const MemoryManager: React.FC<MemoryManagerProps> = ({
                 });
             }
 
-            if (result?.memories) {
+            console.log('[MemoryManager] API result:', result);
+            console.log('[MemoryManager] Result keys:', result ? Object.keys(result) : 'null');
+
+            if (result?.memories && Array.isArray(result.memories)) {
                 setMemories(result.memories);
+            } else if (result?.data && Array.isArray(result.data)) {
+                // Handle {data: [...]} format
+                setMemories(result.data);
+            } else if (result?.result && Array.isArray(result.result)) {
+                // Handle {result: [...]} format
+                setMemories(result.result);
+            } else if (Array.isArray(result)) {
+                // Handle direct array format
+                setMemories(result);
             } else if (result?.error) {
                 setError(result.error);
+            } else if (!result) {
+                setError('No response from memory API. Make sure npcpy backend is running (npcpy serve).');
+            } else {
+                // Show what we got for debugging
+                console.log('[MemoryManager] Unexpected result format, keys:', Object.keys(result));
+                setError(`API returned unexpected format. Keys: ${Object.keys(result).join(', ')}`);
+                setMemories([]);
             }
         } catch (err: any) {
-            setError(err.message);
+            console.error('[MemoryManager] Error:', err);
+            setError(err.message || 'Failed to connect to memory API');
         } finally {
             setLoading(false);
         }

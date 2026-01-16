@@ -9,7 +9,7 @@ const SHELL_PROMPT_KEY = 'incognide-shell-profile-prompted';
 // Maximum lines to keep in the terminal output buffer for chat context
 const MAX_TERMINAL_CONTEXT_LINES = 100;
 
-const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId, shell }) => {
+const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId, shell, isDarkMode = true }) => {
     const terminalRef = useRef(null);
     const xtermInstance = useRef(null);
     const fitAddonRef = useRef(null);
@@ -103,15 +103,57 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         if (!terminalRef.current || !terminalId) return;
 
         if (!xtermInstance.current) {
+            const darkTheme = {
+                background: '#1a1b26',
+                foreground: '#c0caf5',
+                cursor: '#c0caf5',
+                cursorAccent: '#1a1b26',
+                selectionBackground: '#33467c',
+                black: '#32344a',
+                red: '#f7768e',
+                green: '#9ece6a',
+                yellow: '#e0af68',
+                blue: '#7aa2f7',
+                magenta: '#ad8ee6',
+                cyan: '#449dab',
+                white: '#787c99',
+                brightBlack: '#444b6a',
+                brightRed: '#ff7a93',
+                brightGreen: '#b9f27c',
+                brightYellow: '#ff9e64',
+                brightBlue: '#7da6ff',
+                brightMagenta: '#bb9af7',
+                brightCyan: '#0db9d7',
+                brightWhite: '#acb0d0'
+            };
+            const lightTheme = {
+                background: '#fafafa',
+                foreground: '#383a42',
+                cursor: '#383a42',
+                cursorAccent: '#fafafa',
+                selectionBackground: '#bfceff',
+                black: '#383a42',
+                red: '#e45649',
+                green: '#50a14f',
+                yellow: '#c18401',
+                blue: '#4078f2',
+                magenta: '#a626a4',
+                cyan: '#0184bc',
+                white: '#a0a1a7',
+                brightBlack: '#4f525e',
+                brightRed: '#e06c75',
+                brightGreen: '#98c379',
+                brightYellow: '#e5c07b',
+                brightBlue: '#61afef',
+                brightMagenta: '#c678dd',
+                brightCyan: '#56b6c2',
+                brightWhite: '#ffffff'
+            };
             const term = new Terminal({
                 cursorBlink: true,
                 fontFamily: '"Fira Code", monospace',
                 fontSize: 14,
-                theme: {
-                    background: '#1a1b26',
-                    foreground: '#c0caf5',
-                    cursor: '#c0caf5'
-                },
+                theme: isDarkMode ? darkTheme : lightTheme,
             });
             const fitAddon = new FitAddon();
             fitAddonRef.current = fitAddon;
@@ -405,6 +447,27 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             xtermInstance.current.focus();
         }
     }, [activeContentPaneId, nodeId]);
+
+    // Update terminal theme when dark mode changes
+    useEffect(() => {
+        if (xtermInstance.current) {
+            const darkTheme = {
+                background: '#1a1b26',
+                foreground: '#c0caf5',
+                cursor: '#c0caf5',
+                cursorAccent: '#1a1b26',
+                selectionBackground: '#33467c',
+            };
+            const lightTheme = {
+                background: '#fafafa',
+                foreground: '#383a42',
+                cursor: '#383a42',
+                cursorAccent: '#fafafa',
+                selectionBackground: '#bfceff',
+            };
+            xtermInstance.current.options.theme = isDarkMode ? darkTheme : lightTheme;
+        }
+    }, [isDarkMode]);
 
     if (!paneData) return null;
 

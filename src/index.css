@@ -518,7 +518,7 @@ body.resizing-input webview {
 }
 
 .conversation-selected {
-  background-color: rgba(59, 130, 246, 0.15) !important;
+  background-color: rgba(20, 184, 166, 0.2) !important;
 }
 
 body.dark-mode .message-selected {
@@ -1134,25 +1134,25 @@ body.light-mode .message-selected blockquote {
 }
 
 body.light-mode .conversation-selected {
-    background: #fce7f3 !important;
-    color: #831843 !important;
-    border: 2px solid #f9a8d4 !important;
-    box-shadow: 0 0 12px rgba(249, 168, 212, 0.3) !important;
+    background: #ccfbf1 !important;
+    color: #134e4a !important;
+    border: 2px solid #14b8a6 !important;
+    box-shadow: 0 0 12px rgba(20, 184, 166, 0.3) !important;
     transform: scale(1.05) translateX(5px) !important;
     border-radius: 8px !important;
 }
 
 body.light-mode .conversation-selected * {
-    color: #831843 !important;
+    color: #134e4a !important;
 }
 
 body.light-mode .conversation-selected .theme-text-muted,
 body.light-mode .conversation-selected .text-gray-500 {
-    color: #a21caf !important;
+    color: #0f766e !important;
 }
 
 body.light-mode .conversation-selected svg {
-    color: #831843 !important;
+    color: #134e4a !important;
 }
 
 /* LIGHT MODE CODEMIRROR */

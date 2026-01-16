@@ -168,35 +168,11 @@ export const PathSwitcher: React.FC<PathSwitcherProps> = ({
                     )}
                 </div>
 
-                {/* Breadcrumb path display */}
-                <div className="flex items-center gap-1 overflow-hidden flex-1 min-w-0">
-                    {isAtRoot ? (
-                        <span className="text-xs theme-text-primary font-medium">{rootFolderName}</span>
-                    ) : pathSegments.length <= 3 ? (
-                        // Show full path if short
-                        pathSegments.map((segment, i) => (
-                            <React.Fragment key={i}>
-                                {i > 0 && <ChevronRight size={10} className="text-gray-500 flex-shrink-0" />}
-                                <span
-                                    className={`text-xs truncate ${i === pathSegments.length - 1 ? 'theme-text-primary font-medium' : 'theme-text-muted'}`}
-                                    title={segment}
-                                >
-                                    {segment}
-                                </span>
-                            </React.Fragment>
-                        ))
-                    ) : (
-                        // Show condensed path if long
-                        <>
-                            <span className="text-xs theme-text-muted">{pathSegments[0]}</span>
-                            <ChevronRight size={10} className="text-gray-500 flex-shrink-0" />
-                            <span className="text-xs theme-text-muted">...</span>
-                            <ChevronRight size={10} className="text-gray-500 flex-shrink-0" />
-                            <span className="text-xs theme-text-primary font-medium truncate">
-                                {pathSegments[pathSegments.length - 1]}
-                            </span>
-                        </>
-                    )}
+                {/* Just show last folder name */}
+                <div className="flex items-center overflow-hidden flex-1 min-w-0">
+                    <span className="text-[10px] theme-text-primary font-medium truncate" title={currentPath}>
+                        {isAtRoot ? rootFolderName : pathSegments[pathSegments.length - 1]}
+                    </span>
                 </div>
 
                 {/* Dropdown indicator */}
