@@ -81,7 +81,7 @@ const ChatHeaderContent: React.FC<ChatHeaderContentProps> = ({
     const tokenCost = calculateTokenCost(chatStats.tokenCount, chatStats.models);
 
     return (
-        <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '4px 8px', gap: '8px' }}>
+        <div style={{ flex: '1 1 0', width: 0, minWidth: 0, display: 'flex', alignItems: 'center', padding: '4px 8px', gap: '8px' }}>
             <span style={{ flexShrink: 0 }}>{icon}</span>
             <span
                 style={{
@@ -98,7 +98,7 @@ const ChatHeaderContent: React.FC<ChatHeaderContentProps> = ({
             </span>
 
             {/* Buttons area */}
-            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
                 {/* Stats dropdown */}
                 <div className="relative mr-2">
                     <button
