@@ -4690,6 +4690,13 @@ return (
                 <Trash size={24} />
             </button>
             <button
+                onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }}
+                className="p-2 rounded-full hover:bg-teal-500/20 text-gray-400 hover:text-white transition-all"
+                title="New Incognide Window (Alt+N)"
+            >
+                <img src={npcLogo} alt="Incognide" style={{ width: 20, height: 20 }} className="rounded-full" />
+            </button>
+            <button
                 onClick={() => setBottomGridCollapsed(!bottomGridCollapsed)}
                 className="p-2 rounded-full hover:bg-teal-500/20 text-gray-400 hover:text-white transition-all"
                 title={bottomGridCollapsed ? "Show quick actions" : "Hide quick actions"}
