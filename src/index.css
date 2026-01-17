@@ -5,7 +5,7 @@
 
 :root {
   /* Light Mode Colors - Base colors that can be customized */
-  --theme-bg-light: #ffffff;
+  --theme-bg-light: #8ecfb8;
   --theme-text-light: #1e293b;
   --theme-primary-light: #ec4899;
 
@@ -46,8 +46,8 @@
   /* Dark Mode - Derived colors (automatically calculated from base) */
   --theme-bg-secondary-dark: color-mix(in srgb, var(--theme-bg-dark), #fff 8%);
   --theme-bg-tertiary-dark: color-mix(in srgb, var(--theme-bg-dark), #fff 15%);
-  --theme-text-secondary-dark: color-mix(in srgb, var(--theme-text-dark), var(--theme-bg-dark) 20%);
-  --theme-text-muted-dark: color-mix(in srgb, var(--theme-text-dark), var(--theme-bg-dark) 40%);
+  --theme-text-secondary-dark: color-mix(in srgb, var(--theme-text-dark), var(--theme-bg-dark) 10%);
+  --theme-text-muted-dark: color-mix(in srgb, var(--theme-text-dark), var(--theme-bg-dark) 25%);
   --theme-border-dark: color-mix(in srgb, var(--theme-bg-dark), #fff 20%);
   --theme-border-secondary-dark: color-mix(in srgb, var(--theme-bg-dark), #fff 30%);
   --theme-input-bg-dark: var(--theme-bg-secondary-dark);
@@ -518,7 +518,7 @@ body.resizing-input webview {
 }
 
 .conversation-selected {
-  background-color: rgba(59, 130, 246, 0.15) !important;
+  background-color: rgba(20, 184, 166, 0.2) !important;
 }
 
 body.dark-mode .message-selected {
@@ -1069,90 +1069,90 @@ body.light-mode .prose table tr:nth-child(even) {
     background-color: #fdf2f8 !important;
 }
 
-/* LIGHT MODE HOVER - PINK */
+/* LIGHT MODE HOVER - SEAFOAM */
 body.light-mode .theme-hover:hover {
-    background-color: #fce7f3 !important;
+    background-color: rgba(15, 61, 45, 0.18) !important;
 }
 
-/* LIGHT MODE ACTION GRID BUTTONS - PINK */
+/* LIGHT MODE ACTION GRID BUTTONS - SEAFOAM */
 body.light-mode .action-grid-button {
     background-color: var(--theme-bg-tertiary-light);
     color: var(--theme-text-muted-light);
     border: 1px solid var(--theme-border-light);
-    box-shadow: 
-        inset 0 1px 4px rgba(0, 0, 0, 0.15), 
-        0 1px 1px rgba(0, 0, 0, 0.1), 
+    box-shadow:
+        inset 0 1px 4px rgba(0, 0, 0, 0.15),
+        0 1px 1px rgba(0, 0, 0, 0.1),
         0 2px 4px rgba(0, 0, 0, 0.08);
 }
 
 body.light-mode .action-grid-button:hover {
-    background-color: #fce7f3 !important;
-    box-shadow: 
-        inset 0 1px 4px rgba(236, 72, 153, 0.2),
-        0 5px 10px rgba(236, 72, 153, 0.15),
-        0 0 15px rgba(236, 72, 153, 0.3);
+    background-color: rgba(15, 61, 45, 0.22) !important;
+    box-shadow:
+        inset 0 1px 4px rgba(15, 61, 45, 0.2),
+        0 5px 10px rgba(15, 61, 45, 0.15),
+        0 0 15px rgba(15, 61, 45, 0.2);
 }
 
 body.light-mode .action-grid-button:active {
-    box-shadow: 
-        inset 0 2px 5px rgba(0, 0, 0, 0.25), 
+    box-shadow:
+        inset 0 2px 5px rgba(0, 0, 0, 0.25),
         0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
-/* LIGHT MODE SELECTIONS - PINK */
+/* LIGHT MODE SELECTIONS - SEAFOAM */
 body.light-mode .message-selected {
-    background: #fce7f3 !important;
-    color: #831843 !important;
-    border: 2px solid #f9a8d4 !important;
-    box-shadow: 0 0 15px rgba(249, 168, 212, 0.4), inset 0 0 15px rgba(249, 168, 212, 0.1) !important;
+    background: rgba(15, 61, 45, 0.2) !important;
+    color: #0f3d2d !important;
+    border: 2px solid #166534 !important;
+    box-shadow: 0 0 15px rgba(22, 101, 52, 0.3), inset 0 0 15px rgba(22, 101, 52, 0.1) !important;
     transform: scale(1.02) !important;
     border-radius: 8px !important;
 }
 
 body.light-mode .message-selected * {
-    color: #831843 !important;
+    color: #0f3d2d !important;
 }
 
 body.light-mode .message-selected .theme-text-muted {
-    color: #a21caf !important;
+    color: #14532d !important;
 }
 
 body.light-mode .message-selected code {
-    background-color: #f3e8ff !important;
-    color: #831843 !important;
-    border: 1px solid #f9a8d4 !important;
+    background-color: rgba(22, 101, 52, 0.15) !important;
+    color: #0f3d2d !important;
+    border: 1px solid #166534 !important;
 }
 
 body.light-mode .message-selected pre {
-    background-color: #f3e8ff !important;
-    border: 1px solid #f9a8d4 !important;
+    background-color: rgba(22, 101, 52, 0.15) !important;
+    border: 1px solid #166534 !important;
 }
 
 body.light-mode .message-selected blockquote {
-    background-color: #f3e8ff !important;
-    border-left: 4px solid #f9a8d4 !important;
+    background-color: rgba(22, 101, 52, 0.15) !important;
+    border-left: 4px solid #166534 !important;
 }
 
 body.light-mode .conversation-selected {
-    background: #fce7f3 !important;
-    color: #831843 !important;
-    border: 2px solid #f9a8d4 !important;
-    box-shadow: 0 0 12px rgba(249, 168, 212, 0.3) !important;
+    background: #ccfbf1 !important;
+    color: #134e4a !important;
+    border: 2px solid #14b8a6 !important;
+    box-shadow: 0 0 12px rgba(20, 184, 166, 0.3) !important;
     transform: scale(1.05) translateX(5px) !important;
     border-radius: 8px !important;
 }
 
 body.light-mode .conversation-selected * {
-    color: #831843 !important;
+    color: #134e4a !important;
 }
 
 body.light-mode .conversation-selected .theme-text-muted,
 body.light-mode .conversation-selected .text-gray-500 {
-    color: #a21caf !important;
+    color: #0f766e !important;
 }
 
 body.light-mode .conversation-selected svg {
-    color: #831843 !important;
+    color: #134e4a !important;
 }
 
 /* LIGHT MODE CODEMIRROR */
@@ -1184,25 +1184,19 @@ body.light-mode .cm-activeLine,
 body.light-mode .cm-activeLineGutter {
   background-color: var(--theme-bg-tertiary);
 }
+/* Code blocks inside tertiary bg in light mode */
 body.light-mode .theme-bg-tertiary pre,
-body.light-mode .theme-bg-tertiary code,
-body.light-mode .theme-bg-tertiary > div,
-body.light-mode .theme-bg-tertiary > div > div {
+body.light-mode .theme-bg-tertiary code {
     background-color: #fdf2f8 !important;
-    color: #831843 !important;
-}
-
-body.light-mode .theme-bg-tertiary span {
     color: #831843 !important;
 }
 /* OVERRIDE HARDCODED HOVER COLORS IN LIGHT MODE */
 body.light-mode .hover\:bg-gray-800:hover {
-    background-color: #fce7f3 !important;
+    background-color: rgba(15, 61, 45, 0.18) !important;
 }
 
-body.light-mode button:hover,
-body.light-mode .theme-hover:hover {
-    background-color: #fce7f3 !important;
+body.light-mode button:hover {
+    background-color: rgba(15, 61, 45, 0.15) !important;
 }
 
 /* Make sure dropdowns don't get pink background, only pink on item hover */
@@ -1211,12 +1205,13 @@ body.light-mode .group:hover > div {
 }
 
 body.light-mode .group:hover > div > button:hover {
-    background-color: #fce7f3 !important;
+    background-color: rgba(15, 61, 45, 0.18) !important;
 }
 /* OVERRIDE ALL HARDCODED GRAY HOVERS IN LIGHT MODE */
 body.light-mode .hover\:bg-gray-800:hover,
-body.light-mode .hover\:bg-gray-700:hover {
-    background-color: #fce7f3 !important;
+body.light-mode .hover\:bg-gray-700:hover,
+body.light-mode .hover\:bg-gray-600:hover {
+    background-color: rgba(15, 61, 45, 0.2) !important;
 }
 
 /* ============================================
@@ -1238,9 +1233,26 @@ body.light-mode .bg-black\/40 { background-color: rgba(0, 0, 0, 0.1) !important;
 body.light-mode .bg-black\/50 { background-color: rgba(0, 0, 0, 0.12) !important; }
 
 /* Hover states with white/black transparency */
-body.light-mode .hover\:bg-white\/5:hover { background-color: rgba(236, 72, 153, 0.08) !important; }
-body.light-mode .hover\:bg-white\/10:hover { background-color: rgba(236, 72, 153, 0.12) !important; }
-body.light-mode .hover\:bg-white\/20:hover { background-color: rgba(236, 72, 153, 0.15) !important; }
+body.light-mode .hover\:bg-white\/5:hover { background-color: rgba(15, 61, 45, 0.15) !important; }
+body.light-mode .hover\:bg-white\/10:hover { background-color: rgba(15, 61, 45, 0.2) !important; }
+body.light-mode .hover\:bg-white\/20:hover { background-color: rgba(15, 61, 45, 0.25) !important; }
+body.light-mode .hover\:bg-teal-500\/20:hover { background-color: rgba(236, 72, 153, 0.25) !important; }
+body.light-mode .bg-teal-500\/20 { background-color: rgba(236, 72, 153, 0.2) !important; }
+body.light-mode .bg-teal-500\/10 { background-color: rgba(236, 72, 153, 0.1) !important; }
+body.light-mode .hover\:bg-purple-500\/20:hover { background-color: rgba(88, 28, 135, 0.4) !important; }
+body.light-mode .hover\:bg-green-500\/20:hover { background-color: rgba(20, 83, 45, 0.4) !important; }
+body.light-mode .hover\:bg-yellow-500\/20:hover { background-color: rgba(120, 53, 15, 0.4) !important; }
+body.light-mode .hover\:bg-cyan-500\/20:hover { background-color: rgba(22, 78, 99, 0.4) !important; }
+body.light-mode .hover\:bg-blue-500\/20:hover { background-color: rgba(30, 58, 138, 0.4) !important; }
+body.light-mode .hover\:bg-green-500\/10:hover { background-color: rgba(20, 83, 45, 0.3) !important; }
+body.light-mode .hover\:bg-yellow-500\/10:hover { background-color: rgba(120, 53, 15, 0.3) !important; }
+body.light-mode .hover\:bg-red-500\/20:hover { background-color: rgba(153, 27, 27, 0.4) !important; }
+body.light-mode .hover\:bg-green-600\/30:hover { background-color: rgba(20, 83, 45, 0.5) !important; }
+body.light-mode .hover\:bg-blue-600\/30:hover { background-color: rgba(30, 58, 138, 0.5) !important; }
+body.light-mode .hover\:bg-amber-600\/30:hover { background-color: rgba(120, 53, 15, 0.5) !important; }
+body.light-mode .hover\:bg-teal-600\/30:hover { background-color: rgba(236, 72, 153, 0.35) !important; }
+body.light-mode .border-teal-500 { border-color: rgba(236, 72, 153, 0.8) !important; }
+body.light-mode .border-teal-400 { border-color: rgba(236, 72, 153, 0.7) !important; }
 
 /* Border colors with white transparency */
 body.light-mode .border-white\/10 { border-color: rgba(0, 0, 0, 0.1) !important; }
@@ -1265,13 +1277,14 @@ body.light-mode .text-cyan-400 { color: #0891b2 !important; }
 body.light-mode .text-orange-300 { color: #ea580c !important; }
 
 /* Background status colors - adjust for light mode visibility */
-body.light-mode .bg-yellow-500\/20 { background-color: rgba(234, 179, 8, 0.15) !important; }
-body.light-mode .bg-green-500\/20 { background-color: rgba(34, 197, 94, 0.15) !important; }
-body.light-mode .bg-red-500\/20 { background-color: rgba(239, 68, 68, 0.15) !important; }
-body.light-mode .bg-purple-500\/20 { background-color: rgba(168, 85, 247, 0.15) !important; }
-body.light-mode .bg-blue-500\/20 { background-color: rgba(59, 130, 246, 0.15) !important; }
-body.light-mode .bg-orange-500\/20 { background-color: rgba(249, 115, 22, 0.15) !important; }
-body.light-mode .bg-cyan-500\/20 { background-color: rgba(6, 182, 212, 0.15) !important; }
+body.light-mode .bg-yellow-500\/20 { background-color: rgba(234, 179, 8, 0.55) !important; }
+body.light-mode .bg-green-500\/20 { background-color: rgba(34, 197, 94, 0.55) !important; }
+body.light-mode .bg-red-500\/20 { background-color: rgba(239, 68, 68, 0.55) !important; }
+body.light-mode .bg-purple-500\/20 { background-color: rgba(168, 85, 247, 0.55) !important; }
+body.light-mode .bg-blue-500\/20 { background-color: rgba(59, 130, 246, 0.55) !important; }
+body.light-mode .bg-orange-500\/20 { background-color: rgba(249, 115, 22, 0.55) !important; }
+body.light-mode .bg-cyan-500\/20 { background-color: rgba(6, 182, 212, 0.55) !important; }
+body.light-mode .bg-teal-500\/20 { background-color: rgba(20, 184, 166, 0.55) !important; }
 
 /* Git diff viewer colors for light mode */
 body.light-mode .bg-red-900\/10 { background-color: rgba(239, 68, 68, 0.08) !important; }
@@ -1289,15 +1302,47 @@ body.light-mode .bg-yellow-900\/40 { background-color: rgba(234, 179, 8, 0.2) !i
 body.light-mode .bg-blue-900\/10 { background-color: rgba(59, 130, 246, 0.08) !important; }
 body.light-mode .bg-blue-900\/20 { background-color: rgba(59, 130, 246, 0.12) !important; }
 body.light-mode .bg-blue-900\/30 { background-color: rgba(59, 130, 246, 0.15) !important; }
-body.light-mode .bg-purple-900\/10 { background-color: rgba(168, 85, 247, 0.08) !important; }
+body.light-mode .bg-purple-900\/10 { background-color: rgba(168, 85, 247, 0.35) !important; }
+body.light-mode .bg-purple-900\/20 { background-color: rgba(168, 85, 247, 0.55) !important; }
 body.light-mode .bg-purple-600\/80 { background-color: rgba(147, 51, 234, 0.9) !important; }
-body.light-mode .bg-orange-900\/20 { background-color: rgba(249, 115, 22, 0.12) !important; }
-body.light-mode .bg-amber-900\/20 { background-color: rgba(245, 158, 11, 0.12) !important; }
-body.light-mode .bg-orange-500\/30 { background-color: rgba(249, 115, 22, 0.2) !important; }
+body.light-mode .bg-orange-900\/20 { background-color: rgba(249, 115, 22, 0.5) !important; }
+body.light-mode .bg-amber-900\/20 { background-color: rgba(245, 158, 11, 0.5) !important; }
+body.light-mode .bg-orange-500\/30 { background-color: rgba(249, 115, 22, 0.6) !important; }
+body.light-mode .bg-yellow-900\/20 { background-color: rgba(234, 179, 8, 0.55) !important; }
+body.light-mode .bg-green-900\/20 { background-color: rgba(34, 197, 94, 0.55) !important; }
+body.light-mode .bg-cyan-900\/20 { background-color: rgba(6, 182, 212, 0.55) !important; }
+body.light-mode .bg-blue-900\/20 { background-color: rgba(59, 130, 246, 0.5) !important; }
+body.light-mode .bg-pink-900\/20 { background-color: rgba(236, 72, 153, 0.5) !important; }
+body.light-mode .bg-teal-500\/10 { background-color: rgba(20, 184, 166, 0.5) !important; }
+body.light-mode .bg-indigo-900\/20 { background-color: rgba(99, 102, 241, 0.5) !important; }
+body.light-mode .bg-emerald-900\/20 { background-color: rgba(16, 185, 129, 0.5) !important; }
 
 /* Gradient backgrounds for git viewer header */
-body.light-mode .from-orange-900\/20 { --tw-gradient-from: rgba(249, 115, 22, 0.1) !important; }
-body.light-mode .to-amber-900\/20 { --tw-gradient-to: rgba(245, 158, 11, 0.1) !important; }
+body.light-mode .from-orange-900\/20 { --tw-gradient-from: rgba(249, 115, 22, 0.45) !important; }
+body.light-mode .to-amber-900\/20 { --tw-gradient-to: rgba(245, 158, 11, 0.45) !important; }
+body.light-mode .from-purple-900\/20 { --tw-gradient-from: rgba(168, 85, 247, 0.5) !important; }
+body.light-mode .to-pink-900\/20 { --tw-gradient-to: rgba(236, 72, 153, 0.5) !important; }
+body.light-mode .to-indigo-900\/20 { --tw-gradient-to: rgba(99, 102, 241, 0.5) !important; }
+body.light-mode .from-cyan-900\/20 { --tw-gradient-from: rgba(6, 182, 212, 0.5) !important; }
+body.light-mode .to-blue-900\/20 { --tw-gradient-to: rgba(59, 130, 246, 0.5) !important; }
+body.light-mode .from-yellow-900\/20 { --tw-gradient-from: rgba(234, 179, 8, 0.5) !important; }
+body.light-mode .to-orange-900\/20 { --tw-gradient-to: rgba(249, 115, 22, 0.5) !important; }
+body.light-mode .from-green-900\/20 { --tw-gradient-from: rgba(34, 197, 94, 0.5) !important; }
+body.light-mode .to-emerald-900\/20 { --tw-gradient-to: rgba(16, 185, 129, 0.5) !important; }
+
+/* Stronger button backgrounds in light mode */
+body.light-mode .bg-green-600\/20 { background-color: rgba(22, 163, 74, 0.4) !important; }
+body.light-mode .bg-green-600\/30 { background-color: rgba(22, 163, 74, 0.5) !important; }
+body.light-mode .bg-blue-600\/20 { background-color: rgba(37, 99, 235, 0.4) !important; }
+body.light-mode .bg-blue-600\/30 { background-color: rgba(37, 99, 235, 0.5) !important; }
+body.light-mode .bg-amber-600\/20 { background-color: rgba(217, 119, 6, 0.4) !important; }
+body.light-mode .bg-amber-600\/30 { background-color: rgba(217, 119, 6, 0.5) !important; }
+body.light-mode .bg-teal-600\/20 { background-color: rgba(13, 148, 136, 0.4) !important; }
+body.light-mode .bg-teal-600\/30 { background-color: rgba(13, 148, 136, 0.5) !important; }
+body.light-mode .bg-purple-600\/20 { background-color: rgba(147, 51, 234, 0.4) !important; }
+body.light-mode .bg-purple-600\/30 { background-color: rgba(147, 51, 234, 0.5) !important; }
+body.light-mode .bg-red-600\/20 { background-color: rgba(220, 38, 38, 0.4) !important; }
+body.light-mode .bg-red-600\/30 { background-color: rgba(220, 38, 38, 0.5) !important; }
 
 /* Sidebar section hover states */
 body.light-mode .hover\:text-purple-400:hover { color: #9333ea !important; }
@@ -1362,6 +1407,43 @@ body.light-mode svg[class*="GripVertical"] { color: #94a3b8 !important; }
 
 .overflow-auto::-webkit-scrollbar-thumb:hover, .overflow-y-auto::-webkit-scrollbar-thumb:hover {
     background: rgba(100,100,100,0.5);
+}
+
+/* ============================================
+   LIGHT MODE ICON COLORS - Ensure contrast on seafoam background
+   ============================================ */
+body.light-mode .text-emerald-400 { color: #14532d !important; }
+body.light-mode .text-teal-400 { color: #134e4a !important; }
+body.light-mode .text-cyan-400 { color: #164e63 !important; }
+body.light-mode .text-lime-400 { color: #365314 !important; }
+body.light-mode .text-green-400 { color: #14532d !important; }
+body.light-mode .text-yellow-400 { color: #78350f !important; }
+body.light-mode .text-amber-400 { color: #78350f !important; }
+body.light-mode .text-orange-400 { color: #9a3412 !important; }
+body.light-mode .text-pink-400 { color: #9d174d !important; }
+body.light-mode .text-violet-400 { color: #5b21b6 !important; }
+body.light-mode .text-indigo-400 { color: #3730a3 !important; }
+body.light-mode .text-sky-400 { color: #075985 !important; }
+body.light-mode .text-slate-400 { color: #1e293b !important; }
+body.light-mode .text-gray-400 { color: #1f2937 !important; }
+body.light-mode .text-gray-500 { color: #1f2937 !important; }
+body.light-mode .text-red-400 { color: #991b1b !important; }
+body.light-mode .text-blue-400 { color: #1e3a8a !important; }
+body.light-mode .text-purple-400 { color: #581c87 !important; }
+
+/* Status bar buttons - ensure high contrast */
+body.light-mode .p-2.rounded-full {
+    color: #0f3d2d !important;
+}
+body.light-mode .p-2.rounded-full:hover {
+    background-color: rgba(15, 61, 45, 0.25) !important;
+    color: #052e16 !important;
+}
+body.light-mode .p-2.rounded-full.text-gray-400 {
+    color: #1f2937 !important;
+}
+body.light-mode .p-2.rounded-full.text-red-400 {
+    color: #991b1b !important;
 }
 
 /* Exception for PPTX slide content - let inline styles win */

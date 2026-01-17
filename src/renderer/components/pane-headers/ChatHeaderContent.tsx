@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BarChart3, ChevronDown, ChevronRight, ListFilter, MessageSquare } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronRight, ListFilter, MessageSquare, ChevronDownIcon } from 'lucide-react';
 
 // Token cost calculator based on model pricing ($ per 1K tokens)
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
@@ -62,6 +62,8 @@ interface ChatHeaderContentProps {
     showBranchingUI: boolean;
     setShowBranchingUI: (show: boolean) => void;
     conversationBranches: Map<string, any>;
+    topBarCollapsed?: boolean;
+    onExpandTopBar?: () => void;
 }
 
 const ChatHeaderContent: React.FC<ChatHeaderContentProps> = ({
@@ -75,13 +77,15 @@ const ChatHeaderContent: React.FC<ChatHeaderContentProps> = ({
     selectedMessages,
     showBranchingUI,
     setShowBranchingUI,
-    conversationBranches
+    conversationBranches,
+    topBarCollapsed,
+    onExpandTopBar
 }) => {
     const [statsExpanded, setStatsExpanded] = useState(false);
     const tokenCost = calculateTokenCost(chatStats.tokenCount, chatStats.models);
 
     return (
-        <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '4px 8px', gap: '8px' }}>
+        <div style={{ flex: '1 1 0', width: 0, minWidth: 0, display: 'flex', alignItems: 'center', padding: '4px 8px', gap: '8px' }}>
             <span style={{ flexShrink: 0 }}>{icon}</span>
             <span
                 style={{
@@ -97,8 +101,20 @@ const ChatHeaderContent: React.FC<ChatHeaderContentProps> = ({
                 {title}
             </span>
 
+            {/* Expand top bar button - right after title */}
+            {topBarCollapsed && onExpandTopBar && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onExpandTopBar(); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="p-1 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-blue-400"
+                    title="Show top bar"
+                >
+                    <ChevronDown size={14} />
+                </button>
+            )}
+
             {/* Buttons area */}
-            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
                 {/* Stats dropdown */}
                 <div className="relative mr-2">
                     <button

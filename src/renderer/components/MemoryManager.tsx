@@ -35,51 +35,65 @@ const MemoryManager: React.FC<MemoryManagerProps> = ({
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('pending_approval');
+    const [pathFilter, setPathFilter] = useState('');
+    const [npcFilter, setNpcFilter] = useState('');
     const [editingMemory, setEditingMemory] = useState<number | null>(null);
     const [editedText, setEditedText] = useState('');
 
-    // Fetch memories
+    // Fetch memories using Python backend API
     const fetchMemories = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            let result;
+            console.log('[MemoryManager] Fetching memories with filter:', statusFilter);
+
+            let result: any;
+
             if (searchQuery.trim()) {
+                // Use search endpoint for text search
                 result = await (window as any).api?.memory_search?.({
                     q: searchQuery,
-                    npc: currentNpc || undefined,
-                    team: currentTeam || undefined,
-                    directory_path: currentPath || undefined,
                     status: statusFilter !== 'all' ? statusFilter : undefined,
+                    directory_path: pathFilter || undefined,
+                    npc: npcFilter || undefined,
                     limit: 100
                 });
             } else if (statusFilter === 'pending_approval') {
+                // Use pending endpoint for pending memories
                 result = await (window as any).api?.memory_pending?.({
-                    npc: currentNpc || undefined,
-                    team: currentTeam || undefined,
-                    directory_path: currentPath || undefined,
+                    directory_path: pathFilter || undefined,
+                    npc: npcFilter || undefined,
                     limit: 100
                 });
             } else {
+                // Use scope endpoint for filtered memories
                 result = await (window as any).api?.memory_scope?.({
-                    npc: currentNpc || undefined,
-                    team: currentTeam || undefined,
-                    directory_path: currentPath || undefined,
-                    status: statusFilter !== 'all' ? statusFilter : undefined
+                    status: statusFilter !== 'all' ? statusFilter : undefined,
+                    directory_path: pathFilter || undefined,
+                    npc: npcFilter || undefined,
+                    limit: 100
                 });
             }
 
-            if (result?.memories) {
-                setMemories(result.memories);
-            } else if (result?.error) {
+            console.log('[MemoryManager] API result:', result);
+
+            if (result?.error) {
                 setError(result.error);
+                setMemories([]);
+            } else if (Array.isArray(result?.memories)) {
+                setMemories(result.memories);
+            } else if (Array.isArray(result)) {
+                setMemories(result);
+            } else {
+                setMemories([]);
             }
         } catch (err: any) {
-            setError(err.message);
+            console.error('[MemoryManager] Error:', err);
+            setError(err.message || 'Failed to load memories. Is the Python backend running?');
         } finally {
             setLoading(false);
         }
-    }, [searchQuery, statusFilter, currentPath, currentNpc, currentTeam]);
+    }, [searchQuery, statusFilter, pathFilter, npcFilter]);
 
     useEffect(() => {
         if (isOpen) {
@@ -222,6 +236,25 @@ const MemoryManager: React.FC<MemoryManagerProps> = ({
                         >
                             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
                         </button>
+                    </div>
+                    {/* Path and NPC filters */}
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={pathFilter}
+                            onChange={(e) => setPathFilter(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && fetchMemories()}
+                            placeholder="Filter by path..."
+                            className="flex-1 px-3 py-1.5 text-xs bg-gray-800 text-white border border-gray-600 rounded focus:border-amber-500 focus:outline-none"
+                        />
+                        <input
+                            type="text"
+                            value={npcFilter}
+                            onChange={(e) => setNpcFilter(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && fetchMemories()}
+                            placeholder="Filter by NPC..."
+                            className="w-32 px-3 py-1.5 text-xs bg-gray-800 text-white border border-gray-600 rounded focus:border-amber-500 focus:outline-none"
+                        />
                     </div>
 
                     {/* Bulk actions for pending */}

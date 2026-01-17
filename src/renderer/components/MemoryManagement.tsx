@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Brain, Loader, CheckCircle, XCircle, Edit, Trash2, RefreshCw, Search } from 'lucide-react';
+import { Loader, CheckCircle, XCircle, Edit, Trash2, RefreshCw, Search } from 'lucide-react';
+import MemoryIcon from './MemoryIcon';
 
 interface Memory {
     id: number;
@@ -302,7 +303,7 @@ const MemoryManagement: React.FC<MemoryManagementProps> = ({ isModal = false, on
                 >
                     <div className="flex items-center justify-between p-4 border-b theme-border">
                         <h3 className="text-lg font-semibold flex items-center gap-2">
-                            <Brain className="text-orange-400" size={20} />
+                            <MemoryIcon className="text-orange-400" size={20} />
                             Memory Management ({memories.length} memories)
                         </h3>
                         <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded">

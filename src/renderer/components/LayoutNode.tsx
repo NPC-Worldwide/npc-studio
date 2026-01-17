@@ -581,6 +581,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renamingPaneId, setRenamingPaneId, editedFileName, setEditedFileName, handleConfirmRename,
             // Script running
             onRunScript,
+            // Top bar collapse
+            topBarCollapsed,
+            onExpandTopBar,
         } = component;
 
         // Get chat input props for this specific pane
@@ -963,7 +966,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         if (contentType === 'chat') {
             headerIcon = <MessageSquare size={14} className="text-blue-400" />;
-            headerTitle = `Conversation: ${contentId?.slice(-8) || 'None'}`;
+            headerTitle = 'Chat';
         } else if (contentType === 'editor' && contentId) {
             headerIcon = getFileIcon(contentId);
             headerTitle = contentId.split('/').pop();
@@ -1129,6 +1132,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     selectedMessages={selectedMessages}
                     showBranchingUI={showBranchingUI}
                     setShowBranchingUI={setShowBranchingUI}
+                    topBarCollapsed={topBarCollapsed}
+                    onExpandTopBar={onExpandTopBar}
                     conversationBranches={conversationBranches}
                 />
             );
@@ -1333,6 +1338,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         isZenMode={zenModePaneId === node.id}
                         // Tab management
                         onAddTab={handleAddTab}
+                        // Top bar collapse
+                        topBarCollapsed={topBarCollapsed}
+                        onExpandTopBar={onExpandTopBar}
                     >
                         {paneHeaderChildren} {/* Pass the conditional children here */}
                     </PaneHeader>

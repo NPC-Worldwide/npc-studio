@@ -34,8 +34,9 @@ readDocxContent: (filePath) =>
     generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),
 
     openNewWindow: (path) => ipcRenderer.invoke('open-new-window', path),
+    openInNativeExplorer: (path) => ipcRenderer.invoke('open-in-native-explorer', path),
 
-   
+
     deleteConversation: (id) => ipcRenderer.invoke('deleteConversation', id),
     getConversations: (path) => ipcRenderer.invoke('getConversations', path),
     getConversationsInDirectory: (path) => ipcRenderer.invoke('getConversationsInDirectory', path),
@@ -280,6 +281,7 @@ readDocxContent: (filePath) =>
     memory_search: (args) => ipcRenderer.invoke('memory:search', args),
     memory_pending: (args) => ipcRenderer.invoke('memory:pending', args),
     memory_scope: (args) => ipcRenderer.invoke('memory:scope', args),
+    memory_approve: (args) => ipcRenderer.invoke('memory:approve', args),
 
     resizeTerminal: (data) => ipcRenderer.invoke('resizeTerminal', data),
 

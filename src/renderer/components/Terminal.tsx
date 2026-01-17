@@ -9,7 +9,7 @@ const SHELL_PROMPT_KEY = 'incognide-shell-profile-prompted';
 // Maximum lines to keep in the terminal output buffer for chat context
 const MAX_TERMINAL_CONTEXT_LINES = 100;
 
-const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId, shell }) => {
+const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId, shell, isDarkMode = true }) => {
     const terminalRef = useRef(null);
     const xtermInstance = useRef(null);
     const fitAddonRef = useRef(null);
@@ -103,15 +103,57 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         if (!terminalRef.current || !terminalId) return;
 
         if (!xtermInstance.current) {
+            const darkTheme = {
+                background: '#1a1b26',
+                foreground: '#c0caf5',
+                cursor: '#c0caf5',
+                cursorAccent: '#1a1b26',
+                selectionBackground: '#33467c',
+                black: '#32344a',
+                red: '#f7768e',
+                green: '#9ece6a',
+                yellow: '#e0af68',
+                blue: '#7aa2f7',
+                magenta: '#ad8ee6',
+                cyan: '#449dab',
+                white: '#787c99',
+                brightBlack: '#444b6a',
+                brightRed: '#ff7a93',
+                brightGreen: '#b9f27c',
+                brightYellow: '#ff9e64',
+                brightBlue: '#7da6ff',
+                brightMagenta: '#bb9af7',
+                brightCyan: '#0db9d7',
+                brightWhite: '#acb0d0'
+            };
+            const lightTheme = {
+                background: '#6dbf9e',
+                foreground: '#0f3d2d',
+                cursor: '#0f3d2d',
+                cursorAccent: '#6dbf9e',
+                selectionBackground: '#4a9a7a',
+                black: '#0f3d2d',
+                red: '#b91c1c',
+                green: '#14532d',
+                yellow: '#78350f',
+                blue: '#1e3a8a',
+                magenta: '#581c87',
+                cyan: '#164e63',
+                white: '#4a7a68',
+                brightBlack: '#2d5a48',
+                brightRed: '#dc2626',
+                brightGreen: '#166534',
+                brightYellow: '#a16207',
+                brightBlue: '#1d4ed8',
+                brightMagenta: '#7c3aed',
+                brightCyan: '#0e7490',
+                brightWhite: '#8ecfb8'
+            };
             const term = new Terminal({
                 cursorBlink: true,
                 fontFamily: '"Fira Code", monospace',
                 fontSize: 14,
-                theme: {
-                    background: '#1a1b26',
-                    foreground: '#c0caf5',
-                    cursor: '#c0caf5'
-                },
+                theme: isDarkMode ? darkTheme : lightTheme,
             });
             const fitAddon = new FitAddon();
             fitAddonRef.current = fitAddon;
@@ -161,10 +203,12 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     return false;
                 }
 
-                // Ctrl+Shift+V or Ctrl+V for paste
+                // Ctrl+V / Cmd+V paste - handle manually, prevent browser default
                 if (isMeta && key === 'v') {
+                    event.preventDefault();
+                    event.stopPropagation();
                     navigator.clipboard.readText().then(text => {
-                        if (isSessionReady.current) {
+                        if (isSessionReady.current && text) {
                             window.api.writeToTerminal({ id: terminalId, data: text });
                         }
                     });
@@ -343,6 +387,13 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                 if (result.success) {
                     isSessionReady.current = true;
                     setActiveShell(result.shell || 'system');
+                    // Immediately send resize to ensure PTY knows exact dimensions
+                    fitAddonRef.current?.fit();
+                    window.api.resizeTerminal?.({
+                        id: terminalId,
+                        cols: xtermInstance.current.cols,
+                        rows: xtermInstance.current.rows
+                    });
                     if (activeContentPaneId === nodeId) {
                         xtermInstance.current.focus();
                     }
@@ -396,6 +447,27 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             xtermInstance.current.focus();
         }
     }, [activeContentPaneId, nodeId]);
+
+    // Update terminal theme when dark mode changes
+    useEffect(() => {
+        if (xtermInstance.current) {
+            const darkTheme = {
+                background: '#1a1b26',
+                foreground: '#c0caf5',
+                cursor: '#c0caf5',
+                cursorAccent: '#1a1b26',
+                selectionBackground: '#33467c',
+            };
+            const lightTheme = {
+                background: '#6dbf9e',
+                foreground: '#0f3d2d',
+                cursor: '#0f3d2d',
+                cursorAccent: '#6dbf9e',
+                selectionBackground: '#4a9a7a',
+            };
+            xtermInstance.current.options.theme = isDarkMode ? darkTheme : lightTheme;
+        }
+    }, [isDarkMode]);
 
     if (!paneData) return null;
 

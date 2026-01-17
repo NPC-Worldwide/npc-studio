@@ -5299,6 +5299,23 @@ ipcMain.handle('memory:scope', async (event, { npc, team, directory_path, status
   return await callBackendApi(`http://127.0.0.1:5337/api/memory/scope?${params.toString()}`);
 });
 
+ipcMain.handle('memory:approve', async (event, { approvals }) => {
+  try {
+    const response = await fetch('http://127.0.0.1:5337/api/memory/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approvals })
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('[Main Process] Memory approve error:', error);
+    return { error: error.message };
+  }
+});
+
 ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
   log(`[Main Process] Received request to interrupt stream: ${streamIdToInterrupt}`);
   
@@ -5668,6 +5685,19 @@ ipcMain.handle('db:getTableSchema', async (event, { tableName }) => {
 });
 ipcMain.handle('open-new-window', async (event, initialPath) => {
     createWindow(initialPath); // Your existing window creation function
+});
+
+ipcMain.handle('open-in-native-explorer', async (event, folderPath) => {
+    const { shell } = require('electron');
+    try {
+        const expandedPath = folderPath.startsWith('~')
+            ? path.join(os.homedir(), folderPath.slice(1))
+            : folderPath;
+        await shell.openPath(expandedPath);
+        return { success: true };
+    } catch (error) {
+        return { error: error.message };
+    }
 });
 
 // =============================================================================
@@ -7241,7 +7271,7 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
 
 
 
-ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) => {
+ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, shellType }) => {
   if (!pty) {
     return { success: false, error: ptyLoadError?.message || 'Terminal functionality not available (node-pty not loaded)' };
   }
@@ -7356,8 +7386,8 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) =>
   try {
     const ptyProcess = pty.spawn(shell, args, {
       name: 'xterm-256color',
-      cols: 80,
-      rows: 24,
+      cols: cols || 80,
+      rows: rows || 24,
       cwd: workingDir,
       env: cleanEnv
     });
@@ -7388,8 +7418,8 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, shellType }) =>
       try {
         const ptyProcess = pty.spawn('ipython', [], {
           name: 'xterm-256color',
-          cols: 80,
-          rows: 24,
+          cols: cols || 80,
+          rows: rows || 24,
           cwd: workingDir,
           env: cleanEnv
         });
