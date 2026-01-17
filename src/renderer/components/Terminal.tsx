@@ -127,27 +127,27 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                 brightWhite: '#acb0d0'
             };
             const lightTheme = {
-                background: '#e2e8f0',
-                foreground: '#334155',
-                cursor: '#334155',
-                cursorAccent: '#e2e8f0',
-                selectionBackground: '#cbd5e1',
-                black: '#334155',
-                red: '#dc2626',
-                green: '#16a34a',
-                yellow: '#ca8a04',
-                blue: '#2563eb',
-                magenta: '#9333ea',
-                cyan: '#0891b2',
-                white: '#94a3b8',
-                brightBlack: '#475569',
-                brightRed: '#ef4444',
-                brightGreen: '#22c55e',
-                brightYellow: '#eab308',
-                brightBlue: '#3b82f6',
-                brightMagenta: '#a855f7',
-                brightCyan: '#06b6d4',
-                brightWhite: '#f1f5f9'
+                background: '#6dbf9e',
+                foreground: '#0f3d2d',
+                cursor: '#0f3d2d',
+                cursorAccent: '#6dbf9e',
+                selectionBackground: '#4a9a7a',
+                black: '#0f3d2d',
+                red: '#b91c1c',
+                green: '#14532d',
+                yellow: '#78350f',
+                blue: '#1e3a8a',
+                magenta: '#581c87',
+                cyan: '#164e63',
+                white: '#4a7a68',
+                brightBlack: '#2d5a48',
+                brightRed: '#dc2626',
+                brightGreen: '#166534',
+                brightYellow: '#a16207',
+                brightBlue: '#1d4ed8',
+                brightMagenta: '#7c3aed',
+                brightCyan: '#0e7490',
+                brightWhite: '#8ecfb8'
             };
             const term = new Terminal({
                 cursorBlink: true,
@@ -459,11 +459,11 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                 selectionBackground: '#33467c',
             };
             const lightTheme = {
-                background: '#e2e8f0',
-                foreground: '#334155',
-                cursor: '#334155',
-                cursorAccent: '#e2e8f0',
-                selectionBackground: '#cbd5e1',
+                background: '#6dbf9e',
+                foreground: '#0f3d2d',
+                cursor: '#0f3d2d',
+                cursorAccent: '#6dbf9e',
+                selectionBackground: '#4a9a7a',
             };
             xtermInstance.current.options.theme = isDarkMode ? darkTheme : lightTheme;
         }

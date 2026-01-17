@@ -27,6 +27,7 @@ const generateId = () => `widget_${Math.random().toString(36).substr(2, 9)}`;
 const iconMap = {
     MessageSquare, BrainCircuit, Bot, LineChart, BarChartIcon, Settings2, Edit,
     Database, Table, GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat,
+    Terminal, Globe, Star, Activity,
 };
 const handleAnalyzeInDashboard = () => {
     const selectedIds = Array.from(selectedConvos);
@@ -653,14 +654,236 @@ const EditWidgetModal = ({ isOpen, onClose, widget, onSave, dbTables, tableSchem
     );
 };
 
-const DashboardWidget = ({ config, onContextMenu }) => {
+// Stat drill-down modal for viewing trends
+const StatDrillDownModal = ({ isOpen, onClose, stat, title }) => {
+    const [trendData, setTrendData] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [timeRange, setTimeRange] = useState('30d');
+
+    useEffect(() => {
+        if (!isOpen || !stat?.trendQuery) return;
+        const fetchTrend = async () => {
+            setLoading(true);
+            try {
+                const rangeFilter = timeRange === '7d' ? "timestamp >= date('now', '-7 days')"
+                    : timeRange === '30d' ? "timestamp >= date('now', '-30 days')"
+                    : timeRange === '90d' ? "timestamp >= date('now', '-90 days')" : "1=1";
+                const query = stat.trendQuery.replace('{{TIME_FILTER}}', rangeFilter);
+                const response = await (window as any).api?.executeSQL?.({ query });
+                setTrendData(response?.result || []);
+            } catch (e) {
+                console.error('Trend fetch error:', e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchTrend();
+    }, [isOpen, stat, timeRange]);
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]" onClick={onClose}>
+            <div className="theme-bg-secondary p-6 rounded-lg shadow-xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-semibold">{title} - Trend</h3>
+                    <div className="flex items-center gap-2">
+                        {['7d', '30d', '90d', 'All'].map(r => (
+                            <button key={r} onClick={() => setTimeRange(r)} className={`px-2 py-1 text-xs rounded ${timeRange === r ? 'theme-button-primary' : 'theme-button'}`}>{r}</button>
+                        ))}
+                        <button onClick={onClose} className="p-1 rounded-full theme-hover ml-2"><X size={18}/></button>
+                    </div>
+                </div>
+                <div className="h-64">
+                    {loading ? (
+                        <div className="flex items-center justify-center h-full"><Loader className="animate-spin text-blue-400"/></div>
+                    ) : trendData.length > 0 ? (
+                        <QueryChart
+                            data={trendData.filter(row => row.date && !isNaN(new Date(row.date).getTime()))}
+                            config={{ x: 'date', y: 'value', type: 'line' }}
+                            height={240}
+                        />
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-gray-500">No trend data available</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Stats grid component - must be outside DashboardWidget to use hooks properly
+const StatsGridContent = ({ stats, onStatClick, timePeriod = 'all' }: { stats: any[], onStatClick?: (stat: any) => void, timePeriod?: '7d' | '30d' | '90d' | 'all' }) => {
+    const [gridData, setGridData] = useState<Record<string, any>>({});
+    const [gridLoading, setGridLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchAllStats = async () => {
+            setGridLoading(true);
+            const results: Record<string, any> = {};
+
+            // Build time filter based on period
+            const getTimeFilter = (table: string) => {
+                if (timePeriod === 'all') return '';
+                const days = timePeriod === '7d' ? 7 : timePeriod === '30d' ? 30 : 90;
+                return `timestamp >= date('now', '-${days} days') AND timestamp IS NOT NULL`;
+            };
+
+            for (const stat of stats) {
+                try {
+                    let query = stat.query;
+
+                    // Apply time filter if not "all" and query targets a table with timestamps
+                    if (timePeriod !== 'all' && (query.includes('conversation_history') || query.includes('command_history') || query.includes('browser_history'))) {
+                        const baseQuery = query.replace(/;$/, '');
+                        const hasWhere = baseQuery.toLowerCase().includes('where');
+                        const timeFilter = getTimeFilter('');
+                        query = hasWhere
+                            ? `${baseQuery} AND ${timeFilter}`
+                            : `${baseQuery} WHERE ${timeFilter}`;
+                    }
+
+                    const response = await (window as any).api?.executeSQL?.({ query });
+                    const value = response?.result?.[0]?.value;
+                    results[stat.label] = value !== null && value !== undefined ? value : 0;
+                } catch (e) {
+                    results[stat.label] = 'Error';
+                }
+            }
+            setGridData(results);
+            setGridLoading(false);
+        };
+        fetchAllStats();
+    }, [stats, timePeriod]);
+
+    if (gridLoading) return <div className="flex items-center justify-center py-2"><Loader className="animate-spin text-blue-400" size={16}/></div>;
+
+    const formatValue = (val: any, format?: string) => {
+        if (val === 'Error') return <span className="text-red-400">Err</span>;
+        if (format === 'currency') return `$${Number(val).toFixed(2)}`;
+        if (format === 'number' && val > 1000000) return `${(val / 1000000).toFixed(1)}M`;
+        if (format === 'number' && val > 1000) return `${(val / 1000).toFixed(1)}K`;
+        return typeof val === 'number' ? val.toLocaleString() : val;
+    };
+
+    return (
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {stats.map((stat, i) => {
+                const StatIcon = iconMap[stat.icon] || Zap;
+                return (
+                    <div
+                        key={i}
+                        className="flex items-center gap-1 cursor-pointer hover:opacity-80"
+                        onClick={() => stat.trendQuery && onStatClick?.({ ...stat, title: stat.label })}
+                        title={stat.trendQuery ? 'Click to see trend' : stat.label}
+                    >
+                        <StatIcon size={12} className={stat.color || 'text-gray-400'} />
+                        <span className="font-bold text-sm">{formatValue(gridData[stat.label], stat.format)}</span>
+                        <span className="text-[10px] theme-text-muted">{stat.label}</span>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+// Expandable list modal for stat_list widgets
+const StatListModal = ({ isOpen, onClose, title, query, iconName }) => {
+    const [listData, setListData] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [limit, setLimit] = useState(20);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    useEffect(() => {
+        if (!isOpen || !query) return;
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                // Modify query to get more results
+                const expandedQuery = query.replace(/LIMIT \d+/i, `LIMIT ${limit}`);
+                const response = await (window as any).api?.executeSQL?.({ query: expandedQuery });
+                setListData(response?.result || []);
+            } catch (e) {
+                console.error('List fetch error:', e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, [isOpen, query, limit]);
+
+    if (!isOpen) return null;
+
+    const filteredData = searchTerm
+        ? listData.filter(item => String(Object.values(item)[0]).toLowerCase().includes(searchTerm.toLowerCase()))
+        : listData;
+
+    const Icon = iconMap[iconName] || Settings2;
+
+    return (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]" onClick={onClose}>
+            <div className="theme-bg-secondary p-6 rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                        <Icon size={18} className="text-blue-400" />
+                        {title}
+                    </h3>
+                    <button onClick={onClose} className="p-1 rounded-full theme-hover"><X size={18}/></button>
+                </div>
+                <div className="flex items-center gap-2 mb-3">
+                    <input
+                        type="text"
+                        placeholder="Filter..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="flex-1 px-2 py-1 text-sm theme-input rounded"
+                    />
+                    <select
+                        value={limit}
+                        onChange={e => setLimit(Number(e.target.value))}
+                        className="px-2 py-1 text-sm theme-input rounded"
+                    >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                    </select>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                    {loading ? (
+                        <div className="flex items-center justify-center h-32"><Loader className="animate-spin text-blue-400"/></div>
+                    ) : (
+                        <div className="space-y-1">
+                            {filteredData.map((item, i) => (
+                                <div key={i} className="flex justify-between items-center py-1 px-2 rounded hover:bg-white/5">
+                                    <span className="truncate text-sm">{Object.values(item)[0]}</span>
+                                    <span className="font-bold text-sm ml-2">{Object.values(item)[1]?.toLocaleString?.() || Object.values(item)[1]}</span>
+                                </div>
+                            ))}
+                            {filteredData.length === 0 && <div className="text-gray-500 text-center py-4">No results</div>}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const DashboardWidget = ({ config, onContextMenu, timePeriod = 'all' }: { config: any, onContextMenu: any, timePeriod?: '7d' | '30d' | '90d' | 'all' }) => {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [activeToggle, setActiveToggle] = useState(config.toggleOptions?.[0] || null);
-    
+    const [drillDownStat, setDrillDownStat] = useState(null);
+    const [expandedList, setExpandedList] = useState(false);
+
     useEffect(() => {
         const fetchData = async () => {
+            // Skip fetching for stats_grid - it fetches its own data
+            if (config.type === 'stats_grid') {
+                setLoading(false);
+                return;
+            }
             console.log(`[Widget: ${config.title}] Fetching data...`);
             setLoading(true); setError(null);
             try {
@@ -723,19 +946,36 @@ const DashboardWidget = ({ config, onContextMenu }) => {
     }, [config, activeToggle]);
 
     const renderContent = () => {
-        if (loading) return <div className="flex items-center justify-center h-full"><Loader className="animate-spin text-blue-400"/></div>;
+        if (loading && config.type !== 'stats_grid') return <div className="flex items-center justify-center h-full"><Loader className="animate-spin text-blue-400"/></div>;
         if (error) return <div className="text-red-400 p-2 text-xs overflow-auto">{error}</div>;
-        if (!data) return <div className="theme-text-secondary text-sm">No data</div>;
+        if (!data && config.type !== 'stats_grid') return <div className="theme-text-secondary text-sm">No data</div>;
 
         switch (config.type) {
+            case 'stats_grid':
+                return <StatsGridContent stats={config.stats || []} onStatClick={setDrillDownStat} timePeriod={timePeriod} />;
+
             case 'stat':
                 const statValue = config.dataKey ? data[config.dataKey] : (data[0] ? Object.values(data[0])[0] : 'N/A');
                 return <p className="text-3xl font-bold theme-text-primary">{statValue}</p>;
-            
+
             case 'stat_list':
                 const listData = config.dataKey ? data[config.dataKey] : data;
                 if (!Array.isArray(listData)) return <div className="text-red-400 text-xs">Data for stat_list is not an array.</div>;
-                return <ul className="space-y-1 text-sm theme-text-secondary">{listData.map((item, i) => <li key={i}>{Object.values(item)[0]}: <span className="font-bold">{Object.values(item)[1]}</span></li>)}</ul>;
+                return (
+                    <div className="h-full flex flex-col">
+                        <ul className="space-y-1 text-sm theme-text-secondary flex-1 overflow-hidden">
+                            {listData.map((item, i) => (
+                                <li key={i} className="flex justify-between hover:bg-white/5 rounded px-1 cursor-pointer" onClick={() => setExpandedList(true)}>
+                                    <span className="truncate">{Object.values(item)[0]}</span>
+                                    <span className="font-bold ml-2">{Object.values(item)[1]?.toLocaleString?.() || Object.values(item)[1]}</span>
+                                </li>
+                            ))}
+                        </ul>
+                        <button onClick={() => setExpandedList(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-1 text-center">
+                            Click to expand & filter
+                        </button>
+                    </div>
+                );
 
             case 'table':
                 if (!Array.isArray(data) || data.length === 0) return <div className="theme-text-secondary text-sm">Query returned 0 rows.</div>;
@@ -747,23 +987,77 @@ const DashboardWidget = ({ config, onContextMenu }) => {
                 if (!Array.isArray(data) || data.length === 0 || !config.chartConfig) {
                     return <div className="theme-text-secondary text-sm">Not enough data or chart is misconfigured.</div>;
                 }
-                // Use the npcts QueryChart component
+                // Use the npcts QueryChart component - disable date parsing for non-date x values
+                const xExpr = config.chartConfig?.x || '';
+                const xParts = xExpr.split(' as ');
+                const xKey = (xParts.length > 1 ? xParts[xParts.length - 1] : xParts[0] || '').trim();
+                // Filter out rows with null/invalid x values
+                const filteredData = data.filter(row => {
+                    const xVal = row[xKey];
+                    if (xVal === null || xVal === undefined || xVal === '') return false;
+                    // Check if date string is valid
+                    if (typeof xVal === 'string' && xVal.includes('-')) {
+                        const d = new Date(xVal);
+                        if (isNaN(d.getTime())) return false;
+                    }
+                    return true;
+                });
+                if (filteredData.length === 0) {
+                    return <div className="theme-text-secondary text-sm">No valid data to display.</div>;
+                }
+                const firstXVal = filteredData[0]?.[xKey];
+                const isDateX = typeof firstXVal === 'string' && /^\d{4}-\d{2}-\d{2}/.test(firstXVal);
                 const chartConfig: QueryChartConfig = {
                     x: config.chartConfig.x || '',
                     y: config.chartConfig.y || '',
                     type: config.chartConfig.type || (config.type.includes('line') ? 'line' : 'bar'),
-                    groupBy: config.chartConfig.groupBy
+                    groupBy: config.chartConfig.groupBy,
+                    xAxisType: isDateX ? 'time' : 'category'
                 };
                 return (
                     <div className="h-full w-full">
-                        <QueryChart data={data} config={chartConfig} height={180} />
+                        <QueryChart data={filteredData} config={chartConfig} height={180} />
                     </div>
                 );
             default: return null;
         }
     };
     const Icon = iconMap[config.iconName] || Settings2;
-    return (<div className="theme-bg-tertiary p-4 rounded-lg flex flex-col h-full relative" onContextMenu={(e) => onContextMenu(e, config.id)}><div className="flex justify-between items-start flex-shrink-0"><div className="flex items-center gap-3 mb-2 flex-1"><Icon className={config.iconColor || 'text-gray-400'} size={18} /><h4 className="font-semibold theme-text-secondary truncate">{config.title}</h4></div>{(config.toggleOptions || []).length > 0 && (<div className="flex items-center gap-1">{(config.toggleOptions).map(opt => <button key={opt.label} onClick={() => setActiveToggle(opt)} className={`px-2 py-0.5 text-xs rounded ${activeToggle?.label === opt.label ? 'theme-button-primary' : 'theme-button theme-hover'}`}>{opt.label}</button>)}</div>)}</div><div className="flex-1 mt-1 overflow-hidden">{renderContent()}</div></div>);
+    const isCompact = config.type === 'stats_grid';
+    return (
+        <>
+            <StatDrillDownModal isOpen={!!drillDownStat} onClose={() => setDrillDownStat(null)} stat={drillDownStat} title={drillDownStat?.title || ''} />
+            <StatListModal isOpen={expandedList} onClose={() => setExpandedList(false)} title={config.title} query={config.query} iconName={config.iconName} />
+            {isCompact ? (
+                <div onContextMenu={(e) => onContextMenu(e, config.id)}>
+                    <div className="flex items-center gap-1 mb-1">
+                        <Icon className={config.iconColor || 'text-gray-400'} size={12} />
+                        <span className="text-[11px] font-semibold theme-text-secondary">{config.title}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                        {renderContent()}
+                    </div>
+                </div>
+            ) : (
+                <div className="theme-bg-tertiary rounded-lg flex flex-col relative p-2.5 h-full" onContextMenu={(e) => onContextMenu(e, config.id)}>
+                    <div className="flex justify-between items-center flex-shrink-0">
+                        <div className="flex items-center gap-1.5 flex-1 mb-1.5">
+                            <Icon className={config.iconColor || 'text-gray-400'} size={14} />
+                            <h4 className="font-semibold theme-text-secondary truncate text-sm">{config.title}</h4>
+                        </div>
+                        {(config.toggleOptions || []).length > 0 && (
+                            <div className="flex items-center gap-1">
+                                {(config.toggleOptions).map(opt => (
+                                    <button key={opt.label} onClick={() => setActiveToggle(opt)} className={`px-2 py-0.5 text-xs rounded ${activeToggle?.label === opt.label ? 'theme-button-primary' : 'theme-button theme-hover'}`}>{opt.label}</button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex-1 mt-1 overflow-hidden">{renderContent()}</div>
+                </div>
+            )}
+        </>
+    );
 };
 
 const DataDash = ({ initialAnalysisContext, currentPath, currentModel, currentProvider, currentNPC, messageLabels = {}, setMessageLabels, conversationLabels = {}, setConversationLabels }) => {
@@ -779,44 +1073,162 @@ const DataDash = ({ initialAnalysisContext, currentPath, currentModel, currentPr
         showChart: false
     });
     const defaultWidgets = [
-        { id: 'total_convos', type: 'stat', title: 'Total Conversations', query: "SELECT COUNT(DISTINCT conversation_id) as total FROM conversation_history;", iconName: 'MessageSquare', iconColor: 'text-green-400', span: 1 },
-        { id: 'total_msgs', type: 'stat', title: 'Total Messages', query: "SELECT COUNT(*) as total FROM conversation_history WHERE role = 'user' OR role = 'assistant';", iconName: 'MessageSquare', iconColor: 'text-green-400', span: 1 },
-        { id: 'top_models', type: 'stat_list', title: 'Top 5 Models', query: "SELECT model, COUNT(*) as count FROM conversation_history WHERE model IS NOT NULL AND model != '' GROUP BY model ORDER BY count DESC LIMIT 5;", iconName: 'BrainCircuit', iconColor: 'text-purple-400', span: 1 },
-        { id: 'top_npcs', type: 'stat_list', title: 'Top 5 NPCs', query: "SELECT npc, COUNT(*) as count FROM conversation_history WHERE npc IS NOT NULL AND npc != '' GROUP BY npc ORDER BY count DESC LIMIT 5;", iconName: 'Bot', iconColor: 'text-yellow-400', span: 1 },
-        { 
-            id: 'activity_chart', 
-            type: 'line_chart', 
-            title: 'Activity Over Time', 
-            query: "SELECT strftime('%Y-%m-%d', timestamp) as date, COUNT(*) as count FROM conversation_history GROUP BY strftime('%Y-%m-%d', timestamp) ORDER BY date ASC",
-            iconName: 'LineChart', 
-            iconColor: 'text-blue-400', 
-            chartConfig: { 
-                x: "strftime('%Y-%m-%d', timestamp) as date",
-                y: "COUNT(*) as count",
-                type: 'line',
-                groupBy: "strftime('%Y-%m-%d', timestamp)"
-            }, 
+        // Core conversation metrics
+        {
+            id: 'core_stats',
+            type: 'stats_grid',
+            title: 'Conversations',
+            iconName: 'MessageSquare',
+            iconColor: 'text-green-400',
             span: 2,
-            toggleOptions: [
-                { label: '7d', modifier: "WHERE timestamp >= date('now', '-7 days')" },
-                { label: '30d', modifier: "WHERE timestamp >= date('now', '-30 days')" },
-                { label: '90d', modifier: "WHERE timestamp >= date('now', '-90 days')" }
+            stats: [
+                { label: 'Total Convos', query: "SELECT COUNT(DISTINCT conversation_id) as value FROM conversation_history;", icon: 'MessageSquare', color: 'text-green-400', trendQuery: "SELECT strftime('%Y-%m-%d', timestamp) as date, COUNT(DISTINCT conversation_id) as value FROM conversation_history WHERE {{TIME_FILTER}} GROUP BY date ORDER BY date" },
+                { label: 'Messages', query: "SELECT COUNT(*) as value FROM conversation_history WHERE role IN ('user', 'assistant');", icon: 'MessageSquare', color: 'text-blue-400', trendQuery: "SELECT strftime('%Y-%m-%d', timestamp) as date, COUNT(*) as value FROM conversation_history WHERE role IN ('user', 'assistant') AND {{TIME_FILTER}} GROUP BY date ORDER BY date" },
+                { label: 'User Msgs', query: "SELECT COUNT(*) as value FROM conversation_history WHERE role = 'user';", icon: 'MessageSquare', color: 'text-cyan-400' },
+                { label: 'AI Responses', query: "SELECT COUNT(*) as value FROM conversation_history WHERE role = 'assistant';", icon: 'Bot', color: 'text-purple-400' },
+                { label: 'Tool Calls', query: "SELECT COUNT(*) as value FROM conversation_history WHERE tool_calls IS NOT NULL AND tool_calls != '' AND tool_calls != '[]';", icon: 'Zap', color: 'text-yellow-400' },
+                { label: 'Active Days', query: "SELECT COUNT(DISTINCT DATE(timestamp)) as value FROM conversation_history;", icon: 'Clock', color: 'text-orange-400' },
             ]
         },
-        { 
-            id: 'length_dist', 
-            type: 'bar_chart', 
-            title: 'Message Length Distribution', 
-            query: "SELECT CASE WHEN LENGTH(content) BETWEEN 0 AND 50 THEN '0-50' WHEN LENGTH(content) BETWEEN 51 AND 200 THEN '51-200' WHEN LENGTH(content) BETWEEN 201 AND 500 THEN '201-500' WHEN LENGTH(content) BETWEEN 501 AND 1000 THEN '501-1000' ELSE '1000+' END as bin, COUNT(*) as count FROM conversation_history WHERE role IN ('user', 'assistant') GROUP BY bin ORDER BY MIN(LENGTH(content));", 
-            iconName: 'BarChartIcon', 
-            iconColor: 'text-indigo-400', 
-            chartConfig: { 
-                x: "CASE WHEN LENGTH(content) BETWEEN 0 AND 50 THEN '0-50' WHEN LENGTH(content) BETWEEN 51 AND 200 THEN '51-200' WHEN LENGTH(content) BETWEEN 201 AND 500 THEN '201-500' WHEN LENGTH(content) BETWEEN 501 AND 1000 THEN '501-1000' ELSE '1000+' END as bin", 
-                y: "COUNT(*) as count", 
-                type: 'bar',
-                groupBy: "CASE WHEN LENGTH(content) BETWEEN 0 AND 50 THEN '0-50' WHEN LENGTH(content) BETWEEN 51 AND 200 THEN '51-200' WHEN LENGTH(content) BETWEEN 201 AND 500 THEN '201-500' WHEN LENGTH(content) BETWEEN 501 AND 1000 THEN '501-1000' ELSE '1000+' END"
-            }, 
-            span: 2 
+        // Token & cost metrics
+        {
+            id: 'cost_stats',
+            type: 'stats_grid',
+            title: 'Usage & Cost',
+            iconName: 'Zap',
+            iconColor: 'text-yellow-400',
+            span: 2,
+            stats: [
+                { label: 'Est. Tokens', query: "SELECT ROUND(SUM(LENGTH(content) / 4.0)) as value FROM conversation_history WHERE role IN ('user', 'assistant');", icon: 'Zap', color: 'text-yellow-400', format: 'number', trendQuery: "SELECT strftime('%Y-%m-%d', timestamp) as date, ROUND(SUM(LENGTH(content) / 4.0)) as value FROM conversation_history WHERE role IN ('user', 'assistant') AND timestamp IS NOT NULL AND {{TIME_FILTER}} GROUP BY date HAVING date IS NOT NULL ORDER BY date" },
+                { label: 'Input Tokens', query: "SELECT ROUND(SUM(LENGTH(content) / 4.0)) as value FROM conversation_history WHERE role = 'user';", icon: 'Zap', color: 'text-blue-400', format: 'number' },
+                { label: 'Output Tokens', query: "SELECT ROUND(SUM(LENGTH(content) / 4.0)) as value FROM conversation_history WHERE role = 'assistant';", icon: 'Zap', color: 'text-green-400', format: 'number' },
+                { label: 'Est. Cost', query: "SELECT ROUND(SUM(CASE WHEN model LIKE '%opus%' THEN LENGTH(content)/4.0*0.045/1000 WHEN model LIKE '%sonnet%' THEN LENGTH(content)/4.0*0.009/1000 WHEN model LIKE '%gpt-4o%' THEN LENGTH(content)/4.0*0.00625/1000 WHEN model LIKE '%gpt-4%' THEN LENGTH(content)/4.0*0.045/1000 WHEN model LIKE '%gpt-3%' THEN LENGTH(content)/4.0*0.001/1000 WHEN model LIKE '%claude-3-5-haiku%' THEN LENGTH(content)/4.0*0.002/1000 WHEN model LIKE '%gemini%' THEN LENGTH(content)/4.0*0.002/1000 ELSE LENGTH(content)/4.0*0.003/1000 END), 2) as value FROM conversation_history WHERE role = 'assistant';", icon: 'Clock', color: 'text-emerald-400', format: 'currency', trendQuery: "SELECT strftime('%Y-%m-%d', timestamp) as date, ROUND(SUM(CASE WHEN model LIKE '%opus%' THEN LENGTH(content)/4.0*0.045/1000 WHEN model LIKE '%sonnet%' THEN LENGTH(content)/4.0*0.009/1000 ELSE LENGTH(content)/4.0*0.003/1000 END), 4) as value FROM conversation_history WHERE role = 'assistant' AND timestamp IS NOT NULL AND {{TIME_FILTER}} GROUP BY date HAVING date IS NOT NULL ORDER BY date" },
+                { label: 'Avg Msg Len', query: "SELECT ROUND(AVG(LENGTH(content))) as value FROM conversation_history WHERE role IN ('user', 'assistant');", icon: 'MessageSquare', color: 'text-pink-400' },
+                { label: 'Avg Response', query: "SELECT ROUND(AVG(LENGTH(content))) as value FROM conversation_history WHERE role = 'assistant';", icon: 'Bot', color: 'text-purple-400' },
+            ]
+        },
+        // Provider & model breakdown
+        {
+            id: 'provider_stats',
+            type: 'stats_grid',
+            title: 'Providers & Models',
+            iconName: 'BrainCircuit',
+            iconColor: 'text-purple-400',
+            span: 2,
+            stats: [
+                { label: 'Providers', query: "SELECT COUNT(DISTINCT provider) as value FROM conversation_history WHERE provider IS NOT NULL AND provider != '';", icon: 'Database', color: 'text-cyan-400' },
+                { label: 'Models', query: "SELECT COUNT(DISTINCT model) as value FROM conversation_history WHERE model IS NOT NULL AND model != '';", icon: 'BrainCircuit', color: 'text-purple-400' },
+                { label: 'NPCs', query: "SELECT COUNT(DISTINCT npc) as value FROM conversation_history WHERE npc IS NOT NULL AND npc != '';", icon: 'Bot', color: 'text-orange-400' },
+                { label: 'Teams', query: "SELECT COUNT(DISTINCT team) as value FROM conversation_history WHERE team IS NOT NULL AND team != '';", icon: 'Bot', color: 'text-blue-400' },
+                { label: 'Directories', query: "SELECT COUNT(DISTINCT directory_path) as value FROM conversation_history WHERE directory_path IS NOT NULL;", icon: 'Database', color: 'text-green-400' },
+                { label: 'Branches', query: "SELECT COUNT(DISTINCT branch_id) as value FROM conversation_history WHERE branch_id IS NOT NULL;", icon: 'GitBranch', color: 'text-pink-400' },
+            ]
+        },
+        // Command & browser stats
+        {
+            id: 'activity_stats',
+            type: 'stats_grid',
+            title: 'Activity',
+            iconName: 'Activity',
+            iconColor: 'text-cyan-400',
+            span: 2,
+            stats: [
+                { label: 'Commands', query: "SELECT COUNT(*) as value FROM command_history;", icon: 'Terminal', color: 'text-green-400' },
+                { label: 'Jinx Runs', query: "SELECT COUNT(*) as value FROM jinx_execution_log;", icon: 'Zap', color: 'text-yellow-400' },
+                { label: 'Sites Visited', query: "SELECT COUNT(DISTINCT url) as value FROM browser_history;", icon: 'Globe', color: 'text-blue-400' },
+                { label: 'Page Views', query: "SELECT SUM(visit_count) as value FROM browser_history;", icon: 'Globe', color: 'text-cyan-400' },
+                { label: 'Bookmarks', query: "SELECT COUNT(*) as value FROM bookmarks;", icon: 'Star', color: 'text-yellow-400' },
+                { label: 'KG Facts', query: "SELECT COUNT(*) as value FROM kg_facts;", icon: 'Brain', color: 'text-purple-400' },
+            ]
+        },
+        { id: 'top_models', type: 'stat_list', title: 'Top Models', query: "SELECT model as name, COUNT(*) as count FROM conversation_history WHERE model IS NOT NULL AND model != '' GROUP BY model ORDER BY count DESC LIMIT 5;", iconName: 'BrainCircuit', iconColor: 'text-purple-400', span: 1 },
+        { id: 'top_providers', type: 'stat_list', title: 'Top Providers', query: "SELECT provider as name, COUNT(*) as count FROM conversation_history WHERE provider IS NOT NULL AND provider != '' GROUP BY provider ORDER BY count DESC LIMIT 5;", iconName: 'Database', iconColor: 'text-cyan-400', span: 1 },
+        { id: 'top_npcs', type: 'stat_list', title: 'Top NPCs', query: "SELECT npc as name, COUNT(*) as count FROM conversation_history WHERE npc IS NOT NULL AND npc != '' GROUP BY npc ORDER BY count DESC LIMIT 5;", iconName: 'Bot', iconColor: 'text-yellow-400', span: 1 },
+        { id: 'top_sites', type: 'stat_list', title: 'Top Sites', query: "SELECT SUBSTR(url, INSTR(url, '://') + 3, INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') - 1) as name, SUM(visit_count) as count FROM browser_history GROUP BY name ORDER BY count DESC LIMIT 5;", iconName: 'Globe', iconColor: 'text-blue-400', span: 1 },
+        {
+            id: 'activity_chart',
+            type: 'line_chart',
+            title: 'Activity Over Time',
+            query: "SELECT strftime('%Y-%m-%d', timestamp) as date, COUNT(*) as count FROM conversation_history WHERE timestamp IS NOT NULL GROUP BY date HAVING date IS NOT NULL ORDER BY date ASC",
+            iconName: 'LineChart',
+            iconColor: 'text-blue-400',
+            chartConfig: {
+                x: "date",
+                y: "count",
+                type: 'line'
+            },
+            span: 2,
+            toggleOptions: [
+                { label: '7d', modifier: "WHERE timestamp >= date('now', '-7 days') AND timestamp IS NOT NULL" },
+                { label: '30d', modifier: "WHERE timestamp >= date('now', '-30 days') AND timestamp IS NOT NULL" },
+                { label: '90d', modifier: "WHERE timestamp >= date('now', '-90 days') AND timestamp IS NOT NULL" }
+            ]
+        },
+        {
+            id: 'cost_over_time',
+            type: 'line_chart',
+            title: 'Cost Over Time',
+            query: "SELECT strftime('%Y-%m-%d', timestamp) as date, ROUND(SUM(CASE WHEN model LIKE '%opus%' THEN LENGTH(content)/4.0*0.045/1000 WHEN model LIKE '%sonnet%' THEN LENGTH(content)/4.0*0.009/1000 WHEN model LIKE '%gpt-4%' THEN LENGTH(content)/4.0*0.03/1000 ELSE LENGTH(content)/4.0*0.003/1000 END), 4) as cost FROM conversation_history WHERE role = 'assistant' AND timestamp IS NOT NULL GROUP BY date HAVING date IS NOT NULL ORDER BY date ASC",
+            iconName: 'Clock',
+            iconColor: 'text-emerald-400',
+            chartConfig: {
+                x: "date",
+                y: "cost",
+                type: 'line'
+            },
+            span: 2,
+            toggleOptions: [
+                { label: '7d', modifier: "WHERE role = 'assistant' AND timestamp >= date('now', '-7 days') AND timestamp IS NOT NULL" },
+                { label: '30d', modifier: "WHERE role = 'assistant' AND timestamp >= date('now', '-30 days') AND timestamp IS NOT NULL" },
+                { label: 'All', modifier: "WHERE role = 'assistant' AND timestamp IS NOT NULL" }
+            ]
+        },
+        {
+            id: 'hourly_activity',
+            type: 'bar_chart',
+            title: 'Activity by Hour',
+            query: "SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as count FROM conversation_history WHERE timestamp IS NOT NULL GROUP BY hour ORDER BY hour",
+            iconName: 'Clock',
+            iconColor: 'text-cyan-400',
+            chartConfig: {
+                x: "hour",
+                y: "count",
+                type: 'bar'
+            },
+            span: 1
+        },
+        {
+            id: 'cost_by_model',
+            type: 'bar_chart',
+            title: 'Est. Cost by Model',
+            query: "SELECT COALESCE(model, 'unknown') as model, ROUND(SUM(CASE WHEN model LIKE '%opus%' THEN LENGTH(content) / 4.0 * 0.045 / 1000 WHEN model LIKE '%sonnet%' THEN LENGTH(content) / 4.0 * 0.009 / 1000 WHEN model LIKE '%gpt-4o%' THEN LENGTH(content) / 4.0 * 0.00625 / 1000 WHEN model LIKE '%gpt-4%' THEN LENGTH(content) / 4.0 * 0.045 / 1000 ELSE LENGTH(content) / 4.0 * 0.005 / 1000 END), 4) as cost FROM conversation_history WHERE role = 'assistant' GROUP BY model ORDER BY cost DESC LIMIT 8",
+            iconName: 'BarChartIcon',
+            iconColor: 'text-emerald-400',
+            chartConfig: {
+                x: "model",
+                y: "cost",
+                type: 'bar'
+            },
+            span: 1
+        },
+        {
+            id: 'tokens_by_day',
+            type: 'line_chart',
+            title: 'Tokens by Day',
+            query: "SELECT strftime('%Y-%m-%d', timestamp) as date, ROUND(SUM(LENGTH(content) / 4.0)) as tokens FROM conversation_history WHERE role IN ('user', 'assistant') AND timestamp IS NOT NULL GROUP BY date HAVING date IS NOT NULL ORDER BY date ASC",
+            iconName: 'Zap',
+            iconColor: 'text-orange-400',
+            chartConfig: {
+                x: "date",
+                y: "tokens",
+                type: 'line'
+            },
+            span: 2,
+            toggleOptions: [
+                { label: '7d', modifier: "WHERE timestamp >= date('now', '-7 days') AND timestamp IS NOT NULL AND role IN ('user', 'assistant')" },
+                { label: '30d', modifier: "WHERE timestamp >= date('now', '-30 days') AND timestamp IS NOT NULL AND role IN ('user', 'assistant')" },
+                { label: 'All', modifier: "WHERE timestamp IS NOT NULL AND role IN ('user', 'assistant')" }
+            ]
         },
     ];
     
@@ -827,6 +1239,22 @@ const DataDash = ({ initialAnalysisContext, currentPath, currentModel, currentPr
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, widgetId: null });
     const [isEditWidgetModalOpen, setIsEditWidgetModalOpen] = useState(false);
     const [widgetToEdit, setWidgetToEdit] = useState(null);
+
+    // Collapsible sections state - default all open
+    const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+        const saved = localStorage.getItem('dataDashCollapsedSections');
+        return saved ? JSON.parse(saved) : {};
+    });
+    const toggleSection = (sectionId: string) => {
+        setCollapsedSections(prev => {
+            const next = { ...prev, [sectionId]: !prev[sectionId] };
+            localStorage.setItem('dataDashCollapsedSections', JSON.stringify(next));
+            return next;
+        });
+    };
+
+    // Stats time period filter
+    const [statsTimePeriod, setStatsTimePeriod] = useState<'7d' | '30d' | '90d' | 'all'>('all');
 
     const [tableSchemaCache, setTableSchemaCache] = useState({});
     const [isMlPanelOpen, setIsMlPanelOpen] = useState(false);
@@ -2142,137 +2570,154 @@ const handleAcceptGeneratedSql = () => {
             {contextMenu.visible && <WidgetContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu({visible: false})} onSelect={handleContextMenuSelect} />}
 
             {/* Header */}
-            <div className="flex items-center justify-between border-b theme-border p-3 flex-shrink-0">
-                <h3 className="text-sm font-semibold flex items-center gap-2">
-                    <BarChart3 size={16} className="text-blue-400" />
+            <div className="flex items-center justify-between border-b theme-border px-2 py-1.5 flex-shrink-0">
+                <h3 className="text-xs font-semibold flex items-center gap-1.5">
+                    <BarChart3 size={14} className="text-blue-400" />
                     DataDash
                 </h3>
-                <button onClick={() => saveWidgets(defaultWidgets)} className="p-1 rounded theme-hover text-gray-400 hover:text-white transition-colors" title="Reset to default layout">
-                    <Repeat size={14} />
+                <button onClick={() => saveWidgets(defaultWidgets)} className="p-0.5 rounded theme-hover text-gray-400 hover:text-white transition-colors" title="Reset to default layout">
+                    <Repeat size={12} />
                 </button>
             </div>
 
             {/* Main content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                {/* Widget grid section */}
-                <section id="widgets">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                        {filteredWidgets.map(widget => (
-                            <div key={widget.id} className={`h-48 ${widget.span ? `lg:col-span-${widget.span}` : 'lg:col-span-1'} md:col-span-2 col-span-4`}>
-                                <DashboardWidget config={widget} onContextMenu={handleContextMenu}/>
-                            </div>
-                        ))}
-                        <div className="flex items-center justify-center h-48 border-2 border-dashed theme-border rounded-lg hover:bg-gray-800/50 transition-colors">
-                            <button onClick={() => setIsAddCustomWidgetModalOpen(true)} className="theme-button text-sm flex flex-col items-center gap-2">
-                                <Plus size={16}/>
-                                Add Widget
-                            </button>
-                        </div>
-                    </div>
-                </section>
-
-                <section id="ml-models" className="border theme-border rounded-lg">
-    <button 
-        onClick={() => setIsMlPanelOpen(!isMlPanelOpen)} 
-        className="w-full p-4 flex justify-between items-center theme-hover"
-    >
-        <h4 className="text-lg font-semibold flex items-center gap-3">
-            <BrainCircuit className="text-purple-400"/>
-            ML Models ({mlModels.length})
-        </h4>
-        {isMlPanelOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
-    </button>
-    {isMlPanelOpen && (
-        <div className="p-4 border-t theme-border">
-            {mlModels.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 
-                    lg:grid-cols-3 gap-4">
-                    {mlModels.map(model => (
-                        <div key={model.id} className="p-4 
-                            theme-bg-tertiary rounded-lg">
-                            <div className="flex justify-between 
-                                items-start mb-2">
-                                <h5 className="font-semibold">
-                                    {model.name}
-                                </h5>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                {/* Stats Grid Widgets - Collapsible */}
+                {(() => {
+                    const statsGridWidgets = filteredWidgets.filter(w => w.type === 'stats_grid');
+                    if (statsGridWidgets.length === 0) return null;
+                    const periodLabels = { '7d': 'Last 7 Days', '30d': 'Last 30 Days', '90d': 'Last 90 Days', 'all': 'All Time' };
+                    return (
+                        <section className="border theme-border rounded overflow-hidden">
+                            <div className="px-2 py-1 flex justify-between items-center theme-bg-tertiary">
                                 <button
-                                    onClick={() => {
-                                        const updated = mlModels.filter(
-                                            m => m.id !== model.id
-                                        );
-                                        setMlModels(updated);
-                                        localStorage.setItem(
-                                            'dataDashMLModels',
-                                            JSON.stringify(updated)
-                                        );
-                                    }}
-                                    className="p-1 theme-button-danger-subtle 
-                                        rounded"
+                                    onClick={() => toggleSection('stats_grids')}
+                                    className="flex items-center gap-1.5 theme-hover rounded px-1"
                                 >
-                                    <Trash2 size={14} />
+                                    <BarChart3 size={12} className="text-blue-400" />
+                                    <span className="text-xs font-semibold">Overview Stats</span>
+                                    <span className="text-[10px] theme-text-muted">({periodLabels[statsTimePeriod]})</span>
+                                    {collapsedSections['stats_grids'] ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                                 </button>
+                                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                    {(['7d', '30d', '90d', 'all'] as const).map(period => (
+                                        <button
+                                            key={period}
+                                            onClick={() => setStatsTimePeriod(period)}
+                                            className={`px-1.5 py-0.5 text-[10px] rounded ${statsTimePeriod === period ? 'bg-blue-500 text-white' : 'theme-hover theme-text-muted'}`}
+                                        >
+                                            {period === 'all' ? 'All' : period}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
-                            <div className="text-xs space-y-1 
-                                theme-text-secondary">
-                                <div>Type: <span className="text-blue-400">
-                                    {model.type}
-                                </span></div>
-                                <div>Target: <span className="font-mono">
-                                    {model.target}
-                                </span></div>
-                                <div>Features: <span className="font-mono">
-                                    {model.features.join(', ')}
-                                </span></div>
-                                {model.metrics && (
-                                    <div className="mt-2 pt-2 border-t 
-                                        theme-border">
-                                        <div className="font-semibold 
-                                            text-green-400">
-                                            Metrics:
+                            {!collapsedSections['stats_grids'] && (
+                                <div className="p-1.5 grid grid-cols-2 gap-1.5">
+                                    {statsGridWidgets.map(widget => (
+                                        <div key={widget.id} className="theme-bg-secondary rounded p-1.5" onContextMenu={(e) => handleContextMenu(e, widget.id)}>
+                                            <DashboardWidget config={widget} onContextMenu={handleContextMenu} timePeriod={statsTimePeriod}/>
                                         </div>
-                                        {Object.entries(model.metrics).map(
-                                            ([k, v]) => (
-                                                <div key={k}>
-                                                    {k}: {typeof v === 'number' 
-                                                        ? v.toFixed(4) 
-                                                        : v}
-                                                </div>
-                                            )
-                                        )}
-                                    </div>
-                                )}
-                                <div className="text-[10px] 
-                                    text-gray-500 mt-2">
-                                    Created: {new Date(model.created)
-                                        .toLocaleString()}
+                                    ))}
                                 </div>
-                            </div>
-                            <div className="mt-3">
-                                <div className="text-xs font-mono 
-                                    bg-gray-900/50 p-2 rounded">
-                                    ML_PREDICT('{model.name}', {model.features.join(', ')})
+                            )}
+                        </section>
+                    );
+                })()}
+
+                {/* Stat List Widgets - Collapsible */}
+                {(() => {
+                    const statListWidgets = filteredWidgets.filter(w => w.type === 'stat_list');
+                    if (statListWidgets.length === 0) return null;
+                    return (
+                        <section className="border theme-border rounded overflow-hidden">
+                            <button
+                                onClick={() => toggleSection('stat_lists')}
+                                className="w-full px-2 py-1 flex justify-between items-center theme-bg-tertiary theme-hover"
+                            >
+                                <span className="text-xs font-semibold flex items-center gap-1.5">
+                                    <Database size={12} className="text-cyan-400" />
+                                    Top Lists
+                                </span>
+                                {collapsedSections['stat_lists'] ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                            {!collapsedSections['stat_lists'] && (
+                                <div className="p-1.5 grid grid-cols-2 md:grid-cols-4 gap-1">
+                                    {statListWidgets.map(widget => (
+                                        <div key={widget.id} className="h-20" onContextMenu={(e) => handleContextMenu(e, widget.id)}>
+                                            <DashboardWidget config={widget} onContextMenu={handleContextMenu}/>
+                                        </div>
+                                    ))}
                                 </div>
-                            </div>
-                        </div>
-                    ))}
+                            )}
+                        </section>
+                    );
+                })()}
+
+                {/* Chart Widgets - Collapsible */}
+                {(() => {
+                    const chartWidgets = filteredWidgets.filter(w => w.type === 'line_chart' || w.type === 'bar_chart' || w.type === 'chart');
+                    if (chartWidgets.length === 0) return null;
+                    return (
+                        <section className="border theme-border rounded overflow-hidden">
+                            <button
+                                onClick={() => toggleSection('charts')}
+                                className="w-full px-2 py-1 flex justify-between items-center theme-bg-tertiary theme-hover"
+                            >
+                                <span className="text-xs font-semibold flex items-center gap-1.5">
+                                    <LineChart size={12} className="text-green-400" />
+                                    Charts ({chartWidgets.length})
+                                </span>
+                                {collapsedSections['charts'] ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                            {!collapsedSections['charts'] && (
+                                <div className="p-1.5 grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                                    {chartWidgets.map(widget => (
+                                        <div key={widget.id} className={`h-36 ${widget.span === 2 ? 'md:col-span-2' : ''}`} onContextMenu={(e) => handleContextMenu(e, widget.id)}>
+                                            <DashboardWidget config={widget} onContextMenu={handleContextMenu}/>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </section>
+                    );
+                })()}
+
+                {/* Table/Other Widgets - Collapsible */}
+                {(() => {
+                    const otherWidgets = filteredWidgets.filter(w => !['stats_grid', 'stat_list', 'line_chart', 'bar_chart', 'chart'].includes(w.type));
+                    if (otherWidgets.length === 0) return null;
+                    return (
+                        <section className="border theme-border rounded overflow-hidden">
+                            <button
+                                onClick={() => toggleSection('other')}
+                                className="w-full px-2 py-1 flex justify-between items-center theme-bg-tertiary theme-hover"
+                            >
+                                <span className="text-xs font-semibold flex items-center gap-1.5">
+                                    <Table size={12} className="text-purple-400" />
+                                    Other Widgets ({otherWidgets.length})
+                                </span>
+                                {collapsedSections['other'] ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                            {!collapsedSections['other'] && (
+                                <div className="p-1.5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-1.5">
+                                    {otherWidgets.map(widget => (
+                                        <div key={widget.id} className={`h-36 ${widget.span ? `lg:col-span-${widget.span}` : ''}`} onContextMenu={(e) => handleContextMenu(e, widget.id)}>
+                                            <DashboardWidget config={widget} onContextMenu={handleContextMenu}/>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </section>
+                    );
+                })()}
+
+                {/* Add Widget Button */}
+                <div className="flex items-center justify-center py-1">
+                    <button onClick={() => setIsAddCustomWidgetModalOpen(true)} className="theme-button text-xs flex items-center gap-1.5 px-3 py-1 rounded">
+                        <Plus size={12}/>
+                        Add Widget
+                    </button>
                 </div>
-            ) : (
-                <div className="text-center theme-text-secondary p-4">
-                    No models trained yet. Run a query and click 
-                    "Create Model" to train your first ML model.
-                </div>
-            )}
-        </div>
-    )}
-</section>
-
-
-{/* Memory Management and Browser History Web sections have been moved to standalone components */}
-
-{/* Knowledge Graph section has been moved to standalone component */}
-
-{/* Activity Intelligence and Labeled Data sections have been moved to standalone components */}
-
             </div>
         </div>
     );

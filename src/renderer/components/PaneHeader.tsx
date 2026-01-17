@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useEffect } from 'react';
-import { Check, Play, X, Maximize2, Minimize2 } from 'lucide-react';
+import { Check, Play, X, Maximize2, Minimize2, ChevronDown } from 'lucide-react';
 
 // Common props interface for custom header content components
 export interface HeaderContentProps {
@@ -46,7 +46,10 @@ export const PaneHeader = React.memo(({
     isZenMode,
     // Option to hide zen/close buttons (for panes that render their own)
     hideZenButton,
-    hideCloseButton
+    hideCloseButton,
+    // Top bar collapse
+    topBarCollapsed,
+    onExpandTopBar
 }) => {
     const isPythonFile = filePath?.endsWith('.py');
     const nodePath = findNodePath?.(rootLayoutNode, nodeId);
@@ -189,6 +192,18 @@ export const PaneHeader = React.memo(({
 
             {/* Content - either custom headerContent or default */}
             {headerContent || defaultContent}
+
+            {/* Expand top bar button - only for simple panes without custom headerContent */}
+            {!headerContent && topBarCollapsed && onExpandTopBar && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onExpandTopBar(); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="p-1.5 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-blue-400"
+                    title="Show top bar"
+                >
+                    <ChevronDown size={14} />
+                </button>
+            )}
 
             {/* Close button - right side */}
             {!hideCloseButton && (

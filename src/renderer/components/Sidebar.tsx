@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
     Folder, File, Globe, ChevronRight, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, Minus, ArrowUp, MessageSquare,
-    X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp,
+    X, Wrench, FileText, FileJson, BarChart3, Code2, HardDrive, ChevronDown, ChevronUp, ChevronLeft,
     Sun, Moon, FileStack, Share2, Bot, Zap, GitBranch, Tag, KeyRound, Database, Network,
     Star, Clock, Activity, Lock, Archive, BookOpen, Sparkles, Box, GripVertical, Play,
     Search, RefreshCw, Download, Upload, Copy, Check, AlertCircle, Info, Eye, EyeOff,
@@ -81,7 +81,10 @@ const Sidebar = (props: any) => {
         handleInputSubmit, toggleTheme, goUpDirectory, switchToPath,
         handleCreateNewFolder, createNewTextFile, createNewTerminal, createNewNotebook, createNewExperiment, createNewDocument,
         handleOpenNpcTeamMenu, renderSearchResults,
-        createAndAddPaneNodeToLayout, findNodePath, findNodeByPath
+        createAndAddPaneNodeToLayout, findNodePath, findNodeByPath,
+        isPredictiveTextEnabled, setIsPredictiveTextEnabled,
+        topBarHeight = 48, bottomBarHeight = 48, topBarCollapsed = false,
+        onExpandTopBar, onCollapseTopBar, setDownloadManagerOpen
     } = props;
 
     const WINDOW_WORKSPACES_KEY = 'npcStudioWorkspaces';
@@ -282,6 +285,8 @@ const Sidebar = (props: any) => {
     const [codeFileDropdownOpen, setCodeFileDropdownOpen] = useState(false);
     // Folder dropdown state
     const [folderDropdownOpen, setFolderDropdownOpen] = useState(false);
+    const [folderDropdownPos, setFolderDropdownPos] = useState({ top: 0, left: 0 });
+    const folderButtonRef = React.useRef<HTMLButtonElement>(null);
     // Recent paths for folder dropdown
     const [recentPaths, setRecentPaths] = useState<string[]>(() => {
         try {
@@ -542,13 +547,8 @@ const Sidebar = (props: any) => {
     const [livePreviewCode, setLivePreviewCode] = useState('');
 
     // Fallback config (used until jinxes load) - 2x2 grid
-    // Moved: settings/env to top bar, npc/jinx to bottom right
-    const [bottomGridConfig, setBottomGridConfig] = useState([
-        { id: 'db', label: 'DB Tool', icon: 'Database', enabled: true, order: 0 },
-        { id: 'photo', label: 'Photo', icon: 'Image', enabled: true, order: 1 },
-        { id: 'library', label: 'Library', icon: 'BookOpen', enabled: true, order: 2 },
-        { id: 'datadash', label: 'Data Dash', icon: 'BarChart3', enabled: true, order: 3 },
-    ]);
+    // Moved: settings/env to top bar, npc/jinx to bottom right, datadash to top bar
+    const [bottomGridConfig, setBottomGridConfig] = useState<Array<{id: string; label: string; icon: string; enabled: boolean; order: number}>>([]);
     const [draggedBottomTileId, setDraggedBottomTileId] = useState<string | null>(null);
     const [draggedTileId, setDraggedTileId] = useState<string | null>(null);
 
@@ -1636,20 +1636,18 @@ const renderWebsiteList = () => {
             onDrop={handleSectionDrop('websites')}
         >
             <div
-                className="flex w-full bg-gradient-to-r from-purple-900/20 to-indigo-900/20"
+                draggable
+                onDragStart={handleSectionDragStart('websites')}
+                onDragEnd={handleSectionDragEnd}
+                onClick={() => setWebsitesCollapsed(!websitesCollapsed)}
+                className="flex w-full bg-gradient-to-r from-purple-900/20 to-indigo-900/20 cursor-pointer hover:bg-white/5"
             >
                 {/* Left side: Icon only */}
-                <div className="flex items-center px-4">
+                <div className="flex items-center px-4 py-4">
                     <Globe size={16} className="text-purple-400" />
                 </div>
                 {/* Right side: actions and dropdown */}
-                <div
-                    draggable
-                    onDragStart={handleSectionDragStart('websites')}
-                    onDragEnd={handleSectionDragEnd}
-                    onClick={() => setWebsitesCollapsed(!websitesCollapsed)}
-                    className="flex-1 flex items-center justify-end gap-2 px-2 py-4 cursor-pointer hover:bg-white/5"
-                >
+                <div className="flex-1 flex items-center justify-end gap-2 px-2">
                     {!websitesCollapsed && (
                         <>
                             <button
@@ -1677,12 +1675,12 @@ const renderWebsiteList = () => {
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); createNewBrowser?.(); }}
-                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
                         title="New Browser"
                     >
                         <Plus size={12} />
                     </button>
-                    <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${websitesCollapsed ? "" : "rotate-90"}`} />
+                    <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${websitesCollapsed ? "" : "rotate-90"}`} />
                 </div>
             </div>
             {/* Websites Settings Panel */}
@@ -2037,7 +2035,7 @@ const renderWebsiteList = () => {
                         onClick={() => setMemoriesCollapsed(!memoriesCollapsed)}
                         className="flex-1 flex items-center justify-end gap-1.5 px-2 py-4 cursor-pointer hover:bg-white/5"
                     >
-                        <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${memoriesCollapsed ? "" : "rotate-90"}`} />
+                        <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${memoriesCollapsed ? "" : "rotate-90"}`} />
                     </div>
                 </div>
 
@@ -2123,7 +2121,7 @@ const renderWebsiteList = () => {
                         onClick={() => setKnowledgeCollapsed(!knowledgeCollapsed)}
                         className="flex-1 flex items-center justify-end gap-1.5 px-2 py-4 cursor-pointer hover:bg-white/5"
                     >
-                        <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${knowledgeCollapsed ? "" : "rotate-90"}`} />
+                        <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${knowledgeCollapsed ? "" : "rotate-90"}`} />
                     </div>
                 </div>
 
@@ -2736,32 +2734,48 @@ const renderFolderList = (structure) => {
             data-dropdown="folder"
         >
             <div
-                className="flex w-full bg-gradient-to-r from-yellow-900/20 to-orange-900/20"
+                draggable
+                onDragStart={handleSectionDragStart('files')}
+                onDragEnd={handleSectionDragEnd}
+                onClick={() => setFilesCollapsed(!filesCollapsed)}
+                className="flex w-full bg-gradient-to-r from-yellow-900/20 to-orange-900/20 cursor-pointer hover:bg-white/5"
             >
-                {/* Left side: Folder selector with dropdown */}
-                <div className="flex items-center flex-1 min-w-0 relative">
-                    {/* Go up button */}
+                {/* Left side: Icon only (matching web/chat) */}
+                <div className="flex items-center px-4 py-4">
+                    <FolderOpen size={16} className="text-yellow-400" />
+                </div>
+                {/* Folder path controls - left justified */}
+                <div className="flex items-center gap-1 flex-shrink-0" style={{ position: 'relative', overflow: 'visible' }}>
                     <button
                         onClick={(e) => { e.stopPropagation(); if (currentPath !== baseDir) goUpDirectory(currentPath, baseDir, switchToPath, setError); }}
                         disabled={currentPath === baseDir}
-                        className={`px-2 py-4 flex items-center justify-center transition-colors ${currentPath === baseDir ? 'opacity-40' : 'hover:bg-green-500/20'}`}
+                        className={`p-1 hover:bg-white/10 rounded transition-all ${currentPath === baseDir ? 'opacity-40' : 'text-gray-400 hover:text-green-400'}`}
                         title="Go up one folder"
                     >
-                        <ArrowUp size={14} className={currentPath === baseDir ? 'text-gray-500' : 'text-green-400'} />
+                        <ArrowUp size={12} />
                     </button>
-                    {/* Folder name + dropdown trigger */}
                     <button
-                        onClick={(e) => { e.stopPropagation(); setFolderDropdownOpen(!folderDropdownOpen); }}
-                        className="flex items-center gap-1.5 px-2 py-4 hover:bg-purple-500/20 transition-colors min-w-0 flex-1"
+                        ref={folderButtonRef}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (!folderDropdownOpen && folderButtonRef.current) {
+                                const rect = folderButtonRef.current.getBoundingClientRect();
+                                setFolderDropdownPos({ top: rect.bottom + 4, left: rect.left });
+                            }
+                            setFolderDropdownOpen(!folderDropdownOpen);
+                        }}
+                        className="flex items-center gap-1 px-1.5 py-0.5 hover:bg-white/10 transition-colors rounded text-gray-400 hover:text-yellow-400"
                         title={currentPath}
                     >
-                        <FolderOpen size={14} className="text-yellow-400 flex-shrink-0" />
-                        <span className="text-[11px] font-medium truncate">{currentPath?.split('/').pop() || 'Root'}</span>
-                        <ChevronDown size={10} className={`text-gray-400 flex-shrink-0 transition-transform ${folderDropdownOpen ? 'rotate-180' : ''}`} />
+                        <span className="text-[10px] font-medium truncate max-w-[60px]">{currentPath?.split('/').pop() || 'Root'}</span>
+                        <ChevronDown size={10} className={`flex-shrink-0 transition-transform text-gray-600 dark:text-gray-400 ${folderDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
-                    {/* Folder dropdown */}
+                    {/* Folder dropdown - fixed positioning to show over pane content */}
                     {folderDropdownOpen && (
-                        <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded shadow-xl z-[9999] py-1 min-w-[200px]">
+                        <div
+                            className="fixed bg-gray-800 border border-gray-700 rounded shadow-xl py-1 min-w-[220px]"
+                            style={{ top: folderDropdownPos.top, left: folderDropdownPos.left, zIndex: 99999 }}
+                        >
                             <div className="px-2 py-1 border-b border-gray-700">
                                 <div className="text-[9px] text-gray-500 truncate" title={currentPath}>{currentPath}</div>
                             </div>
@@ -2828,19 +2842,13 @@ const renderFolderList = (structure) => {
                         </div>
                     )}
                 </div>
-                {/* Right side: actions and collapse */}
-                <div
-                    draggable
-                    onDragStart={handleSectionDragStart('files')}
-                    onDragEnd={handleSectionDragEnd}
-                    onClick={() => setFilesCollapsed(!filesCollapsed)}
-                    className="flex items-center justify-end gap-1 px-2 py-4 cursor-pointer hover:bg-white/5"
-                >
+                {/* Right side: action buttons */}
+                <div className="flex-1 flex items-center justify-end gap-2 px-2">
                     {!filesCollapsed && (
                         <>
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowFilesSettings(!showFilesSettings); }}
-                                className={`p-1 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
                                 title="Settings"
                             >
                                 <Settings size={12} />
@@ -2853,7 +2861,7 @@ const renderFolderList = (structure) => {
                                     }
                                     setShowFileTypeFilter(!showFileTypeFilter);
                                 }}
-                                className={`p-1 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
                                 title="Filter by file type"
                             >
                                 <Filter size={12} />
@@ -2862,19 +2870,19 @@ const renderFolderList = (structure) => {
                     )}
                     <button
                         onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
-                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
                         title="Refresh files"
                     >
                         <RefreshCw size={12} />
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); handleCreateNewFolder?.(); }}
-                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
                         title="New Folder"
                     >
                         <Plus size={12} />
                     </button>
-                    <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${filesCollapsed ? "" : "rotate-90"}`} />
+                    <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${filesCollapsed ? "" : "rotate-90"}`} />
                 </div>
             </div>
             {/* Files Settings Panel */}
@@ -3279,20 +3287,18 @@ const renderFolderList = (structure) => {
                 onDrop={handleSectionDrop('conversations')}
             >
                 <div
-                    className="flex w-full bg-gradient-to-r from-green-900/20 to-emerald-900/20"
+                    draggable
+                    onDragStart={handleSectionDragStart('conversations')}
+                    onDragEnd={handleSectionDragEnd}
+                    onClick={() => setConversationsCollapsed(!conversationsCollapsed)}
+                    className="flex w-full bg-gradient-to-r from-green-900/20 to-emerald-900/20 cursor-pointer hover:bg-white/5"
                 >
                     {/* Left side: Icon only */}
-                    <div className="flex items-center px-4">
+                    <div className="flex items-center px-4 py-4">
                         <MessageSquare size={16} className="text-green-400" />
                     </div>
                     {/* Right side: actions and dropdown */}
-                    <div
-                        draggable
-                        onDragStart={handleSectionDragStart('conversations')}
-                        onDragEnd={handleSectionDragEnd}
-                        onClick={() => setConversationsCollapsed(!conversationsCollapsed)}
-                        className="flex-1 flex items-center justify-end gap-2 px-2 py-4 cursor-pointer hover:bg-white/5"
-                    >
+                    <div className="flex-1 flex items-center justify-end gap-2 px-2">
                         {!conversationsCollapsed && (
                             <>
                                 <button
@@ -3329,12 +3335,12 @@ const renderFolderList = (structure) => {
                         </button>
                         <button
                             onClick={(e) => { e.stopPropagation(); createNewConversation?.(); }}
-                            className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
+                            className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
                             title="New Chat"
                         >
                             <Plus size={12} />
                         </button>
-                        <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${conversationsCollapsed ? "" : "rotate-90"}`} />
+                        <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${conversationsCollapsed ? "" : "rotate-90"}`} />
                     </div>
                 </div>
                 {/* Conversations Settings Panel */}
@@ -3621,7 +3627,7 @@ const renderFolderList = (structure) => {
                             <GitBranch size={12} className="text-orange-400 mr-1" />
                         </div>
                         <div className="flex-1 flex items-center justify-end px-2 py-4">
-                            <ChevronRight size={14} className="text-gray-400" />
+                            <ChevronRight size={14} className="text-gray-600 dark:text-gray-400" />
                         </div>
                     </div>
                 </div>
@@ -3682,7 +3688,7 @@ const renderFolderList = (structure) => {
                         onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)}
                         className="flex-1 flex items-center justify-end gap-1.5 px-2 py-4 cursor-pointer hover:bg-white/5"
                     >
-                        <ChevronRight size={14} className={`transform transition-transform text-gray-400 ${!gitPanelCollapsed ? 'rotate-90' : ''}`} />
+                        <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${!gitPanelCollapsed ? 'rotate-90' : ''}`} />
                     </div>
                 </div>
             </div>
@@ -4109,8 +4115,9 @@ return (
     <div
         className="border-r theme-border flex flex-col flex-shrink-0 theme-sidebar relative"
         style={{
-            width: sidebarCollapsed ? '40px' : `${sidebarWidth}px`,
-            transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+            width: sidebarCollapsed ? '0px' : `${sidebarWidth}px`,
+            transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+            overflow: sidebarCollapsed ? 'hidden' : 'visible'
         }}
     >
         {!sidebarCollapsed && (
@@ -4126,14 +4133,25 @@ return (
             />
         )}
 
-        {/* Header Actions */}
-        <div className={`border-b border-gray-700 flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
-            <div className="grid grid-cols-4 divide-x divide-gray-700">
+        {/* Expand top bar hover button - shows when top bar is collapsed */}
+        {topBarCollapsed && !sidebarCollapsed && (
+            <div
+                className="group h-6 flex items-center justify-center border-b border-gray-700 hover:bg-blue-500/20 cursor-pointer transition-all"
+                onClick={onExpandTopBar}
+                title="Show top bar"
+            >
+                <ChevronDown size={14} className="text-gray-600 group-hover:text-blue-400 transition-colors" />
+            </div>
+        )}
+
+        {/* Header Actions - hidden when sidebar or top bar is collapsed */}
+        <div className={`border-b border-gray-700 flex-shrink-0 relative group/header ${sidebarCollapsed || topBarCollapsed ? 'hidden' : ''}`} style={{ height: topBarHeight }}>
+            <div className="grid grid-cols-4 divide-x divide-gray-700 h-full">
                 {/* Terminals dropdown */}
                 <div className="relative" data-dropdown="terminal">
                     <button
                         onClick={() => createNewTerminal?.(defaultNewTerminalType)}
-                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 py-4 relative transition-colors"
+                        className="w-full h-full flex items-center justify-center hover:bg-teal-500/20 relative transition-colors"
                         title={`New ${defaultNewTerminalType === 'system' ? 'Bash' : defaultNewTerminalType} Terminal`}
                     >
                         {defaultNewTerminalType === 'system' && <Terminal size={18} className="text-green-400" />}
@@ -4344,6 +4362,14 @@ return (
                     </button>
                 </div>
             )}
+            {/* Hover zone at bottom of header to collapse top bar */}
+            <div
+                className="absolute bottom-0 left-0 right-0 h-3 flex items-center justify-center opacity-0 group-hover/header:opacity-100 hover:bg-blue-500/30 cursor-pointer transition-all z-10"
+                onClick={onCollapseTopBar}
+                title="Hide top bar"
+            >
+                <ChevronUp size={10} className="text-gray-500 hover:text-blue-400" />
+            </div>
         </div>
 
         <div className={`flex-1 flex flex-col overflow-hidden ${sidebarCollapsed ? 'hidden' : ''}`}>
@@ -4742,281 +4768,72 @@ return (
 
         {sidebarCollapsed && <div className="flex-1"></div>}
 
-        {/* Expand button when bottom is collapsed */}
-        {bottomGridCollapsed && !sidebarCollapsed && (
-            <div className="flex justify-center py-2">
-                <button
-                    onClick={() => setBottomGridCollapsed(false)}
-                    className="p-2 rounded-full hover:bg-teal-500/20 text-gray-400 hover:text-white transition-all"
-                    title="Show quick actions"
-                >
-                    <ChevronUp size={20} />
-                </button>
-            </div>
+        {/* Collapse controls row: Down arrow (left) | Sidebar collapse (right) */}
+        {!sidebarCollapsed && (
+        <div className="flex items-center border-t border-gray-700" style={{ height: bottomBarHeight }}>
+            <button
+                onClick={() => setBottomGridCollapsed(!bottomGridCollapsed)}
+                className="flex-1 flex items-center justify-center h-full hover:bg-teal-500/20 transition-all border-r border-gray-700"
+                title={bottomGridCollapsed ? "Show quick actions" : "Hide quick actions"}
+            >
+                {bottomGridCollapsed ? (
+                    <ChevronUp size={16} className="text-gray-600 dark:text-gray-400" />
+                ) : (
+                    <ChevronDown size={16} className="text-gray-600 dark:text-gray-400" />
+                )}
+            </button>
+            <button
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                className="flex-1 flex items-center justify-center h-full hover:bg-teal-500/20 transition-all"
+                title="Collapse sidebar"
+            >
+                <ChevronLeft size={16} className="text-gray-600 dark:text-gray-400" />
+            </button>
+        </div>
         )}
 
-        {/* Theme + Edit + Delete + Collapse toggle buttons - collapsible with bottom grid */}
+        {/* Download + Theme + Predictive Text + Delete + Incognide buttons - at very bottom when expanded */}
         {!bottomGridCollapsed && !sidebarCollapsed && (
-        <div className="flex justify-center items-center gap-2 py-2">
+        <div className="flex justify-center items-center gap-2 border-t border-gray-700" style={{ height: bottomBarHeight }}>
+            <button
+                onClick={() => setDownloadManagerOpen?.(true)}
+                className="p-2 rounded-full hover:bg-teal-500/20 transition-all text-gray-400 hover:text-blue-400"
+                title="Download Manager (Alt+D)"
+            >
+                <Download size={18} />
+            </button>
             <button
                 onClick={toggleTheme}
                 className="p-2 rounded-full hover:bg-teal-500/20 transition-all"
                 aria-label="Toggle Theme"
                 title="Toggle Theme"
             >
-                {isDarkMode ? <Moon size={20} className="text-blue-400" /> : <Sun size={20} className="text-yellow-400" />}
+                {isDarkMode ? <Moon size={18} className="text-blue-400" /> : <Sun size={18} className="text-yellow-400" />}
             </button>
             <button
-                onClick={() => setBottomGridEditMode(!bottomGridEditMode)}
-                className={`p-2 rounded-full transition-all ${bottomGridEditMode ? 'bg-purple-600 text-white' : 'hover:bg-teal-500/20 text-gray-400 hover:text-purple-400'}`}
-                title="Edit tiles"
+                onClick={() => setIsPredictiveTextEnabled?.(!isPredictiveTextEnabled)}
+                className={`p-2 rounded-full transition-all ${isPredictiveTextEnabled ? 'bg-purple-600 text-white' : 'hover:bg-teal-500/20 text-gray-400 hover:text-purple-400'}`}
+                title={isPredictiveTextEnabled ? "Disable Predictive Text" : "Enable Predictive Text"}
             >
-                <Edit size={20} />
+                <BrainCircuit size={18} />
             </button>
             <button
                 onClick={deleteSelectedConversations}
                 className={`p-2 rounded-full hover:bg-teal-500/20 transition-all ${(selectedFiles?.size > 0 || selectedConvos?.size > 0) ? 'text-red-400' : 'text-gray-400'}`}
                 title="Delete selected items"
             >
-                <Trash size={24} />
+                <Trash size={18} />
             </button>
             <button
                 onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }}
                 className="p-2 rounded-full hover:bg-teal-500/20 text-gray-400 hover:text-white transition-all"
                 title="New Incognide Window (Alt+N)"
             >
-                <img src={npcLogo} alt="Incognide" style={{ width: 20, height: 20 }} className="rounded-full" />
-            </button>
-            <button
-                onClick={() => setBottomGridCollapsed(!bottomGridCollapsed)}
-                className="p-2 rounded-full hover:bg-teal-500/20 text-gray-400 hover:text-white transition-all"
-                title={bottomGridCollapsed ? "Show quick actions" : "Hide quick actions"}
-            >
-                <ChevronDown size={20} />
+                <img src={npcLogo} alt="Incognide" style={{ width: 18, height: 18 }} className="rounded-full" />
             </button>
         </div>
         )}
 
-        {/* Bottom grid section - collapsible */}
-        {!bottomGridCollapsed && !sidebarCollapsed && (
-        <div className="border-t border-gray-700 flex-shrink-0">
-            {/* Bottom Grid Edit Mode - uses jinx tiles when loaded */}
-            {!sidebarCollapsed && bottomGridEditMode && (
-                <div className="mb-2 p-2 bg-gray-800/50 rounded-lg border border-gray-700">
-                    <div className="text-[10px] text-gray-400 mb-2">Drag to reorder • Click to edit</div>
-                    <div className="grid grid-cols-2 gap-1">
-                        {(tileJinxesLoaded ? tileJinxes : bottomGridConfig.map(t => ({ ...t, filename: `${t.id}.jinx`, jinx_name: `tile.${t.id}`, action: t.id, rawContent: '' }))).map((tile, idx) => (
-                            <div
-                                key={tile.filename || tile.id}
-                                draggable
-                                onDragStart={() => setDraggedTileIdx(idx)}
-                                onDragOver={(e) => e.preventDefault()}
-                                onDrop={() => { if (draggedTileIdx !== null) handleTileReorder(draggedTileIdx, idx); }}
-                                onDragEnd={() => setDraggedTileIdx(null)}
-                                onClick={() => {
-                                    setEditingTileJinx(tile.filename);
-                                    setTileJinxEditContent(tile.rawContent);
-                                }}
-                                className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] cursor-grab active:cursor-grabbing hover:bg-purple-600/30 ${
-                                    !tile.enabled ? 'opacity-50' : 'bg-gray-700/50'
-                                } ${draggedTileIdx === idx ? 'ring-2 ring-purple-500 opacity-50' : ''}`}
-                            >
-                                <GripVertical size={10} className="text-gray-500" />
-                                <span className="flex-1 truncate">{tile.label}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <button
-                        onClick={() => {
-                            // Create new custom tile
-                            const newName = `custom_${Date.now()}`;
-                            const newContent = `/**
- * @jinx tile.${newName}
- * @label Custom
- * @icon Box
- * @order ${tileJinxes.length}
- * @enabled true
- */
-
-import React from 'react';
-import { Box } from 'lucide-react';
-
-export default function CustomTile({ onClose, theme }: { onClose?: () => void; theme?: any }) {
-    return (
-        <div className="p-4">
-            <h2 className="text-lg font-bold flex items-center gap-2">
-                <Box size={20} />
-                Custom Tile
-            </h2>
-            <p className="text-gray-400 mt-2">Edit this component to create your custom tile.</p>
-        </div>
-    );
-}
-`;
-                            setEditingTileJinx(`${newName}.jinx`);
-                            setTileJinxEditContent(newContent);
-                        }}
-                        className="mt-2 w-full px-2 py-1 text-xs bg-purple-600/30 text-purple-300 rounded hover:bg-purple-600/50 flex items-center justify-center gap-1"
-                    >
-                        <Plus size={12} /> New Custom Tile
-                    </button>
-                </div>
-            )}
-
-            {/* Tile Editor Modal - Full component code editor with live preview */}
-            {editingTileJinx && (
-                <div className="fixed inset-0 bg-black/70 z-[9999] flex items-center justify-center p-4">
-                    <div className="bg-gray-900 border border-gray-700 rounded-lg w-[95vw] h-[95vh] flex flex-col">
-                        <div className="flex items-center justify-between p-3 border-b border-gray-700">
-                            <span className="text-sm font-medium">{editingTileJinx.replace('.jinx', '')} Component</span>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={toggleLivePreview}
-                                    className={`px-3 py-1 text-xs rounded flex items-center gap-1 ${showLivePreview ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                                >
-                                    <Play size={12} /> {showLivePreview ? 'Hide Preview' : 'Live Preview'}
-                                </button>
-                                <button
-                                    onClick={() => saveTileJinx(editingTileJinx, tileJinxEditContent)}
-                                    className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
-                                >
-                                    Save
-                                </button>
-                                <button
-                                    onClick={() => { setEditingTileJinx(null); setTileJinxEditContent(''); setShowLivePreview(false); }}
-                                    className="px-3 py-1 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-hidden flex">
-                            {/* Code Editor */}
-                            <div className={`${showLivePreview ? 'w-1/2' : 'w-full'} h-full`}>
-                                <CodeMirror
-                                    value={tileJinxEditContent}
-                                    onChange={(val) => setTileJinxEditContent(val)}
-                                    extensions={[
-                                        javascript({ jsx: true, typescript: true }),
-                                        EditorView.theme({
-                                            '&': { height: '100%', fontSize: '13px' },
-                                            '.cm-scroller': { overflow: 'auto' },
-                                            '.cm-content': { fontFamily: '"Fira Code", "JetBrains Mono", monospace' },
-                                            '.cm-gutters': { backgroundColor: '#1a1a2e', borderRight: '1px solid #333' },
-                                        }),
-                                    ]}
-                                    theme="dark"
-                                    height="100%"
-                                    style={{ height: '100%' }}
-                                />
-                            </div>
-                            {/* Live Preview - renders the actual component */}
-                            {showLivePreview && (
-                                <div className="w-1/2 h-full border-l border-gray-700 flex flex-col">
-                                    <div className="p-2 border-b border-gray-700 text-xs text-gray-400 flex items-center justify-between">
-                                        <span className="flex items-center gap-2">
-                                            <Play size={12} className="text-green-400" />
-                                            Live Preview
-                                        </span>
-                                        <span className="text-gray-500 text-[10px]">updates as you type</span>
-                                    </div>
-                                    <div className="flex-1 overflow-auto bg-gray-900 relative" style={{ contain: 'layout paint' }}>
-                                        <LiveProvider code={livePreviewCode} scope={liveScope} noInline={true}>
-                                            <LiveError className="p-4 text-red-400 text-sm font-mono bg-red-900/30 border-b border-red-800" />
-                                            <LivePreview className="h-full w-full" />
-                                        </LiveProvider>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                        <div className="px-3 py-2 text-[10px] text-gray-500 border-t border-gray-700">
-                            ~/.npcsh/incognide/tiles/{editingTileJinx}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Row of 4 - uses jinx tiles when loaded */}
-            {!sidebarCollapsed && !bottomGridEditMode && (
-                <div className="grid grid-cols-4 divide-x divide-gray-700 border-t border-gray-700">
-                    {(() => {
-                        // Fallback actions for when jinxes haven't loaded yet
-                        const fallbackActions: Record<string, () => void> = {
-                            db: () => createDBToolPane?.(),
-                            photo: () => createPhotoViewerPane?.(),
-                            library: () => createLibraryViewerPane?.(),
-                            help: () => createHelpPane?.(),
-                            datadash: () => createDataDashPane?.(),
-                            graph: () => createGraphViewerPane?.(),
-                            browsergraph: () => createBrowserGraphPane?.(),
-                            team: () => createTeamManagementPane?.(),
-                            npc: () => createNPCTeamPane?.(),
-                            jinx: () => createJinxPane?.(),
-                            settings: () => createSettingsPane?.(),
-                            env: () => createProjectEnvPane?.(),
-                            disk: () => createDiskUsagePane?.(),
-                        };
-                        // Icon map with colors
-                        const iconMap: Record<string, React.ReactNode> = {
-                            Database: <Database size={18} className="text-emerald-400" />,
-                            Image: <Image size={18} className="text-pink-400" />,
-                            BookOpen: <BookOpen size={18} className="text-amber-400" />,
-                            Info: <Info size={18} className="text-sky-400" />,
-                            BarChart3: <BarChart3 size={18} className="text-violet-400" />,
-                            GitBranch: <GitBranch size={18} className="text-orange-400" />,
-                            Network: <Network size={18} className="text-cyan-400" />,
-                            Users: <Users size={18} className="text-indigo-400" />,
-                            Bot: <Bot size={18} className="text-lime-400" />,
-                            Zap: <Zap size={18} className="text-yellow-400" />,
-                            Settings: <Settings size={18} className="text-slate-400" />,
-                            KeyRound: <KeyRound size={18} className="text-amber-400" />,
-                            HardDrive: <HardDrive size={18} className="text-teal-400" />,
-                            Box: <Box size={18} className="text-gray-400" />,
-                        };
-
-                        // Use jinx tiles if loaded, otherwise fallback
-                        const tiles = tileJinxesLoaded
-                            ? tileJinxes.filter(t => t.enabled).slice(0, 4)
-                            : bottomGridConfig.filter(t => t.enabled).slice(0, 4).map(t => ({ ...t, action: t.id }));
-
-                        return tiles.map((tile) => (
-                            <button
-                                key={tile.filename || tile.id}
-                                onClick={() => {
-                                    // If tile has a filename, use jinx pane (compiles jinx at runtime)
-                                    if (tile.filename && createTileJinxPane) {
-                                        createTileJinxPane(tile.filename);
-                                    } else {
-                                        // Fallback to bundled components
-                                        const action = fallbackActions[tile.action];
-                                        if (action) action();
-                                        else console.log(`No action for ${tile.action}`);
-                                    }
-                                }}
-                                className="flex items-center justify-center py-4 hover:bg-teal-500/20 transition-colors"
-                                aria-label={tile.label}
-                                title={tile.label}
-                            >
-                                {iconMap[tile.icon] || <Box size={18} className="text-gray-400" />}
-                            </button>
-                        ));
-                    })()}
-                </div>
-            )}
-
-        </div>
-        )}
-
-        {/* Sidebar collapse button - always visible at bottom */}
-        <div className="border-t border-gray-700">
-            <button
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="w-full flex items-center justify-center h-14 hover:bg-teal-500/20 transition-all"
-                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-                <ChevronRight size={16} className={`transform ${sidebarCollapsed ? '' : 'rotate-180'} text-gray-400`} />
-            </button>
-        </div>
     </div>
 
 

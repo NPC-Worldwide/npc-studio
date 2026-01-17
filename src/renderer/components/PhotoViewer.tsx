@@ -320,7 +320,7 @@ const renderFineTuneModal = () => {
     return (
         <div className="fixed inset-0 bg-black/70 z-[90] flex items-center 
             justify-center p-8">
-            <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl 
+            <div className="theme-bg-secondary rounded-lg p-6 w-full max-w-2xl
                 space-y-4 max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-center">
                     <h3 className="text-lg font-semibold">
@@ -330,8 +330,8 @@ const renderFineTuneModal = () => {
                         <X size={20} />
                     </button>
                 </div>
-                
-                <div className="text-sm text-gray-400">
+
+                <div className="text-sm theme-text-secondary">
                     Training on {selectedImages.length} images
                 </div>
                 
@@ -478,7 +478,7 @@ const renderFineTuneModal = () => {
                                         <span>Epoch {fineTuneStatus.epoch}/{fineTuneStatus.total_epochs}</span>
                                         <span>{fineTuneStatus.total_epochs ? Math.round((fineTuneStatus.epoch! / fineTuneStatus.total_epochs) * 100) : 0}%</span>
                                     </div>
-                                    <div className="w-full bg-gray-700 rounded-full h-2">
+                                    <div className="w-full theme-bg-tertiary rounded-full h-2">
                                         <div
                                             className="bg-blue-500 h-2 rounded-full transition-all duration-300"
                                             style={{ width: `${fineTuneStatus.total_epochs ? (fineTuneStatus.epoch! / fineTuneStatus.total_epochs) * 100 : 0}%` }}
@@ -489,11 +489,11 @@ const renderFineTuneModal = () => {
                                 {/* Batch Progress */}
                                 {fineTuneStatus.total_batches > 0 && (
                                     <div className="space-y-1">
-                                        <div className="flex justify-between text-xs text-gray-400">
+                                        <div className="flex justify-between text-xs theme-text-secondary">
                                             <span>Batch {fineTuneStatus.batch}/{fineTuneStatus.total_batches}</span>
                                             <span>{Math.round((fineTuneStatus.batch! / fineTuneStatus.total_batches) * 100)}%</span>
                                         </div>
-                                        <div className="w-full bg-gray-700 rounded-full h-1.5">
+                                        <div className="w-full theme-bg-tertiary rounded-full h-1.5">
                                             <div
                                                 className="bg-blue-400 h-1.5 rounded-full transition-all duration-150"
                                                 style={{ width: `${(fineTuneStatus.batch! / fineTuneStatus.total_batches) * 100}%` }}
@@ -505,9 +505,9 @@ const renderFineTuneModal = () => {
                                 {/* Current Loss */}
                                 {fineTuneStatus.loss != null && (
                                     <div className="flex items-center gap-4 text-xs">
-                                        <span className="text-gray-400">Current Loss:</span>
+                                        <span className="theme-text-secondary">Current Loss:</span>
                                         <span className="font-mono text-yellow-400">{fineTuneStatus.loss.toFixed(4)}</span>
-                                        <span className="text-gray-400">Step:</span>
+                                        <span className="theme-text-secondary">Step:</span>
                                         <span className="font-mono">{fineTuneStatus.step}</span>
                                     </div>
                                 )}
@@ -515,8 +515,8 @@ const renderFineTuneModal = () => {
                                 {/* Mini Loss Chart */}
                                 {fineTuneStatus.loss_history && fineTuneStatus.loss_history.length > 1 && (
                                     <div className="mt-2">
-                                        <div className="text-xs text-gray-400 mb-1">Loss History (per epoch avg)</div>
-                                        <div className="flex items-end gap-0.5 h-12 bg-gray-800 rounded p-1">
+                                        <div className="text-xs theme-text-secondary mb-1">Loss History (per epoch avg)</div>
+                                        <div className="flex items-end gap-0.5 h-12 theme-bg-secondary rounded p-1">
                                             {fineTuneStatus.loss_history.slice(-20).map((loss, i) => {
                                                 const maxLoss = Math.max(...fineTuneStatus.loss_history!.slice(-20));
                                                 const minLoss = Math.min(...fineTuneStatus.loss_history!.slice(-20));
@@ -1598,7 +1598,7 @@ const renderLightbox = () => {
 const renderGallery = () => (
     <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2 border-b 
-            theme-border bg-gray-800/40">
+            theme-border theme-bg-secondary/40">
             <div className="flex items-center gap-2 text-xs theme-text-muted">
                 <span>{sortedAndFilteredImages.length} items</span>
                 {selectedImageGroup.size > 0 && (
@@ -1703,7 +1703,7 @@ const renderGallery = () => (
                         return (
                             <div className={`relative aspect-square rounded-lg overflow-hidden cursor-pointer group
                                 ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`}>
-                                <img src={img} alt="" className="w-full h-full object-cover bg-gray-800" draggable={false} />
+                                <img src={img} alt="" className="w-full h-full object-cover theme-bg-secondary" draggable={false} />
                                 <div className={`absolute inset-0 transition-all duration-200 pointer-events-none
                                     ${!isSelected ? 'group-hover:bg-black/40' : ''}`} />
                                 {isSelected && (
@@ -1901,7 +1901,7 @@ const handleUseForGeneration = () => {
 };
   const renderMetadata = () => (
     <div className="flex-1 flex overflow-hidden">
-      <div className="flex-1 flex items-center justify-center bg-gray-900 relative p-4">{selectedImage ? <img src={selectedImage} alt="Metadata" className="max-w-full max-h-full object-contain rounded shadow" /> : <p className="theme-text-muted">Select an image to view metadata</p>}</div>
+      <div className="flex-1 flex items-center justify-center theme-bg-primary relative p-4">{selectedImage ? <img src={selectedImage} alt="Metadata" className="max-w-full max-h-full object-contain rounded shadow" /> : <p className="theme-text-muted">Select an image to view metadata</p>}</div>
       <div className="w-96 border-l theme-border theme-bg-secondary p-4 overflow-y-auto space-y-4">
         <div className="flex items-center justify-between"><h4 className="text-lg font-semibold">Image Details</h4><button onClick={saveMetadata} className="theme-button-primary px-3 py-1 rounded flex items-center gap-2"><Save size={14} />Save</button></div>
         {!metadata ? <p className="theme-text-muted">No metadata loaded.</p> : (
@@ -1942,17 +1942,17 @@ const handleUseForGeneration = () => {
     const displayPath = currentPath || projectPath;
     
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-400 p-2 flex-grow min-w-0" onClick={() => setIsEditingPath(true)}>
-          <FolderOpen size={16} className="flex-shrink-0 text-gray-500" />
+      <div className="flex items-center gap-2 text-sm theme-text-secondary p-2 flex-grow min-w-0" onClick={() => setIsEditingPath(true)}>
+          <FolderOpen size={16} className="flex-shrink-0 theme-text-muted" />
           {isEditingPath ? (
               <input type="text" value={projectPath} onChange={e => setProjectPath(e.target.value)}
-                     className="theme-input bg-transparent text-gray-300 w-full" autoFocus onBlur={() => setIsEditingPath(false)} />
+                     className="theme-input bg-transparent theme-text-primary w-full" autoFocus onBlur={() => setIsEditingPath(false)} />
           ) : (
               <div className="flex items-center gap-1 truncate">
                   {displayPath.split('/').map((part, i) => (
                       <React.Fragment key={i}>
                           {i > 0 && <span className="text-gray-600">/</span>}
-                          <button className="px-1 rounded hover:bg-gray-700">{part || '/'}</button>
+                          <button className="px-1 rounded hover:theme-bg-tertiary">{part || '/'}</button>
                       </React.Fragment>
                   ))}
               </div>
@@ -1965,7 +1965,7 @@ const handleUseForGeneration = () => {
   const renderLabeling = () => (
     <div className="flex-1 flex overflow-hidden">
       <div
-        className="flex-1 relative bg-gray-900 flex items-center justify-center select-none"
+        className="flex-1 relative theme-bg-primary flex items-center justify-center select-none"
       >
         {selectedImage ? (
           <div 
@@ -1996,7 +1996,7 @@ const handleUseForGeneration = () => {
             
             <div className="relative group">
                 <button className="theme-button" title="Export labels"><Download size={14} /></button>
-                <div className="absolute right-0 top-full mt-1 w-32 bg-gray-800 border theme-border rounded shadow-lg hidden group-hover:block z-10">
+                <div className="absolute right-0 top-full mt-1 w-32 theme-bg-secondary border theme-border rounded shadow-lg hidden group-hover:block z-10">
                     <button onClick={exportLabelsAsJSON} className="w-full text-left px-3 py-1.5 text-sm theme-hover">as JSON</button>
                     <button onClick={exportLabelsAsCSV} className="w-full text-left px-3 py-1.5 text-sm theme-hover">as CSV</button>
                 </div>
@@ -2019,12 +2019,12 @@ const handleUseForGeneration = () => {
           {labels.length === 0 ? (
             <div className="theme-text-muted text-sm text-center py-4">No labels yet. Choose a tool and draw on the image to begin.</div>
           ) : labels.map((l) => (
-            <div key={l.id} className="flex items-center justify-between bg-gray-800 p-2 rounded gap-2">
+            <div key={l.id} className="flex items-center justify-between theme-bg-secondary p-2 rounded gap-2">
               {editingLabelId === l.id ? (
                 <input 
                   type="text"
                   defaultValue={l.label}
-                  className="w-full theme-input text-sm bg-gray-700"
+                  className="w-full theme-input text-sm theme-bg-tertiary"
                   autoFocus
                   onBlur={(e) => updateLabelName(l.id, e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') updateLabelName(l.id, e.target.value); if (e.key === 'Escape') setEditingLabelId(null); }}
@@ -2104,7 +2104,7 @@ const handleUseForGeneration = () => {
                                         type="checkbox"
                                         checked={selectedGeneratedImages.has(index)}
                                         onChange={(e) => handleImageSelect(index, e.target.checked)}
-                                        className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                                        className="w-4 h-4 text-blue-600 theme-bg-tertiary theme-border rounded focus:ring-blue-500"
                                     />
                                 </div>
                                 <div className="absolute bottom-2 right-2 flex gap-2">
@@ -2154,7 +2154,7 @@ const handleUseForGeneration = () => {
                                     <ImageIcon size={12} /> Global
                                 </button>
                             </div>
-                            <div className="mt-2 p-2 bg-gray-800/30 rounded text-xs text-gray-400 font-mono truncate">
+                            <div className="mt-2 p-2 theme-bg-secondary/30 rounded text-xs theme-text-secondary font-mono truncate">
                                 {activeSource?.path || currentPath}
                             </div>
                         </div>
@@ -2167,7 +2167,7 @@ const handleUseForGeneration = () => {
                                 placeholder="vixynt_gen"
                                 className="w-full theme-input mt-1 text-sm"
                             />
-                            <div className="text-xs text-gray-500 mt-1">
+                            <div className="text-xs theme-text-muted mt-1">
                                 e.g., {generateFilename || 'vixynt_gen'}_...png
                             </div>
                         </div>
@@ -2200,7 +2200,7 @@ const handleUseForGeneration = () => {
                     )}
                     <div>
                         <label className="text-sm font-medium">Reference Images</label>
-                        <div className="mt-1 p-2 border theme-border rounded-md bg-gray-800/30 min-h-[60px]">
+                        <div className="mt-1 p-2 border theme-border rounded-md theme-bg-secondary/30 min-h-[60px]">
                             {selectedImageGroup.size > 0 ? (
                                 <div className="flex flex-wrap gap-2">
                                     {Array.from(selectedImageGroup).slice(0, 3).map((imgPath, idx) => (
@@ -2211,9 +2211,9 @@ const handleUseForGeneration = () => {
                                             </button>
                                         </div>
                                     ))}
-                                    {selectedImageGroup.size > 3 && (<div className="w-12 h-12 bg-gray-700 rounded border flex items-center justify-center text-xs">+{selectedImageGroup.size - 3}</div>)}
+                                    {selectedImageGroup.size > 3 && (<div className="w-12 h-12 theme-bg-tertiary rounded border flex items-center justify-center text-xs">+{selectedImageGroup.size - 3}</div>)}
                                 </div>
-                            ) : (<div className="text-xs text-gray-500 italic">Select images from gallery to use as references</div>)}
+                            ) : (<div className="text-xs theme-text-muted italic">Select images from gallery to use as references</div>)}
                         </div>
                     </div>
                     <div>
@@ -2545,7 +2545,7 @@ const renderDarkRoom = () => {
 const renderDarkRoomLegacy = () => {
     return (
         <div className="flex-1 flex overflow-hidden">
-            <div className="w-16 border-r theme-border flex flex-col items-center p-2 gap-2 bg-gray-900">
+            <div className="w-16 border-r theme-border flex flex-col items-center p-2 gap-2 theme-bg-primary">
                 <h4 className="text-xs font-semibold theme-text-secondary uppercase">Tools</h4>
 
                 <button
@@ -2611,7 +2611,7 @@ const renderDarkRoomLegacy = () => {
 
             <div 
                 ref={canvasContainerRef}
-                className="flex-1 flex items-center justify-center p-4 overflow-hidden relative bg-gray-800/30 select-none"
+                className="flex-1 flex items-center justify-center p-4 overflow-hidden relative theme-bg-secondary/30 select-none"
                 onMouseDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -2956,7 +2956,7 @@ const Field = ({ label, value, onChange, multiline }) => (
 );
 
 const LayerItem = ({ layer, isSelected, onSelect }) => (
-    <div onClick={onSelect} className={`flex items-center gap-2 p-2 rounded cursor-pointer ${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'}`}>
+    <div onClick={onSelect} className={`flex items-center gap-2 p-2 rounded cursor-pointer ${isSelected ? 'bg-blue-900/50' : 'hover:theme-bg-tertiary/50'}`}>
         <button className="p-1"><GripVertical size={14} className="theme-text-muted"/></button>
         <button className="p-1">{layer.visible ? <Eye size={14}/> : <EyeOff size={14} className="theme-text-muted"/>}</button>
         <div className="flex items-center gap-2 text-sm flex-1">
@@ -3036,7 +3036,7 @@ const TagsEditor = ({ tags, setTags }) => {
         <div className="text-xs uppercase font-semibold theme-text-secondary mb-1">Tags</div>
         <div className="flex flex-wrap gap-2 mb-2">
           {(tags || []).map((t, i) => (
-            <span key={`${t}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-gray-800 flex items-center gap-1">
+            <span key={`${t}-${i}`} className="px-2 py-0.5 rounded-full text-xs theme-bg-secondary flex items-center gap-1">
               {t}<button onClick={() => remove(i)}><X size={10} /></button>
             </span>
           ))}

@@ -471,9 +471,9 @@ Please provide only the SQL query without any markdown formatting or explanation
             <div className="flex-1 overflow-auto p-3">
                 {/* Connection String Input */}
                 <div className={`mb-4 p-3 rounded-lg border ${
-                    dbConnectionStatus === 'connected' ? 'bg-green-900/20 border-green-700' :
-                    dbConnectionStatus === 'error' ? 'bg-red-900/20 border-red-700' :
-                    'bg-gray-800 border-gray-700'
+                    dbConnectionStatus === 'connected' ? 'bg-green-500/10 border-green-600/50' :
+                    dbConnectionStatus === 'error' ? 'bg-red-500/10 border-red-600/50' :
+                    'theme-bg-tertiary theme-border'
                 }`}>
                     <div className="flex items-center justify-between mb-1.5">
                         <label className="text-xs text-gray-400">Database Connection</label>
@@ -499,11 +499,11 @@ Please provide only the SQL query without any markdown formatting or explanation
                             value={selectedDatabase}
                             onChange={(e) => setSelectedDatabase(e.target.value)}
                             placeholder="~/database.db or postgresql://user:pass@host:5432/db"
-                            className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white border border-gray-600 rounded focus:border-purple-500 focus:outline-none font-mono"
+                            className="flex-1 px-3 py-2 text-sm theme-bg-primary theme-text-primary border theme-border rounded focus:border-purple-500 focus:outline-none font-mono"
                         />
                         <button
                             onClick={browseForDatabase}
-                            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm transition-colors"
+                            className="px-3 py-2 theme-bg-tertiary hover:bg-black/10 dark:hover:bg-white/10 theme-text-primary rounded text-sm transition-colors"
                             title="Browse for database file"
                         >
                             <Search size={16} />
@@ -511,7 +511,7 @@ Please provide only the SQL query without any markdown formatting or explanation
                         <button
                             onClick={() => testDbConnection(selectedDatabase)}
                             disabled={dbConnectionStatus === 'connecting'}
-                            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm transition-colors disabled:opacity-50"
+                            className="px-3 py-2 theme-bg-tertiary hover:bg-black/10 dark:hover:bg-white/10 theme-text-primary rounded text-sm transition-colors disabled:opacity-50"
                             title="Test connection"
                         >
                             <Activity size={16} />
@@ -541,29 +541,29 @@ Please provide only the SQL query without any markdown formatting or explanation
                                     )}
                                 </div>
                             ) : (
-                                <div className="text-gray-400 bg-gray-900/50 p-2 rounded grid grid-cols-2 gap-x-4 gap-y-1">
+                                <div className="theme-text-secondary theme-bg-primary p-2 rounded grid grid-cols-2 gap-x-4 gap-y-1">
                                     <span>Type:</span>
                                     <span className="text-purple-400 font-semibold">{getDbTypeLabel(dbConnectionInfo.dbType || 'sqlite')}</span>
                                     {dbConnectionInfo.resolvedPath && (
                                         <>
                                             <span>Path:</span>
-                                            <span className="text-gray-300 font-mono truncate" title={dbConnectionInfo.resolvedPath}>
+                                            <span className="theme-text-primary font-mono truncate" title={dbConnectionInfo.resolvedPath}>
                                                 {dbConnectionInfo.resolvedPath}
                                             </span>
                                         </>
                                     )}
                                     <span>Tables:</span>
-                                    <span className="text-green-400">{dbConnectionInfo.tableCount}</span>
+                                    <span className="text-green-600 dark:text-green-400">{dbConnectionInfo.tableCount}</span>
                                     {dbConnectionInfo.fileSize && (
                                         <>
                                             <span>Size:</span>
-                                            <span className="text-gray-300">{formatFileSize(dbConnectionInfo.fileSize)}</span>
+                                            <span className="theme-text-primary">{formatFileSize(dbConnectionInfo.fileSize)}</span>
                                         </>
                                     )}
                                     {dbConnectionInfo.lastModified && (
                                         <>
                                             <span>Modified:</span>
-                                            <span className="text-gray-300">
+                                            <span className="theme-text-primary">
                                                 {new Date(dbConnectionInfo.lastModified).toLocaleString()}
                                             </span>
                                         </>
@@ -574,9 +574,9 @@ Please provide only the SQL query without any markdown formatting or explanation
                     )}
 
                     {/* Connection string examples */}
-                    <div className="mt-2 text-xs text-gray-500">
+                    <div className="mt-2 text-xs theme-text-muted">
                         <p className="mb-1">Connection string formats:</p>
-                        <div className="grid grid-cols-1 gap-0.5 font-mono text-gray-600">
+                        <div className="grid grid-cols-1 gap-0.5 font-mono opacity-70">
                             <span>SQLite: ~/database.db</span>
                             <span>PostgreSQL: postgresql://user:pass@host:5432/db</span>
                             <span>MySQL: mysql://user:pass@host:3306/db</span>
@@ -586,9 +586,9 @@ Please provide only the SQL query without any markdown formatting or explanation
 
                 {/* Schema and History */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-                    <div className="border border-gray-700 rounded-lg p-3 flex flex-col bg-gray-800/50">
-                        <h5 className="font-semibold mb-2 flex items-center gap-2 text-white">
-                            <Table size={16} className="text-gray-400"/>
+                    <div className="border theme-border rounded-lg p-3 flex flex-col theme-bg-tertiary">
+                        <h5 className="font-semibold mb-2 flex items-center gap-2 theme-text-primary">
+                            <Table size={16} className="theme-text-secondary"/>
                             Database Schema
                         </h5>
                         <div className="grid grid-cols-2 gap-3 flex-1">
@@ -598,14 +598,14 @@ Please provide only the SQL query without any markdown formatting or explanation
                                         key={name}
                                         onClick={() => handleViewSchema(name)}
                                         className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
-                                            selectedTable === name ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+                                            selectedTable === name ? 'bg-purple-600 text-white' : 'theme-text-secondary hover:theme-bg-secondary'
                                         }`}
                                     >
                                         {name}
                                     </button>
-                                )) : <p className="text-sm text-gray-500">No tables found.</p>}
+                                )) : <p className="text-sm theme-text-muted">No tables found.</p>}
                             </div>
-                            <div className="max-h-48 overflow-y-auto bg-gray-900 rounded p-2">
+                            <div className="max-h-48 overflow-y-auto theme-bg-primary rounded p-2">
                                 {loadingSchema ? (
                                     <div className="flex items-center justify-center h-full">
                                         <Loader className="animate-spin text-purple-400" />
@@ -613,14 +613,14 @@ Please provide only the SQL query without any markdown formatting or explanation
                                 ) : tableSchema ? (
                                     <ul className="text-sm font-mono space-y-1">
                                         {tableSchema.map((col: any) => (
-                                            <li key={col.name} className="text-gray-300">
-                                                - <span className="text-white">{col.name}</span>:
-                                                <span className="text-yellow-400">{col.type}</span>
+                                            <li key={col.name} className="theme-text-secondary">
+                                                - <span className="theme-text-primary">{col.name}</span>:
+                                                <span className="text-yellow-600 dark:text-yellow-400">{col.type}</span>
                                             </li>
                                         ))}
                                     </ul>
                                 ) : (
-                                    <p className="text-sm text-gray-500">Select a table.</p>
+                                    <p className="text-sm theme-text-muted">Select a table.</p>
                                 )}
                             </div>
                         </div>

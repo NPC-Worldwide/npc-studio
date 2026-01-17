@@ -4,7 +4,7 @@ import {
     Folder, File as FileIcon,  Globe, ChevronRight, ChevronLeft, Settings, Edit,
     Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, ArrowDown,X, Wrench, FileText, Code2, FileJson, Paperclip,
-    Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown,
+    Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown, ChevronUp,
     Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen, User,
     RefreshCw, RotateCcw, Check, KeyRound, Bot, Zap, HelpCircle, AlertCircle
 } from 'lucide-react';
@@ -392,10 +392,25 @@ const ChatInterface = () => {
     const [memoryLoading, setMemoryLoading] = useState(false);
     const [memoryFilter, setMemoryFilter] = useState('all');
     const [memorySearchTerm, setMemorySearchTerm] = useState('');
-    const [sidebarWidth, setSidebarWidth] = useState(256); // 256px = w-64
+    const [sidebarWidth, setSidebarWidth] = useState(220); // Compact but usable width
     const [inputHeight, setInputHeight] = useState(200); // Default height in pixels
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
     const [isResizingInput, setIsResizingInput] = useState(false);
+    // Bar heights - resizable and persisted
+    const [topBarHeight, setTopBarHeight] = useState<number>(() => {
+        const saved = localStorage.getItem('npcStudio_topBarHeight');
+        return saved ? parseInt(saved) : 48;
+    });
+    const [bottomBarHeight, setBottomBarHeight] = useState<number>(() => {
+        const saved = localStorage.getItem('npcStudio_bottomBarHeight');
+        return saved ? parseInt(saved) : 48;
+    });
+    const [isResizingTopBar, setIsResizingTopBar] = useState(false);
+    const [isResizingBottomBar, setIsResizingBottomBar] = useState(false);
+    const [topBarCollapsed, setTopBarCollapsed] = useState<boolean>(() => {
+        const saved = localStorage.getItem('npcStudio_topBarCollapsed');
+        return saved === 'true';
+    });
     const WINDOW_WORKSPACES_KEY = 'npcStudioWindowWorkspaces';
 
     // Message labeling state
@@ -1191,13 +1206,47 @@ const ChatInterface = () => {
         if (isResizingSidebar || isResizingInput) {
             document.addEventListener('mousemove', isResizingSidebar ? handleSidebarResize : handleInputResize);
             document.addEventListener('mouseup', handleMouseUp);
-            
+
             return () => {
                 document.removeEventListener('mousemove', isResizingSidebar ? handleSidebarResize : handleInputResize);
                 document.removeEventListener('mouseup', handleMouseUp);
             };
         }
     }, [isResizingSidebar, isResizingInput, handleSidebarResize, handleInputResize]);
+
+    // Bar height resize handlers
+    useEffect(() => {
+        const handleTopBarResize = (e: MouseEvent) => {
+            const newHeight = Math.max(32, Math.min(80, e.clientY));
+            setTopBarHeight(newHeight);
+            localStorage.setItem('npcStudio_topBarHeight', String(newHeight));
+        };
+        const handleBottomBarResize = (e: MouseEvent) => {
+            const newHeight = Math.max(32, Math.min(80, window.innerHeight - e.clientY));
+            setBottomBarHeight(newHeight);
+            localStorage.setItem('npcStudio_bottomBarHeight', String(newHeight));
+        };
+        const handleMouseUp = () => {
+            setIsResizingTopBar(false);
+            setIsResizingBottomBar(false);
+        };
+        if (isResizingTopBar) {
+            document.addEventListener('mousemove', handleTopBarResize);
+            document.addEventListener('mouseup', handleMouseUp);
+            return () => {
+                document.removeEventListener('mousemove', handleTopBarResize);
+                document.removeEventListener('mouseup', handleMouseUp);
+            };
+        }
+        if (isResizingBottomBar) {
+            document.addEventListener('mousemove', handleBottomBarResize);
+            document.addEventListener('mouseup', handleMouseUp);
+            return () => {
+                document.removeEventListener('mousemove', handleBottomBarResize);
+                document.removeEventListener('mouseup', handleMouseUp);
+            };
+        }
+    }, [isResizingTopBar, isResizingBottomBar]);
 
     // Helper function for conversation stats
     const getConversationStats = (messages: any[]) => {
@@ -1430,8 +1479,8 @@ const ChatInterface = () => {
 
     useEffect(() => {
         const handleKeyDown = async (e: KeyboardEvent) => {
-            // Ctrl+Shift+P - Command Palette (file search)
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
+            // Ctrl+P or Ctrl+Shift+P - Command Palette (file search)
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
                 e.preventDefault();
                 setCommandPaletteOpen(true);
                 return;
@@ -7915,6 +7964,9 @@ const layoutComponentApi = useMemo(() => ({
     onRunScript: handleRunScript,
     // Browser tab creation
     handleNewBrowserTab,
+    // Top bar collapse for expand button in pane header
+    topBarCollapsed,
+    onExpandTopBar: () => { setTopBarCollapsed(false); localStorage.setItem('npcStudio_topBarCollapsed', 'false'); },
 }), [
     rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
@@ -7960,7 +8012,7 @@ const layoutComponentApi = useMemo(() => ({
     getChatInputProps,
     zenModePaneId,
     renamingPaneId, editedFileName, handleConfirmRename,
-    handleRunScript, handleNewBrowserTab,
+    handleRunScript, handleNewBrowserTab, topBarCollapsed,
 ]);
 
 // Handle conversation selection - opens conversation in a pane
@@ -8554,31 +8606,44 @@ const renderAttachmentThumbnails = () => {
 
 const renderMainContent = () => {
 
-    // Top bar component - always visible
-    const topBar = (
-        <div className="flex-shrink-0 h-8 px-2 flex items-center gap-3 text-[11px] theme-bg-secondary border-b theme-border">
+    // Top bar component - collapsible, resizable
+    const topBar = topBarCollapsed ? null : (
+        <div className="flex-shrink-0 relative" style={{ height: topBarHeight }}>
+            <div className="h-full px-3 flex items-center gap-3 text-[12px] theme-bg-secondary border-b theme-border">
             {/* Settings - left of path */}
             <button
                 onClick={() => createSettingsPane?.()}
-                className="p-1 theme-hover rounded theme-text-muted"
+                className="p-2 theme-hover rounded theme-text-muted"
                 title="Settings"
             >
-                <Settings size={14} />
+                <Settings size={18} />
             </button>
 
             {/* Help button - after settings */}
             <button
                 onClick={() => createHelpPane?.()}
-                className="p-1 theme-hover rounded theme-text-muted"
+                className="p-2 theme-hover rounded theme-text-muted"
                 title="Help"
             >
-                <HelpCircle size={14} />
+                <HelpCircle size={18} />
+            </button>
+
+            {/* DataDash button - after help */}
+            <button
+                onClick={() => createDataDashPane?.()}
+                className="p-2 theme-hover rounded theme-text-muted"
+                title="Data Dashboard"
+            >
+                <BarChart3 size={18} />
             </button>
 
             <div className="flex-1" />
 
             {/* App Search */}
-            <div className="flex items-center gap-2 w-48 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400/30 transition-all">
+            <div
+                className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400/30 transition-all"
+                style={{ width: Math.max(100, topBarHeight * 4) }}
+            >
                 {/* Custom app search icon - magnifying glass with document */}
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
                     <circle cx="10" cy="10" r="6" />
@@ -8653,44 +8718,51 @@ const renderMainContent = () => {
 
             <div className="flex-1" />
 
-            {/* Right side - Version, Disk Usage, Cron/Daemon, DateTime */}
+            {/* Right side - Library, Photo, Disk Usage, Cron/Daemon, DateTime */}
             <div className="flex items-center gap-2">
-                {/* Version indicator */}
-                {appVersion && (
-                    <button
-                        onClick={checkForUpdates}
-                        className={`p-1 rounded flex items-center gap-1 transition-all ${
-                            updateAvailable
-                                ? 'bg-green-900/30 text-green-300 hover:bg-green-900/50'
-                                : 'theme-hover theme-text-muted'
-                        }`}
-                        title={updateAvailable
-                            ? `v${appVersion} → v${updateAvailable.latestVersion} available`
-                            : `v${appVersion} - Click to check for updates`}
-                    >
-                        {updateAvailable ? (
-                            <AlertCircle size={14} className="text-green-400" />
-                        ) : (
-                            <Check size={14} className="text-green-400" />
-                        )}
-                    </button>
-                )}
+                <button
+                    onClick={() => createLibraryViewerPane?.()}
+                    className="p-2 theme-hover rounded theme-text-muted"
+                    title="Library"
+                >
+                    <BookOpen size={18} />
+                </button>
+                <button
+                    onClick={() => createPhotoViewerPane?.()}
+                    className="p-2 theme-hover rounded theme-text-muted"
+                    title="Photo Viewer"
+                >
+                    <Image size={18} />
+                </button>
                 <button
                     onClick={() => createDiskUsagePane?.()}
-                    className="p-1 theme-hover rounded theme-text-muted"
+                    className="p-2 theme-hover rounded theme-text-muted"
                     title="Disk Usage Analyzer"
                 >
-                    <HardDrive size={14} />
+                    <HardDrive size={18} />
                 </button>
                 <button
                     onClick={() => createCronDaemonPane()}
-                    className="p-1 theme-hover rounded theme-text-muted"
-                    title="Cron Jobs & Daemons"
+                    className="p-2 theme-hover rounded theme-text-muted"
+                    title="Assembly Line (Cron, Daemons, SQL Models)"
                 >
-                    <Clock size={14} />
+                    {/* Smokestack / Factory icon */}
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        {/* Main smokestack */}
+                        <rect x="5" y="10" width="5" height="12" rx="0.5" />
+                        {/* Smoke puffs rising */}
+                        <circle cx="7.5" cy="6" r="2" />
+                        <circle cx="9" cy="3" r="1.5" />
+                        {/* Second stack */}
+                        <rect x="12" y="14" width="4" height="8" rx="0.5" />
+                        {/* Third smaller stack */}
+                        <rect x="18" y="16" width="3" height="6" rx="0.5" />
+                        {/* Ground line */}
+                        <path d="M2 22h20" />
+                    </svg>
                 </button>
                 <span
-                    className="theme-text-muted tabular-nums text-[10px] cursor-pointer hover:text-gray-300"
+                    className="theme-text-muted tabular-nums cursor-pointer hover:text-gray-300"
                     onClick={() => setShowDateTime(!showDateTime)}
                     title={showDateTime ? "Hide date/time" : "Show date/time"}
                 >
@@ -8701,6 +8773,12 @@ const renderMainContent = () => {
                     )}
                 </span>
             </div>
+            </div>
+            {/* Resize handle for top bar */}
+            <div
+                className="absolute bottom-0 left-0 right-0 h-1 cursor-ns-resize hover:bg-blue-500/50 transition-colors"
+                onMouseDown={(e) => { e.preventDefault(); setIsResizingTopBar(true); }}
+            />
         </div>
     );
 
@@ -8759,20 +8837,22 @@ const renderMainContent = () => {
                     </div>
                 </div>
                 <StatusBar
-                    gitBranch={gitStatus?.branch || null}
-                    gitStatus={gitStatus}
-                    setGitModalOpen={setGitModalOpen}
-                    createGitPane={createGitPane}
+                    createDBToolPane={createDBToolPane}
+                    createTeamManagementPane={createTeamManagementPane}
                     paneItems={[]}
                     setActiveContentPaneId={setActiveContentPaneId}
-                    isPredictiveTextEnabled={isPredictiveTextEnabled}
-                    setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
                     pendingMemoryCount={pendingMemoryCount}
                     createMemoryManagerPane={createMemoryManagerPane}
                     kgGeneration={kgGeneration}
                     createGraphViewerPane={createGraphViewerPane}
                     createNPCTeamPane={createNPCTeamPane}
                     createJinxPane={createJinxPane}
+                    height={bottomBarHeight}
+                    onStartResize={() => setIsResizingBottomBar(true)}
+                    sidebarCollapsed={sidebarCollapsed}
+                    onExpandSidebar={() => setSidebarCollapsed(false)}
+                    topBarCollapsed={topBarCollapsed}
+                    onExpandTopBar={() => { setTopBarCollapsed(false); localStorage.setItem('npcStudio_topBarCollapsed', 'false'); }}
                 />
             </main>
         );
@@ -8790,9 +8870,6 @@ const renderMainContent = () => {
         isActive: paneId === activeContentPaneId
     }));
 
-    // Get git branch from gitStatus
-    const gitBranch = gitStatus?.branch || null;
-
     return (
         <main className={`flex-1 flex flex-col bg-gray-900 ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
             {topBar}
@@ -8806,20 +8883,22 @@ const renderMainContent = () => {
                 )}
             </div>
             <StatusBar
-                gitBranch={gitBranch}
-                gitStatus={gitStatus}
-                setGitModalOpen={setGitModalOpen}
-                createGitPane={createGitPane}
+                createDBToolPane={createDBToolPane}
+                createTeamManagementPane={createTeamManagementPane}
                 paneItems={paneItems}
                 setActiveContentPaneId={setActiveContentPaneId}
-                isPredictiveTextEnabled={isPredictiveTextEnabled}
-                setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
                 pendingMemoryCount={pendingMemoryCount}
                 createMemoryManagerPane={createMemoryManagerPane}
                 kgGeneration={kgGeneration}
                 createGraphViewerPane={createGraphViewerPane}
                 createNPCTeamPane={createNPCTeamPane}
                 createJinxPane={createJinxPane}
+                height={bottomBarHeight}
+                onStartResize={() => setIsResizingBottomBar(true)}
+                sidebarCollapsed={sidebarCollapsed}
+                onExpandSidebar={() => setSidebarCollapsed(false)}
+                topBarCollapsed={topBarCollapsed}
+                onExpandTopBar={() => { setTopBarCollapsed(false); localStorage.setItem('npcStudio_topBarCollapsed', 'false'); }}
             />
         </main>
     );
@@ -8973,6 +9052,14 @@ const renderMainContent = () => {
         createNewDocument={createNewDocument}
         handleOpenNpcTeamMenu={handleOpenNpcTeamMenu}
         renderSearchResults={renderSearchResults}
+        isPredictiveTextEnabled={isPredictiveTextEnabled}
+        setIsPredictiveTextEnabled={setIsPredictiveTextEnabled}
+        topBarHeight={topBarHeight}
+        bottomBarHeight={bottomBarHeight}
+        topBarCollapsed={topBarCollapsed}
+        onExpandTopBar={() => { setTopBarCollapsed(false); localStorage.setItem('npcStudio_topBarCollapsed', 'false'); }}
+        onCollapseTopBar={() => { setTopBarCollapsed(true); localStorage.setItem('npcStudio_topBarCollapsed', 'true'); }}
+        setDownloadManagerOpen={setDownloadManagerOpen}
     />
     {renderMainContent()}
         <PredictiveTextOverlay
