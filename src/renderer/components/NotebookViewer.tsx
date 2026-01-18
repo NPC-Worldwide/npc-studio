@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
+import { BACKEND_URL } from '../config';
 import { Save, Play, Plus, Trash2, ChevronDown, ChevronRight, X, Loader, Code2, FileText, Edit3, Circle, Zap, Square, Power, MessageSquare, Bot, BookOpen, Paperclip, Eye, EyeOff, Archive, Sparkles, RefreshCw, Table, Variable, ChevronLeft, SortAsc, SortDesc, Filter, Hash, Type, Database, ArrowUp, ArrowDown, PanelRightClose, PanelRight, Palette, Settings, Download, FileCode, FileType, PlayCircle, SkipBack, SkipForward } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { python } from '@codemirror/lang-python';
@@ -1185,7 +1186,7 @@ except Exception as e:
 
         try {
             // Execute via jinx API
-            const response = await fetch('http://localhost:5337/api/jinx/execute', {
+            const response = await fetch(`${BACKEND_URL}/api/jinx/execute`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

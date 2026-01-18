@@ -1,4 +1,5 @@
 import React, { memo, useState, useRef } from 'react';
+import { BACKEND_URL } from '../config';
 import MarkdownRenderer from './MarkdownRenderer';
 import { Paperclip, Tag, Star, ChevronDown, ChevronUp, Volume2, VolumeX, Loader, RotateCcw, History, Cpu, Bot, Zap, Send, GitBranch, Columns, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -120,7 +121,7 @@ export const ChatMessage = memo(({
         setIsLoadingTTS(true);
         try {
             const settings = getTTSSettings();
-            const response = await fetch('http://localhost:5337/api/audio/tts', {
+            const response = await fetch(`${BACKEND_URL}/api/audio/tts`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

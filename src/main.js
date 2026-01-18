@@ -30,6 +30,14 @@ const dbPath = path.join(os.homedir(), 'npcsh_history.db');
 const fetch = require('node-fetch');
 const crypto = require('crypto');
 
+// Port configuration - use different ports for dev vs prod to allow running both simultaneously
+// Dev mode: 7337 (frontend), 5437 (backend)
+// Prod mode: 6337 (frontend), 5337 (backend)
+const IS_DEV_MODE = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
+const FRONTEND_PORT = IS_DEV_MODE ? 7337 : 6337;
+const BACKEND_PORT = IS_DEV_MODE ? 5437 : 5337;
+const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
+
 // Centralized logging setup - all logs go to ~/.npcsh/incognide/logs/
 const logsDir = path.join(os.homedir(), '.npcsh', 'incognide', 'logs');
 try {
@@ -345,7 +353,7 @@ async function waitForServer(maxAttempts = 120, delay = 1000) {
   
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await fetch('http://127.0.0.1:5337/api/health');
+      const response = await fetch(`${BACKEND_URL}/api/health`);
       if (response.ok) {
         log(`Backend server is ready (attempt ${attempt}/${maxAttempts})`);
         return true;
@@ -592,7 +600,7 @@ app.whenReady().then(async () => {
       windowsHide: true,
       env: {
         ...process.env,
-        INCOGNIDE_PORT: '5337',
+        INCOGNIDE_PORT: String(BACKEND_PORT),
         FLASK_DEBUG: '1',
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
@@ -1267,7 +1275,7 @@ function createWindow(cliArgs = {}) {
         enableRemoteModule: true,
         nodeIntegrationInSubFrames: true,
         allowRunningInsecureContent: true,
-      contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:5337;",
+      contentSecurityPolicy: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${BACKEND_URL};`,
         
         experimentalFeatures: true,
         preload: path.join(__dirname, 'preload.js')
@@ -1303,7 +1311,7 @@ function createWindow(cliArgs = {}) {
         "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com; " +
         "img-src 'self' data: file: media: blob: http: https:; " +
         "font-src 'self' data: https://cdn.jsdelivr.net; " +
-        "connect-src 'self' file: media: http://localhost:6337 http://localhost:5337 http://127.0.0.1:5337 blob: ws: wss: https://* http://*; " +
+        `connect-src 'self' file: media: http://localhost:${FRONTEND_PORT} http://127.0.0.1:${BACKEND_PORT} ${BACKEND_URL} blob: ws: wss: https://* http://*; ` +
         "frame-src 'self' file: data: blob: media: chrome-extension: https://js.stripe.com https://m.stripe.network https://checkout.stripe.com; " +
         "object-src 'self' file: data: blob: media: chrome-extension:; " +
         "worker-src 'self' blob: data:; " +
@@ -1317,7 +1325,7 @@ function createWindow(cliArgs = {}) {
     const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
     
     if (isDev) {
-      mainWindow.loadURL('http://localhost:6337');
+      mainWindow.loadURL(`http://localhost:${FRONTEND_PORT}`);
     } else {
       const htmlPath = path.join(app.getAppPath(), 'dist', 'index.html');
       mainWindow.loadFile(htmlPath);
@@ -1371,7 +1379,7 @@ ipcMain.handle('getAvailableJinxs', async (event, { currentPath, npc }) => {
       if (currentPath) params.append('currentPath', currentPath);
       if (npc) params.append('npc', npc);
       
-      const url = `http://127.0.0.1:5337/api/jinxs/available?${params.toString()}`;
+      const url = `${BACKEND_URL}/api/jinxs/available?${params.toString()}`;
       log('Fetching available jinxs from:', url);
       
       const response = await fetch(url);
@@ -1394,7 +1402,7 @@ ipcMain.handle('executeJinx', async (event, data) => {
   log(`[Main Process] executeJinx: Starting stream with ID: ${currentStreamId}`);
   
   try {
-      const apiUrl = 'http://127.0.0.1:5337/api/jinx/execute';
+      const apiUrl = `${BACKEND_URL}/api/jinx/execute`;
       
       const payload = {
           streamId: currentStreamId,
@@ -1490,7 +1498,7 @@ ipcMain.handle('executeJinx', async (event, data) => {
 
       // Try to fetch from backend first
       try {
-          const url = `http://127.0.0.1:5337/api/models?currentPath=${encodeURIComponent(currentPath)}`;
+          const url = `${BACKEND_URL}/api/models?currentPath=${encodeURIComponent(currentPath)}`;
           log('Fetching models from:', url);
 
           const response = await fetch(url);
@@ -1785,24 +1793,24 @@ ipcMain.handle('open-file', async (_event, filePath) => {
 // Add these alongside your existing ipcMain.handle calls
 ipcMain.handle('ollama:checkStatus', async () => {
     log('[Main Process] Checking Ollama status via backend...');
-    return await callBackendApi('http://127.0.0.1:5337/api/ollama/status');
+    return await callBackendApi(`${BACKEND_URL}/api/ollama/status`);
 });
 
 ipcMain.handle('ollama:install', async () => {
     log('[Main Process] Requesting Ollama installation from backend...');
    
    
-    return await callBackendApi('http://127.0.0.1:5337/api/ollama/install', { method: 'POST' });
+    return await callBackendApi(`${BACKEND_URL}/api/ollama/install`, { method: 'POST' });
 });
 
 ipcMain.handle('ollama:getLocalModels', async () => {
     log('[Main Process] Fetching local Ollama models from backend...');
-    return await callBackendApi('http://127.0.0.1:5337/api/ollama/models');
+    return await callBackendApi(`${BACKEND_URL}/api/ollama/models`);
 });
 
 ipcMain.handle('ollama:deleteModel', async (event, { model }) => {
     log(`[Main Process] Requesting deletion of model: ${model}`);
-    return await callBackendApi('http://127.0.0.1:5337/api/ollama/delete', {
+    return await callBackendApi(`${BACKEND_URL}/api/ollama/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: model }),
@@ -1812,7 +1820,7 @@ ipcMain.handle('ollama:deleteModel', async (event, { model }) => {
 ipcMain.handle('ollama:pullModel', async (event, { model }) => {
     log(`[Main Process] Starting pull for model: ${model}`);
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/ollama/pull', {
+        const response = await fetch(`${BACKEND_URL}/api/ollama/pull`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: model }),
@@ -1876,7 +1884,7 @@ ipcMain.handle('ollama:pullModel', async (event, { model }) => {
 });
 ipcMain.handle('generative-fill', async (event, params) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/generative_fill', {
+        const response = await fetch(`${BACKEND_URL}/api/generative_fill`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(params)
@@ -4156,7 +4164,7 @@ ipcMain.handle('setup:restartBackend', async () => {
       windowsHide: true,
       env: {
         ...process.env,
-        INCOGNIDE_PORT: '5337',
+        INCOGNIDE_PORT: String(BACKEND_PORT),
         FLASK_DEBUG: '1',
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
@@ -4903,7 +4911,7 @@ ipcMain.handle('tile-jinx-recompile', async () => {
 
 ipcMain.handle('loadProjectSettings', async (event, currentPath) => {
     try {
-        const url = `http://127.0.0.1:5337/api/settings/project?path=${encodeURIComponent(currentPath)}`;
+        const url = `${BACKEND_URL}/api/settings/project?path=${encodeURIComponent(currentPath)}`;
         const response = await fetch(url, {
             method: 'GET',
             credentials: 'include'
@@ -4919,7 +4927,7 @@ ipcMain.handle('loadProjectSettings', async (event, currentPath) => {
 
 ipcMain.handle('saveProjectSettings', async (event, { path, env_vars }) => {
     try {
-        const url = `http://127.0.0.1:5337/api/settings/project?path=${encodeURIComponent(path)}`;
+        const url = `${BACKEND_URL}/api/settings/project?path=${encodeURIComponent(path)}`;
         await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4935,7 +4943,7 @@ ipcMain.handle('saveProjectSettings', async (event, { path, env_vars }) => {
 
 ipcMain.handle('saveGlobalSettings', async (event, { global_settings, global_vars }) => {
     try {
-        await fetch('http://127.0.0.1:5337/api/settings/global', {
+        await fetch(`${BACKEND_URL}/api/settings/global`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -4962,7 +4970,7 @@ async function fetchCtxMcpServers(currentPath) {
     }
   };
   try {
-    const globalRes = await fetch('http://127.0.0.1:5337/api/context/global');
+    const globalRes = await fetch(`${BACKEND_URL}/api/context/global`);
     const globalJson = await globalRes.json();
     (globalJson.context?.mcp_servers || []).forEach(s => addServer(s, 'global'));
   } catch (e) {
@@ -4971,7 +4979,7 @@ async function fetchCtxMcpServers(currentPath) {
 
   if (currentPath) {
     try {
-      const projRes = await fetch(`http://127.0.0.1:5337/api/context/project?path=${encodeURIComponent(currentPath)}`);
+      const projRes = await fetch(`${BACKEND_URL}/api/context/project?path=${encodeURIComponent(currentPath)}`);
       const projJson = await projRes.json();
       (projJson.context?.mcp_servers || []).forEach(s => addServer(s, 'project'));
     } catch (e) {
@@ -4988,7 +4996,7 @@ ipcMain.handle('mcp:getServers', async (event, { currentPath } = {}) => {
     for (const serverInfo of serverList) {
       const { serverPath, origin } = serverInfo;
       try {
-        const statusRes = await fetch(`http://127.0.0.1:5337/api/mcp/server/status?serverPath=${encodeURIComponent(serverPath)}${currentPath ? `&currentPath=${encodeURIComponent(currentPath)}` : ''}`);
+        const statusRes = await fetch(`${BACKEND_URL}/api/mcp/server/status?serverPath=${encodeURIComponent(serverPath)}${currentPath ? `&currentPath=${encodeURIComponent(currentPath)}` : ''}`);
         const statusJson = await statusRes.json();
         statuses.push({ serverPath, origin, status: statusJson.status || (statusJson.running ? 'running' : 'unknown'), details: statusJson });
       } catch (err) {
@@ -5004,7 +5012,7 @@ ipcMain.handle('mcp:getServers', async (event, { currentPath } = {}) => {
 
 ipcMain.handle('mcp:startServer', async (event, { serverPath, currentPath } = {}) => {
   try {
-    const res = await fetch('http://127.0.0.1:5337/api/mcp/server/start', {
+    const res = await fetch(`${BACKEND_URL}/api/mcp/server/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ serverPath, currentPath })
@@ -5020,7 +5028,7 @@ ipcMain.handle('mcp:startServer', async (event, { serverPath, currentPath } = {}
 
 ipcMain.handle('mcp:stopServer', async (event, { serverPath } = {}) => {
   try {
-    const res = await fetch('http://127.0.0.1:5337/api/mcp/server/stop', {
+    const res = await fetch(`${BACKEND_URL}/api/mcp/server/stop`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ serverPath })
@@ -5036,7 +5044,7 @@ ipcMain.handle('mcp:stopServer', async (event, { serverPath } = {}) => {
 
 ipcMain.handle('mcp:status', async (event, { serverPath, currentPath } = {}) => {
   try {
-    const res = await fetch(`http://127.0.0.1:5337/api/mcp/server/status?serverPath=${encodeURIComponent(serverPath || '')}${currentPath ? `&currentPath=${encodeURIComponent(currentPath)}` : ''}`);
+    const res = await fetch(`${BACKEND_URL}/api/mcp/server/status?serverPath=${encodeURIComponent(serverPath || '')}${currentPath ? `&currentPath=${encodeURIComponent(currentPath)}` : ''}`);
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
     return { status: json, error: null };
@@ -5054,7 +5062,7 @@ ipcMain.handle('mcp:listTools', async (event, { serverPath, conversationId, npc,
     if (npc) params.append('npc', npc);
     if (currentPath) params.append('currentPath', currentPath);
     if (selected && selected.length) params.append('selected', selected.join(','));
-    const res = await fetch(`http://127.0.0.1:5337/api/mcp_tools?${params.toString()}`);
+    const res = await fetch(`${BACKEND_URL}/api/mcp_tools?${params.toString()}`);
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
     return { tools: json.tools || [], error: null };
@@ -5134,7 +5142,7 @@ ipcMain.handle('mcp:addIntegration', async (event, { integrationId, serverScript
 
     // Notify npcpy backend to reload context (if endpoint exists)
     try {
-      await fetch('http://127.0.0.1:5337/api/context/reload', { method: 'POST' });
+      await fetch(`${BACKEND_URL}/api/context/reload`, { method: 'POST' });
     } catch (e) {
       // Ignore if reload endpoint doesn't exist
     }
@@ -5149,34 +5157,34 @@ ipcMain.handle('mcp:addIntegration', async (event, { integrationId, serverScript
 ipcMain.handle('kg:getNetworkStats', async (event, { generation }) => {
   const params = generation !== null ? `?generation=${generation}` : '';
  
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/network-stats${params}`);
+  return await callBackendApi(`${BACKEND_URL}/api/kg/network-stats${params}`);
 });
 
 ipcMain.handle('kg:getCooccurrenceNetwork', async (event, { generation, minCooccurrence = 2 }) => {
   const params = new URLSearchParams();
   if (generation !== null) params.append('generation', generation);
   params.append('min_cooccurrence', minCooccurrence);
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/cooccurrence?${params.toString()}`);
+  return await callBackendApi(`${BACKEND_URL}/api/kg/cooccurrence?${params.toString()}`);
 });
 
 ipcMain.handle('kg:getCentralityData', async (event, { generation }) => {
   const params = generation !== null ? `?generation=${generation}` : '';
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/centrality${params}`);
+  return await callBackendApi(`${BACKEND_URL}/api/kg/centrality${params}`);
 });
 
 // --- Knowledge Graph Handlers ---
 ipcMain.handle('kg:getGraphData', async (event, { generation }) => {
   const params = generation !== null ? `?generation=${generation}` : '';
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/graph${params}`);
+  return await callBackendApi(`${BACKEND_URL}/api/kg/graph${params}`);
 });
 
 ipcMain.handle('kg:listGenerations', async () => {
-  return await callBackendApi('http://127.0.0.1:5337/api/kg/generations');
+  return await callBackendApi(`${BACKEND_URL}/api/kg/generations`);
 });
 
 
 ipcMain.handle('kg:triggerProcess', async (event, { type }) => {
-  return await callBackendApi('http://127.0.0.1:5337/api/kg/trigger', {
+  return await callBackendApi(`${BACKEND_URL}/api/kg/trigger`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ process_type: type }),
@@ -5184,7 +5192,7 @@ ipcMain.handle('kg:triggerProcess', async (event, { type }) => {
 });
 
 ipcMain.handle('kg:rollback', async (event, { generation }) => {
-  return await callBackendApi('http://127.0.0.1:5337/api/kg/rollback', {
+  return await callBackendApi(`${BACKEND_URL}/api/kg/rollback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ generation }),
@@ -5193,7 +5201,7 @@ ipcMain.handle('kg:rollback', async (event, { generation }) => {
 
 // KG Node/Edge editing handlers
 ipcMain.handle('kg:addNode', async (event, { nodeId, nodeType = 'concept', properties = {} }) => {
-  return await callBackendApi('http://127.0.0.1:5337/api/kg/node', {
+  return await callBackendApi(`${BACKEND_URL}/api/kg/node`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: nodeId, type: nodeType, properties }),
@@ -5201,7 +5209,7 @@ ipcMain.handle('kg:addNode', async (event, { nodeId, nodeType = 'concept', prope
 });
 
 ipcMain.handle('kg:updateNode', async (event, { nodeId, properties }) => {
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/node/${encodeURIComponent(nodeId)}`, {
+  return await callBackendApi(`${BACKEND_URL}/api/kg/node/${encodeURIComponent(nodeId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ properties }),
@@ -5209,13 +5217,13 @@ ipcMain.handle('kg:updateNode', async (event, { nodeId, properties }) => {
 });
 
 ipcMain.handle('kg:deleteNode', async (event, { nodeId }) => {
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/node/${encodeURIComponent(nodeId)}`, {
+  return await callBackendApi(`${BACKEND_URL}/api/kg/node/${encodeURIComponent(nodeId)}`, {
     method: 'DELETE',
   });
 });
 
 ipcMain.handle('kg:addEdge', async (event, { sourceId, targetId, edgeType = 'related_to', weight = 1 }) => {
-  return await callBackendApi('http://127.0.0.1:5337/api/kg/edge', {
+  return await callBackendApi(`${BACKEND_URL}/api/kg/edge`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source: sourceId, target: targetId, type: edgeType, weight }),
@@ -5223,7 +5231,7 @@ ipcMain.handle('kg:addEdge', async (event, { sourceId, targetId, edgeType = 'rel
 });
 
 ipcMain.handle('kg:deleteEdge', async (event, { sourceId, targetId }) => {
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/edge/${encodeURIComponent(sourceId)}/${encodeURIComponent(targetId)}`, {
+  return await callBackendApi(`${BACKEND_URL}/api/kg/edge/${encodeURIComponent(sourceId)}/${encodeURIComponent(targetId)}`, {
     method: 'DELETE',
   });
 });
@@ -5235,7 +5243,7 @@ ipcMain.handle('kg:search', async (event, { q, generation, type, limit }) => {
   if (generation !== null && generation !== undefined) params.append('generation', generation);
   if (type) params.append('type', type);
   if (limit) params.append('limit', limit);
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/search?${params.toString()}`);
+  return await callBackendApi(`${BACKEND_URL}/api/kg/search?${params.toString()}`);
 });
 
 ipcMain.handle('kg:getFacts', async (event, { generation, limit, offset }) => {
@@ -5243,14 +5251,14 @@ ipcMain.handle('kg:getFacts', async (event, { generation, limit, offset }) => {
   if (generation !== null && generation !== undefined) params.append('generation', generation);
   if (limit) params.append('limit', limit);
   if (offset) params.append('offset', offset);
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/facts?${params.toString()}`);
+  return await callBackendApi(`${BACKEND_URL}/api/kg/facts?${params.toString()}`);
 });
 
 ipcMain.handle('kg:getConcepts', async (event, { generation, limit }) => {
   const params = new URLSearchParams();
   if (generation !== null && generation !== undefined) params.append('generation', generation);
   if (limit) params.append('limit', limit);
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/concepts?${params.toString()}`);
+  return await callBackendApi(`${BACKEND_URL}/api/kg/concepts?${params.toString()}`);
 });
 
 ipcMain.handle('kg:search:semantic', async (event, { q, generation, limit }) => {
@@ -5258,11 +5266,11 @@ ipcMain.handle('kg:search:semantic', async (event, { q, generation, limit }) => 
   if (q) params.append('q', q);
   if (generation !== null && generation !== undefined) params.append('generation', generation);
   if (limit) params.append('limit', limit);
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/search/semantic?${params.toString()}`);
+  return await callBackendApi(`${BACKEND_URL}/api/kg/search/semantic?${params.toString()}`);
 });
 
 ipcMain.handle('kg:embed', async (event, { generation, batch_size }) => {
-  return await callBackendApi(`http://127.0.0.1:5337/api/kg/embed`, {
+  return await callBackendApi(`${BACKEND_URL}/api/kg/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ generation, batch_size })
@@ -5278,7 +5286,7 @@ ipcMain.handle('memory:search', async (event, { q, npc, team, directory_path, st
   if (directory_path) params.append('directory_path', directory_path);
   if (status) params.append('status', status);
   if (limit) params.append('limit', limit);
-  return await callBackendApi(`http://127.0.0.1:5337/api/memory/search?${params.toString()}`);
+  return await callBackendApi(`${BACKEND_URL}/api/memory/search?${params.toString()}`);
 });
 
 ipcMain.handle('memory:pending', async (event, { npc, team, directory_path, limit }) => {
@@ -5287,7 +5295,7 @@ ipcMain.handle('memory:pending', async (event, { npc, team, directory_path, limi
   if (team) params.append('team', team);
   if (directory_path) params.append('directory_path', directory_path);
   if (limit) params.append('limit', limit);
-  return await callBackendApi(`http://127.0.0.1:5337/api/memory/pending?${params.toString()}`);
+  return await callBackendApi(`${BACKEND_URL}/api/memory/pending?${params.toString()}`);
 });
 
 ipcMain.handle('memory:scope', async (event, { npc, team, directory_path, status }) => {
@@ -5296,12 +5304,12 @@ ipcMain.handle('memory:scope', async (event, { npc, team, directory_path, status
   if (team) params.append('team', team);
   if (directory_path) params.append('directory_path', directory_path);
   if (status) params.append('status', status);
-  return await callBackendApi(`http://127.0.0.1:5337/api/memory/scope?${params.toString()}`);
+  return await callBackendApi(`${BACKEND_URL}/api/memory/scope?${params.toString()}`);
 });
 
 ipcMain.handle('memory:approve', async (event, { approvals }) => {
   try {
-    const response = await fetch('http://127.0.0.1:5337/api/memory/approve', {
+    const response = await fetch(`${BACKEND_URL}/api/memory/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ approvals })
@@ -5320,7 +5328,7 @@ ipcMain.handle('interruptStream', async (event, streamIdToInterrupt) => {
   log(`[Main Process] Received request to interrupt stream: ${streamIdToInterrupt}`);
   
   try {
-    const response = await fetch('http://127.0.0.1:5337/api/interrupt', {
+    const response = await fetch(`${BACKEND_URL}/api/interrupt`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -5416,7 +5424,7 @@ app.on('will-quit', () => {
 
   ipcMain.handle('getNPCTeamGlobal', async () => {
     try {
-      const response = await fetch('http://127.0.0.1:5337/api/npc_team_global', {
+      const response = await fetch(`${BACKEND_URL}/api/npc_team_global`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
@@ -5442,7 +5450,7 @@ app.on('will-quit', () => {
         currentPath: currentPath
       }).toString();
 
-      const url = `http://127.0.0.1:5337/api/npc_team_project?${queryParams}`;
+      const url = `${BACKEND_URL}/api/npc_team_project?${queryParams}`;
       console.log('Fetching NPC team from:', url);
 
       const response = await fetch(url, {
@@ -5488,7 +5496,7 @@ app.on('will-quit', () => {
 
   ipcMain.handle('loadGlobalSettings',  async () => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/settings/global', {
+        const response = await fetch(`${BACKEND_URL}/api/settings/global`, {
             method: 'GET',
             credentials: 'include'
         });
@@ -5509,7 +5517,7 @@ app.on('will-quit', () => {
 
   ipcMain.handle('get_attachment_response', async (_, attachmentData, messages) => {
     try {
-      const response = await fetch('http://127.0.0.1:5337/api/get_attachment_response', {
+      const response = await fetch(`${BACKEND_URL}/api/get_attachment_response`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -5548,7 +5556,7 @@ app.on('will-quit', () => {
   });
   ipcMain.handle('get-jinxs-global', async () => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/jinxs/global');
+        const response = await fetch(`${BACKEND_URL}/api/jinxs/global`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -6111,7 +6119,7 @@ ipcMain.handle('db:exportCSV', async (event, data) => {
 
 ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
   try {
-      const url = `http://127.0.0.1:5337/api/jinxs/project?currentPath=${encodeURIComponent(currentPath)}`;
+      const url = `${BACKEND_URL}/api/jinxs/project?currentPath=${encodeURIComponent(currentPath)}`;
       console.log('Fetching project jinxs from URL:', url);
       
       const response = await fetch(url);
@@ -6129,7 +6137,7 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
 });
   ipcMain.handle('save-jinx', async (event, data) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/jinxs/save', {
+        const response = await fetch(`${BACKEND_URL}/api/jinxs/save`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -6150,7 +6158,7 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
 
   ipcMain.handle('save-npc', async (event, data) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/save_npc', {
+        const response = await fetch(`${BACKEND_URL}/api/save_npc`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -6166,7 +6174,7 @@ ipcMain.handle('get-jinxs-project', async (event, currentPath) => {
 // ============== Mapx (Mind Map) IPC Handlers ==============
 ipcMain.handle('save-map', async (event, data) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/maps/save', {
+        const response = await fetch(`${BACKEND_URL}/api/maps/save`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -6181,7 +6189,7 @@ ipcMain.handle('save-map', async (event, data) => {
 
 ipcMain.handle('load-map', async (event, filePath) => {
     try {
-        const response = await fetch(`http://127.0.0.1:5337/api/maps/load?path=${encodeURIComponent(filePath)}`);
+        const response = await fetch(`${BACKEND_URL}/api/maps/load?path=${encodeURIComponent(filePath)}`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (err) {
@@ -6450,7 +6458,7 @@ ipcMain.handle('runSqlModel', async (event, { path: projectPath, modelId, isGlob
         }
 
         // Call the npcpy backend API
-        const response = await fetch('http://127.0.0.1:5337/api/npcsql/run_model', {
+        const response = await fetch(`${BACKEND_URL}/api/npcsql/run_model`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -6488,7 +6496,7 @@ ipcMain.handle('runSqlModel', async (event, { path: projectPath, modelId, isGlob
 // ============== Local Model Provider IPC Handlers ==============
 ipcMain.handle('scan-local-models', async (event, provider) => {
     try {
-        const response = await fetch(`http://127.0.0.1:5337/api/models/local/scan?provider=${encodeURIComponent(provider)}`);
+        const response = await fetch(`${BACKEND_URL}/api/models/local/scan?provider=${encodeURIComponent(provider)}`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (err) {
@@ -6499,7 +6507,7 @@ ipcMain.handle('scan-local-models', async (event, provider) => {
 
 ipcMain.handle('get-local-model-status', async (event, provider) => {
     try {
-        const response = await fetch(`http://127.0.0.1:5337/api/models/local/status?provider=${encodeURIComponent(provider)}`);
+        const response = await fetch(`${BACKEND_URL}/api/models/local/status?provider=${encodeURIComponent(provider)}`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (err) {
@@ -6667,7 +6675,7 @@ ipcMain.handle('browse-gguf-file', async (event) => {
 
 ipcMain.handle('download-hf-model', async (event, { url, targetDir }) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/models/hf/download', {
+        const response = await fetch(`${BACKEND_URL}/api/models/hf/download`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url, target_dir: targetDir })
@@ -6683,7 +6691,7 @@ ipcMain.handle('download-hf-model', async (event, { url, targetDir }) => {
 // Search HuggingFace for GGUF models
 ipcMain.handle('search-hf-models', async (event, { query, limit = 20 }) => {
     try {
-        const response = await fetch(`http://127.0.0.1:5337/api/models/hf/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+        const response = await fetch(`${BACKEND_URL}/api/models/hf/search?q=${encodeURIComponent(query)}&limit=${limit}`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (err) {
@@ -6695,7 +6703,7 @@ ipcMain.handle('search-hf-models', async (event, { query, limit = 20 }) => {
 // List GGUF files in a HuggingFace repository
 ipcMain.handle('list-hf-files', async (event, { repoId }) => {
     try {
-        const response = await fetch(`http://127.0.0.1:5337/api/models/hf/files?repo_id=${encodeURIComponent(repoId)}`);
+        const response = await fetch(`${BACKEND_URL}/api/models/hf/files?repo_id=${encodeURIComponent(repoId)}`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (err) {
@@ -6707,7 +6715,7 @@ ipcMain.handle('list-hf-files', async (event, { repoId }) => {
 // Download a specific file from HuggingFace
 ipcMain.handle('download-hf-file', async (event, { repoId, filename, targetDir }) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/models/hf/download_file', {
+        const response = await fetch(`${BACKEND_URL}/api/models/hf/download_file`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ repo_id: repoId, filename, target_dir: targetDir })
@@ -6723,7 +6731,7 @@ ipcMain.handle('download-hf-file', async (event, { repoId, filename, targetDir }
 // ============== Activity Tracking IPC Handlers ==============
 ipcMain.handle('track-activity', async (event, activity) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/activity/track', {
+        const response = await fetch(`${BACKEND_URL}/api/activity/track`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(activity)
@@ -6738,7 +6746,7 @@ ipcMain.handle('track-activity', async (event, activity) => {
 
 ipcMain.handle('get-activity-predictions', async (event) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/activity/predictions');
+        const response = await fetch(`${BACKEND_URL}/api/activity/predictions`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (err) {
@@ -6749,7 +6757,7 @@ ipcMain.handle('get-activity-predictions', async (event) => {
 
 ipcMain.handle('train-activity-model', async (event) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/activity/train', { method: 'POST' });
+        const response = await fetch(`${BACKEND_URL}/api/activity/train`, { method: 'POST' });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (err) {
@@ -6764,7 +6772,7 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
   log(`[Main Process] executeCommandStream: Starting stream with ID: ${currentStreamId}`);
   
   try {
-    const apiUrl = 'http://127.0.0.1:5337/api/stream';
+    const apiUrl = `${BACKEND_URL}/api/stream`;
     
    
     const payload = {
@@ -6934,7 +6942,7 @@ ipcMain.handle('write-file-buffer', async (_e, path, uint8) => {
 
 ipcMain.handle('finetune-diffusers', async (event, params) => {
     try {
-        const response = await fetch('http://127.0.0.1:5337/api/finetune_diffusers', {
+        const response = await fetch(`${BACKEND_URL}/api/finetune_diffusers`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(params)
@@ -6954,16 +6962,183 @@ ipcMain.handle('finetune-diffusers', async (event, params) => {
 
 ipcMain.handle('get-finetune-status', async (event, jobId) => {
     try {
-        const response = await fetch(`http://127.0.0.1:5337/api/finetune_status/${jobId}`);
-        
+        const response = await fetch(`${BACKEND_URL}/api/finetune_status/${jobId}`);
+
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.error || 'Failed to get finetune status');
         }
-        
+
         return await response.json();
     } catch (error) {
         console.error('Get finetune status error:', error);
+        return { error: error.message };
+    }
+});
+
+// Instruction fine-tuning (SFT, USFT, DPO, memory_classifier)
+ipcMain.handle('finetune-instruction', async (event, params) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/finetune_instruction`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Instruction finetuning failed');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Finetune instruction error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('get-instruction-finetune-status', async (event, jobId) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/finetune_instruction_status/${jobId}`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to get instruction finetune status');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Get instruction finetune status error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('get-instruction-models', async (event, currentPath) => {
+    try {
+        const url = currentPath
+            ? `${BACKEND_URL}/api/instruction_models?currentPath=${encodeURIComponent(currentPath)}`
+            : `${BACKEND_URL}/api/instruction_models`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to get instruction models');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Get instruction models error:', error);
+        return { error: error.message, models: [] };
+    }
+});
+
+// Genetic evolution population management
+ipcMain.handle('genetic-create-population', async (event, params) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/create_population`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to create population');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Create genetic population error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('genetic-evolve', async (event, params) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/evolve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to evolve population');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Evolve population error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('genetic-get-population', async (event, populationId) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/population/${populationId}`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to get population');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Get population error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('genetic-list-populations', async (event) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/populations`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to list populations');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('List populations error:', error);
+        return { error: error.message, populations: [] };
+    }
+});
+
+ipcMain.handle('genetic-delete-population', async (event, populationId) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/population/${populationId}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to delete population');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Delete population error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('genetic-inject', async (event, params) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/inject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to inject individuals');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Inject individuals error:', error);
         return { error: error.message };
     }
 });
@@ -7195,7 +7370,7 @@ ipcMain.handle('getAvailableImageModels', async (event, currentPath) => {
       return { models: [], error: 'Current path is required to fetch image models.' };
   }
   try {
-      const url = `http://127.0.0.1:5337/api/image_models?currentPath=${encodeURIComponent(currentPath)}`;
+      const url = `${BACKEND_URL}/api/image_models?currentPath=${encodeURIComponent(currentPath)}`;
       log('Fetching image models from:', url);
 
       const response = await fetch(url);
@@ -7233,7 +7408,7 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
   }
 
   try {
-      const apiUrl = 'http://127.0.0.1:5337/api/generate_images';
+      const apiUrl = `${BACKEND_URL}/api/generate_images`;
       const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -7541,12 +7716,12 @@ ipcMain.handle('executeShellCommand', async (event, { command, currentPath }) =>
     });
 });
 ipcMain.handle('get-attachment', async (event, attachmentId) => {
-  const response = await fetch(`http://127.0.0.1:5337/api/attachment/${attachmentId}`);
+  const response = await fetch(`${BACKEND_URL}/api/attachment/${attachmentId}`);
   return response.json();
 });
 
 ipcMain.handle('get-message-attachments', async (event, messageId) => {
-  const response = await fetch(`http://127.0.0.1:5337/api/attachments/${messageId}`);
+  const response = await fetch(`${BACKEND_URL}/api/attachments/${messageId}`);
   return response.json();
 });
 
@@ -7645,7 +7820,7 @@ ipcMain.handle('executeCommand', async (event, data) => {
     log(`[Main Process] executeCommand: Starting. streamId: ${currentStreamId}`);
 
     try {
-        const apiUrl = 'http://127.0.0.1:5337/api/execute';
+        const apiUrl = `${BACKEND_URL}/api/execute`;
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -7727,7 +7902,7 @@ ipcMain.handle('getConversations', async (_, path) => {
         return { conversations: [], error: 'Directory not accessible' };
       }
 
-      const apiUrl = `http://127.0.0.1:5337/api/conversations?path=${encodeURIComponent(path)}`;
+      const apiUrl = `${BACKEND_URL}/api/conversations?path=${encodeURIComponent(path)}`;
       console.log('Calling API with URL:', apiUrl);
 
       const response = await fetch(apiUrl);
@@ -7764,7 +7939,7 @@ ipcMain.handle('getConversations', async (_, path) => {
   });
   ipcMain.handle('checkServerConnection', async () => {
     try {
-      const response = await fetch('http://127.0.0.1:5337/api/status');
+      const response = await fetch(`${BACKEND_URL}/api/status`);
       if (!response.ok) return { error: 'Server not responding properly' };
       return await response.json();
     } catch (err) {
@@ -8056,7 +8231,7 @@ ipcMain.handle('getConversations', async (_, path) => {
   log(`[Main] text-predict: Starting stream ${currentStreamId}`);
 
   try {
-    const apiUrl = 'http://127.0.0.1:5337/api/text_predict';
+    const apiUrl = `${BACKEND_URL}/api/text_predict`;
 
     const payload = {
       streamId: currentStreamId,
@@ -8447,11 +8622,11 @@ app.on('window-all-closed', () => {
   console.log('MAIN PROCESS SETUP COMPLETE');
 }
 ipcMain.handle('get-global-context', async () => {
-  return await callBackendApi('http://127.0.0.1:5337/api/context/global');
+  return await callBackendApi(`${BACKEND_URL}/api/context/global`);
 });
 
 ipcMain.handle('save-global-context', async (event, contextData) => {
-  return await callBackendApi('http://127.0.0.1:5337/api/context/global', {
+  return await callBackendApi(`${BACKEND_URL}/api/context/global`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ context: contextData }),
@@ -8460,17 +8635,17 @@ ipcMain.handle('save-global-context', async (event, contextData) => {
 
 // Check if ~/.npcsh exists and has a valid npc_team
 ipcMain.handle('npcsh-check', async () => {
-  return await callBackendApi('http://127.0.0.1:5337/api/npcsh/check');
+  return await callBackendApi(`${BACKEND_URL}/api/npcsh/check`);
 });
 
 // Get NPCs and jinxs available in the npcsh package
 ipcMain.handle('npcsh-package-contents', async () => {
-  return await callBackendApi('http://127.0.0.1:5337/api/npcsh/package-contents');
+  return await callBackendApi(`${BACKEND_URL}/api/npcsh/package-contents`);
 });
 
 // Initialize ~/.npcsh with default npc_team
 ipcMain.handle('npcsh-init', async () => {
-  return await callBackendApi('http://127.0.0.1:5337/api/npcsh/init', {
+  return await callBackendApi(`${BACKEND_URL}/api/npcsh/init`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
@@ -8478,24 +8653,24 @@ ipcMain.handle('npcsh-init', async () => {
 });
 ipcMain.handle('get-last-used-in-directory', async (event, path) => {
   if (!path) return { model: null, npc: null, error: 'Path is required' };
-  const url = `http://127.0.0.1:5337/api/last_used_in_directory?path=${encodeURIComponent(path)}`;
+  const url = `${BACKEND_URL}/api/last_used_in_directory?path=${encodeURIComponent(path)}`;
   return await callBackendApi(url);
 });
 
 ipcMain.handle('get-last-used-in-conversation', async (event, conversationId) => {
   if (!conversationId) return { model: null, npc: null, error: 'Conversation ID is required' };
-  const url = `http://127.0.0.1:5337/api/last_used_in_conversation?conversationId=${encodeURIComponent(conversationId)}`;
+  const url = `${BACKEND_URL}/api/last_used_in_conversation?conversationId=${encodeURIComponent(conversationId)}`;
   return await callBackendApi(url);
 });
 ipcMain.handle('get-project-context', async (event, path) => {
   if (!path) return { error: 'Path is required' };
-  const url = `http://127.0.0.1:5337/api/context/project?path=${encodeURIComponent(path)}`;
+  const url = `${BACKEND_URL}/api/context/project?path=${encodeURIComponent(path)}`;
   return await callBackendApi(url);
 });
 
 ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
   if (!path) return { error: 'Path is required' };
-  const url = `http://127.0.0.1:5337/api/context/project`;
+  const url = `${BACKEND_URL}/api/context/project`;
   return await callBackendApi(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -8505,7 +8680,7 @@ ipcMain.handle('save-project-context', async (event, { path, contextData }) => {
 
 ipcMain.handle('init-project-team', async (event, projectPath) => {
   if (!projectPath) return { error: 'Path is required' };
-  const url = `http://127.0.0.1:5337/api/context/project/init`;
+  const url = `${BACKEND_URL}/api/context/project/init`;
   return await callBackendApi(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

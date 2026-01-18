@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { BACKEND_URL } from '../config';
 import {
-    Bot, Loader, ChevronRight, X, Save, MessageSquare, 
+    Bot, Loader, ChevronRight, X, Save, MessageSquare,
     Plus, Trash2, History, CheckCircle, XCircle, Tag,
     Brain, GitBranch, Edit, Search, Download, Filter,
-    Database, ChevronDown
+    Database, ChevronDown, Sparkles, Zap
 } from 'lucide-react';
 import AutosizeTextarea from './AutosizeTextarea';
 import ForceGraph2D from 'react-force-graph-2d';
@@ -61,6 +62,20 @@ const NPCTeamMenu = ({
     const [memoryLoading, setMemoryLoading] = useState(false);
     const [memoryFilter, setMemoryFilter] = useState('all');
     const [memorySearch, setMemorySearch] = useState('');
+
+    // Memory fine-tuning state
+    const [selectedMemories, setSelectedMemories] = useState(new Set());
+    const [showFineTuneModal, setShowFineTuneModal] = useState(false);
+    const [fineTuneConfig, setFineTuneConfig] = useState({
+        outputName: '',
+        baseModel: 'google/gemma-3-270m-it',
+        strategy: 'sft',
+        epochs: 20,
+        learningRate: 3e-5,
+        systemPrompt: ''
+    });
+    const [isFineTuning, setIsFineTuning] = useState(false);
+    const [fineTuneStatus, setFineTuneStatus] = useState(null);
     
     const [kgData, setKgData] = useState({ nodes: [], links: [] });
     const [kgLoading, setKgLoading] = useState(false);
@@ -128,10 +143,10 @@ const NPCTeamMenu = ({
         setMemoryLoading(true);
         const response = await window.api.executeSQL({
             query: `
-                SELECT id, message_id, conversation_id, 
-                       initial_memory, final_memory, status, 
+                SELECT id, message_id, conversation_id,
+                       initial_memory, final_memory, status,
                        timestamp, model, provider
-                FROM memory_lifecycle 
+                FROM memory_lifecycle
                 WHERE npc = '${npcName.replace(/'/g, "''")}'
                 ORDER BY timestamp DESC
             `
@@ -140,6 +155,100 @@ const NPCTeamMenu = ({
             setMemories(response.result || []);
         }
         setMemoryLoading(false);
+    };
+
+    // Memory selection toggle
+    const toggleMemorySelection = (memId) => {
+        setSelectedMemories(prev => {
+            const next = new Set(prev);
+            if (next.has(memId)) {
+                next.delete(memId);
+            } else {
+                next.add(memId);
+            }
+            return next;
+        });
+    };
+
+    const selectAllFilteredMemories = () => {
+        const filteredIds = filteredMemories.map(m => m.id);
+        setSelectedMemories(new Set(filteredIds));
+    };
+
+    const clearMemorySelection = () => {
+        setSelectedMemories(new Set());
+    };
+
+    // Start fine-tuning on selected memories for this NPC
+    const handleNpcFineTune = async () => {
+        if (selectedMemories.size === 0 || !selectedNpc) return;
+
+        setIsFineTuning(true);
+        setFineTuneStatus('Preparing training data...');
+
+        try {
+            const selectedMems = memories.filter(m => selectedMemories.has(m.id));
+            const trainingData = selectedMems.map(m => ({
+                input: m.context || `Memory from ${selectedNpc.name}`,
+                output: m.final_memory || m.initial_memory,
+                status: m.status,
+                npc: selectedNpc.name
+            }));
+
+            console.log('Starting NPC fine-tune with', trainingData.length, 'examples');
+
+            const response = await window.api?.fineTuneInstruction?.({
+                trainingData,
+                outputName: fineTuneConfig.outputName || `${selectedNpc.name}_model`,
+                baseModel: fineTuneConfig.baseModel,
+                strategy: fineTuneConfig.strategy,
+                epochs: fineTuneConfig.epochs,
+                learningRate: fineTuneConfig.learningRate,
+                batchSize: 2,
+                loraR: 8,
+                loraAlpha: 16,
+                systemPrompt: fineTuneConfig.systemPrompt || selectedNpc.primary_directive,
+                npc: selectedNpc.name,
+                formatStyle: 'gemma'
+            });
+
+            console.log('Fine-tune response:', response);
+
+            if (response?.error) {
+                setFineTuneStatus(`Error: ${response.error}`);
+                setIsFineTuning(false);
+            } else if (response?.jobId) {
+                setFineTuneStatus(`Training started! Job: ${response.jobId}`);
+                pollNpcFineTuneStatus(response.jobId);
+            }
+        } catch (err) {
+            console.error('Fine-tune error:', err);
+            setFineTuneStatus(`Error: ${err.message}`);
+            setIsFineTuning(false);
+        }
+    };
+
+    const pollNpcFineTuneStatus = async (jobId) => {
+        const poll = async () => {
+            try {
+                const status = await window.api?.getInstructionFineTuneStatus?.(jobId);
+                if (status?.status === 'complete') {
+                    setFineTuneStatus(`Complete! Model: ${status.outputPath}`);
+                    setIsFineTuning(false);
+                    setShowFineTuneModal(false);
+                } else if (status?.status === 'error') {
+                    setFineTuneStatus(`Failed: ${status.error}`);
+                    setIsFineTuning(false);
+                } else if (status?.status === 'running') {
+                    const progress = status.epoch ? `Epoch ${status.epoch}/${status.total_epochs}` : 'Training...';
+                    setFineTuneStatus(`${progress}${status.loss ? ` | Loss: ${status.loss.toFixed(4)}` : ''}`);
+                    setTimeout(poll, 2000);
+                }
+            } catch (err) {
+                setTimeout(poll, 5000);
+            }
+        };
+        poll();
     };
 
     const loadNpcKnowledgeGraph = async (npcName) => {
@@ -212,7 +321,7 @@ const NPCTeamMenu = ({
         setVisibleCount(50);
         
         const historyResponse = await fetch(
-            `http://127.0.0.1:5337/api/npc/executions?npcName=${encodeURIComponent(npc.name)}`
+            `${BACKEND_URL}/api/npc/executions?npcName=${encodeURIComponent(npc.name)}`
         );
         const historyData = await historyResponse.json();
         setExecutionHistory(historyData.executions || []);
@@ -282,7 +391,7 @@ const NPCTeamMenu = ({
     };
 
     const labelExecution = async (messageId, label) => {
-        await fetch('http://127.0.0.1:5337/api/label/execution', {
+        await fetch(`${BACKEND_URL}/api/label/execution`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ messageId, label })
@@ -830,110 +939,118 @@ const NPCTeamMenu = ({
                                 {activeTab === 'memory' && (
                                     <div className="space-y-4">
                                         <div className="flex items-center gap-2">
-                                            <Brain size={16} 
-                                                className="text-orange-400" />
-                                            <h3 className="text-sm font-semibold">
-                                                NPC Memories
-                                            </h3>
+                                            <Brain size={16} className="text-orange-400" />
+                                            <h3 className="text-sm font-semibold">NPC Memories</h3>
                                             <button
-                                                onClick={() => 
-                                                    loadNpcMemories(selectedNpc.name)
-                                                }
+                                                onClick={() => loadNpcMemories(selectedNpc.name)}
                                                 disabled={memoryLoading}
-                                                className="ml-auto text-xs 
-                                                    theme-button-subtle"
+                                                className="ml-auto text-xs theme-button-subtle"
                                             >
-                                                {memoryLoading 
-                                                    ? 'Loading...' 
-                                                    : 'Refresh'}
+                                                {memoryLoading ? 'Loading...' : 'Refresh'}
                                             </button>
+                                        </div>
+
+                                        {/* Selection Action Bar */}
+                                        <div className="flex items-center gap-2 p-2 bg-gray-800/50 rounded">
+                                            <span className="text-xs text-gray-400">
+                                                {selectedMemories.size} selected
+                                            </span>
+                                            <button
+                                                onClick={selectAllFilteredMemories}
+                                                className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+                                            >
+                                                Select All
+                                            </button>
+                                            {selectedMemories.size > 0 && (
+                                                <>
+                                                    <button
+                                                        onClick={clearMemorySelection}
+                                                        className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+                                                    >
+                                                        Clear
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setShowFineTuneModal(true)}
+                                                        className="text-xs px-2 py-1 bg-amber-600 hover:bg-amber-500 rounded flex items-center gap-1"
+                                                    >
+                                                        <Sparkles size={12} /> Fine-tune
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="relative">
-                                                <Search size={14} 
-                                                    className="absolute left-2 
-                                                        top-1/2 -translate-y-1/2 
-                                                        text-gray-400" />
+                                                <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
                                                 <input
                                                     type="text"
                                                     value={memorySearch}
-                                                    onChange={(e) => 
-                                                        setMemorySearch(e.target.value)
-                                                    }
+                                                    onChange={(e) => setMemorySearch(e.target.value)}
                                                     placeholder="Search memories..."
-                                                    className="w-full theme-input 
-                                                        pl-8 p-1.5 text-xs"
+                                                    className="w-full theme-input pl-8 p-1.5 text-xs"
                                                 />
                                             </div>
                                             <select
                                                 value={memoryFilter}
-                                                onChange={(e) => 
-                                                    setMemoryFilter(e.target.value)
-                                                }
+                                                onChange={(e) => setMemoryFilter(e.target.value)}
                                                 className="theme-input p-1.5 text-xs"
                                             >
                                                 <option value="all">All</option>
-                                                <option value="pending_approval">
-                                                    Pending
-                                                </option>
-                                                <option value="human-approved">
-                                                    Approved
-                                                </option>
-                                                <option value="human-edited">
-                                                    Edited
-                                                </option>
-                                                <option value="human-rejected">
-                                                    Rejected
-                                                </option>
+                                                <option value="pending_approval">Pending</option>
+                                                <option value="human-approved">Approved</option>
+                                                <option value="human-edited">Edited</option>
+                                                <option value="human-rejected">Rejected</option>
                                             </select>
                                         </div>
 
                                         {memoryLoading ? (
                                             <div className="flex justify-center p-4">
-                                                <Loader className="animate-spin 
-                                                    text-orange-400" />
+                                                <Loader className="animate-spin text-orange-400" />
                                             </div>
                                         ) : (
                                             <div className="space-y-2">
                                                 {filteredMemories.map((mem) => (
-                                                    <div 
-                                                        key={mem.id} 
-                                                        className="p-3 
-                                                            bg-gray-900/50 
-                                                            rounded border 
-                                                            theme-border text-xs"
+                                                    <div
+                                                        key={mem.id}
+                                                        onClick={() => toggleMemorySelection(mem.id)}
+                                                        className={`p-3 bg-gray-900/50 rounded border text-xs cursor-pointer transition-colors ${
+                                                            selectedMemories.has(mem.id)
+                                                                ? 'border-amber-500 bg-amber-900/20'
+                                                                : 'theme-border hover:border-gray-500'
+                                                        }`}
                                                     >
-                                                        <div className="font-mono 
-                                                            mb-1">
-                                                            {mem.final_memory || 
-                                                                mem.initial_memory}
+                                                        <div className="flex items-start gap-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedMemories.has(mem.id)}
+                                                                onChange={() => toggleMemorySelection(mem.id)}
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="mt-0.5 rounded border-gray-600"
+                                                            />
+                                                            <div className="flex-1 font-mono text-xs">
+                                                                {mem.final_memory || mem.initial_memory}
+                                                            </div>
                                                         </div>
-                                                        <div className="flex 
-                                                            justify-between 
-                                                            items-center">
-                                                            <span className={`px-2 
-                                                                py-0.5 rounded-full 
-                                                                text-[10px] font-medium 
-                                                                ${mem.status === 'human-approved' 
-                                                                    ? 'bg-green-900 text-green-300' 
-                                                                    : mem.status === 'human-edited' 
-                                                                        ? 'bg-blue-900 text-blue-300' 
-                                                                        : mem.status === 'human-rejected' 
-                                                                            ? 'bg-red-900 text-red-300' 
-                                                                            : 'bg-yellow-900 text-yellow-300'}`}
-                                                            >
+                                                        <div className="flex justify-between items-center mt-2">
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                                                                mem.status === 'human-approved'
+                                                                    ? 'bg-green-900 text-green-300'
+                                                                    : mem.status === 'human-edited'
+                                                                        ? 'bg-blue-900 text-blue-300'
+                                                                        : mem.status === 'human-rejected'
+                                                                            ? 'bg-red-900 text-red-300'
+                                                                            : 'bg-yellow-900 text-yellow-300'
+                                                            }`}>
                                                                 {mem.status}
                                                             </span>
-                                                            <span className="text-gray-400">
+                                                            <span className="text-gray-400 text-[10px]">
                                                                 {mem.timestamp}
                                                             </span>
                                                         </div>
                                                     </div>
                                                 ))}
                                                 {filteredMemories.length === 0 && (
-                                                    <div className="text-center 
-                                                        theme-text-secondary p-4">
+                                                    <div className="text-center theme-text-secondary p-4">
                                                         No memories found
                                                     </div>
                                                 )}
@@ -1079,18 +1196,120 @@ const NPCTeamMenu = ({
                         <div className="flex justify-end gap-3 mt-6">
                             <button
                                 onClick={() => setShowDatasetBuilder(false)}
-                                className="theme-button px-4 py-2 
+                                className="theme-button px-4 py-2
                                     text-sm rounded"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={exportDataset}
-                                className="theme-button-primary px-4 py-2 
+                                className="theme-button-primary px-4 py-2
                                     text-sm rounded flex items-center gap-2"
                             >
                                 <Download size={14} />
                                 Export Dataset
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Fine-tune Modal for NPC Memories */}
+            {showFineTuneModal && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]">
+                    <div className="theme-bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-semibold flex items-center gap-2">
+                                <Sparkles className="text-amber-400" />
+                                Fine-tune on {selectedMemories.size} Memories
+                            </h3>
+                            <button onClick={() => setShowFineTuneModal(false)}>
+                                <X size={20} className="text-gray-400 hover:text-white" />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4 mb-6">
+                            <div>
+                                <label className="text-sm theme-text-secondary block mb-1">Model Name</label>
+                                <input
+                                    type="text"
+                                    value={fineTuneConfig.outputName}
+                                    onChange={(e) => setFineTuneConfig(p => ({ ...p, outputName: e.target.value }))}
+                                    placeholder={`${selectedNpc?.name}_model`}
+                                    className="w-full theme-input p-2 text-sm"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs theme-text-secondary block mb-1">Strategy</label>
+                                    <select
+                                        value={fineTuneConfig.strategy}
+                                        onChange={(e) => setFineTuneConfig(p => ({ ...p, strategy: e.target.value }))}
+                                        className="w-full theme-input p-2 text-sm"
+                                    >
+                                        <option value="sft">SFT</option>
+                                        <option value="dpo">DPO</option>
+                                        <option value="usft">USFT</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs theme-text-secondary block mb-1">Base Model</label>
+                                    <select
+                                        value={fineTuneConfig.baseModel}
+                                        onChange={(e) => setFineTuneConfig(p => ({ ...p, baseModel: e.target.value }))}
+                                        className="w-full theme-input p-2 text-sm"
+                                    >
+                                        <option value="google/gemma-3-270m-it">Gemma 270M</option>
+                                        <option value="google/gemma-3-1b-it">Gemma 1B</option>
+                                        <option value="Qwen/Qwen3-0.6B">Qwen 0.6B</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs theme-text-secondary block mb-1">Epochs</label>
+                                    <input
+                                        type="number"
+                                        value={fineTuneConfig.epochs}
+                                        onChange={(e) => setFineTuneConfig(p => ({ ...p, epochs: parseInt(e.target.value) }))}
+                                        className="w-full theme-input p-2 text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs theme-text-secondary block mb-1">Learning Rate</label>
+                                    <input
+                                        type="number"
+                                        step="0.00001"
+                                        value={fineTuneConfig.learningRate}
+                                        onChange={(e) => setFineTuneConfig(p => ({ ...p, learningRate: parseFloat(e.target.value) }))}
+                                        className="w-full theme-input p-2 text-sm"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {fineTuneStatus && (
+                            <div className="text-sm text-amber-400 mb-4 p-2 bg-amber-900/20 rounded">
+                                {fineTuneStatus}
+                            </div>
+                        )}
+
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => setShowFineTuneModal(false)}
+                                className="theme-button px-4 py-2 text-sm rounded"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleNpcFineTune}
+                                disabled={isFineTuning}
+                                className="bg-amber-600 hover:bg-amber-500 disabled:bg-gray-600 px-4 py-2 text-sm rounded flex items-center gap-2"
+                            >
+                                {isFineTuning ? <Loader size={14} className="animate-spin" /> : <Zap size={14} />}
+                                {isFineTuning ? 'Training...' : 'Start Training'}
                             </button>
                         </div>
                     </div>

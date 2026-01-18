@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BACKEND_URL } from '../config';
 import {
     Wrench, Loader, ChevronRight, X, Save, Plus, Trash2, 
     FolderTree, Play, History, CheckCircle, XCircle, Tag
@@ -146,21 +147,21 @@ const handleJinxSelect = async (jinx) => {
     setTestInputs(inputs);
     
     const historyResponse = await fetch(
-        `http://127.0.0.1:5337/api/jinx/executions?jinxName=${encodeURIComponent(jinx.jinx_name)}`
+        `${BACKEND_URL}/api/jinx/executions?jinxName=${encodeURIComponent(jinx.jinx_name)}`
     );
     const historyData = await historyResponse.json();
     setExecutionHistory(historyData.executions || []);
 };
 
 const labelExecution = async (messageId, label) => {
-    await fetch('http://127.0.0.1:5337/api/label/execution', {
+    await fetch(`${BACKEND_URL}/api/label/execution`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageId, label })
     });
     
     const historyResponse = await fetch(
-        `http://127.0.0.1:5337/api/jinx/executions?jinxName=${encodeURIComponent(selectedJinx.jinx_name)}`
+        `${BACKEND_URL}/api/jinx/executions?jinxName=${encodeURIComponent(selectedJinx.jinx_name)}`
     );
     const historyData = await historyResponse.json();
     setExecutionHistory(historyData.executions || []);
@@ -255,7 +256,7 @@ const labelExecution = async (messageId, label) => {
         setTestRunning(true);
         setTestOutput(null);
         
-        const response = await fetch('http://127.0.0.1:5337/api/jinx/test', {
+        const response = await fetch(`${BACKEND_URL}/api/jinx/test`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

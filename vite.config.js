@@ -3,11 +3,20 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+// Use different ports for dev vs prod to allow running both simultaneously
+// Dev: 7337 (frontend), 5437 (backend)
+// Prod: 6337 (frontend), 5337 (backend)
+const DEV_PORT = parseInt(process.env.VITE_PORT || '7337');
+
 export default defineConfig({
   plugins: [react()],
-  base:'./', 
+  base:'./',
   server: {
-    port: 6337
+    port: DEV_PORT,
+    strictPort: true, // Fail if port is already in use instead of trying another
+  },
+  define: {
+    'import.meta.env.VITE_DEV_MODE': JSON.stringify(true),
   },
   build: {
     outDir: 'dist',

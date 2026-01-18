@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { BACKEND_URL } from '../config';
 import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Keyboard, KeyRound, Plus, Copy, ExternalLink, Terminal, Volume2, Mic, Play, Square } from 'lucide-react';
 import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
 import PythonEnvSettings from './PythonEnvSettings';
@@ -264,7 +265,7 @@ const VoiceManager = () => {
         setLoading(true);
         setError(null);
         try {
-            const response = await fetch('http://localhost:5337/api/audio/voices');
+            const response = await fetch(`${BACKEND_URL}/api/audio/voices`);
             if (!response.ok) throw new Error('Failed to fetch voices');
             const data = await response.json();
             if (data.success && data.engines) {
@@ -350,7 +351,7 @@ const VoiceManager = () => {
                 requestBody.voice_id = selectedVoice;
             }
 
-            const response = await fetch('http://localhost:5337/api/audio/tts', {
+            const response = await fetch(`${BACKEND_URL}/api/audio/tts`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)

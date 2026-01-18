@@ -1,5 +1,9 @@
 const { contextBridge, ipcRenderer, shell } = require('electron');
 
+// Backend URL - uses INCOGNIDE_PORT env var if set, otherwise defaults to 5337 (prod)
+const BACKEND_PORT = process.env.INCOGNIDE_PORT || '5337';
+const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
+
 contextBridge.exposeInMainWorld('api', {
 textPredict: (data) => ipcRenderer.invoke('text-predict', data),
 
@@ -353,7 +357,7 @@ onTerminalClosed: (callback) => {
     browserAddToHistory: (data) => ipcRenderer.invoke('browser-add-to-history', data),
     getJinxsGlobal: async () => {
         try {
-            const response = await fetch('http://127.0.0.1:5337/api/jinxs/global');
+            const response = await fetch(`${BACKEND_URL}/api/jinxs/global`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -366,7 +370,7 @@ onTerminalClosed: (callback) => {
     },
     getJinxsProject: async (currentPath) => {
         try {
-            const response = await fetch(`http://127.0.0.1:5337/api/jinxs/project?currentPath=${encodeURIComponent(currentPath)}`);
+            const response = await fetch(`${BACKEND_URL}/api/jinxs/project?currentPath=${encodeURIComponent(currentPath)}`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -382,7 +386,7 @@ onTerminalClosed: (callback) => {
     // Mapx (Mind Map) APIs - YAML-based storage like NPCs/Jinxs
     getMapsGlobal: async () => {
         try {
-            const response = await fetch('http://127.0.0.1:5337/api/maps/global');
+            const response = await fetch(`${BACKEND_URL}/api/maps/global`);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             return await response.json();
         } catch (error) {
@@ -392,7 +396,7 @@ onTerminalClosed: (callback) => {
     },
     getMapsProject: async (currentPath) => {
         try {
-            const response = await fetch(`http://127.0.0.1:5337/api/maps/project?currentPath=${encodeURIComponent(currentPath)}`);
+            const response = await fetch(`${BACKEND_URL}/api/maps/project?currentPath=${encodeURIComponent(currentPath)}`);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             return await response.json();
         } catch (error) {
@@ -469,6 +473,19 @@ onTerminalClosed: (callback) => {
 },
     fineTuneDiffusers: (params) => ipcRenderer.invoke('finetune-diffusers', params),
     getFineTuneStatus: (jobId) => ipcRenderer.invoke('get-finetune-status', jobId),
+
+    // Instruction fine-tuning (SFT, USFT, DPO, memory_classifier)
+    fineTuneInstruction: (params) => ipcRenderer.invoke('finetune-instruction', params),
+    getInstructionFineTuneStatus: (jobId) => ipcRenderer.invoke('get-instruction-finetune-status', jobId),
+    getInstructionModels: (currentPath) => ipcRenderer.invoke('get-instruction-models', currentPath),
+
+    // Genetic evolution population management
+    createGeneticPopulation: (params) => ipcRenderer.invoke('genetic-create-population', params),
+    evolvePopulation: (params) => ipcRenderer.invoke('genetic-evolve', params),
+    getPopulation: (populationId) => ipcRenderer.invoke('genetic-get-population', populationId),
+    listPopulations: () => ipcRenderer.invoke('genetic-list-populations'),
+    deletePopulation: (populationId) => ipcRenderer.invoke('genetic-delete-population', populationId),
+    injectIndividuals: (params) => ipcRenderer.invoke('genetic-inject', params),
     saveGeneratedImage: (blob, folderPath, filename) => ipcRenderer.invoke('save-generated-image', blob, folderPath, filename),
 
 

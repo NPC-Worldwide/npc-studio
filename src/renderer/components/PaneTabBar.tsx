@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import {
     X, Plus, MessageSquare, Terminal, Globe, FileText, Image, Book, File, GripVertical, Folder,
     Database, Zap, Users, Settings, Images, BookOpen, FolderCog, HardDrive, Tags, Network,
-    LayoutDashboard, Share2, Brain, Table, Bot, Maximize2, Minimize2
+    LayoutDashboard, Share2, Brain, Table, Bot, Maximize2, Minimize2, Music
 } from 'lucide-react';
 
 interface Tab {
@@ -59,6 +59,8 @@ const getTabIcon = (contentType: string) => {
             return <Settings size={12} className="text-gray-400" />;
         case 'photoviewer':
             return <Images size={12} className="text-pink-400" />;
+        case 'scherzo':
+            return <Music size={12} className="text-purple-400" />;
         case 'library':
             return <BookOpen size={12} className="text-amber-400" />;
         case 'projectenv':
@@ -118,7 +120,9 @@ const getTabTitle = (tab: Tab): string => {
         case 'settings':
             return 'Settings';
         case 'photoviewer':
-            return 'Photo Gallery';
+            return 'Vixynt';
+        case 'scherzo':
+            return 'Scherzo';
         case 'library':
             return 'Library';
         case 'projectenv':

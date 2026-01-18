@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { BACKEND_URL } from '../config';
 import {
     Send, Paperclip, Maximize2, ChevronDown, Star, ListFilter, FolderTree, Minimize2, Mic, MicOff, Volume2, GitBranch, SlidersHorizontal, Save, Trash2, Zap, X, Brain, Database
 } from 'lucide-react';
@@ -485,7 +486,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
 
                     try {
                         // Send to STT API
-                        const response = await fetch('http://localhost:5337/api/audio/stt', {
+                        const response = await fetch(`${BACKEND_URL}/api/audio/stt`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ audio: base64Audio, format: 'webm' })
@@ -806,9 +807,8 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 }
                             }}
                             onPaste={handlePaste}
-                            placeholder={isStreaming ? "Streaming..." : "Type a message... (Ctrl+Enter to send)"}
+                            placeholder="Type a message... (Ctrl+Enter to send)"
                             className="w-full h-full theme-input text-base rounded-lg p-4 focus:outline-none border-0 resize-none bg-transparent"
-                            disabled={isStreaming}
                             autoFocus
                         />
                     </div>
@@ -968,9 +968,8 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                             }
                                         }}
                                         onPaste={handlePaste}
-                                        placeholder={isStreaming ? "Streaming..." : "Type a message... (use /jinx to run a jinx)"}
-                                        className={`w-full h-full theme-input text-sm rounded-lg pl-3 pr-16 py-2 focus:outline-none border-0 resize-none ${isStreaming ? 'opacity-70' : ''}`}
-                                        disabled={isStreaming}
+                                        placeholder="Type a message... (use /jinx to run a jinx)"
+                                        className="w-full h-full theme-input text-sm rounded-lg pl-3 pr-16 py-2 focus:outline-none border-0 resize-none"
                                     />
                                     {/* Jinx suggestion popup */}
                                     {showJinxSuggestion && detectedJinx && (

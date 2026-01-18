@@ -1,4 +1,5 @@
 import React, { useCallback, useState, useEffect } from 'react';
+import { BACKEND_URL } from '../config';
 import { Code2, FileText, FileJson, BarChart3, File } from 'lucide-react';
 import { executeStudioAction, StudioContext } from '../studioActions';
 
@@ -21,7 +22,7 @@ export const triggerAutoTTS = async (text: string) => {
 
         console.log(`[Voice] Triggering auto-TTS with ${engine}/${voice}`);
 
-        const response = await fetch('http://localhost:5337/api/audio/tts', {
+        const response = await fetch(`${BACKEND_URL}/api/audio/tts`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, engine, voice })
@@ -862,7 +863,7 @@ export const usePaneAwareStreamListeners = (
                                             // Also send result back to backend for agent continuation
                                             if (incomingStreamId) {
                                                 try {
-                                                    await fetch('http://localhost:5337/api/studio/action_result', {
+                                                    await fetch(`${BACKEND_URL}/api/studio/action_result`, {
                                                         method: 'POST',
                                                         headers: { 'Content-Type': 'application/json' },
                                                         body: JSON.stringify({

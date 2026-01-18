@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { BACKEND_URL } from '../config';
 import {
     BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
@@ -2099,7 +2100,7 @@ const trainModel = async () => {
         hyperparameters: modelConfig.hyperparameters
     };
     
-    const response = await fetch('http://127.0.0.1:5337/api/ml/train', {
+    const response = await fetch(`${BACKEND_URL}/api/ml/train`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(trainingData)
