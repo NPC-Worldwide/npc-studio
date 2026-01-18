@@ -38,6 +38,13 @@ const FRONTEND_PORT = IS_DEV_MODE ? 7337 : 6337;
 const BACKEND_PORT = IS_DEV_MODE ? 5437 : 5337;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
+// Use separate user data paths for dev vs prod to allow running both simultaneously
+if (IS_DEV_MODE) {
+  app.setPath('userData', path.join(os.homedir(), '.npcsh', 'incognide-dev'));
+} else {
+  app.setPath('userData', path.join(os.homedir(), '.npcsh', 'incognide'));
+}
+
 // Centralized logging setup - all logs go to ~/.npcsh/incognide/logs/
 const logsDir = path.join(os.homedir(), '.npcsh', 'incognide', 'logs');
 try {
@@ -1086,6 +1093,7 @@ function registerGlobalShortcut(win) {
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
+  console.log(`Another instance is already running (mode: ${IS_DEV_MODE ? 'dev' : 'production'})`);
   app.quit();
 } else {
 
