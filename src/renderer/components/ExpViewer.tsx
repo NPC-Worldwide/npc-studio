@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { BACKEND_URL } from '../config';
 import {
     FlaskConical, Beaker, Database, BarChart3, MessageSquare, FileText,
     Plus, Play, Trash2, ChevronDown, ChevronRight, Save, FileDown,
@@ -536,7 +537,7 @@ const ExpViewer: React.FC<ExpViewerProps> = ({
         } else if (block.block_type === 'jinx') {
             // Execute jinx via backend API
             try {
-                const response = await fetch('http://localhost:5337/api/jinx/execute', {
+                const response = await fetch(`${BACKEND_URL}/api/jinx/execute`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

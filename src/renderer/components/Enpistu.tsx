@@ -1,4 +1,5 @@
  import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
+import { BACKEND_URL } from '../config';
 import { createPortal } from 'react-dom';
 import {
     Folder, File as FileIcon,  Globe, ChevronRight, ChevronLeft, Settings, Edit,
@@ -1341,7 +1342,7 @@ const ChatInterface = () => {
     useEffect(() => {
         const fetchOllamaToolModels = async () => {
             try {
-                const res = await fetch('http://localhost:5337/api/ollama/tool_models');
+                const res = await fetch(`${BACKEND_URL}/api/ollama/tool_models`);
                 const data = await res.json();
                 if (data?.models) {
                     setOllamaToolModels(new Set(data.models));

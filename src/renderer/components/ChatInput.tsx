@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { BACKEND_URL } from '../config';
 import {
     Send, Paperclip, Maximize2, ChevronDown, Star, ListFilter, FolderTree, Minimize2, Mic, MicOff, Volume2, GitBranch, SlidersHorizontal, Save, Trash2, Zap, X, Brain, Database
 } from 'lucide-react';
@@ -485,7 +486,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
 
                     try {
                         // Send to STT API
-                        const response = await fetch('http://localhost:5337/api/audio/stt', {
+                        const response = await fetch(`${BACKEND_URL}/api/audio/stt`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ audio: base64Audio, format: 'webm' })

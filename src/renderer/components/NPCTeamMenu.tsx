@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { BACKEND_URL } from '../config';
 import {
     Bot, Loader, ChevronRight, X, Save, MessageSquare, 
     Plus, Trash2, History, CheckCircle, XCircle, Tag,
@@ -212,7 +213,7 @@ const NPCTeamMenu = ({
         setVisibleCount(50);
         
         const historyResponse = await fetch(
-            `http://127.0.0.1:5337/api/npc/executions?npcName=${encodeURIComponent(npc.name)}`
+            `${BACKEND_URL}/api/npc/executions?npcName=${encodeURIComponent(npc.name)}`
         );
         const historyData = await historyResponse.json();
         setExecutionHistory(historyData.executions || []);
@@ -282,7 +283,7 @@ const NPCTeamMenu = ({
     };
 
     const labelExecution = async (messageId, label) => {
-        await fetch('http://127.0.0.1:5337/api/label/execution', {
+        await fetch(`${BACKEND_URL}/api/label/execution`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ messageId, label })
