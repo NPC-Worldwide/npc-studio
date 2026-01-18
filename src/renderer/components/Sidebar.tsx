@@ -71,7 +71,7 @@ const Sidebar = (props: any) => {
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
         setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed,
         createGraphViewerPane, createBrowserGraphPane, createDataLabelerPane,
-        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane, createHelpPane, createTileJinxPane,
+        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane, createHelpPane, createTileJinxPane, createGitPane,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -2228,24 +2228,49 @@ const renderWebsiteList = () => {
         return (
             <div className="p-4 border-t theme-border text-xs theme-text-muted">
                 {/* Header for the Git Panel with a toggle */}
-                <div 
+                <div
                     className="flex items-center justify-between cursor-pointer py-1"
-                    onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)} // <--- TOGGLE CLICK HANDLER
+                    onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)}
                 >
                     <div className="text-xs text-gray-500 font-medium flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-git-branch"><circle cx="6" cy="18" r="3"/><path d="M18 6V3"/><path d="M18 18v-4"/><path d="M6 18v-2"/><path d="M6 6v4a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/></svg>
                         Git Status
-                        {gitStatus.hasChanges && <span className="text-yellow-400 ml-2">(Changes!)</span>} {/* Indicate changes */}
+                        {gitStatus.hasChanges && <span className="text-yellow-400 ml-2">(Changes!)</span>}
                     </div>
-                    <ChevronRight 
-                        size={14} 
-                        className={`transform transition-transform ${gitPanelCollapsed ? "" : "rotate-90"}`} // <--- ROTATE ICON
-                    />
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                console.log('[Sidebar] Opening git pane, createGitPane:', typeof createGitPane);
+                                if (createGitPane) {
+                                    createGitPane();
+                                } else {
+                                    console.error('[Sidebar] createGitPane is not defined!');
+                                }
+                            }}
+                            className="p-1 rounded theme-hover text-gray-400 hover:text-blue-400"
+                            title="Open full Git pane"
+                        >
+                            <ExternalLink size={12} />
+                        </button>
+                        <ChevronRight
+                            size={14}
+                            className={`transform transition-transform ${gitPanelCollapsed ? "" : "rotate-90"}`}
+                        />
+                    </div>
                 </div>
     
                 {/* Conditional rendering of the Git panel content */}
-                {!gitPanelCollapsed && ( // <--- CONDITIONAL RENDERING
-                    <div className="overflow-auto max-h-64 mt-2"> {/* Added mt-2 for spacing */}
+                {!gitPanelCollapsed && (
+                    <div className="overflow-auto max-h-64 mt-2">
+                        {/* Open Full Git Pane button */}
+                        <button
+                            onClick={() => createGitPane?.()}
+                            className="w-full mb-2 px-2 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium flex items-center justify-center gap-2"
+                        >
+                            <Maximize2 size={12} />
+                            Open Full Git View
+                        </button>
                         <div className="mb-2 font-semibold">
                             Git Branch: {gitStatus.branch} {gitStatus.ahead > 0 && <span>↑{gitStatus.ahead}</span>} {gitStatus.behind > 0 && <span>↓{gitStatus.behind}</span>}
                         </div>
@@ -3700,6 +3725,14 @@ const renderFolderList = (structure) => {
                 {!gitPanelCollapsed && (
                     <div className="theme-bg-secondary overflow-hidden">
                         <div className="overflow-auto max-h-[300px] p-2 space-y-2">
+                            {/* Open Full Git Pane button */}
+                            <button
+                                onClick={() => createGitPane?.()}
+                                className="w-full px-2 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-medium flex items-center justify-center gap-2"
+                            >
+                                <Maximize2 size={12} />
+                                Open Full Git View
+                            </button>
                             {/* Staged files */}
                             {staged.length > 0 && (
                                 <div>
