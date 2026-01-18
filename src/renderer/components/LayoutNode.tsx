@@ -6,7 +6,7 @@ import {
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
     Image as ImageIcon, Tag, Folder, Users, Settings, Images, BookOpen,
     FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2, Maximize2, Minimize2,
-    FlaskConical, HelpCircle, Search
+    FlaskConical, HelpCircle, Search, Music
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
@@ -566,7 +566,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             renderPdfViewer, renderCsvViewer, renderDocxViewer, renderBrowserViewer,
             renderPptxViewer, renderLatexViewer, renderNotebookViewer, renderExpViewer, renderPicViewer, renderMindMapViewer, renderZipViewer,
             renderDataLabelerPane, renderGraphViewerPane, renderBrowserGraphPane,
-            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderLibraryViewerPane, renderHelpPane, renderGitPane, renderProjectEnvPane, renderDiskUsagePane, renderMemoryManagerPane, renderCronDaemonPane, renderSearchPane, renderFolderViewerPane, renderMarkdownPreviewPane, renderHtmlPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
+            renderDataDashPane, renderDBToolPane, renderNPCTeamPane, renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane, renderScherzoPane, renderLibraryViewerPane, renderHelpPane, renderGitPane, renderProjectEnvPane, renderDiskUsagePane, renderMemoryManagerPane, renderCronDaemonPane, renderSearchPane, renderFolderViewerPane, renderMarkdownPreviewPane, renderHtmlPreviewPane, renderTileJinxPane, renderBranchComparisonPane,
             moveContentPane,
             findNodePath, rootLayoutNode, setPaneContextMenu, closeContentPane,
             // Destructure the new chat-specific props from component:
@@ -999,7 +999,10 @@ export const LayoutNode = memo(({ node, path, component }) => {
             headerTitle = 'Settings';
         } else if (contentType === 'photoviewer') {
             headerIcon = <Images size={14} className="text-pink-400" />;
-            headerTitle = 'Photo Gallery';
+            headerTitle = 'Vixynt';
+        } else if (contentType === 'scherzo') {
+            headerIcon = <Music size={14} className="text-purple-400" />;
+            headerTitle = 'Scherzo';
         } else if (contentType === 'library') {
             headerIcon = <BookOpen size={14} className="text-amber-400" />;
             headerTitle = 'Library';
@@ -1220,6 +1223,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     return renderSettingsPane({ nodeId: node.id });
                 case 'photoviewer':
                     return renderPhotoViewerPane({ nodeId: node.id });
+                case 'scherzo':
+                    return renderScherzoPane({ nodeId: node.id });
                 case 'library':
                     return renderLibraryViewerPane({ nodeId: node.id });
                 case 'projectenv':

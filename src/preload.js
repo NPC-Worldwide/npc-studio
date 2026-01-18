@@ -473,6 +473,19 @@ onTerminalClosed: (callback) => {
 },
     fineTuneDiffusers: (params) => ipcRenderer.invoke('finetune-diffusers', params),
     getFineTuneStatus: (jobId) => ipcRenderer.invoke('get-finetune-status', jobId),
+
+    // Instruction fine-tuning (SFT, USFT, DPO, memory_classifier)
+    fineTuneInstruction: (params) => ipcRenderer.invoke('finetune-instruction', params),
+    getInstructionFineTuneStatus: (jobId) => ipcRenderer.invoke('get-instruction-finetune-status', jobId),
+    getInstructionModels: (currentPath) => ipcRenderer.invoke('get-instruction-models', currentPath),
+
+    // Genetic evolution population management
+    createGeneticPopulation: (params) => ipcRenderer.invoke('genetic-create-population', params),
+    evolvePopulation: (params) => ipcRenderer.invoke('genetic-evolve', params),
+    getPopulation: (populationId) => ipcRenderer.invoke('genetic-get-population', populationId),
+    listPopulations: () => ipcRenderer.invoke('genetic-list-populations'),
+    deletePopulation: (populationId) => ipcRenderer.invoke('genetic-delete-population', populationId),
+    injectIndividuals: (params) => ipcRenderer.invoke('genetic-inject', params),
     saveGeneratedImage: (blob, folderPath, filename) => ipcRenderer.invoke('save-generated-image', blob, folderPath, filename),
 
 

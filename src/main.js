@@ -6963,15 +6963,182 @@ ipcMain.handle('finetune-diffusers', async (event, params) => {
 ipcMain.handle('get-finetune-status', async (event, jobId) => {
     try {
         const response = await fetch(`${BACKEND_URL}/api/finetune_status/${jobId}`);
-        
+
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.error || 'Failed to get finetune status');
         }
-        
+
         return await response.json();
     } catch (error) {
         console.error('Get finetune status error:', error);
+        return { error: error.message };
+    }
+});
+
+// Instruction fine-tuning (SFT, USFT, DPO, memory_classifier)
+ipcMain.handle('finetune-instruction', async (event, params) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/finetune_instruction`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Instruction finetuning failed');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Finetune instruction error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('get-instruction-finetune-status', async (event, jobId) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/finetune_instruction_status/${jobId}`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to get instruction finetune status');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Get instruction finetune status error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('get-instruction-models', async (event, currentPath) => {
+    try {
+        const url = currentPath
+            ? `${BACKEND_URL}/api/instruction_models?currentPath=${encodeURIComponent(currentPath)}`
+            : `${BACKEND_URL}/api/instruction_models`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to get instruction models');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Get instruction models error:', error);
+        return { error: error.message, models: [] };
+    }
+});
+
+// Genetic evolution population management
+ipcMain.handle('genetic-create-population', async (event, params) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/create_population`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to create population');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Create genetic population error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('genetic-evolve', async (event, params) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/evolve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to evolve population');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Evolve population error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('genetic-get-population', async (event, populationId) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/population/${populationId}`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to get population');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Get population error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('genetic-list-populations', async (event) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/populations`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to list populations');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('List populations error:', error);
+        return { error: error.message, populations: [] };
+    }
+});
+
+ipcMain.handle('genetic-delete-population', async (event, populationId) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/population/${populationId}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to delete population');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Delete population error:', error);
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('genetic-inject', async (event, params) => {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/genetic/inject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to inject individuals');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Inject individuals error:', error);
         return { error: error.message };
     }
 });

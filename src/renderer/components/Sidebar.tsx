@@ -11,7 +11,7 @@ import {
     Loader2, ExternalLink, Link, Unlink, Filter, SortAsc, SortDesc, Table, Grid,
     List, Maximize2, Minimize2, Move, RotateCcw, ZoomIn, ZoomOut, Layers, Layout,
     Pause, Server, Mail, Cpu, Wifi, WifiOff, Power, PowerOff, Hash, AtSign, FlaskConical,
-    BrainCircuit
+    BrainCircuit, Music
 } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
@@ -71,7 +71,7 @@ const Sidebar = (props: any) => {
         setPhotoViewerOpen, setDashboardMenuOpen, setJinxMenuOpen,
         setCtxEditorOpen, setTeamManagementOpen, setNpcTeamMenuOpen, setSidebarCollapsed,
         createGraphViewerPane, createBrowserGraphPane, createDataLabelerPane,
-        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane, createHelpPane, createTileJinxPane, createGitPane,
+        createDataDashPane, createDBToolPane, createNPCTeamPane, createJinxPane, createTeamManagementPane, createSettingsPane, createPhotoViewerPane, createScherzoPane, createProjectEnvPane, createDiskUsagePane, createLibraryViewerPane, createHelpPane, createTileJinxPane, createGitPane,
         // Functions from Enpistu
         createNewConversation, generateId, streamToPaneRef, availableNPCs, currentNPC, currentModel,
         currentProvider, executionMode, mcpServerPath, selectedMcpTools, updateContentPane,
@@ -1640,11 +1640,11 @@ const renderWebsiteList = () => {
                 onDragStart={handleSectionDragStart('websites')}
                 onDragEnd={handleSectionDragEnd}
                 onClick={() => setWebsitesCollapsed(!websitesCollapsed)}
-                className="flex w-full bg-gradient-to-r from-purple-900/20 to-indigo-900/20 cursor-pointer hover:bg-white/5"
+                className="flex w-full bg-gradient-to-r from-purple-800/40 to-indigo-700/35 cursor-pointer hover:bg-white/5"
             >
                 {/* Left side: Icon only */}
                 <div className="flex items-center px-4 py-4">
-                    <Globe size={16} className="text-purple-400" />
+                    <Globe size={16} className="text-purple-300" />
                 </div>
                 {/* Right side: actions and dropdown */}
                 <div className="flex-1 flex items-center justify-end gap-2 px-2">
@@ -2763,11 +2763,11 @@ const renderFolderList = (structure) => {
                 onDragStart={handleSectionDragStart('files')}
                 onDragEnd={handleSectionDragEnd}
                 onClick={() => setFilesCollapsed(!filesCollapsed)}
-                className="flex w-full bg-gradient-to-r from-yellow-900/20 to-orange-900/20 cursor-pointer hover:bg-white/5"
+                className="flex w-full bg-gradient-to-r from-yellow-800/40 to-amber-700/35 cursor-pointer hover:bg-white/5"
             >
                 {/* Left side: Icon only (matching web/chat) */}
                 <div className="flex items-center px-4 py-4">
-                    <FolderOpen size={16} className="text-yellow-400" />
+                    <FolderOpen size={16} className="text-yellow-300" />
                 </div>
                 {/* Folder path controls - left justified */}
                 <div className="flex items-center gap-1 flex-shrink-0" style={{ position: 'relative', overflow: 'visible' }}>
@@ -3316,11 +3316,11 @@ const renderFolderList = (structure) => {
                     onDragStart={handleSectionDragStart('conversations')}
                     onDragEnd={handleSectionDragEnd}
                     onClick={() => setConversationsCollapsed(!conversationsCollapsed)}
-                    className="flex w-full bg-gradient-to-r from-green-900/20 to-emerald-900/20 cursor-pointer hover:bg-white/5"
+                    className="flex w-full bg-gradient-to-r from-green-800/40 to-emerald-700/35 cursor-pointer hover:bg-white/5"
                 >
                     {/* Left side: Icon only */}
                     <div className="flex items-center px-4 py-4">
-                        <MessageSquare size={16} className="text-green-400" />
+                        <MessageSquare size={16} className="text-green-300" />
                     </div>
                     {/* Right side: actions and dropdown */}
                     <div className="flex-1 flex items-center justify-end gap-2 px-2">

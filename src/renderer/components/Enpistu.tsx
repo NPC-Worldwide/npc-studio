@@ -3,7 +3,7 @@ import { BACKEND_URL } from '../config';
 import { createPortal } from 'react-dom';
 import {
     Folder, File as FileIcon,  Globe, ChevronRight, ChevronLeft, Settings, Edit,
-    Terminal, Image, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
+    Terminal, Image, Music, Trash, Users, Plus, ArrowUp, Camera, MessageSquare,
     ListFilter, ArrowDown,X, Wrench, FileText, Code2, FileJson, Paperclip,
     Send, BarChart3,Minimize2,  Maximize2, MessageCircle, BrainCircuit, Star, Origami, ChevronDown, ChevronUp,
     Clock, FolderTree, Search, HardDrive, Brain, GitBranch, Activity, Tag, Sparkles, Code, BookOpen, User,
@@ -38,6 +38,7 @@ import ExpViewer from './ExpViewer';
 import PicViewer from './PicViewer';
 import MindMapViewer from './MindMapViewer';
 import ZipViewer from './ZipViewer';
+import Scherzo from './Scherzo';
 import DiskUsageAnalyzer from './DiskUsageAnalyzer';
 import ProjectEnvEditor from './ProjectEnvEditor';
 import DBTool from './DBTool';
@@ -1700,9 +1701,10 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
         if (!paneData.chatMessages) {
             paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
-        // Initialize per-pane execution mode if not set
+        // Initialize per-pane execution mode if not set - use globally persisted mode
         if (paneData.executionMode === undefined) {
-            paneData.executionMode = 'chat';
+            const savedMode = localStorage.getItem('npcStudioExecutionMode');
+            paneData.executionMode = savedMode ? JSON.parse(savedMode) : 'chat';
             paneData.selectedJinx = null;
             paneData.showJinxDropdown = false;
         }
@@ -3257,6 +3259,15 @@ const renderPhotoViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
     );
 }, [handleStartConversationFromViewer]);
 
+// Render Scherzo (audio studio) pane
+const renderScherzoPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return (
+        <Scherzo
+            currentPath={currentPathRef.current}
+        />
+    );
+}, []);
+
 // Handle opening a document from the library viewer
 const handleOpenDocumentFromLibrary = useCallback(async (path: string, type: 'pdf' | 'epub') => {
     // Open the document in a new pane
@@ -4377,6 +4388,14 @@ const renderMessageContextMenu = () => (
         setActiveContentPaneId(newPaneId);
     }, []);
 
+    // Create Scherzo (audio studio) pane
+    const createScherzoPane = useCallback(async () => {
+        const newPaneId = generateId();
+        contentDataRef.current[newPaneId] = { contentType: 'scherzo', contentId: 'scherzo' };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+        setActiveContentPaneId(newPaneId);
+    }, []);
+
     // Create LibraryViewer pane
     const createLibraryViewerPane = useCallback(async () => {
         const newPaneId = generateId();
@@ -5000,7 +5019,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
 
         const hasContent = (input || '').trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
 
-        if (isStreaming || !hasContent || (!activeContentPaneId && !isJinxMode)) {
+        if (!hasContent || (!activeContentPaneId && !isJinxMode)) {
             if (!isJinxMode && !activeContentPaneId) {
                 console.error("No active chat pane to send message to.");
             }
@@ -5135,6 +5154,18 @@ ${contextPrompt}`;
             paneData.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
         }
 
+        // IMMEDIATELY clear input and files so user can type next message
+        const savedInput = input;
+        const savedFiles = [...uploadedFiles];
+        setInput('');
+        setUploadedFiles([]);
+        if (isJinxMode) {
+            setJinxInputValues(prev => ({
+                ...prev,
+                [paneSelectedJinx.name]: {}
+            }));
+        }
+
         // For each selected branch (or null if none), send a message
         for (const branchParent of branchTargets) {
             const branchStreamId = branchTargets.length > 1 ? generateId() : newStreamId;
@@ -5153,7 +5184,7 @@ ${contextPrompt}`;
                 role: 'user',
                 content: finalPromptForUserMessage,
                 timestamp: new Date().toISOString(),
-                attachments: uploadedFiles,
+                attachments: savedFiles,
                 executionMode: paneExecMode,
                 isJinxCall: isJinxMode,
                 jinxName: isJinxMode ? jinxName : null,
@@ -5205,7 +5236,7 @@ ${contextPrompt}`;
                         provider: useProvider,
                         npc: npcName,
                         npcSource: useNpcSource,
-                        attachments: uploadedFiles.map((f: any) => {
+                        attachments: savedFiles.map((f: any) => {
                             if (f.path) return { name: f.name, path: f.path, size: f.size, type: f.type };
                             else if (f.data) return { name: f.name, data: f.data, size: f.size, type: f.type };
                             return { name: f.name, type: f.type };
@@ -5232,14 +5263,6 @@ ${contextPrompt}`;
         paneData.chatStats = getConversationStats(paneData.chatMessages.allMessages);
 
         setRootLayoutNode(prev => ({ ...prev }));
-        setInput('');
-        setUploadedFiles([]);
-        if (isJinxMode) {
-            setJinxInputValues(prev => ({
-                ...prev,
-                [paneSelectedJinx.name]: {}
-            }));
-        }
 
         // Set streaming false only when all streams complete (handled by stream listeners)
         if (branchTargets.length === 1 && branchTargets[0] === null) {
@@ -7930,6 +7953,7 @@ const layoutComponentApi = useMemo(() => ({
     renderTeamManagementPane,
     renderSettingsPane,
     renderPhotoViewerPane,
+    renderScherzoPane,
     renderLibraryViewerPane,
     renderHelpPane,
     renderGitPane,
@@ -7992,6 +8016,7 @@ const layoutComponentApi = useMemo(() => ({
     renderTeamManagementPane,
     renderSettingsPane,
     renderPhotoViewerPane,
+    renderScherzoPane,
     renderLibraryViewerPane,
     renderHelpPane,
     renderGitPane,
@@ -8731,9 +8756,16 @@ const renderMainContent = () => {
                 <button
                     onClick={() => createPhotoViewerPane?.()}
                     className="p-2 theme-hover rounded theme-text-muted"
-                    title="Photo Viewer"
+                    title="Vixynt"
                 >
                     <Image size={18} />
+                </button>
+                <button
+                    onClick={() => createScherzoPane?.()}
+                    className="p-2 theme-hover rounded theme-text-muted"
+                    title="Scherzo"
+                >
+                    <Music size={18} />
                 </button>
                 <button
                     onClick={() => createDiskUsagePane?.()}
@@ -9014,6 +9046,7 @@ const renderMainContent = () => {
         createTeamManagementPane={createTeamManagementPane}
         createSettingsPane={createSettingsPane}
         createPhotoViewerPane={createPhotoViewerPane}
+        createScherzoPane={createScherzoPane}
         createProjectEnvPane={createProjectEnvPane}
         createDiskUsagePane={createDiskUsagePane}
         createLibraryViewerPane={createLibraryViewerPane}
