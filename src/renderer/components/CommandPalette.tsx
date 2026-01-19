@@ -16,34 +16,32 @@ interface CommandPaletteProps {
 }
 
 // Flatten folder structure to get all files
+// Structure format: { "filename": { type: 'file', path: '...' }, "dirname": { type: 'directory', path: '...', children: {...} } }
 const flattenFiles = (structure: any, basePath: string = ''): FileItem[] => {
     const files: FileItem[] = [];
 
     if (!structure || typeof structure !== 'object') return files;
 
-    // Skip metadata keys that aren't actual files/folders
-    const METADATA_KEYS = new Set(['type', 'json', 'error', 'success', 'message', 'status', 'isFile', 'isDirectory', 'size', 'mtime', 'ctime', 'atime']);
+    // Skip error responses
+    if (structure.error) return files;
 
     for (const [name, value] of Object.entries(structure)) {
-        // Skip metadata keys and hidden files starting with .
-        if (METADATA_KEYS.has(name)) continue;
+        // Skip if not an object with type property
+        if (!value || typeof value !== 'object') continue;
 
-        const fullPath = basePath ? `${basePath}/${name}` : name;
+        const item = value as any;
 
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-            // Check if it has children (it's a directory) or just metadata
-            const childKeys = Object.keys(value).filter(k => !METADATA_KEYS.has(k));
-            if (childKeys.length > 0) {
-                // It's a directory with children
-                files.push({ name, path: fullPath, type: 'directory' });
-                files.push(...flattenFiles(value, fullPath));
-            } else if (value.type === 'file' || value.isFile) {
-                // It's a file with metadata
-                files.push({ name, path: fullPath, type: 'file' });
+        if (item.type === 'file') {
+            // It's a file - use the stored path or construct one
+            const filePath = item.path || (basePath ? `${basePath}/${name}` : name);
+            files.push({ name, path: filePath, type: 'file' });
+        } else if (item.type === 'directory') {
+            // It's a directory - recurse into children
+            const dirPath = item.path || (basePath ? `${basePath}/${name}` : name);
+            files.push({ name, path: dirPath, type: 'directory' });
+            if (item.children && typeof item.children === 'object') {
+                files.push(...flattenFiles(item.children, dirPath));
             }
-        } else if (value === null || value === true || typeof value === 'string') {
-            // Simple file marker (null, true, or string content)
-            files.push({ name, path: fullPath, type: 'file' });
         }
     }
 
