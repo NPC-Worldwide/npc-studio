@@ -9052,6 +9052,7 @@ const renderMainContent = () => {
         createLibraryViewerPane={createLibraryViewerPane}
         createHelpPane={createHelpPane}
         createTileJinxPane={createTileJinxPane}
+        createGitPane={createGitPane}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}

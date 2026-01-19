@@ -15,6 +15,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
     const fitAddonRef = useRef(null);
     const isSessionReady = useRef(false);
     const terminalOutputBuffer = useRef<string[]>([]);
+    const initialPathRef = useRef(currentPath); // Capture initial path for terminal cwd
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
     const [showShellPrompt, setShowShellPrompt] = useState(false);
     const [activeShell, setActiveShell] = useState<string>('system');
@@ -159,18 +160,26 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             fitAddonRef.current = fitAddon;
             term.loadAddon(fitAddon);
             term.open(terminalRef.current);
-            setTimeout(() => fitAddon.fit(), 0);
             xtermInstance.current = term;
-
-            const resizeObserver = new ResizeObserver(() => {
+            // Use requestAnimationFrame to ensure fit happens after render
+            requestAnimationFrame(() => {
                 fitAddon.fit();
-                if (isSessionReady.current) {
-                    window.api.resizeTerminal?.({
-                        id: terminalId,
-                        cols: term.cols,
-                        rows: term.rows
-                    });
-                }
+            });
+
+            // Debounced resize handler to prevent rapid resize events causing cursor desync
+            let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+            const resizeObserver = new ResizeObserver(() => {
+                if (resizeTimeout) clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    fitAddon.fit();
+                    if (isSessionReady.current) {
+                        window.api.resizeTerminal?.({
+                            id: terminalId,
+                            cols: term.cols,
+                            rows: term.rows
+                        });
+                    }
+                }, 50); // 50ms debounce
             });
             resizeObserver.observe(terminalRef.current);
 
@@ -241,16 +250,27 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     return false;
                 }
 
-                // Ctrl+A - Go to beginning of line
-                if (isMeta && key === 'a' && !event.shiftKey) {
+                // Cmd+A (Mac) or Ctrl+Shift+A (non-Mac) - Select all terminal content
+                if ((event.metaKey && !event.ctrlKey && key === 'a') ||
+                    (event.ctrlKey && event.shiftKey && key === 'a')) {
+                    term.selectAll();
+                    return false;
+                }
+
+                // Ctrl+A - Go to beginning of line (Ctrl only, not Cmd)
+                if (event.ctrlKey && !event.metaKey && !event.shiftKey && key === 'a') {
+                    event.preventDefault();
+                    event.stopPropagation();
                     if (isSessionReady.current) {
                         window.api.writeToTerminal({ id: terminalId, data: '\x01' }); // ASCII SOH
                     }
                     return false;
                 }
 
-                // Ctrl+E - Go to end of line
-                if (isMeta && key === 'e') {
+                // Ctrl+E - Go to end of line (Ctrl only, not Cmd)
+                if (event.ctrlKey && !event.metaKey && key === 'e') {
+                    event.preventDefault();
+                    event.stopPropagation();
                     if (isSessionReady.current) {
                         window.api.writeToTerminal({ id: terminalId, data: '\x05' }); // ASCII ENQ
                     }
@@ -378,7 +398,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                 fitAddonRef.current?.fit();
                 const result = await window.api.createTerminalSession({
                     id: terminalId,
-                    cwd: currentPath,
+                    cwd: initialPathRef.current,
                     cols: xtermInstance.current.cols,
                     rows: xtermInstance.current.rows,
                     shellType: shellType
@@ -413,7 +433,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         // Load Python environment info for display
         const loadPythonEnv = async () => {
             try {
-                const envConfig = await (window as any).api?.pythonEnvGet?.(currentPath);
+                const envConfig = await (window as any).api?.pythonEnvGet?.(initialPathRef.current);
                 if (envConfig) {
                     if (envConfig.type === 'venv' || envConfig.type === 'uv') {
                         setPythonEnv(`${envConfig.type}:${envConfig.venvPath || '.venv'}`);
@@ -440,7 +460,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             removeClosedListener();
             window.api.closeTerminalSession(terminalId);
         };
-    }, [terminalId, currentPath, shellType]);
+    }, [terminalId, shellType]); // Note: currentPath removed - use initialPathRef to avoid re-creating session on navigation
 
     useEffect(() => {
         if (activeContentPaneId === nodeId && xtermInstance.current) {

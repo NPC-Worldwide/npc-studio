@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { GitBranch, RefreshCw, Check, X, AlertTriangle, SplitSquareHorizontal, AlignJustify, ChevronDown, ChevronUp, GitMerge, Undo2, ArrowLeft, ArrowRight, Combine, Save } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
@@ -48,6 +48,11 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
     const [mergeConflicts, setMergeConflicts] = useState<MergeConflict[]>([]);
     const [isDark, setIsDark] = useState(true);
     const [hasUnsavedResolutions, setHasUnsavedResolutions] = useState(false);
+
+    // Refs for synchronized scrolling
+    const leftScrollRef = useRef<HTMLDivElement>(null);
+    const rightScrollRef = useRef<HTMLDivElement>(null);
+    const isScrolling = useRef<'left' | 'right' | null>(null);
 
     // Detect file extension for syntax highlighting
     const getLanguageExtension = useCallback((path: string) => {
@@ -142,9 +147,11 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
             // Load current modified content
             const modifiedResult = await (window as any).api?.readFileContent?.(filePath);
             if (modifiedResult) {
-                setModifiedContent(modifiedResult);
+                // Handle both string and {content: string} response formats
+                const content = typeof modifiedResult === 'string' ? modifiedResult : (modifiedResult.content || '');
+                setModifiedContent(content);
                 // Check for merge conflicts
-                const conflicts = detectMergeConflicts(modifiedResult);
+                const conflicts = detectMergeConflicts(content);
                 setMergeConflicts(conflicts);
                 // Auto-switch to conflicts view if there are conflicts
                 if (conflicts.length > 0 && viewMode !== 'conflicts') {
@@ -249,58 +256,143 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
         EditorView.editable.of(false), // Read-only
     ].flat(), [langExt]);
 
-    const renderSplitView = () => (
-        <div className="flex flex-1 min-h-0">
-            {/* Left side - Original */}
-            <div className="flex-1 flex flex-col border-r theme-border min-w-0">
-                <div className="px-2 py-1 text-[10px] font-medium text-red-300 bg-red-900/20 flex items-center gap-1">
-                    <GitBranch size={10} /> Original (HEAD)
-                </div>
-                <div className="flex-1 overflow-auto">
-                    <CodeMirror
-                        value={originalContent}
-                        theme={theme}
-                        extensions={editorExtensions}
-                        className="h-full text-xs"
-                        basicSetup={{
-                            lineNumbers: true,
-                            foldGutter: true,
-                            highlightActiveLine: false,
-                        }}
-                    />
-                </div>
-            </div>
+    // Simple LCS-based diff algorithm
+    const computeDiff = useMemo(() => {
+        const origLines = (originalContent || '').split('\n');
+        const modLines = (modifiedContent || '').split('\n');
 
-            {/* Right side - Modified */}
-            <div className="flex-1 flex flex-col min-w-0">
-                <div className="px-2 py-1 text-[10px] font-medium text-green-300 bg-green-900/20 flex items-center gap-1">
-                    <GitBranch size={10} /> Modified (Working Copy)
-                    {mergeConflicts.length > 0 && (
-                        <span className="ml-auto flex items-center gap-1 text-yellow-400">
-                            <AlertTriangle size={10} /> {mergeConflicts.length} conflict{mergeConflicts.length !== 1 ? 's' : ''}
-                        </span>
-                    )}
+        // Build a set of original lines for quick lookup
+        const origSet = new Set(origLines);
+        const modSet = new Set(modLines);
+
+        // Mark lines as added, removed, or unchanged
+        const leftLines: { line: string; type: 'removed' | 'unchanged' | 'empty'; lineNum: number }[] = [];
+        const rightLines: { line: string; type: 'added' | 'unchanged' | 'empty'; lineNum: number }[] = [];
+
+        let li = 0, ri = 0;
+        let leftLineNum = 1, rightLineNum = 1;
+
+        while (li < origLines.length || ri < modLines.length) {
+            const origLine = li < origLines.length ? origLines[li] : null;
+            const modLine = ri < modLines.length ? modLines[ri] : null;
+
+            if (origLine === modLine) {
+                // Lines match
+                leftLines.push({ line: origLine || '', type: 'unchanged', lineNum: leftLineNum++ });
+                rightLines.push({ line: modLine || '', type: 'unchanged', lineNum: rightLineNum++ });
+                li++;
+                ri++;
+            } else if (origLine !== null && !modSet.has(origLine)) {
+                // Line was removed (not in modified)
+                leftLines.push({ line: origLine, type: 'removed', lineNum: leftLineNum++ });
+                rightLines.push({ line: '', type: 'empty', lineNum: 0 });
+                li++;
+            } else if (modLine !== null && !origSet.has(modLine)) {
+                // Line was added (not in original)
+                leftLines.push({ line: '', type: 'empty', lineNum: 0 });
+                rightLines.push({ line: modLine, type: 'added', lineNum: rightLineNum++ });
+                ri++;
+            } else {
+                // Lines changed - show as remove + add
+                if (origLine !== null) {
+                    leftLines.push({ line: origLine, type: 'removed', lineNum: leftLineNum++ });
+                    rightLines.push({ line: '', type: 'empty', lineNum: 0 });
+                    li++;
+                }
+                if (modLine !== null && li >= origLines.length) {
+                    leftLines.push({ line: '', type: 'empty', lineNum: 0 });
+                    rightLines.push({ line: modLine, type: 'added', lineNum: rightLineNum++ });
+                    ri++;
+                }
+            }
+        }
+
+        return { leftLines, rightLines };
+    }, [originalContent, modifiedContent]);
+
+    // Scroll sync handler
+    const handleScroll = useCallback((side: 'left' | 'right') => {
+        if (isScrolling.current && isScrolling.current !== side) return;
+
+        isScrolling.current = side;
+        const source = side === 'left' ? leftScrollRef.current : rightScrollRef.current;
+        const target = side === 'left' ? rightScrollRef.current : leftScrollRef.current;
+
+        if (source && target) {
+            target.scrollTop = source.scrollTop;
+            target.scrollLeft = source.scrollLeft;
+        }
+
+        // Reset scrolling lock after a short delay
+        setTimeout(() => { isScrolling.current = null; }, 50);
+    }, []);
+
+    const renderSplitView = () => {
+        const { leftLines, rightLines } = computeDiff;
+
+        const renderLine = (item: { line: string; type: string; lineNum: number }, index: number) => {
+            const bgClass = item.type === 'removed' ? 'bg-red-900/40' :
+                           item.type === 'added' ? 'bg-green-900/40' :
+                           item.type === 'empty' ? 'bg-gray-800/30' : '';
+            const textClass = item.type === 'removed' ? 'text-red-200' :
+                             item.type === 'added' ? 'text-green-200' : 'text-gray-300';
+
+            return (
+                <div key={index} className={`flex ${bgClass} min-h-[20px] font-mono text-xs`}>
+                    <span className="w-10 text-right pr-2 text-gray-500 select-none border-r border-gray-700 flex-shrink-0 bg-gray-900/50">
+                        {item.lineNum > 0 ? item.lineNum : ''}
+                    </span>
+                    <span className="w-5 text-center text-gray-500 select-none flex-shrink-0">
+                        {item.type === 'removed' ? '−' : item.type === 'added' ? '+' : ''}
+                    </span>
+                    <pre className={`flex-1 px-2 whitespace-pre overflow-x-auto ${textClass}`}>
+                        {item.line || ' '}
+                    </pre>
                 </div>
-                <div className="flex-1 overflow-auto">
-                    <CodeMirror
-                        value={modifiedContent}
-                        theme={theme}
-                        extensions={editorExtensions}
-                        className="h-full text-xs"
-                        basicSetup={{
-                            lineNumbers: true,
-                            foldGutter: true,
-                            highlightActiveLine: false,
-                        }}
-                    />
+            );
+        };
+
+        return (
+            <div className="flex flex-1 min-h-0">
+                {/* Left side - Original */}
+                <div className="flex-1 flex flex-col border-r theme-border min-w-0">
+                    <div className="px-2 py-1 text-[10px] font-medium text-red-300 bg-red-900/20 flex items-center gap-1">
+                        <GitBranch size={10} /> Original (HEAD)
+                    </div>
+                    <div
+                        ref={leftScrollRef}
+                        className="flex-1 overflow-auto"
+                        onScroll={() => handleScroll('left')}
+                    >
+                        {leftLines.map(renderLine)}
+                    </div>
+                </div>
+
+                {/* Right side - Modified */}
+                <div className="flex-1 flex flex-col min-w-0">
+                    <div className="px-2 py-1 text-[10px] font-medium text-green-300 bg-green-900/20 flex items-center gap-1">
+                        <GitBranch size={10} /> Modified (Working Copy)
+                        {mergeConflicts.length > 0 && (
+                            <span className="ml-auto flex items-center gap-1 text-yellow-400">
+                                <AlertTriangle size={10} /> {mergeConflicts.length} conflict{mergeConflicts.length !== 1 ? 's' : ''}
+                            </span>
+                        )}
+                    </div>
+                    <div
+                        ref={rightScrollRef}
+                        className="flex-1 overflow-auto"
+                        onScroll={() => handleScroll('right')}
+                    >
+                        {rightLines.map(renderLine)}
+                    </div>
                 </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     const renderUnifiedView = () => {
-        const originalLines = originalContent.split('\n');
-        const modifiedLines = modifiedContent.split('\n');
+        const originalLines = (originalContent || '').split('\n');
+        const modifiedLines = (modifiedContent || '').split('\n');
 
         return (
             <div className="flex-1 overflow-auto font-mono text-xs">
@@ -563,7 +655,7 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
             <div className="px-3 py-1 border-t theme-border text-[10px] text-gray-500 truncate flex items-center justify-between">
                 <span>{filePath}</span>
                 <span>
-                    {originalContent.split('\n').length} → {modifiedContent.split('\n').length} lines
+                    {(originalContent || '').split('\n').length} → {(modifiedContent || '').split('\n').length} lines
                 </span>
             </div>
         </div>

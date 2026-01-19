@@ -21,15 +21,28 @@ const flattenFiles = (structure: any, basePath: string = ''): FileItem[] => {
 
     if (!structure || typeof structure !== 'object') return files;
 
+    // Skip metadata keys that aren't actual files/folders
+    const METADATA_KEYS = new Set(['type', 'json', 'error', 'success', 'message', 'status', 'isFile', 'isDirectory', 'size', 'mtime', 'ctime', 'atime']);
+
     for (const [name, value] of Object.entries(structure)) {
+        // Skip metadata keys and hidden files starting with .
+        if (METADATA_KEYS.has(name)) continue;
+
         const fullPath = basePath ? `${basePath}/${name}` : name;
 
         if (value && typeof value === 'object' && !Array.isArray(value)) {
-            // It's a directory
-            files.push({ name, path: fullPath, type: 'directory' });
-            files.push(...flattenFiles(value, fullPath));
-        } else {
-            // It's a file (or treat as file)
+            // Check if it has children (it's a directory) or just metadata
+            const childKeys = Object.keys(value).filter(k => !METADATA_KEYS.has(k));
+            if (childKeys.length > 0) {
+                // It's a directory with children
+                files.push({ name, path: fullPath, type: 'directory' });
+                files.push(...flattenFiles(value, fullPath));
+            } else if (value.type === 'file' || value.isFile) {
+                // It's a file with metadata
+                files.push({ name, path: fullPath, type: 'file' });
+            }
+        } else if (value === null || value === true || typeof value === 'string') {
+            // Simple file marker (null, true, or string content)
             files.push({ name, path: fullPath, type: 'file' });
         }
     }
