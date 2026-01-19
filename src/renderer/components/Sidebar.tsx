@@ -2374,6 +2374,34 @@ const renderWebsiteList = () => {
                                 </button>
                             </div>
                             {gitError && <div className="mt-2 text-red-500 text-xs">{gitError}</div>}
+                            {noUpstreamPrompt && (
+                                <div className="mt-2 p-2 bg-amber-900/30 border border-amber-600/50 rounded text-xs">
+                                    <div className="text-amber-400 mb-2">Branch has no upstream. Push to origin/{noUpstreamPrompt.branch}?</div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={gitPushWithUpstream}
+                                            disabled={gitLoading}
+                                            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-white text-[10px]"
+                                        >
+                                            Push
+                                        </button>
+                                        <button
+                                            onClick={gitEnableAutoSetupRemote}
+                                            disabled={gitLoading}
+                                            className="px-2 py-1 bg-green-600 hover:bg-green-500 rounded text-white text-[10px]"
+                                            title="Sets git config push.autoSetupRemote true"
+                                        >
+                                            Always Auto-Push
+                                        </button>
+                                        <button
+                                            onClick={() => setNoUpstreamPrompt(null)}
+                                            className="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-white text-[10px]"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -2435,16 +2463,55 @@ const renderWebsiteList = () => {
         }
       };
       
+      const [noUpstreamPrompt, setNoUpstreamPrompt] = useState<{ branch: string; command: string } | null>(null);
+
       const gitPushChanges = async () => {
         setGitLoading(true);
         setGitError(null);
+        setNoUpstreamPrompt(null);
         try {
-          await window.api.gitPush(currentPath);
-          await loadGitStatus();
+          const result = await window.api.gitPush(currentPath);
+          if (!result.success) {
+            if (result.noUpstream) {
+              setNoUpstreamPrompt({ branch: result.currentBranch, command: result.suggestedCommand });
+            } else {
+              setGitError(result.error || 'Failed to push');
+            }
+          } else {
+            await loadGitStatus();
+          }
         } catch (err) {
           setGitError(err.message || 'Failed to push');
         } finally {
           setGitLoading(false);
+        }
+      };
+
+      const gitPushWithUpstream = async () => {
+        if (!noUpstreamPrompt) return;
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          const result = await window.api.gitPushSetUpstream(currentPath, noUpstreamPrompt.branch);
+          if (result.success) {
+            setNoUpstreamPrompt(null);
+            await loadGitStatus();
+          } else {
+            setGitError(result.error || 'Failed to push');
+          }
+        } catch (err) {
+          setGitError(err.message || 'Failed to push');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+
+      const gitEnableAutoSetupRemote = async () => {
+        try {
+          await window.api.gitSetAutoSetupRemote();
+          await gitPushWithUpstream();
+        } catch (err) {
+          setGitError(err.message || 'Failed to set config');
         }
       };
 

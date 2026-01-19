@@ -2062,6 +2062,44 @@ ipcMain.handle('gitPush', async (event, repoPath) => {
     return { success: true, summary: pushResult };
   } catch (err) {
     console.error(`[Git] Error pushing in ${repoPath}:`, err);
+    // Check if it's the "no upstream branch" error
+    const isNoUpstream = err.message && err.message.includes('has no upstream branch');
+    if (isNoUpstream) {
+      // Get current branch name
+      const git = simpleGit(repoPath);
+      const branchResult = await git.branch();
+      const currentBranch = branchResult.current;
+      return {
+        success: false,
+        error: err.message,
+        noUpstream: true,
+        currentBranch,
+        suggestedCommand: `git push --set-upstream origin ${currentBranch}`
+      };
+    }
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitPushSetUpstream', async (event, repoPath, branch) => {
+  log(`[Git] Pushing with upstream for: ${repoPath}, branch: ${branch}`);
+  try {
+    const git = simpleGit(repoPath);
+    const pushResult = await git.push(['--set-upstream', 'origin', branch]);
+    return { success: true, summary: pushResult };
+  } catch (err) {
+    console.error(`[Git] Error pushing with upstream:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitSetAutoSetupRemote', async (event) => {
+  log(`[Git] Setting push.autoSetupRemote to true`);
+  try {
+    execSync('git config --global push.autoSetupRemote true');
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error setting autoSetupRemote:`, err);
     return { success: false, error: err.message };
   }
 });

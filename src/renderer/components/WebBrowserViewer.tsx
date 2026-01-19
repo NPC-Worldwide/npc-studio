@@ -824,13 +824,15 @@ const WebBrowserViewer = memo(({
 
                             const password = passwordInputs[0].value;
                             if (username && password) {
-                                // Send to parent via postMessage (will be picked up by IPC)
-                                window.postMessage({
-                                    type: 'npc-password-detected',
+                                // Store securely for retrieval - don't log
+                                window.__npcPendingCredentials = {
                                     site: window.location.hostname,
                                     username: username,
-                                    password: password
-                                }, '*');
+                                    password: password,
+                                    timestamp: Date.now()
+                                };
+                                // Signal without exposing data
+                                console.log('npc-credentials-ready');
                             }
                         }, true);
                     })();
@@ -848,18 +850,24 @@ const WebBrowserViewer = memo(({
             }
         };
 
-        // Listen for console messages that contain our password detection
-        const handleConsoleMessage = (event: any) => {
+        // Listen for console messages signaling credentials are ready
+        const handleConsoleMessage = async (event: any) => {
             try {
-                if (event.message?.includes('npc-password-detected')) {
-                    const match = event.message.match(/npc-password-detected:(.+)/);
-                    if (match) {
-                        const data = JSON.parse(match[1]);
-                        setPendingCredentials(data);
+                if (event.message === 'npc-credentials-ready') {
+                    // Retrieve credentials securely via executeJavaScript
+                    const creds = await webview.executeJavaScript(`
+                        (function() {
+                            const c = window.__npcPendingCredentials;
+                            window.__npcPendingCredentials = null;
+                            return c;
+                        })();
+                    `);
+                    if (creds && creds.username && creds.password) {
+                        setPendingCredentials(creds);
                         setShowPasswordPrompt(true);
                     }
                 }
-            } catch { /* ignore parsing errors */ }
+            } catch { /* ignore errors */ }
         };
 
         webview.addEventListener('dom-ready', handleDomReady);
