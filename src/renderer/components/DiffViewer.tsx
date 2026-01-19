@@ -352,6 +352,27 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
             );
         };
 
+        // Calculate minimap markers
+        const totalLines = Math.max(leftLines.length, rightLines.length);
+        const leftMarkers = leftLines.map((l, i) => ({ index: i, type: l.type })).filter(m => m.type === 'removed');
+        const rightMarkers = rightLines.map((l, i) => ({ index: i, type: l.type })).filter(m => m.type === 'added');
+
+        const renderMinimap = (markers: { index: number; type: string }[], color: string) => (
+            <div className="w-2 bg-gray-800/50 relative flex-shrink-0">
+                {markers.map((m, i) => (
+                    <div
+                        key={i}
+                        className="absolute w-full"
+                        style={{
+                            top: `${(m.index / totalLines) * 100}%`,
+                            height: `${Math.max(100 / totalLines, 2)}%`,
+                            backgroundColor: color,
+                        }}
+                    />
+                ))}
+            </div>
+        );
+
         return (
             <div className="flex flex-1 min-h-0">
                 {/* Left side - Original */}
@@ -359,12 +380,15 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
                     <div className="px-2 py-1 text-[10px] font-medium text-red-300 bg-red-900/20 flex items-center gap-1">
                         <GitBranch size={10} /> Original (HEAD)
                     </div>
-                    <div
-                        ref={leftScrollRef}
-                        className="flex-1 overflow-auto"
-                        onScroll={() => handleScroll('left')}
-                    >
-                        {leftLines.map(renderLine)}
+                    <div className="flex flex-1 min-h-0">
+                        <div
+                            ref={leftScrollRef}
+                            className="flex-1 overflow-auto"
+                            onScroll={() => handleScroll('left')}
+                        >
+                            {leftLines.map(renderLine)}
+                        </div>
+                        {renderMinimap(leftMarkers, '#ef4444')}
                     </div>
                 </div>
 
@@ -378,12 +402,15 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
                             </span>
                         )}
                     </div>
-                    <div
-                        ref={rightScrollRef}
-                        className="flex-1 overflow-auto"
-                        onScroll={() => handleScroll('right')}
-                    >
-                        {rightLines.map(renderLine)}
+                    <div className="flex flex-1 min-h-0">
+                        <div
+                            ref={rightScrollRef}
+                            className="flex-1 overflow-auto"
+                            onScroll={() => handleScroll('right')}
+                        >
+                            {rightLines.map(renderLine)}
+                        </div>
+                        {renderMinimap(rightMarkers, '#22c55e')}
                     </div>
                 </div>
             </div>

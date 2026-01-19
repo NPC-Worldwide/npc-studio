@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen } = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -462,10 +462,13 @@ app.on('web-contents-created', (event, contents) => {
 
       // Send context menu event to renderer
       if (mainWindow && !mainWindow.isDestroyed()) {
-        // params.x/y from context-menu event are already content-relative
+        // Get exact cursor position from screen
+        const cursorPos = screen.getCursorScreenPoint();
+        const windowBounds = mainWindow.getBounds();
+
         mainWindow.webContents.send('browser-show-context-menu', {
-          x: params.x,
-          y: params.y,
+          x: cursorPos.x - windowBounds.x,
+          y: cursorPos.y - windowBounds.y,
           selectedText,
           linkURL,
           srcURL,
@@ -2059,6 +2062,44 @@ ipcMain.handle('gitPush', async (event, repoPath) => {
     return { success: true, summary: pushResult };
   } catch (err) {
     console.error(`[Git] Error pushing in ${repoPath}:`, err);
+    // Check if it's the "no upstream branch" error
+    const isNoUpstream = err.message && err.message.includes('has no upstream branch');
+    if (isNoUpstream) {
+      // Get current branch name
+      const git = simpleGit(repoPath);
+      const branchResult = await git.branch();
+      const currentBranch = branchResult.current;
+      return {
+        success: false,
+        error: err.message,
+        noUpstream: true,
+        currentBranch,
+        suggestedCommand: `git push --set-upstream origin ${currentBranch}`
+      };
+    }
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitPushSetUpstream', async (event, repoPath, branch) => {
+  log(`[Git] Pushing with upstream for: ${repoPath}, branch: ${branch}`);
+  try {
+    const git = simpleGit(repoPath);
+    const pushResult = await git.push(['--set-upstream', 'origin', branch]);
+    return { success: true, summary: pushResult };
+  } catch (err) {
+    console.error(`[Git] Error pushing with upstream:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitSetAutoSetupRemote', async (event) => {
+  log(`[Git] Setting push.autoSetupRemote to true`);
+  try {
+    execSync('git config --global push.autoSetupRemote true');
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error setting autoSetupRemote:`, err);
     return { success: false, error: err.message };
   }
 });
@@ -3363,6 +3404,156 @@ app.whenReady().then(() => {
   loadSavedExtensions().catch(err => {
     console.log('[Extensions] Startup load error:', err.message);
   });
+});
+
+// ==================== COOKIE INHERITANCE MANAGER ====================
+const cookieInheritanceConfigPath = path.join(os.homedir(), '.npcsh', 'incognide', 'cookie-inheritance.json');
+const knownPartitionsPath = path.join(os.homedir(), '.npcsh', 'incognide', 'known-partitions.json');
+
+// Load/save known partitions (folders that have been used with browser)
+const loadKnownPartitions = async () => {
+  try {
+    const data = await fsPromises.readFile(knownPartitionsPath, 'utf8');
+    return JSON.parse(data);
+  } catch {
+    return { partitions: [] };
+  }
+};
+
+const saveKnownPartitions = async (data) => {
+  const dir = path.dirname(knownPartitionsPath);
+  await fsPromises.mkdir(dir, { recursive: true });
+  await fsPromises.writeFile(knownPartitionsPath, JSON.stringify(data, null, 2));
+};
+
+// Load/save cookie inheritance config
+const loadCookieInheritanceConfig = async () => {
+  try {
+    const data = await fsPromises.readFile(cookieInheritanceConfigPath, 'utf8');
+    return JSON.parse(data);
+  } catch {
+    return { inheritance: {} }; // { targetPartition: [sourcePartitions] }
+  }
+};
+
+const saveCookieInheritanceConfig = async (data) => {
+  const dir = path.dirname(cookieInheritanceConfigPath);
+  await fsPromises.mkdir(dir, { recursive: true });
+  await fsPromises.writeFile(cookieInheritanceConfigPath, JSON.stringify(data, null, 2));
+};
+
+// Register a partition as known (called when browser opens in a folder)
+ipcMain.handle('browser:registerPartition', async (event, { partition, folderPath }) => {
+  try {
+    const config = await loadKnownPartitions();
+    const existing = config.partitions.find(p => p.partition === partition);
+    if (!existing) {
+      config.partitions.push({ partition, folderPath, lastUsed: Date.now() });
+    } else {
+      existing.lastUsed = Date.now();
+      existing.folderPath = folderPath; // Update path in case it changed
+    }
+    await saveKnownPartitions(config);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get all known partitions
+ipcMain.handle('browser:getKnownPartitions', async () => {
+  try {
+    const config = await loadKnownPartitions();
+    return { success: true, partitions: config.partitions };
+  } catch (error) {
+    return { success: false, error: error.message, partitions: [] };
+  }
+});
+
+// Get cookies from a specific partition
+ipcMain.handle('browser:getCookiesFromPartition', async (event, { partition }) => {
+  try {
+    const sess = session.fromPartition(`persist:${partition}`);
+    const cookies = await sess.cookies.get({});
+    return { success: true, cookies };
+  } catch (error) {
+    return { success: false, error: error.message, cookies: [] };
+  }
+});
+
+// Import cookies from one partition to another
+ipcMain.handle('browser:importCookiesFromPartition', async (event, { sourcePartition, targetPartition, domain }) => {
+  try {
+    const sourceSession = session.fromPartition(`persist:${sourcePartition}`);
+    const targetSession = session.fromPartition(`persist:${targetPartition}`);
+
+    // Get cookies from source (optionally filtered by domain)
+    const filter = domain ? { domain } : {};
+    const cookies = await sourceSession.cookies.get(filter);
+
+    let imported = 0;
+    for (const cookie of cookies) {
+      try {
+        // Build the URL for the cookie
+        const protocol = cookie.secure ? 'https' : 'http';
+        const cookieDomain = cookie.domain.startsWith('.') ? cookie.domain.slice(1) : cookie.domain;
+        const url = `${protocol}://${cookieDomain}${cookie.path || '/'}`;
+
+        await targetSession.cookies.set({
+          url,
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly,
+          expirationDate: cookie.expirationDate,
+          sameSite: cookie.sameSite
+        });
+        imported++;
+      } catch (err) {
+        console.log(`[Cookies] Failed to import cookie ${cookie.name}:`, err.message);
+      }
+    }
+
+    return { success: true, imported, total: cookies.length };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Set cookie inheritance for a partition
+ipcMain.handle('browser:setCookieInheritance', async (event, { targetPartition, sourcePartitions }) => {
+  try {
+    const config = await loadCookieInheritanceConfig();
+    config.inheritance[targetPartition] = sourcePartitions;
+    await saveCookieInheritanceConfig(config);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get cookie inheritance config for a partition
+ipcMain.handle('browser:getCookieInheritance', async (event, { partition }) => {
+  try {
+    const config = await loadCookieInheritanceConfig();
+    return { success: true, sources: config.inheritance[partition] || [] };
+  } catch (error) {
+    return { success: false, error: error.message, sources: [] };
+  }
+});
+
+// Get unique domains with cookies in a partition
+ipcMain.handle('browser:getCookieDomains', async (event, { partition }) => {
+  try {
+    const sess = session.fromPartition(`persist:${partition}`);
+    const cookies = await sess.cookies.get({});
+    const domains = [...new Set(cookies.map(c => c.domain.replace(/^\./, '')))];
+    return { success: true, domains };
+  } catch (error) {
+    return { success: false, error: error.message, domains: [] };
+  }
 });
 
 // ==================== PASSWORD MANAGER ====================

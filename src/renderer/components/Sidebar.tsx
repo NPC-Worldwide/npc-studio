@@ -1368,7 +1368,7 @@ const renderActiveWindowsIndicator = () => {
     if (otherWindows.length === 0) return null;
     
     return (
-        <div className="px-4 py-2 border-b theme-border">
+        <div className="px-4 py-1 border-b theme-border">
             <div 
                 className="flex items-center justify-between cursor-pointer"
                 onClick={() => setActiveWindowsExpanded(!activeWindowsExpanded)}
@@ -1425,7 +1425,7 @@ const renderWorkspaceIndicator = () => {
     } : null;
     
     return (
-        <div className="px-4 py-2 border-b theme-border">
+        <div className="px-4 py-1 border-b theme-border">
             <div 
                 className="flex items-center justify-between cursor-pointer" 
                 onClick={() => setWorkspaceIndicatorExpanded(!workspaceIndicatorExpanded)}
@@ -1640,16 +1640,20 @@ const renderWebsiteList = () => {
                 onDragStart={handleSectionDragStart('websites')}
                 onDragEnd={handleSectionDragEnd}
                 onClick={() => setWebsitesCollapsed(!websitesCollapsed)}
-                className="flex w-full bg-gradient-to-r from-purple-800/40 to-indigo-700/35 cursor-pointer hover:bg-white/5"
+                className="flex items-stretch w-full py-4 bg-gradient-to-r from-purple-800/40 to-indigo-700/35 cursor-pointer hover:bg-white/5"
             >
-                {/* Left side: Icon only */}
-                <div className="flex items-center px-4 py-4">
-                    <Globe size={16} className="text-purple-300" />
-                </div>
-                {/* Right side: actions and dropdown */}
-                <div className="flex-1 flex items-center justify-end gap-2 px-2">
+                {/* Left: chevron, then conditional controls */}
+                <div className="flex items-center pl-1 gap-0">
+                    <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${websitesCollapsed ? "" : "rotate-90"}`} />
                     {!websitesCollapsed && (
                         <>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
+                                className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
+                                title="Refresh"
+                            >
+                                <RefreshCw size={12} />
+                            </button>
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowWebsitesSettings(!showWebsitesSettings); }}
                                 className={`p-1.5 hover:bg-white/10 rounded transition-all ${showWebsitesSettings ? 'text-purple-400' : 'text-gray-400 hover:text-purple-400'}`}
@@ -1666,22 +1670,15 @@ const renderWebsiteList = () => {
                             </button>
                         </>
                     )}
-                    <button
-                        onClick={(e) => { e.stopPropagation(); loadWebsiteHistory(); }}
-                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
-                        title="Refresh"
-                    >
-                        <RefreshCw size={12} />
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); createNewBrowser?.(); }}
-                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-purple-400"
-                        title="New Browser"
-                    >
-                        <Plus size={12} />
-                    </button>
-                    <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${websitesCollapsed ? "" : "rotate-90"}`} />
                 </div>
+                {/* Right: main icon - full height clickable area */}
+                <button
+                    onClick={(e) => { e.stopPropagation(); createNewBrowser?.(); setWebsitesCollapsed(false); }}
+                    className="ml-auto flex items-center justify-center w-1/4 py-4 -my-4 hover:bg-white/10 transition-all"
+                    title="New Browser"
+                >
+                    <Globe size={12} className="text-purple-300" />
+                </button>
             </div>
             {/* Websites Settings Panel */}
             {showWebsitesSettings && (
@@ -2192,7 +2189,7 @@ const renderWebsiteList = () => {
         return (
             <div className="mt-4 border-t theme-border pt-2">
                 {/* Header with collapse toggle */}
-                <div className="flex items-center justify-between px-4 py-2">
+                <div className="flex items-center justify-between px-4 py-1">
                     <div className="text-xs text-gray-500 font-medium flex items-center gap-2">
                         <HardDrive size={14} />
                         Disk Usage
@@ -2243,15 +2240,29 @@ const renderWebsiteList = () => {
             <div className="p-4 border-t theme-border text-xs theme-text-muted">
                 {/* Header for the Git Panel with a toggle */}
                 <div
-                    className="flex items-center justify-between cursor-pointer py-1"
+                    className="flex items-center w-full cursor-pointer py-1"
                     onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)}
                 >
-                    <div className="text-xs text-gray-500 font-medium flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-git-branch"><circle cx="6" cy="18" r="3"/><path d="M18 6V3"/><path d="M18 18v-4"/><path d="M6 18v-2"/><path d="M6 6v4a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/></svg>
-                        Git Status
-                        {gitStatus.hasChanges && <span className="text-yellow-400 ml-2">(Changes!)</span>}
+                    {/* Left: chevron, then conditional controls */}
+                    <div className="flex items-center pl-1 gap-0">
+                        <ChevronRight
+                            size={14}
+                            className={`transform transition-transform text-gray-600 dark:text-gray-400 ${gitPanelCollapsed ? "" : "rotate-90"}`}
+                        />
+                        {!gitPanelCollapsed && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); refreshGitStatus?.(); }}
+                                className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-blue-400"
+                                title="Refresh git status"
+                            >
+                                <RefreshCw size={12} />
+                            </button>
+                        )}
                     </div>
-                    <div className="flex items-center gap-1">
+                    {/* Spacer */}
+                    <div className="flex-1" />
+                    {/* Right: main icon */}
+                    <div className="flex items-center gap-0 pr-1">
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -2262,15 +2273,11 @@ const renderWebsiteList = () => {
                                     console.error('[Sidebar] createGitPane is not defined!');
                                 }
                             }}
-                            className="p-1 rounded theme-hover text-gray-400 hover:text-blue-400"
+                            className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-blue-400"
                             title="Open full Git pane"
                         >
                             <ExternalLink size={12} />
                         </button>
-                        <ChevronRight
-                            size={14}
-                            className={`transform transition-transform ${gitPanelCollapsed ? "" : "rotate-90"}`}
-                        />
                     </div>
                 </div>
     
@@ -2290,29 +2297,6 @@ const renderWebsiteList = () => {
                         </div>
         
                         <div>
-                            <div className="mb-1 font-semibold">Staged Files</div>
-                            {(staged.length === 0) ? <div className="text-gray-600">No staged files</div> :
-                            staged.map(file => (
-                                <div key={file.path} className="flex justify-between items-center text-green-300 group">
-                                <button
-                                    onClick={() => openFileDiff(file.path, file.status)}
-                                    className="text-left truncate hover:underline flex-1"
-                                    title={`Click to view diff: ${file.path}`}
-                                >
-                                    {file.path} (<span className="text-green-500 font-medium">{file.status}</span>)
-                                </button>
-                                <button
-                                    onClick={() => gitUnstageFile(file.path)}
-                                    className="p-1 text-red-400 hover:bg-red-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                    Unstage
-                                </button>
-                                </div>
-                            ))
-                            }
-                        </div>
-        
-                        <div className="mt-3">
                             <div className="mb-1 font-semibold">Unstaged / Untracked Files</div>
                             {(unstaged.length + untracked.length === 0) ? <div className="text-gray-600">No unstaged or untracked files</div> :
                             [...unstaged, ...untracked].map(file => (
@@ -2329,6 +2313,29 @@ const renderWebsiteList = () => {
                                     className="p-1 text-green-400 px-1 rounded hover:bg-green-600 opacity-0 group-hover:opacity-100 transition-opacity"
                                 >
                                     Stage
+                                </button>
+                                </div>
+                            ))
+                            }
+                        </div>
+
+                        <div className="mt-3">
+                            <div className="mb-1 font-semibold">Staged Files</div>
+                            {(staged.length === 0) ? <div className="text-gray-600">No staged files</div> :
+                            staged.map(file => (
+                                <div key={file.path} className="flex justify-between items-center text-green-300 group">
+                                <button
+                                    onClick={() => openFileDiff(file.path, file.status)}
+                                    className="text-left truncate hover:underline flex-1"
+                                    title={`Click to view diff: ${file.path}`}
+                                >
+                                    {file.path} (<span className="text-green-500 font-medium">{file.status}</span>)
+                                </button>
+                                <button
+                                    onClick={() => gitUnstageFile(file.path)}
+                                    className="p-1 text-red-400 hover:bg-red-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                    Unstage
                                 </button>
                                 </div>
                             ))
@@ -2367,6 +2374,34 @@ const renderWebsiteList = () => {
                                 </button>
                             </div>
                             {gitError && <div className="mt-2 text-red-500 text-xs">{gitError}</div>}
+                            {noUpstreamPrompt && (
+                                <div className="mt-2 p-2 bg-amber-900/30 border border-amber-600/50 rounded text-xs">
+                                    <div className="text-amber-400 mb-2">Branch has no upstream. Push to origin/{noUpstreamPrompt.branch}?</div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={gitPushWithUpstream}
+                                            disabled={gitLoading}
+                                            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-white text-[10px]"
+                                        >
+                                            Push
+                                        </button>
+                                        <button
+                                            onClick={gitEnableAutoSetupRemote}
+                                            disabled={gitLoading}
+                                            className="px-2 py-1 bg-green-600 hover:bg-green-500 rounded text-white text-[10px]"
+                                            title="Sets git config push.autoSetupRemote true"
+                                        >
+                                            Always Auto-Push
+                                        </button>
+                                        <button
+                                            onClick={() => setNoUpstreamPrompt(null)}
+                                            className="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-white text-[10px]"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -2428,16 +2463,55 @@ const renderWebsiteList = () => {
         }
       };
       
+      const [noUpstreamPrompt, setNoUpstreamPrompt] = useState<{ branch: string; command: string } | null>(null);
+
       const gitPushChanges = async () => {
         setGitLoading(true);
         setGitError(null);
+        setNoUpstreamPrompt(null);
         try {
-          await window.api.gitPush(currentPath);
-          await loadGitStatus();
+          const result = await window.api.gitPush(currentPath);
+          if (!result.success) {
+            if (result.noUpstream) {
+              setNoUpstreamPrompt({ branch: result.currentBranch, command: result.suggestedCommand });
+            } else {
+              setGitError(result.error || 'Failed to push');
+            }
+          } else {
+            await loadGitStatus();
+          }
         } catch (err) {
           setGitError(err.message || 'Failed to push');
         } finally {
           setGitLoading(false);
+        }
+      };
+
+      const gitPushWithUpstream = async () => {
+        if (!noUpstreamPrompt) return;
+        setGitLoading(true);
+        setGitError(null);
+        try {
+          const result = await window.api.gitPushSetUpstream(currentPath, noUpstreamPrompt.branch);
+          if (result.success) {
+            setNoUpstreamPrompt(null);
+            await loadGitStatus();
+          } else {
+            setGitError(result.error || 'Failed to push');
+          }
+        } catch (err) {
+          setGitError(err.message || 'Failed to push');
+        } finally {
+          setGitLoading(false);
+        }
+      };
+
+      const gitEnableAutoSetupRemote = async () => {
+        try {
+          await window.api.gitSetAutoSetupRemote();
+          await gitPushWithUpstream();
+        } catch (err) {
+          setGitError(err.message || 'Failed to set config');
         }
       };
 
@@ -2787,21 +2861,46 @@ const renderFolderList = (structure) => {
                 onDragStart={handleSectionDragStart('files')}
                 onDragEnd={handleSectionDragEnd}
                 onClick={() => setFilesCollapsed(!filesCollapsed)}
-                className="flex w-full bg-gradient-to-r from-yellow-800/40 to-amber-700/35 cursor-pointer hover:bg-white/5"
+                className="flex items-stretch w-full py-4 bg-gradient-to-r from-yellow-800/40 to-amber-700/35 cursor-pointer hover:bg-white/5"
             >
-                {/* Left side: Icon only (matching web/chat) */}
-                <div className="flex items-center px-4 py-4">
-                    <FolderOpen size={16} className="text-yellow-300" />
+                {/* Left: chevron, then conditional controls */}
+                <div className="flex items-center gap-0 pl-1">
+                    <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${filesCollapsed ? "" : "rotate-90"}`} />
+                    {!filesCollapsed && (
+                        <>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
+                                className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                                title="Refresh files"
+                            >
+                                <RefreshCw size={12} />
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowFilesSettings(!showFilesSettings); }}
+                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                                title="Settings"
+                            >
+                                <Settings size={12} />
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleCreateNewFolder?.(); }}
+                                className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                                title="New Folder"
+                            >
+                                <Plus size={12} />
+                            </button>
+                        </>
+                    )}
                 </div>
-                {/* Folder path controls - left justified, can shrink to make room for buttons */}
-                <div className="flex items-center gap-0.5 flex-1 min-w-0" style={{ position: 'relative', overflow: 'visible' }}>
+                {/* Middle: folder nav buttons */}
+                <div className="ml-auto flex items-center" style={{ position: 'relative', overflow: 'visible' }}>
                     <button
                         onClick={(e) => { e.stopPropagation(); if (currentPath !== baseDir) goUpDirectory(currentPath, baseDir, switchToPath, setError); }}
                         disabled={currentPath === baseDir}
-                        className={`p-1 hover:bg-white/10 rounded transition-all ${currentPath === baseDir ? 'opacity-40' : 'text-gray-400 hover:text-green-400'}`}
+                        className={`p-1 pr-0 hover:bg-white/10 rounded transition-all ${currentPath === baseDir ? 'opacity-40' : 'text-gray-400 hover:text-yellow-400'}`}
                         title="Go up one folder"
                     >
-                        <ArrowUp size={12} />
+                        <ArrowUp size={10} />
                     </button>
                     <button
                         ref={folderButtonRef}
@@ -2813,12 +2912,23 @@ const renderFolderList = (structure) => {
                             }
                             setFolderDropdownOpen(!folderDropdownOpen);
                         }}
-                        className="flex items-center gap-1 px-1.5 py-0.5 hover:bg-white/10 transition-colors rounded text-gray-400 hover:text-yellow-400"
+                        className="flex items-center gap-0.5 p-1 hover:bg-white/10 transition-colors rounded text-gray-400 hover:text-yellow-400"
                         title={currentPath}
                     >
-                        <span className="text-[10px] font-medium truncate max-w-[60px]">{currentPath?.split('/').pop() || 'Root'}</span>
-                        <ChevronDown size={10} className={`flex-shrink-0 transition-transform text-gray-600 dark:text-gray-400 ${folderDropdownOpen ? 'rotate-180' : ''}`} />
+                        <span className="text-[9px] font-medium truncate max-w-[100px]">{(() => { const name = currentPath?.split('/').pop() || 'Root'; return name.length > 7 ? name.slice(0, 7) + '…' : name; })()}</span>
+                        <ChevronDown size={8} className={`flex-shrink-0 transition-transform text-gray-600 dark:text-gray-400 ${folderDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
+                </div>
+                {/* Right: main icon - full height clickable area */}
+                <button
+                    onClick={(e) => { e.stopPropagation(); createAndAddPaneNodeToLayout?.({ contentType: 'folder', contentId: currentPath }); setFilesCollapsed(false); }}
+                    className="flex items-center justify-center w-1/4 py-4 -my-4 hover:bg-white/10 transition-all"
+                    title="Open folder pane"
+                >
+                    <FolderOpen size={12} className="text-yellow-300" />
+                </button>
+                {/* Folder dropdown container */}
+                <div style={{ position: 'relative', overflow: 'visible' }}>
                     {/* Folder dropdown - fixed positioning to show over pane content */}
                     {folderDropdownOpen && (
                         <div
@@ -2890,48 +3000,6 @@ const renderFolderList = (structure) => {
                             )}
                         </div>
                     )}
-                </div>
-                {/* Right side: action buttons - use flex-shrink-0 and smaller gap to prevent overflow */}
-                <div className="flex items-center justify-end gap-0.5 px-1 flex-shrink-0">
-                    {!filesCollapsed && (
-                        <>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setShowFilesSettings(!showFilesSettings); }}
-                                className={`p-1 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
-                                title="Settings"
-                            >
-                                <Settings size={11} />
-                            </button>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (showFileTypeFilter) {
-                                        setFileTypeFilter('');
-                                    }
-                                    setShowFileTypeFilter(!showFileTypeFilter);
-                                }}
-                                className={`p-1 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
-                                title="Filter by file type"
-                            >
-                                <Filter size={11} />
-                            </button>
-                        </>
-                    )}
-                    <button
-                        onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
-                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
-                        title="Refresh files"
-                    >
-                        <RefreshCw size={11} />
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); handleCreateNewFolder?.(); }}
-                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
-                        title="New Folder"
-                    >
-                        <Plus size={11} />
-                    </button>
-                    <ChevronRight size={12} className={`transform transition-transform text-gray-600 dark:text-gray-400 flex-shrink-0 ${filesCollapsed ? "" : "rotate-90"}`} />
                 </div>
             </div>
             {/* Files Settings Panel */}
@@ -3340,16 +3408,20 @@ const renderFolderList = (structure) => {
                     onDragStart={handleSectionDragStart('conversations')}
                     onDragEnd={handleSectionDragEnd}
                     onClick={() => setConversationsCollapsed(!conversationsCollapsed)}
-                    className="flex w-full bg-gradient-to-r from-green-800/40 to-emerald-700/35 cursor-pointer hover:bg-white/5"
+                    className="flex items-stretch w-full py-4 bg-gradient-to-r from-green-800/40 to-emerald-700/35 cursor-pointer hover:bg-white/5"
                 >
-                    {/* Left side: Icon only */}
-                    <div className="flex items-center px-4 py-4">
-                        <MessageSquare size={16} className="text-green-300" />
-                    </div>
-                    {/* Right side: actions and dropdown */}
-                    <div className="flex-1 flex items-center justify-end gap-2 px-2">
+                    {/* Left: chevron, then conditional controls */}
+                    <div className="flex items-center pl-1 gap-0">
+                        <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${conversationsCollapsed ? "" : "rotate-90"}`} />
                         {!conversationsCollapsed && (
                             <>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
+                                    className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
+                                    title="Refresh conversations"
+                                >
+                                    <RefreshCw size={12} />
+                                </button>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); setShowConversationsSettings(!showConversationsSettings); }}
                                     className={`p-1.5 hover:bg-white/10 rounded transition-all ${showConversationsSettings ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
@@ -3375,22 +3447,15 @@ const renderFolderList = (structure) => {
                                 </button>
                             </>
                         )}
-                        <button
-                            onClick={(e) => { e.stopPropagation(); refreshConversations(); }}
-                            className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
-                            title="Refresh conversations"
-                        >
-                            <RefreshCw size={12} />
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); createNewConversation?.(); }}
-                            className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-green-400"
-                            title="New Chat"
-                        >
-                            <Plus size={12} />
-                        </button>
-                        <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${conversationsCollapsed ? "" : "rotate-90"}`} />
                     </div>
+                    {/* Right: main icon - full height clickable area */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); createNewConversation?.(); setConversationsCollapsed(false); }}
+                        className="ml-auto flex items-center justify-center w-1/4 py-4 -my-4 hover:bg-white/10 transition-all"
+                        title="New Chat"
+                    >
+                        <MessageSquare size={12} className="text-green-300" />
+                    </button>
                 </div>
                 {/* Conversations Settings Panel */}
                 {showConversationsSettings && (
@@ -3671,13 +3736,17 @@ const renderFolderList = (structure) => {
         if (!gitStatus) {
             return (
                 <div>
-                    <div className="flex w-full bg-gradient-to-r from-orange-900/20 to-amber-900/20">
-                        <div className="flex items-center gap-0.5 px-2">
-                            <GitBranch size={12} className="text-orange-400 mr-1" />
-                        </div>
-                        <div className="flex-1 flex items-center justify-end px-2 py-4">
+                    <div className="flex items-stretch w-full py-4 bg-gradient-to-r from-orange-900/20 to-amber-900/20">
+                        <div className="flex items-center pl-1 gap-0">
                             <ChevronRight size={14} className="text-gray-600 dark:text-gray-400" />
                         </div>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); createGitPane?.(); }}
+                            className="ml-auto flex items-center justify-center w-1/4 py-4 -my-4 hover:bg-white/10 transition-all"
+                            title="Open full Git pane"
+                        >
+                            <GitBranch size={12} className="text-orange-400" />
+                        </button>
                     </div>
                 </div>
             );
@@ -3716,29 +3785,33 @@ const renderFolderList = (structure) => {
                 onDrop={handleSectionDrop('git')}
             >
                 <div
-                    className="flex w-full bg-gradient-to-r from-orange-900/20 to-amber-900/20"
+                    draggable
+                    onDragStart={handleSectionDragStart('git')}
+                    onDragEnd={handleSectionDragEnd}
+                    onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)}
+                    className="flex items-stretch w-full py-4 bg-gradient-to-r from-orange-900/20 to-amber-900/20 cursor-pointer hover:bg-white/5"
                 >
-                    {/* Left side: Icon + action buttons */}
-                    <div className="flex items-center gap-0.5 px-2">
-                        <GitBranch size={12} className="text-orange-400 mr-1" />
-                        <button
-                            onClick={(e) => { e.stopPropagation(); loadGitStatus(); }}
-                            className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-orange-400"
-                            title="Refresh git status"
-                        >
-                            <RotateCcw size={12} />
-                        </button>
-                    </div>
-                    {/* Right side: Clickable dropdown area */}
-                    <div
-                        draggable
-                        onDragStart={handleSectionDragStart('git')}
-                        onDragEnd={handleSectionDragEnd}
-                        onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)}
-                        className="flex-1 flex items-center justify-end gap-1.5 px-2 py-4 cursor-pointer hover:bg-white/5"
-                    >
+                    {/* Left: chevron, then conditional controls */}
+                    <div className="flex items-center pl-1 gap-0">
                         <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${!gitPanelCollapsed ? 'rotate-90' : ''}`} />
+                        {!gitPanelCollapsed && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); loadGitStatus(); }}
+                                className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-orange-400"
+                                title="Refresh git status"
+                            >
+                                <RefreshCw size={12} />
+                            </button>
+                        )}
                     </div>
+                    {/* Right: GitBranch button - full height clickable area */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); createGitPane?.(); }}
+                        className="ml-auto flex items-center justify-center w-1/4 py-4 -my-4 hover:bg-white/10 transition-all"
+                        title="Open full Git pane"
+                    >
+                        <GitBranch size={12} className="text-orange-400" />
+                    </button>
                 </div>
             </div>
         );
@@ -3757,42 +3830,6 @@ const renderFolderList = (structure) => {
                                 <Maximize2 size={12} />
                                 Open Full Git View
                             </button>
-                            {/* Staged files */}
-                            {staged.length > 0 && (
-                                <div>
-                                    <div className="text-[10px] font-medium text-green-400 mb-1 flex items-center gap-1">
-                                        <Check size={10} /> Staged ({staged.length})
-                                    </div>
-                                    {staged.map(file => (
-                                        <div
-                                            key={file.path}
-                                            className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-green-500/10 rounded group"
-                                        >
-                                            <button
-                                                onClick={() => openDiffViewer(file.path, file.status)}
-                                                className="text-green-300 truncate flex-1 text-left hover:underline"
-                                            >
-                                                {file.path}
-                                            </button>
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-green-500 text-[9px] opacity-60">{file.status}</span>
-                                                <button
-                                                    onClick={async (e) => {
-                                                        e.stopPropagation();
-                                                        await (window as any).api?.gitUnstageFile?.(currentPath, file.path);
-                                                        loadGitStatus();
-                                                    }}
-                                                    className="p-0.5 hover:bg-red-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    title="Unstage file"
-                                                >
-                                                    <Minus size={10} className="text-red-400" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
                             {/* Unstaged files */}
                             {unstaged.length > 0 && (
                                 <div>
@@ -3822,6 +3859,42 @@ const renderFolderList = (structure) => {
                                                     title="Stage file"
                                                 >
                                                     <Plus size={10} className="text-green-400" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Staged files */}
+                            {staged.length > 0 && (
+                                <div>
+                                    <div className="text-[10px] font-medium text-green-400 mb-1 flex items-center gap-1">
+                                        <Check size={10} /> Staged ({staged.length})
+                                    </div>
+                                    {staged.map(file => (
+                                        <div
+                                            key={file.path}
+                                            className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-green-500/10 rounded group"
+                                        >
+                                            <button
+                                                onClick={() => openDiffViewer(file.path, file.status)}
+                                                className="text-green-300 truncate flex-1 text-left hover:underline"
+                                            >
+                                                {file.path}
+                                            </button>
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-green-500 text-[9px] opacity-60">{file.status}</span>
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        await (window as any).api?.gitUnstageFile?.(currentPath, file.path);
+                                                        loadGitStatus();
+                                                    }}
+                                                    className="p-0.5 hover:bg-red-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    title="Unstage file"
+                                                >
+                                                    <Minus size={10} className="text-red-400" />
                                                 </button>
                                             </div>
                                         </div>
@@ -3866,7 +3939,7 @@ const renderFolderList = (structure) => {
                             )}
 
                             {totalChanges === 0 && (
-                                <div className="text-[10px] text-gray-500 text-center py-2">
+                                <div className="text-[10px] text-gray-500 text-center py-1">
                                     No changes
                                 </div>
                             )}
@@ -4069,7 +4142,7 @@ const renderFolderList = (structure) => {
                     className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 min-w-[200px]"
                     style={{ top: websiteContextMenu.y, left: websiteContextMenu.x }}
                 >
-                    <div className="px-3 py-2 text-xs text-gray-400 border-b theme-border truncate max-w-[250px]">
+                    <div className="px-3 py-1 text-xs text-gray-400 border-b theme-border truncate max-w-[250px]">
                         {websiteContextMenu.title}
                     </div>
                     <button
@@ -4798,7 +4871,7 @@ return (
                                         if (e.key === 'Escape') { setZipModal(null); setZipName(''); }
                                     }}
                                     autoFocus
-                                    className="w-full px-3 py-2 rounded border theme-border theme-bg-primary text-sm mb-4"
+                                    className="w-full px-3 py-1 rounded border theme-border theme-bg-primary text-sm mb-4"
                                     placeholder="Archive name"
                                 />
                                 <div className="flex gap-2 justify-end">

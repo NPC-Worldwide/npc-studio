@@ -58,6 +58,8 @@ readDocxContent: (filePath) =>
     gitCommit: (repoPath, message) => ipcRenderer.invoke('gitCommit', repoPath, message),
     gitPull: (repoPath) => ipcRenderer.invoke('gitPull', repoPath),
     gitPush: (repoPath) => ipcRenderer.invoke('gitPush', repoPath),
+    gitPushSetUpstream: (repoPath, branch) => ipcRenderer.invoke('gitPushSetUpstream', repoPath, branch),
+    gitSetAutoSetupRemote: () => ipcRenderer.invoke('gitSetAutoSetupRemote'),
     gitDiff: (repoPath, filePath, staged) => ipcRenderer.invoke('gitDiff', repoPath, filePath, staged),
     gitDiffAll: (repoPath) => ipcRenderer.invoke('gitDiffAll', repoPath),
     gitBlame: (repoPath, filePath) => ipcRenderer.invoke('gitBlame', repoPath, filePath),
@@ -110,6 +112,15 @@ readDocxContent: (filePath) =>
     browserSelectExtensionFolder: () => ipcRenderer.invoke('browser:selectExtensionFolder'),
     browserGetInstalledBrowsers: () => ipcRenderer.invoke('browser:getInstalledBrowsers'),
     browserImportExtensionsFrom: (args) => ipcRenderer.invoke('browser:importExtensionsFrom', args),
+
+    // Cookie inheritance management
+    browserRegisterPartition: (args) => ipcRenderer.invoke('browser:registerPartition', args),
+    browserGetKnownPartitions: () => ipcRenderer.invoke('browser:getKnownPartitions'),
+    browserGetCookiesFromPartition: (args) => ipcRenderer.invoke('browser:getCookiesFromPartition', args),
+    browserImportCookiesFromPartition: (args) => ipcRenderer.invoke('browser:importCookiesFromPartition', args),
+    browserSetCookieInheritance: (args) => ipcRenderer.invoke('browser:setCookieInheritance', args),
+    browserGetCookieInheritance: (args) => ipcRenderer.invoke('browser:getCookieInheritance', args),
+    browserGetCookieDomains: (args) => ipcRenderer.invoke('browser:getCookieDomains', args),
 
     // CLI workspace opening - for launching incognide with a folder path
     onCliOpenWorkspace: (callback) => {

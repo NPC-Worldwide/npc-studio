@@ -61,7 +61,13 @@ const WebBrowserViewer = memo(({
     const [trackingProtection, setTrackingProtection] = useState(() => {
         return localStorage.getItem('npc-browser-tracking-protection') !== 'false'; // Default enabled
     });
-    
+
+    // Cookie inheritance state
+    const [showCookieManager, setShowCookieManager] = useState(false);
+    const [knownPartitions, setKnownPartitions] = useState<Array<{ partition: string; folderPath: string; lastUsed: number }>>([]);
+    const [cookieDomains, setCookieDomains] = useState<string[]>([]);
+    const [importStatusCookies, setImportStatusCookies] = useState<string | null>(null);
+
     // Search engine configuration
     const SEARCH_ENGINES = {
         duckduckgo: { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
@@ -591,6 +597,68 @@ const WebBrowserViewer = memo(({
         }
     }, [showExtensionsMenu, loadExtensions]);
 
+    // Register this partition on mount
+    useEffect(() => {
+        if (currentPath && viewId) {
+            (window as any).api?.browserRegisterPartition?.({ partition: viewId, folderPath: currentPath });
+        }
+    }, [currentPath, viewId]);
+
+    // Load known partitions and cookie domains when cookie manager opens
+    const loadCookieManagerData = useCallback(async () => {
+        const [partitionsResult, domainsResult] = await Promise.all([
+            (window as any).api?.browserGetKnownPartitions?.(),
+            (window as any).api?.browserGetCookieDomains?.({ partition: viewId })
+        ]);
+        if (partitionsResult?.success) {
+            // Filter out current partition and sort by last used
+            setKnownPartitions(
+                partitionsResult.partitions
+                    .filter((p: any) => p.partition !== viewId)
+                    .sort((a: any, b: any) => b.lastUsed - a.lastUsed)
+            );
+        }
+        if (domainsResult?.success) {
+            setCookieDomains(domainsResult.domains);
+        }
+    }, [viewId]);
+
+    useEffect(() => {
+        if (showCookieManager) {
+            loadCookieManagerData();
+        }
+    }, [showCookieManager, loadCookieManagerData]);
+
+    // Import cookies from another folder
+    const handleImportCookies = useCallback(async (sourcePartition: string, domain?: string) => {
+        setImportStatusCookies('Importing...');
+        const result = await (window as any).api?.browserImportCookiesFromPartition?.({
+            sourcePartition,
+            targetPartition: viewId,
+            domain
+        });
+        if (result?.success) {
+            setImportStatusCookies(`Imported ${result.imported} cookies`);
+            setTimeout(() => setImportStatusCookies(null), 2000);
+            // Reload the page to apply new cookies
+            if (webviewRef.current) {
+                webviewRef.current.reload();
+            }
+        } else {
+            setImportStatusCookies(result?.error || 'Import failed');
+            setTimeout(() => setImportStatusCookies(null), 3000);
+        }
+    }, [viewId]);
+
+    // Get domains from a source partition for selective import
+    const [sourceDomainsMap, setSourceDomainsMap] = useState<Record<string, string[]>>({});
+    const loadSourceDomains = useCallback(async (partition: string) => {
+        const result = await (window as any).api?.browserGetCookieDomains?.({ partition });
+        if (result?.success) {
+            setSourceDomainsMap(prev => ({ ...prev, [partition]: result.domains }));
+        }
+    }, []);
+
     // Password management functions
     const getSiteFromUrl = useCallback((url: string) => {
         try {
@@ -756,13 +824,15 @@ const WebBrowserViewer = memo(({
 
                             const password = passwordInputs[0].value;
                             if (username && password) {
-                                // Send to parent via postMessage (will be picked up by IPC)
-                                window.postMessage({
-                                    type: 'npc-password-detected',
+                                // Store securely for retrieval - don't log
+                                window.__npcPendingCredentials = {
                                     site: window.location.hostname,
                                     username: username,
-                                    password: password
-                                }, '*');
+                                    password: password,
+                                    timestamp: Date.now()
+                                };
+                                // Signal without exposing data
+                                console.log('npc-credentials-ready');
                             }
                         }, true);
                     })();
@@ -780,18 +850,24 @@ const WebBrowserViewer = memo(({
             }
         };
 
-        // Listen for console messages that contain our password detection
-        const handleConsoleMessage = (event: any) => {
+        // Listen for console messages signaling credentials are ready
+        const handleConsoleMessage = async (event: any) => {
             try {
-                if (event.message?.includes('npc-password-detected')) {
-                    const match = event.message.match(/npc-password-detected:(.+)/);
-                    if (match) {
-                        const data = JSON.parse(match[1]);
-                        setPendingCredentials(data);
+                if (event.message === 'npc-credentials-ready') {
+                    // Retrieve credentials securely via executeJavaScript
+                    const creds = await webview.executeJavaScript(`
+                        (function() {
+                            const c = window.__npcPendingCredentials;
+                            window.__npcPendingCredentials = null;
+                            return c;
+                        })();
+                    `);
+                    if (creds && creds.username && creds.password) {
+                        setPendingCredentials(creds);
                         setShowPasswordPrompt(true);
                     }
                 }
-            } catch { /* ignore parsing errors */ }
+            } catch { /* ignore errors */ }
         };
 
         webview.addEventListener('dom-ready', handleDomReady);
@@ -1156,6 +1232,96 @@ const WebBrowserViewer = memo(({
                                         <div className="text-[10px] theme-text-muted mt-1">
                                             Blocks ads, trackers, and analytics scripts. Reload page after changing.
                                         </div>
+                                    </div>
+                                    {/* Cookie Inheritance */}
+                                    <div className="p-2 border-b theme-border">
+                                        <button
+                                            onClick={() => setShowCookieManager(!showCookieManager)}
+                                            className="flex items-center justify-between w-full text-xs theme-text-primary"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <FolderOpen size={12} />
+                                                Import Logins from Other Folders
+                                            </span>
+                                            <span className="text-gray-500">{showCookieManager ? '▲' : '▼'}</span>
+                                        </button>
+                                        {showCookieManager && (
+                                            <div className="mt-2 space-y-2">
+                                                {importStatusCookies && (
+                                                    <div className="text-[10px] text-blue-400 py-1">{importStatusCookies}</div>
+                                                )}
+                                                {knownPartitions.length === 0 ? (
+                                                    <div className="text-[10px] theme-text-muted py-1">
+                                                        No other folders with saved logins yet.
+                                                    </div>
+                                                ) : (
+                                                    <div className="max-h-[200px] overflow-y-auto space-y-1">
+                                                        {knownPartitions.map((p) => (
+                                                            <div key={p.partition} className="theme-bg-tertiary rounded p-2">
+                                                                <div className="flex items-center justify-between mb-1">
+                                                                    <span className="text-[10px] theme-text-primary truncate max-w-[120px]" title={p.folderPath}>
+                                                                        {p.folderPath.split('/').pop() || p.folderPath}
+                                                                    </span>
+                                                                    <button
+                                                                        onClick={() => handleImportCookies(p.partition)}
+                                                                        className="text-[9px] px-1.5 py-0.5 bg-blue-600 hover:bg-blue-500 text-white rounded"
+                                                                    >
+                                                                        Import All
+                                                                    </button>
+                                                                </div>
+                                                                <div className="text-[9px] theme-text-muted truncate" title={p.folderPath}>
+                                                                    {p.folderPath}
+                                                                </div>
+                                                                {/* Show domains for selective import */}
+                                                                {!sourceDomainsMap[p.partition] ? (
+                                                                    <button
+                                                                        onClick={() => loadSourceDomains(p.partition)}
+                                                                        className="text-[9px] text-blue-400 hover:underline mt-1"
+                                                                    >
+                                                                        Show sites...
+                                                                    </button>
+                                                                ) : sourceDomainsMap[p.partition].length > 0 ? (
+                                                                    <div className="mt-1 flex flex-wrap gap-1">
+                                                                        {sourceDomainsMap[p.partition].slice(0, 8).map((domain) => (
+                                                                            <button
+                                                                                key={domain}
+                                                                                onClick={() => handleImportCookies(p.partition, domain)}
+                                                                                className="text-[9px] px-1 py-0.5 bg-gray-700 hover:bg-gray-600 rounded truncate max-w-[80px]"
+                                                                                title={`Import ${domain} cookies`}
+                                                                            >
+                                                                                {domain.replace('www.', '')}
+                                                                            </button>
+                                                                        ))}
+                                                                        {sourceDomainsMap[p.partition].length > 8 && (
+                                                                            <span className="text-[9px] theme-text-muted">
+                                                                                +{sourceDomainsMap[p.partition].length - 8} more
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="text-[9px] theme-text-muted mt-1">No cookies saved</div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                {cookieDomains.length > 0 && (
+                                                    <div className="text-[10px] theme-text-muted border-t theme-border pt-2 mt-2">
+                                                        <span className="font-medium">This folder has logins for:</span>
+                                                        <div className="flex flex-wrap gap-1 mt-1">
+                                                            {cookieDomains.slice(0, 6).map((d) => (
+                                                                <span key={d} className="px-1 py-0.5 bg-gray-700 rounded text-[9px]">
+                                                                    {d.replace('www.', '')}
+                                                                </span>
+                                                            ))}
+                                                            {cookieDomains.length > 6 && (
+                                                                <span className="text-[9px]">+{cookieDomains.length - 6} more</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="py-1">
                                         <button onClick={handleClearCookies} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs theme-hover text-left"><Trash2 size={12} />Clear Cookies</button>

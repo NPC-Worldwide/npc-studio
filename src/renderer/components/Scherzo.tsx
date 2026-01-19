@@ -269,6 +269,16 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
     const analyzerRef = useRef<AnalyserNode | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
 
+    // Visualizer state
+    const [visualizerActive, setVisualizerActive] = useState(false);
+    const [visualizerMode, setVisualizerMode] = useState<'bars' | 'wave' | 'circle' | 'particles'>('bars');
+    const [visualizerColor, setVisualizerColor] = useState<'rainbow' | 'purple' | 'blue' | 'green'>('rainbow');
+    const visualizerCanvasRef = useRef<HTMLCanvasElement>(null);
+    const visualizerAnimationRef = useRef<number | null>(null);
+    const visualizerAnalyzerRef = useRef<AnalyserNode | null>(null);
+    const visualizerAudioCtxRef = useRef<AudioContext | null>(null);
+    const visualizerSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+
     // Dataset state
     const [audioDatasets, setAudioDatasets] = useState<AudioDataset[]>(() => {
         try {
@@ -308,6 +318,173 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
             loadAudioFiles(audioSource);
         }
     }, [audioSource]);
+
+    // Visualizer animation loop
+    useEffect(() => {
+        if (!visualizerActive || !visualizerCanvasRef.current) {
+            if (visualizerAnimationRef.current) {
+                cancelAnimationFrame(visualizerAnimationRef.current);
+                visualizerAnimationRef.current = null;
+            }
+            return;
+        }
+
+        const canvas = visualizerCanvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Connect audio to analyzer if not already
+        const connectAudio = () => {
+            // Try to connect main audio player
+            if (audioRef.current && !visualizerSourceRef.current) {
+                try {
+                    if (!visualizerAudioCtxRef.current) {
+                        visualizerAudioCtxRef.current = new AudioContext();
+                    }
+                    const analyzer = visualizerAudioCtxRef.current.createAnalyser();
+                    analyzer.fftSize = 256;
+                    const source = visualizerAudioCtxRef.current.createMediaElementSource(audioRef.current);
+                    source.connect(analyzer);
+                    analyzer.connect(visualizerAudioCtxRef.current.destination);
+                    visualizerAnalyzerRef.current = analyzer;
+                    visualizerSourceRef.current = source;
+                } catch (e) {
+                    // Already connected or error
+                }
+            }
+            // Try DJ deck A
+            if (deckARef.current && deckA.playing && !visualizerSourceRef.current) {
+                try {
+                    if (!visualizerAudioCtxRef.current) {
+                        visualizerAudioCtxRef.current = new AudioContext();
+                    }
+                    const analyzer = visualizerAudioCtxRef.current.createAnalyser();
+                    analyzer.fftSize = 256;
+                    const source = visualizerAudioCtxRef.current.createMediaElementSource(deckARef.current);
+                    source.connect(analyzer);
+                    analyzer.connect(visualizerAudioCtxRef.current.destination);
+                    visualizerAnalyzerRef.current = analyzer;
+                    visualizerSourceRef.current = source;
+                } catch (e) {}
+            }
+        };
+
+        connectAudio();
+
+        const getColor = (i: number, total: number, value: number) => {
+            if (visualizerColor === 'rainbow') {
+                const hue = (i / total) * 360;
+                return `hsl(${hue}, 80%, ${50 + value * 20}%)`;
+            } else if (visualizerColor === 'purple') {
+                return `rgba(147, 51, 234, ${0.5 + value * 0.5})`;
+            } else if (visualizerColor === 'blue') {
+                return `rgba(59, 130, 246, ${0.5 + value * 0.5})`;
+            } else {
+                return `rgba(34, 197, 94, ${0.5 + value * 0.5})`;
+            }
+        };
+
+        const draw = () => {
+            const width = canvas.width;
+            const height = canvas.height;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+
+            if (!visualizerAnalyzerRef.current) {
+                // Draw placeholder animation when no audio connected
+                const time = Date.now() / 1000;
+                const bars = 64;
+                const barWidth = width / bars;
+                for (let i = 0; i < bars; i++) {
+                    const value = Math.sin(time * 2 + i * 0.2) * 0.3 + 0.3;
+                    const barHeight = value * height;
+                    ctx.fillStyle = getColor(i, bars, value);
+                    ctx.fillRect(i * barWidth, height - barHeight, barWidth - 2, barHeight);
+                }
+                visualizerAnimationRef.current = requestAnimationFrame(draw);
+                return;
+            }
+
+            const analyzer = visualizerAnalyzerRef.current;
+            const bufferLength = analyzer.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            if (visualizerMode === 'bars' || visualizerMode === 'wave') {
+                analyzer.getByteFrequencyData(dataArray);
+            } else {
+                analyzer.getByteTimeDomainData(dataArray);
+            }
+
+            if (visualizerMode === 'bars') {
+                const barWidth = width / bufferLength;
+                for (let i = 0; i < bufferLength; i++) {
+                    const value = dataArray[i] / 255;
+                    const barHeight = value * height;
+                    ctx.fillStyle = getColor(i, bufferLength, value);
+                    ctx.fillRect(i * barWidth, height - barHeight, barWidth - 1, barHeight);
+                }
+            } else if (visualizerMode === 'wave') {
+                ctx.beginPath();
+                ctx.strokeStyle = getColor(0, 1, 0.8);
+                ctx.lineWidth = 2;
+                const sliceWidth = width / bufferLength;
+                let x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const value = dataArray[i] / 255;
+                    const y = height - value * height;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                    x += sliceWidth;
+                }
+                ctx.stroke();
+            } else if (visualizerMode === 'circle') {
+                analyzer.getByteFrequencyData(dataArray);
+                const centerX = width / 2;
+                const centerY = height / 2;
+                const radius = Math.min(width, height) * 0.3;
+                for (let i = 0; i < bufferLength; i++) {
+                    const value = dataArray[i] / 255;
+                    const angle = (i / bufferLength) * Math.PI * 2;
+                    const barHeight = value * radius;
+                    const x1 = centerX + Math.cos(angle) * radius;
+                    const y1 = centerY + Math.sin(angle) * radius;
+                    const x2 = centerX + Math.cos(angle) * (radius + barHeight);
+                    const y2 = centerY + Math.sin(angle) * (radius + barHeight);
+                    ctx.beginPath();
+                    ctx.strokeStyle = getColor(i, bufferLength, value);
+                    ctx.lineWidth = 3;
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+                }
+            } else if (visualizerMode === 'particles') {
+                analyzer.getByteFrequencyData(dataArray);
+                const avgFreq = dataArray.reduce((a, b) => a + b, 0) / bufferLength / 255;
+                const time = Date.now() / 1000;
+                for (let i = 0; i < 50; i++) {
+                    const angle = (i / 50) * Math.PI * 2 + time;
+                    const distance = 50 + avgFreq * 150 + Math.sin(time * 3 + i) * 20;
+                    const x = width / 2 + Math.cos(angle) * distance;
+                    const y = height / 2 + Math.sin(angle) * distance;
+                    const size = 3 + avgFreq * 10;
+                    ctx.beginPath();
+                    ctx.fillStyle = getColor(i, 50, avgFreq);
+                    ctx.arc(x, y, size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            visualizerAnimationRef.current = requestAnimationFrame(draw);
+        };
+
+        draw();
+
+        return () => {
+            if (visualizerAnimationRef.current) {
+                cancelAnimationFrame(visualizerAnimationRef.current);
+            }
+        };
+    }, [visualizerActive, visualizerMode, visualizerColor, isPlaying, deckA.playing]);
 
     const loadAudioFiles = async (source: string) => {
         try {
@@ -576,6 +753,13 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         <div className="flex items-center gap-2 mb-2">
                             <FileAudio size={14} className="text-purple-400"/>
                             <span className="text-xs truncate flex-1">{selectedAudio.name}</span>
+                            <button
+                                onClick={() => setVisualizerActive(!visualizerActive)}
+                                className={`p-1 rounded ${visualizerActive ? 'bg-purple-600 text-white' : 'hover:bg-gray-700 text-gray-400'}`}
+                                title="Toggle Visualizer"
+                            >
+                                <Activity size={14}/>
+                            </button>
                         </div>
                         <div className="flex items-center gap-2">
                             <button
@@ -4223,6 +4407,94 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     {activeMode === 'analysis' && renderAnalysis()}
                     {activeMode === 'notation' && renderNotation()}
                     {activeMode === 'datasets' && renderDatasets()}
+
+                    {/* Visualizer Overlay */}
+                    {visualizerActive && (
+                        <div className="absolute inset-0 bg-black/95 z-50 flex flex-col">
+                            {/* Controls */}
+                            <div className="flex items-center justify-between p-4 bg-black/50">
+                                <div className="flex items-center gap-4">
+                                    <span className="text-sm font-medium text-purple-400">Visualizer</span>
+                                    <div className="flex gap-1">
+                                        {(['bars', 'wave', 'circle', 'particles'] as const).map(mode => (
+                                            <button
+                                                key={mode}
+                                                onClick={() => setVisualizerMode(mode)}
+                                                className={`px-3 py-1 text-xs rounded ${
+                                                    visualizerMode === mode ? 'bg-purple-600' : 'bg-gray-800 hover:bg-gray-700'
+                                                }`}
+                                            >
+                                                {mode}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="flex gap-1">
+                                        {(['rainbow', 'purple', 'blue', 'green'] as const).map(color => (
+                                            <button
+                                                key={color}
+                                                onClick={() => setVisualizerColor(color)}
+                                                className={`w-6 h-6 rounded ${
+                                                    visualizerColor === color ? 'ring-2 ring-white' : ''
+                                                }`}
+                                                style={{
+                                                    background: color === 'rainbow'
+                                                        ? 'linear-gradient(90deg, red, orange, yellow, green, blue, purple)'
+                                                        : color === 'purple' ? '#9333ea'
+                                                        : color === 'blue' ? '#3b82f6'
+                                                        : '#22c55e'
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setVisualizerActive(false)}
+                                    className="p-2 hover:bg-gray-800 rounded"
+                                >
+                                    <X size={20}/>
+                                </button>
+                            </div>
+                            {/* Canvas */}
+                            <div className="flex-1 relative">
+                                <canvas
+                                    ref={visualizerCanvasRef}
+                                    className="absolute inset-0 w-full h-full"
+                                    width={1200}
+                                    height={600}
+                                />
+                            </div>
+                            {/* Now playing info */}
+                            {selectedAudio && (
+                                <div className="p-4 bg-black/50 flex items-center gap-4">
+                                    <button
+                                        onClick={() => {
+                                            if (audioRef.current) {
+                                                if (isPlaying) audioRef.current.pause();
+                                                else audioRef.current.play();
+                                                setIsPlaying(!isPlaying);
+                                            }
+                                        }}
+                                        className="p-3 bg-purple-600 hover:bg-purple-700 rounded-full"
+                                    >
+                                        {isPlaying ? <Pause size={24}/> : <Play size={24}/>}
+                                    </button>
+                                    <div className="flex-1">
+                                        <div className="text-lg font-medium">{selectedAudio.name}</div>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-sm text-gray-400">{formatTime(currentTime)}</span>
+                                            <div className="flex-1 h-1 bg-gray-700 rounded overflow-hidden">
+                                                <div
+                                                    className="h-full bg-purple-500"
+                                                    style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+                                                />
+                                            </div>
+                                            <span className="text-sm text-gray-400">{formatTime(duration)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </main>
             </div>
         </div>

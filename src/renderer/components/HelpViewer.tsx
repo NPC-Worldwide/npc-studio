@@ -57,7 +57,11 @@ const PaneTypeItem: React.FC<{ icon: React.ReactNode; name: string; desc: string
     </div>
 );
 
-export const HelpViewer: React.FC = () => {
+interface HelpViewerProps {
+    appVersion?: string;
+}
+
+export const HelpViewer: React.FC<HelpViewerProps> = ({ appVersion }) => {
     const [searchQuery, setSearchQuery] = useState('');
 
     // Filter sections based on search
@@ -398,7 +402,7 @@ export const HelpViewer: React.FC = () => {
                 {/* Version Info */}
                 <div className="mt-6 pt-4 border-t theme-border text-center">
                     <p className="text-xs theme-text-muted">
-                        Incognide v0.0.32 | Built with Electron + React
+                        Incognide {appVersion ? `v${appVersion}` : ''} | Built with Electron + React
                     </p>
                     <p className="text-xs theme-text-muted mt-1">
                         <a href="https://github.com/cagostino/incognide" className="text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">
