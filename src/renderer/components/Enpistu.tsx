@@ -1633,9 +1633,7 @@ const ChatInterface = () => {
     
     useEffect(() => {
         const cleanup = window.api.onBrowserShowContextMenu(({ x, y, selectedText, linkURL, pageURL, srcURL, isEditable, mediaType, canSaveImage }) => {
-            // Electron params are in physical pixels, convert to CSS pixels
-            const dpr = window.devicePixelRatio || 1;
-            setBrowserContextMenuPos({ x: x / dpr, y: y / dpr, selectedText, linkURL, pageURL, srcURL, isEditable, mediaType, canSaveImage });
+            setBrowserContextMenuPos({ x, y, selectedText, linkURL, pageURL, srcURL, isEditable, mediaType, canSaveImage });
         });
         return () => cleanup();
     }, []);

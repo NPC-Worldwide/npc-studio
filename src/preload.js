@@ -111,6 +111,15 @@ readDocxContent: (filePath) =>
     browserGetInstalledBrowsers: () => ipcRenderer.invoke('browser:getInstalledBrowsers'),
     browserImportExtensionsFrom: (args) => ipcRenderer.invoke('browser:importExtensionsFrom', args),
 
+    // Cookie inheritance management
+    browserRegisterPartition: (args) => ipcRenderer.invoke('browser:registerPartition', args),
+    browserGetKnownPartitions: () => ipcRenderer.invoke('browser:getKnownPartitions'),
+    browserGetCookiesFromPartition: (args) => ipcRenderer.invoke('browser:getCookiesFromPartition', args),
+    browserImportCookiesFromPartition: (args) => ipcRenderer.invoke('browser:importCookiesFromPartition', args),
+    browserSetCookieInheritance: (args) => ipcRenderer.invoke('browser:setCookieInheritance', args),
+    browserGetCookieInheritance: (args) => ipcRenderer.invoke('browser:getCookieInheritance', args),
+    browserGetCookieDomains: (args) => ipcRenderer.invoke('browser:getCookieDomains', args),
+
     // CLI workspace opening - for launching incognide with a folder path
     onCliOpenWorkspace: (callback) => {
         const handler = (_, data) => callback(data);
