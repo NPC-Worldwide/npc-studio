@@ -2220,11 +2220,25 @@ const renderWebsiteList = () => {
     const renderGitPanel = () => {
         // Only render the panel if gitStatus is available
         if (!gitStatus) return null;
-    
+
         const staged = Array.isArray(gitStatus.staged) ? gitStatus.staged : [];
         const unstaged = Array.isArray(gitStatus.unstaged) ? gitStatus.unstaged : [];
         const untracked = Array.isArray(gitStatus.untracked) ? gitStatus.untracked : [];
-    
+
+        // Helper to open diff viewer for a file
+        const openFileDiff = (filePath: string, status: string) => {
+            const paneId = generateId();
+            const fullPath = filePath.startsWith('/') ? filePath : `${currentPath}/${filePath}`;
+            if (createAndAddPaneNodeToLayout) {
+                createAndAddPaneNodeToLayout({
+                    id: paneId,
+                    contentType: 'diff',
+                    contentId: fullPath,
+                    diffStatus: status
+                });
+            }
+        };
+
         return (
             <div className="p-4 border-t theme-border text-xs theme-text-muted">
                 {/* Header for the Git Panel with a toggle */}
@@ -2279,11 +2293,17 @@ const renderWebsiteList = () => {
                             <div className="mb-1 font-semibold">Staged Files</div>
                             {(staged.length === 0) ? <div className="text-gray-600">No staged files</div> :
                             staged.map(file => (
-                                <div key={file.path} className="flex justify-between items-center text-green-300">
-                                <span title={file.path}>{file.path} (<span className="text-green-500 font-medium">{file.status}</span>)</span>
+                                <div key={file.path} className="flex justify-between items-center text-green-300 group">
+                                <button
+                                    onClick={() => openFileDiff(file.path, file.status)}
+                                    className="text-left truncate hover:underline flex-1"
+                                    title={`Click to view diff: ${file.path}`}
+                                >
+                                    {file.path} (<span className="text-green-500 font-medium">{file.status}</span>)
+                                </button>
                                 <button
                                     onClick={() => gitUnstageFile(file.path)}
-                                    className="p-1 text-red-400 hover:bg-red-600"
+                                    className="p-1 text-red-400 hover:bg-red-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                 >
                                     Unstage
                                 </button>
@@ -2296,13 +2316,17 @@ const renderWebsiteList = () => {
                             <div className="mb-1 font-semibold">Unstaged / Untracked Files</div>
                             {(unstaged.length + untracked.length === 0) ? <div className="text-gray-600">No unstaged or untracked files</div> :
                             [...unstaged, ...untracked].map(file => (
-                                <div key={file.path} className="flex justify-between items-center">
-                                <span title={file.path} className={file.isUntracked ? "text-gray-400" : "text-yellow-300"}>
+                                <div key={file.path} className="flex justify-between items-center group">
+                                <button
+                                    onClick={() => openFileDiff(file.path, file.status)}
+                                    className={`text-left truncate hover:underline flex-1 ${file.isUntracked ? "text-gray-400" : "text-yellow-300"}`}
+                                    title={`Click to view diff: ${file.path}`}
+                                >
                                     {file.path} (<span className="font-medium">{file.status}</span>)
-                                </span>
+                                </button>
                                 <button
                                     onClick={() => gitStageFile(file.path)}
-                                    className="p-1 text-green-400 px-1 rounded hover:bg-green-600"
+                                    className="p-1 text-green-400 px-1 rounded hover:bg-green-600 opacity-0 group-hover:opacity-100 transition-opacity"
                                 >
                                     Stage
                                 </button>
@@ -2769,8 +2793,8 @@ const renderFolderList = (structure) => {
                 <div className="flex items-center px-4 py-4">
                     <FolderOpen size={16} className="text-yellow-300" />
                 </div>
-                {/* Folder path controls - left justified */}
-                <div className="flex items-center gap-1 flex-shrink-0" style={{ position: 'relative', overflow: 'visible' }}>
+                {/* Folder path controls - left justified, can shrink to make room for buttons */}
+                <div className="flex items-center gap-0.5 flex-1 min-w-0" style={{ position: 'relative', overflow: 'visible' }}>
                     <button
                         onClick={(e) => { e.stopPropagation(); if (currentPath !== baseDir) goUpDirectory(currentPath, baseDir, switchToPath, setError); }}
                         disabled={currentPath === baseDir}
@@ -2867,16 +2891,16 @@ const renderFolderList = (structure) => {
                         </div>
                     )}
                 </div>
-                {/* Right side: action buttons */}
-                <div className="flex-1 flex items-center justify-end gap-2 px-2">
+                {/* Right side: action buttons - use flex-shrink-0 and smaller gap to prevent overflow */}
+                <div className="flex items-center justify-end gap-0.5 px-1 flex-shrink-0">
                     {!filesCollapsed && (
                         <>
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowFilesSettings(!showFilesSettings); }}
-                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                                className={`p-1 hover:bg-white/10 rounded transition-all ${showFilesSettings ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
                                 title="Settings"
                             >
-                                <Settings size={12} />
+                                <Settings size={11} />
                             </button>
                             <button
                                 onClick={(e) => {
@@ -2886,28 +2910,28 @@ const renderFolderList = (structure) => {
                                     }
                                     setShowFileTypeFilter(!showFileTypeFilter);
                                 }}
-                                className={`p-1.5 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
+                                className={`p-1 hover:bg-white/10 rounded transition-all ${activeTypeFilters.length > 0 || showFileTypeFilter ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'}`}
                                 title="Filter by file type"
                             >
-                                <Filter size={12} />
+                                <Filter size={11} />
                             </button>
                         </>
                     )}
                     <button
                         onClick={(e) => { e.stopPropagation(); handleRefreshFilesAndFolders(); }}
-                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
                         title="Refresh files"
                     >
-                        <RefreshCw size={12} />
+                        <RefreshCw size={11} />
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); handleCreateNewFolder?.(); }}
-                        className="p-1.5 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
+                        className="p-1 hover:bg-white/10 rounded transition-all text-gray-400 hover:text-yellow-400"
                         title="New Folder"
                     >
-                        <Plus size={12} />
+                        <Plus size={11} />
                     </button>
-                    <ChevronRight size={14} className={`transform transition-transform text-gray-600 dark:text-gray-400 ${filesCollapsed ? "" : "rotate-90"}`} />
+                    <ChevronRight size={12} className={`transform transition-transform text-gray-600 dark:text-gray-400 flex-shrink-0 ${filesCollapsed ? "" : "rotate-90"}`} />
                 </div>
             </div>
             {/* Files Settings Panel */}

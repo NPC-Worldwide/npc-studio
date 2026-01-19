@@ -1029,6 +1029,16 @@ const ChatInterface = () => {
         }
     };
 
+    // Open a file diff in a new pane
+    const openFileDiffPane = (filePath: string, status: string) => {
+        const fullPath = filePath.startsWith('/') ? filePath : `${currentPath}/${filePath}`;
+        createAndAddPaneNodeToLayout({
+            contentType: 'diff',
+            contentId: fullPath,
+            diffStatus: status
+        });
+    };
+
     // Load memories for memory modal
     const loadMemories = useCallback(async () => {
         setMemoryLoading(true);
@@ -3370,8 +3380,9 @@ const renderGitPane = useCallback(({ nodeId }: { nodeId: string }) => {
                                     ) : (gitStatus.staged || []).map((file: any) => (
                                         <div key={file.path} className="flex items-center justify-between text-xs group">
                                             <button
-                                                onClick={() => loadFileDiff(file.path, true)}
+                                                onClick={() => openFileDiffPane(file.path, file.status || 'staged')}
                                                 className="text-green-300 truncate flex-1 text-left hover:underline"
+                                                title="Click to view diff"
                                             >
                                                 {file.path}
                                             </button>
@@ -3389,8 +3400,9 @@ const renderGitPane = useCallback(({ nodeId }: { nodeId: string }) => {
                                     ) : [...(gitStatus.unstaged || []), ...(gitStatus.untracked || [])].map((file: any) => (
                                         <div key={file.path} className="flex items-center justify-between text-xs group">
                                             <button
-                                                onClick={() => loadFileDiff(file.path, false)}
+                                                onClick={() => openFileDiffPane(file.path, file.status || 'modified')}
                                                 className={`truncate flex-1 text-left hover:underline ${file.isUntracked ? 'text-gray-400' : 'text-yellow-300'}`}
+                                                title="Click to view diff"
                                             >
                                                 {file.path}
                                             </button>
@@ -7992,6 +8004,8 @@ const layoutComponentApi = useMemo(() => ({
     // Top bar collapse for expand button in pane header
     topBarCollapsed,
     onExpandTopBar: () => { setTopBarCollapsed(false); localStorage.setItem('npcStudio_topBarCollapsed', 'false'); },
+    // Current working directory
+    currentPath,
 }), [
     rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
@@ -8039,6 +8053,7 @@ const layoutComponentApi = useMemo(() => ({
     zenModePaneId,
     renamingPaneId, editedFileName, handleConfirmRename,
     handleRunScript, handleNewBrowserTab, topBarCollapsed,
+    currentPath,
 ]);
 
 // Handle conversation selection - opens conversation in a pane
@@ -9052,6 +9067,8 @@ const renderMainContent = () => {
         createLibraryViewerPane={createLibraryViewerPane}
         createHelpPane={createHelpPane}
         createTileJinxPane={createTileJinxPane}
+        createGitPane={createGitPane}
+        createAndAddPaneNodeToLayout={createAndAddPaneNodeToLayout}
         createNewConversation={createNewConversation}
         generateId={generateId}
         streamToPaneRef={streamToPaneRef}

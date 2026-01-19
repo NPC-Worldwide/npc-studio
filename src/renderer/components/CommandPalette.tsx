@@ -16,21 +16,32 @@ interface CommandPaletteProps {
 }
 
 // Flatten folder structure to get all files
+// Structure format: { "filename": { type: 'file', path: '...' }, "dirname": { type: 'directory', path: '...', children: {...} } }
 const flattenFiles = (structure: any, basePath: string = ''): FileItem[] => {
     const files: FileItem[] = [];
 
     if (!structure || typeof structure !== 'object') return files;
 
-    for (const [name, value] of Object.entries(structure)) {
-        const fullPath = basePath ? `${basePath}/${name}` : name;
+    // Skip error responses
+    if (structure.error) return files;
 
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-            // It's a directory
-            files.push({ name, path: fullPath, type: 'directory' });
-            files.push(...flattenFiles(value, fullPath));
-        } else {
-            // It's a file (or treat as file)
-            files.push({ name, path: fullPath, type: 'file' });
+    for (const [name, value] of Object.entries(structure)) {
+        // Skip if not an object with type property
+        if (!value || typeof value !== 'object') continue;
+
+        const item = value as any;
+
+        if (item.type === 'file') {
+            // It's a file - use the stored path or construct one
+            const filePath = item.path || (basePath ? `${basePath}/${name}` : name);
+            files.push({ name, path: filePath, type: 'file' });
+        } else if (item.type === 'directory') {
+            // It's a directory - recurse into children
+            const dirPath = item.path || (basePath ? `${basePath}/${name}` : name);
+            files.push({ name, path: dirPath, type: 'directory' });
+            if (item.children && typeof item.children === 'object') {
+                files.push(...flattenFiles(item.children, dirPath));
+            }
         }
     }
 

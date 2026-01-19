@@ -1667,6 +1667,56 @@ useEffect(() => {
     return () => { cancelled = true; };
 }, [viewMode, sortedAndFilteredImages, displayedImagesCount]);
 
+// Split clip at playhead for video editor
+const splitClipAtPlayhead = useCallback(() => {
+    const clipAtPlayhead = videoClips.find(c =>
+        c.trackId && c.x <= videoCurrentTime && (c.x + c.duration) >= videoCurrentTime
+    );
+    if (clipAtPlayhead) {
+        const splitPoint = videoCurrentTime - clipAtPlayhead.x;
+        if (splitPoint > 0.1 && splitPoint < clipAtPlayhead.duration - 0.1) {
+            const newClip = {
+                ...clipAtPlayhead,
+                id: `clip_${Date.now()}`,
+                x: videoCurrentTime,
+                duration: clipAtPlayhead.duration - splitPoint,
+                trimStart: (clipAtPlayhead.trimStart || 0) + splitPoint
+            };
+            setVideoClips(prev => [
+                ...prev.map(c => c.id === clipAtPlayhead.id ? {...c, duration: splitPoint} : c),
+                newClip
+            ]);
+        }
+    }
+}, [videoClips, videoCurrentTime]);
+
+// Video editor keyboard shortcuts
+useEffect(() => {
+    const handleKeyDown = (e) => {
+        if (activeTab !== 'video-editor') return;
+        if (e.code === 'Space') {
+            e.preventDefault();
+            const video = videoPreviewRef.current;
+            if (video) {
+                if (videoPlaying) video.pause();
+                else video.play().catch(() => {});
+            }
+            setVideoPlaying(!videoPlaying);
+        }
+        if (e.code === 'KeyS' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            splitClipAtPlayhead();
+        }
+        if (e.code === 'Delete' || e.code === 'Backspace') {
+            if (selectedClipId && !e.target.closest('input, textarea')) {
+                setVideoClips(prev => prev.filter(c => c.id !== selectedClipId));
+                setSelectedClipId(null);
+            }
+        }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+}, [activeTab, videoPlaying, videoCurrentTime, selectedClipId, splitClipAtPlayhead]);
 
 // Single click: select image only
 const handleImageClick = (e, imgPath, index) => {
@@ -3560,57 +3610,6 @@ const renderVideoEditor = useCallback(() => {
         const s = Math.floor(seconds % 60);
         return `${m}:${s.toString().padStart(2, '0')}`;
     };
-
-    // Split clip at playhead
-    const splitClipAtPlayhead = () => {
-        const clipAtPlayhead = videoClips.find(c =>
-            c.trackId && c.x <= videoCurrentTime && (c.x + c.duration) >= videoCurrentTime
-        );
-        if (clipAtPlayhead) {
-            const splitPoint = videoCurrentTime - clipAtPlayhead.x;
-            if (splitPoint > 0.1 && splitPoint < clipAtPlayhead.duration - 0.1) {
-                const newClip = {
-                    ...clipAtPlayhead,
-                    id: `clip_${Date.now()}`,
-                    x: videoCurrentTime,
-                    duration: clipAtPlayhead.duration - splitPoint,
-                    trimStart: (clipAtPlayhead.trimStart || 0) + splitPoint
-                };
-                setVideoClips(prev => [
-                    ...prev.map(c => c.id === clipAtPlayhead.id ? {...c, duration: splitPoint} : c),
-                    newClip
-                ]);
-            }
-        }
-    };
-
-    // Keyboard shortcuts
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (activeTab !== 'video-editor') return;
-            if (e.code === 'Space') {
-                e.preventDefault();
-                const video = videoPreviewRef.current;
-                if (video) {
-                    if (videoPlaying) video.pause();
-                    else video.play().catch(() => {});
-                }
-                setVideoPlaying(!videoPlaying);
-            }
-            if (e.code === 'KeyS' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                splitClipAtPlayhead();
-            }
-            if (e.code === 'Delete' || e.code === 'Backspace') {
-                if (selectedClipId && !e.target.closest('input, textarea')) {
-                    setVideoClips(prev => prev.filter(c => c.id !== selectedClipId));
-                    setSelectedClipId(null);
-                }
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [activeTab, videoPlaying, videoCurrentTime, selectedClipId]);
 
     const PIXELS_PER_SECOND = 50 * videoZoom;
     const totalTimelineWidth = Math.max(videoDuration, 120) * PIXELS_PER_SECOND + 100;

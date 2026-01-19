@@ -584,6 +584,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
             // Top bar collapse
             topBarCollapsed,
             onExpandTopBar,
+            // Current working directory
+            currentPath,
         } = component;
 
         // Get chat input props for this specific pane

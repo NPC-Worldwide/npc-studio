@@ -1,7 +1,10 @@
 const { contextBridge, ipcRenderer, shell } = require('electron');
 
-// Backend URL - uses INCOGNIDE_PORT env var if set, otherwise defaults to 5337 (prod)
-const BACKEND_PORT = process.env.INCOGNIDE_PORT || '5337';
+// Backend URL - detect dev mode and use appropriate port
+// Dev mode: 5437, Prod mode: 5337
+const IS_DEV = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1';
+const DEFAULT_PORT = IS_DEV ? '5437' : '5337';
+const BACKEND_PORT = process.env.INCOGNIDE_PORT || DEFAULT_PORT;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
 contextBridge.exposeInMainWorld('api', {
