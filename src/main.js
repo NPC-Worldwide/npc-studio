@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen, systemPreferences } = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -484,6 +484,47 @@ app.on('web-contents-created', (event, contents) => {
     }
   });
 
+  // Handle permissions for webviews (camera, microphone, screen sharing, etc.)
+  if (contents.getType() === 'webview') {
+    contents.session.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      // Allow media permissions (camera, microphone, screen sharing)
+      const allowedPermissions = [
+        'media',           // camera, microphone
+        'mediaKeySystem',  // encrypted media
+        'geolocation',
+        'notifications',
+        'clipboard-read',
+        'clipboard-write',
+        'display-capture', // screen sharing
+        'video-capture',   // video capture
+        'audio-capture',   // audio capture
+      ];
+      if (allowedPermissions.includes(permission)) {
+        log(`[Permissions] Granting ${permission} for webview`);
+        callback(true);
+      } else {
+        log(`[Permissions] Denying ${permission} for webview`);
+        callback(false);
+      }
+    });
+
+    // Also handle permission check requests
+    contents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+      const allowedPermissions = [
+        'media',
+        'mediaKeySystem',
+        'geolocation',
+        'notifications',
+        'clipboard-read',
+        'clipboard-write',
+        'display-capture',
+        'video-capture',
+        'audio-capture',
+      ];
+      return allowedPermissions.includes(permission);
+    });
+  }
+
   // Handle new window requests from webviews (ctrl+click, middle-click, target="_blank")
   // Send to renderer to open in new tab instead of new window
   if (contents.getType() === 'webview') {
@@ -533,6 +574,39 @@ app.whenReady().then(async () => {
 
   const dataPath = ensureUserDataDirectory();
   await ensureTablesExist();
+
+  // Request camera and microphone permissions on macOS
+  if (process.platform === 'darwin') {
+    try {
+      const cameraStatus = await systemPreferences.askForMediaAccess('camera');
+      const micStatus = await systemPreferences.askForMediaAccess('microphone');
+      log(`macOS permissions - Camera: ${cameraStatus}, Microphone: ${micStatus}`);
+
+      // If either permission was denied, show a helpful dialog
+      if (!cameraStatus || !micStatus) {
+        const denied = [];
+        if (!cameraStatus) denied.push('Camera');
+        if (!micStatus) denied.push('Microphone');
+
+        const result = await dialog.showMessageBox({
+          type: 'warning',
+          title: 'Permissions Required',
+          message: `${denied.join(' and ')} access was denied`,
+          detail: 'To use video calls in the browser, you need to grant camera and microphone permissions in System Settings.\n\nClick "Open Settings" to go directly to Privacy settings.',
+          buttons: ['Open Settings', 'Later'],
+          defaultId: 0,
+          cancelId: 1
+        });
+
+        if (result.response === 0) {
+          // Open System Preferences to Privacy & Security
+          shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Camera');
+        }
+      }
+    } catch (err) {
+      log(`Failed to request media permissions: ${err.message}`);
+    }
+  }
 
   protocol.registerFileProtocol('file', (request, callback) => {
     const filepath = request.url.replace('file://', '');
@@ -9776,6 +9850,55 @@ ipcMain.handle('jupyter:registerKernel', async (_, { workspacePath, kernelName =
     } catch (err) {
         return { success: false, error: err.message };
     }
+});
+
+// Media permissions handler (macOS)
+ipcMain.handle('check-media-permissions', async () => {
+  if (process.platform !== 'darwin') {
+    return { camera: true, microphone: true };
+  }
+
+  const cameraStatus = systemPreferences.getMediaAccessStatus('camera');
+  const micStatus = systemPreferences.getMediaAccessStatus('microphone');
+
+  return {
+    camera: cameraStatus === 'granted',
+    microphone: micStatus === 'granted',
+    cameraStatus,
+    micStatus
+  };
+});
+
+ipcMain.handle('request-media-permissions', async () => {
+  if (process.platform !== 'darwin') {
+    return { camera: true, microphone: true };
+  }
+
+  const cameraStatus = await systemPreferences.askForMediaAccess('camera');
+  const micStatus = await systemPreferences.askForMediaAccess('microphone');
+
+  // If denied, offer to open settings
+  if (!cameraStatus || !micStatus) {
+    const denied = [];
+    if (!cameraStatus) denied.push('Camera');
+    if (!micStatus) denied.push('Microphone');
+
+    const result = await dialog.showMessageBox({
+      type: 'warning',
+      title: 'Permissions Required',
+      message: `${denied.join(' and ')} access was denied`,
+      detail: 'To use video calls in the browser, you need to grant camera and microphone permissions in System Settings.\n\nClick "Open Settings" to go directly to Privacy settings.',
+      buttons: ['Open Settings', 'Later'],
+      defaultId: 0,
+      cancelId: 1
+    });
+
+    if (result.response === 0) {
+      shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Camera');
+    }
+  }
+
+  return { camera: cameraStatus, microphone: micStatus };
 });
 
 // Version update checker

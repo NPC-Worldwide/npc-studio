@@ -673,8 +673,8 @@ const WebBrowserViewer = memo(({
         const site = getSiteFromUrl(url);
         try {
             const result = await (window as any).api?.passwordGetForSite?.(site);
-            if (result?.success && result.passwords?.length > 0) {
-                setSavedPasswords(result.passwords);
+            if (result?.success && result.credentials?.length > 0) {
+                setSavedPasswords(result.credentials);
                 setShowPasswordFill(true);
             } else {
                 setSavedPasswords([]);
@@ -696,16 +696,24 @@ const WebBrowserViewer = memo(({
         }
     }, [pendingCredentials]);
 
-    const handleFillPassword = useCallback(async (password: any) => {
+    const handleFillPassword = useCallback(async (credential: any) => {
         const webview = webviewRef.current;
         if (!webview) return;
 
         try {
+            // Fetch the full credential with password
+            const result = await (window as any).api?.passwordGet?.(credential.id);
+            if (!result?.success || !result.credential) {
+                console.error('[Browser] Failed to get credential for fill');
+                return;
+            }
+            const fullCredential = result.credential;
+
             // Inject script to fill the login form
             await webview.executeJavaScript(`
                 (function() {
-                    const username = ${JSON.stringify(password.username)};
-                    const pwd = ${JSON.stringify(password.password)};
+                    const username = ${JSON.stringify(fullCredential.username)};
+                    const pwd = ${JSON.stringify(fullCredential.password)};
 
                     // Find username/email fields
                     const usernameInputs = document.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"], input[id*="user"], input[id*="email"], input[id*="login"]');
@@ -742,7 +750,7 @@ const WebBrowserViewer = memo(({
         try {
             const result = await (window as any).api?.passwordList?.();
             if (result?.success) {
-                setAllPasswords(result.passwords || []);
+                setAllPasswords(result.credentials || []);
             }
         } catch (err) {
             console.error('[Browser] Failed to load passwords:', err);
@@ -807,34 +815,96 @@ const WebBrowserViewer = memo(({
                         if (window.__npcPasswordDetectorInstalled) return;
                         window.__npcPasswordDetectorInstalled = true;
 
-                        document.addEventListener('submit', function(e) {
-                            const form = e.target;
-                            const passwordInputs = form.querySelectorAll('input[type="password"]');
-                            if (passwordInputs.length === 0) return;
+                        // Track last known credentials
+                        let lastUsername = '';
+                        let lastPassword = '';
 
-                            // Find username/email field
-                            const usernameInputs = form.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"]');
-                            let username = '';
-                            for (const input of usernameInputs) {
+                        // Scan page for credentials
+                        function scanForCredentials() {
+                            const passwordInputs = document.querySelectorAll('input[type="password"]');
+                            if (passwordInputs.length === 0) return null;
+
+                            let password = '';
+                            for (const input of passwordInputs) {
                                 if (input.value) {
-                                    username = input.value;
+                                    password = input.value;
                                     break;
                                 }
                             }
 
-                            const password = passwordInputs[0].value;
+                            // Find username/email - search whole page, not just form
+                            const usernameInputs = document.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"], input[autocomplete*="user"], input[autocomplete="email"]');
+                            let username = '';
+                            for (const input of usernameInputs) {
+                                if (input.value && input.value.includes('@')) {
+                                    username = input.value;
+                                    break;
+                                }
+                            }
+                            // Fallback - any text input with value
+                            if (!username) {
+                                for (const input of usernameInputs) {
+                                    if (input.value) {
+                                        username = input.value;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            return { username, password };
+                        }
+
+                        // Signal credentials are ready
+                        function signalCredentials(username, password) {
                             if (username && password) {
-                                // Store securely for retrieval - don't log
                                 window.__npcPendingCredentials = {
                                     site: window.location.hostname,
                                     username: username,
                                     password: password,
                                     timestamp: Date.now()
                                 };
-                                // Signal without exposing data
                                 console.log('npc-credentials-ready');
                             }
+                        }
+
+                        // Listen for form submit
+                        document.addEventListener('submit', function(e) {
+                            const creds = scanForCredentials();
+                            if (creds) signalCredentials(creds.username, creds.password);
                         }, true);
+
+                        // Track password field changes
+                        document.addEventListener('input', function(e) {
+                            if (e.target.type === 'password' && e.target.value) {
+                                lastPassword = e.target.value;
+                            }
+                            if ((e.target.type === 'text' || e.target.type === 'email') && e.target.value) {
+                                lastUsername = e.target.value;
+                            }
+                        }, true);
+
+                        // Detect button clicks that might submit (for JS-based forms)
+                        document.addEventListener('click', function(e) {
+                            const btn = e.target.closest('button, input[type="submit"], [role="button"]');
+                            if (btn) {
+                                // Check if there's a password field with value
+                                setTimeout(() => {
+                                    const creds = scanForCredentials();
+                                    if (creds && creds.password) {
+                                        signalCredentials(creds.username || lastUsername, creds.password);
+                                    } else if (lastPassword) {
+                                        signalCredentials(lastUsername, lastPassword);
+                                    }
+                                }, 100);
+                            }
+                        }, true);
+
+                        // Also check before navigation
+                        window.addEventListener('beforeunload', function() {
+                            if (lastPassword) {
+                                signalCredentials(lastUsername, lastPassword);
+                            }
+                        });
                     })();
                 `);
             } catch (err) {
@@ -1367,6 +1437,7 @@ const WebBrowserViewer = memo(({
                     className="absolute inset-0 w-full h-full"
                     partition={`persist:${viewId}`}
                     allowpopups="true"
+                    allowusermedia="true"
                     webpreferences="contextIsolation=no, javascript=yes, webSecurity=yes, allowRunningInsecureContent=no, spellcheck=yes, enableRemoteModule=no"
                     style={{ visibility: error ? 'hidden' : 'visible' }}
                 />

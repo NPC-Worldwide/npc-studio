@@ -613,4 +613,8 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     // Version and Update APIs
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+
+    // Media Permissions (macOS)
+    checkMediaPermissions: () => ipcRenderer.invoke('check-media-permissions'),
+    requestMediaPermissions: () => ipcRenderer.invoke('request-media-permissions'),
 });
