@@ -572,6 +572,7 @@ const defaultSettings = {
     embedding_provider: 'ollama',
     search_provider: 'duckduckgo',
     default_folder: HOME_DIR,
+    default_to_agent: false, // When true, new chats default to agent mode
     is_predictive_text_enabled: false,
     predictive_text_model: 'llama3.2',
     predictive_text_provider: 'ollama',
@@ -1457,6 +1458,22 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                     />
                                 </div>
                             )}
+                        </div>
+
+                        <div className="border border-gray-700 rounded-lg p-3">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={globalSettings.default_to_agent || false}
+                                    onChange={(e) => setGlobalSettings({...globalSettings, default_to_agent: e.target.checked})}
+                                    className="w-4 h-4"
+                                />
+                                <span className="text-sm font-medium">Default to Agent Mode</span>
+                            </label>
+                            <p className="text-xs text-gray-400 mt-1">
+                                When enabled, new chats will default to agent mode (tool_agent) instead of chat mode.
+                                Agent mode allows the AI to execute tools like file operations, terminal commands, and web search.
+                            </p>
                         </div>
 
                         <Select

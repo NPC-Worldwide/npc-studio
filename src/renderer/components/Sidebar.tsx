@@ -40,6 +40,7 @@ import LibraryViewer from './LibraryViewer';
 import GraphViewer from './GraphViewer';
 import PhotoViewer from './PhotoViewer';
 import SettingsMenu from './SettingsMenu';
+import UserMenu from './UserMenu';
 import npcLogo from '../../assets/icon.png';
 
 const Sidebar = (props: any) => {
@@ -4897,6 +4898,18 @@ return (
         </div>
 
         {sidebarCollapsed && <div className="flex-1"></div>}
+
+        {/* User Menu - Auth & Sync */}
+        {!sidebarCollapsed && (
+            <div className="px-2 py-2 border-t border-gray-700">
+                <UserMenu
+                    onOpenSettings={() => {
+                        // Open settings pane
+                        if (createSettingsPane) createSettingsPane();
+                    }}
+                />
+            </div>
+        )}
 
         {/* Collapse controls row: Down arrow (left) | Sidebar collapse (right) */}
         {!sidebarCollapsed && (

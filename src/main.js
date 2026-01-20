@@ -339,6 +339,67 @@ const DEFAULT_CONFIG = {
   npc: defaultModelConfig.npc,
 };
 
+// Device ID and configuration for multi-device sync
+const DEVICE_CONFIG_PATH = path.join(os.homedir(), '.npcsh', 'incognide', 'device.json');
+
+function getOrCreateDeviceId() {
+  try {
+    // Ensure directory exists
+    const dir = path.dirname(DEVICE_CONFIG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Try to read existing device config
+    if (fs.existsSync(DEVICE_CONFIG_PATH)) {
+      const config = JSON.parse(fs.readFileSync(DEVICE_CONFIG_PATH, 'utf-8'));
+      if (config.deviceId) {
+        log(`[DEVICE] Using existing device ID: ${config.deviceId}`);
+        return config;
+      }
+    }
+
+    // Generate new device ID and config
+    const newConfig = {
+      deviceId: crypto.randomUUID(),
+      deviceName: os.hostname() || 'My Device',
+      deviceType: process.platform, // 'darwin', 'win32', 'linux'
+      createdAt: new Date().toISOString()
+    };
+
+    fs.writeFileSync(DEVICE_CONFIG_PATH, JSON.stringify(newConfig, null, 2));
+    log(`[DEVICE] Created new device ID: ${newConfig.deviceId}`);
+    return newConfig;
+  } catch (err) {
+    log(`[DEVICE] Error getting/creating device ID: ${err.message}`);
+    // Return a temporary ID that won't persist
+    return {
+      deviceId: crypto.randomUUID(),
+      deviceName: os.hostname() || 'My Device',
+      deviceType: process.platform,
+      createdAt: new Date().toISOString(),
+      isTemporary: true
+    };
+  }
+}
+
+function updateDeviceConfig(updates) {
+  try {
+    const currentConfig = getOrCreateDeviceId();
+    const newConfig = { ...currentConfig, ...updates, updatedAt: new Date().toISOString() };
+    fs.writeFileSync(DEVICE_CONFIG_PATH, JSON.stringify(newConfig, null, 2));
+    log(`[DEVICE] Updated device config:`, updates);
+    return newConfig;
+  } catch (err) {
+    log(`[DEVICE] Error updating device config: ${err.message}`);
+    return null;
+  }
+}
+
+// Initialize device config on startup
+const deviceConfig = getOrCreateDeviceId();
+log(`[DEVICE] Initialized with device ID: ${deviceConfig.deviceId}, name: ${deviceConfig.deviceName}`);
+
 function generateId() {
   return crypto.randomUUID();
 }
@@ -5786,6 +5847,20 @@ app.on('will-quit', () => {
       }
     }
   );
+
+  // Device ID and info handlers for multi-device sync
+  ipcMain.handle('getDeviceInfo', async () => {
+    return getOrCreateDeviceId();
+  });
+
+  ipcMain.handle('setDeviceName', async (event, newName) => {
+    return updateDeviceConfig({ deviceName: newName });
+  });
+
+  ipcMain.handle('getDeviceId', async () => {
+    const config = getOrCreateDeviceId();
+    return config.deviceId;
+  });
 
 
   ipcMain.handle('get_attachment_response', async (_, attachmentData, messages) => {

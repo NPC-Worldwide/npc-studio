@@ -539,6 +539,11 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     loadProjectSettings: (path) => ipcRenderer.invoke('loadProjectSettings', path),
     saveProjectSettings: (args) => ipcRenderer.invoke('saveProjectSettings', args),
 
+    // Device ID and info for multi-device sync
+    getDeviceInfo: () => ipcRenderer.invoke('getDeviceInfo'),
+    setDeviceName: (name) => ipcRenderer.invoke('setDeviceName', name),
+    getDeviceId: () => ipcRenderer.invoke('getDeviceId'),
+
     npcshCheck: () => ipcRenderer.invoke('npcsh-check'),
     npcshPackageContents: () => ipcRenderer.invoke('npcsh-package-contents'),
     npcshInit: () => ipcRenderer.invoke('npcsh-init'),

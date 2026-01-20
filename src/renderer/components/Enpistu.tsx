@@ -49,6 +49,7 @@ import PathSwitcher from './PathSwitcher';
 import CronDaemonPanel from './CronDaemonPanel';
 import MemoryManager from './MemoryManager';
 import SearchPane from './SearchPane';
+import { AuthProvider } from './AuthProvider';
 import DownloadManager, { getActiveDownloadsCount, setDownloadToastCallback } from './DownloadManager';
 import { LiveProvider, LivePreview, LiveError } from 'react-live';
 // Components for tile jinx runtime rendering
@@ -1204,6 +1205,79 @@ const ChatInterface = () => {
     useEffect(() => {
         localStorage.setItem('npcStudioExecutionMode', JSON.stringify(executionMode));
     }, [executionMode]);
+
+    // Project-specific settings: save and restore last used model/provider/NPC/executionMode per project folder
+    const getProjectSettingsKey = useCallback((folderPath: string) => {
+        // Create a unique key for each project folder
+        return `incognide-project-settings-${folderPath.replace(/[/\\]/g, '_')}`;
+    }, []);
+
+    // Save project settings when they change
+    useEffect(() => {
+        if (!currentPath || !currentModel || !currentProvider) return;
+
+        try {
+            const key = getProjectSettingsKey(currentPath);
+            const settings = {
+                lastModel: currentModel,
+                lastProvider: currentProvider,
+                lastNPC: currentNPC,
+                lastExecutionMode: executionMode,
+                updatedAt: new Date().toISOString()
+            };
+            localStorage.setItem(key, JSON.stringify(settings));
+        } catch (e) {
+            console.error('Error saving project settings:', e);
+        }
+    }, [currentPath, currentModel, currentProvider, currentNPC, executionMode, getProjectSettingsKey]);
+
+    // Ref to track if we're restoring project settings (to avoid save loop)
+    const isRestoringProjectSettings = useRef(false);
+    const previousPath = useRef<string | null>(null);
+
+    // Load project settings when path changes
+    useEffect(() => {
+        if (!currentPath || currentPath === previousPath.current) return;
+        previousPath.current = currentPath;
+
+        try {
+            const key = getProjectSettingsKey(currentPath);
+            const savedSettings = localStorage.getItem(key);
+
+            if (savedSettings) {
+                const settings = JSON.parse(savedSettings);
+                isRestoringProjectSettings.current = true;
+
+                // Restore settings from this project
+                if (settings.lastModel) setCurrentModel(settings.lastModel);
+                if (settings.lastProvider) setCurrentProvider(settings.lastProvider);
+                if (settings.lastNPC !== undefined) setCurrentNPC(settings.lastNPC);
+                if (settings.lastExecutionMode) setExecutionMode(settings.lastExecutionMode);
+
+                console.log(`[PROJECT SETTINGS] Restored settings for ${currentPath}:`, settings);
+
+                // Reset the flag after a short delay
+                setTimeout(() => {
+                    isRestoringProjectSettings.current = false;
+                }, 100);
+            } else {
+                // No saved settings for this project - check for defaultToAgent global setting
+                (async () => {
+                    try {
+                        const globalSettings = await window.api.loadGlobalSettings();
+                        if (globalSettings?.global_settings?.default_to_agent) {
+                            setExecutionMode('tool_agent');
+                            console.log('[PROJECT SETTINGS] No saved settings, defaulting to agent mode per global setting');
+                        }
+                    } catch (e) {
+                        console.error('Error loading global settings for default agent mode:', e);
+                    }
+                })();
+            }
+        } catch (e) {
+            console.error('Error loading project settings:', e);
+        }
+    }, [currentPath, getProjectSettingsKey]);
 
     // Save sidebar collapsed states
     useEffect(() => {
