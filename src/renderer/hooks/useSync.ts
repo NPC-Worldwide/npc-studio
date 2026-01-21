@@ -1,4 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+    getEncryptionKey,
+    hasEncryptionKey,
+    encryptEntity,
+    decryptObject,
+    EncryptedEntityType
+} from '../utils/encryption';
 
 // API base URL for incognide backend
 const API_BASE_URL = 'https://app.incognide.com';
@@ -7,15 +14,38 @@ const API_BASE_URL = 'https://app.incognide.com';
 const AUTH_TOKEN_KEY = 'incognide-auth-token';
 const LAST_SYNC_KEY = 'incognide-last-sync';
 const PENDING_CHANGES_KEY = 'incognide-pending-changes';
+const SYNC_FREQUENCY_KEY = 'incognide-sync-frequency';
 
-export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'pending' | 'error';
+// Sync frequency options (in milliseconds)
+export const SYNC_FREQUENCIES = {
+    '1m': 60000,
+    '10m': 600000,
+    '30m': 1800000,
+    '1h': 3600000,
+    '24h': 86400000,
+    'manual': 0,  // No auto-sync
+} as const;
+
+export type SyncFrequency = keyof typeof SYNC_FREQUENCIES;
+
+const DEFAULT_SYNC_FREQUENCY: SyncFrequency = '10m';
+
+export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'pending' | 'error' | 'no_encryption_key';
 
 interface PendingChange {
     id: string;
-    type: 'conversation' | 'message' | 'bookmark' | 'history';
+    type: EncryptedEntityType;
     action: 'create' | 'update' | 'delete';
-    data: any;
+    data: Record<string, unknown>;
     timestamp: string;
+}
+
+interface EncryptedChange {
+    entity_type: EncryptedEntityType;
+    entity_id: string;
+    encrypted_data: string;
+    iv: string;
+    action: 'upsert' | 'delete';
 }
 
 interface SyncState {
@@ -24,12 +54,14 @@ interface SyncState {
     lastSyncTime: Date | null;
     pendingChanges: number;
     syncError: string | null;
+    syncFrequency: SyncFrequency;
 }
 
 interface UseSyncReturn extends SyncState {
     triggerSync: () => Promise<void>;
     addPendingChange: (change: Omit<PendingChange, 'id' | 'timestamp'>) => void;
     clearPendingChanges: () => void;
+    setSyncFrequency: (frequency: SyncFrequency) => void;
 }
 
 export const useSync = (): UseSyncReturn => {
@@ -48,6 +80,13 @@ export const useSync = (): UseSyncReturn => {
         }
     });
     const [syncError, setSyncError] = useState<string | null>(null);
+    const [syncFrequency, setSyncFrequencyState] = useState<SyncFrequency>(() => {
+        const stored = localStorage.getItem(SYNC_FREQUENCY_KEY);
+        if (stored && stored in SYNC_FREQUENCIES) {
+            return stored as SyncFrequency;
+        }
+        return DEFAULT_SYNC_FREQUENCY;
+    });
 
     const syncInProgressRef = useRef(false);
     const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -90,17 +129,104 @@ export const useSync = (): UseSyncReturn => {
         localStorage.removeItem(PENDING_CHANGES_KEY);
     }, []);
 
-    // Pull changes from server
+    // Set sync frequency (persisted to localStorage)
+    const setSyncFrequency = useCallback((frequency: SyncFrequency) => {
+        setSyncFrequencyState(frequency);
+        localStorage.setItem(SYNC_FREQUENCY_KEY, frequency);
+        console.log(`[SYNC] Sync frequency changed to: ${frequency}`);
+    }, []);
+
+    // Encrypt pending changes for push
+    const encryptChanges = useCallback(async (changes: PendingChange[]): Promise<EncryptedChange[]> => {
+        const key = getEncryptionKey();
+        if (!key) {
+            throw new Error('Encryption key not available');
+        }
+
+        const encryptedChanges: EncryptedChange[] = [];
+
+        for (const change of changes) {
+            const { encrypted_data, iv } = await encryptEntity(
+                change.data,
+                change.type,
+                key
+            );
+
+            encryptedChanges.push({
+                entity_type: change.type,
+                entity_id: change.data.id as string,
+                encrypted_data,
+                iv,
+                action: change.action === 'delete' ? 'delete' : 'upsert'
+            });
+        }
+
+        return encryptedChanges;
+    }, []);
+
+    // Push encrypted changes to server
+    const pushChanges = useCallback(async (): Promise<boolean> => {
+        const token = localStorage.getItem(AUTH_TOKEN_KEY);
+        if (!token || pendingChanges.length === 0) return true;
+
+        if (!hasEncryptionKey()) {
+            console.log('[SYNC] No encryption key, cannot push changes');
+            setSyncStatus('no_encryption_key');
+            return false;
+        }
+
+        try {
+            const deviceId = await (window as any).api?.getDeviceId?.();
+
+            // Encrypt all pending changes
+            const encryptedChanges = await encryptChanges(pendingChanges);
+
+            const response = await fetch(`${API_BASE_URL}/api/sync/e2e/push`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    device_id: deviceId,
+                    changes: encryptedChanges
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Push failed: ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log(`[SYNC] Pushed ${result.processed} encrypted changes`);
+
+            // Clear pending changes on success
+            clearPendingChanges();
+            return true;
+        } catch (e: any) {
+            console.error('[SYNC] Push error:', e);
+            throw e;
+        }
+    }, [pendingChanges, clearPendingChanges, encryptChanges]);
+
+    // Pull and decrypt changes from server
     const pullChanges = useCallback(async (): Promise<boolean> => {
         const token = localStorage.getItem(AUTH_TOKEN_KEY);
         if (!token) return false;
 
+        if (!hasEncryptionKey()) {
+            console.log('[SYNC] No encryption key, cannot pull changes');
+            setSyncStatus('no_encryption_key');
+            return false;
+        }
+
         try {
+            const key = getEncryptionKey()!;
             const lastSync = lastSyncTime?.toISOString() || '1970-01-01T00:00:00.000Z';
             const deviceId = await (window as any).api?.getDeviceId?.();
 
             const response = await fetch(
-                `${API_BASE_URL}/api/sync/pull?since=${encodeURIComponent(lastSync)}&device_id=${deviceId}`,
+                `${API_BASE_URL}/api/sync/e2e/pull?since=${encodeURIComponent(lastSync)}&device_id=${deviceId}`,
                 {
                     headers: {
                         'Authorization': `Bearer ${token}`
@@ -112,17 +238,40 @@ export const useSync = (): UseSyncReturn => {
                 throw new Error(`Pull failed: ${response.status}`);
             }
 
-            const changes = await response.json();
+            const data = await response.json();
+            const changes = data.changes || [];
 
-            // Apply changes locally
-            if (changes.conversations?.length) {
-                await applyConversationChanges(changes.conversations);
+            if (changes.length === 0) {
+                console.log('[SYNC] No new changes to pull');
+                return true;
             }
-            if (changes.messages?.length) {
-                await applyMessageChanges(changes.messages);
-            }
-            if (changes.bookmarks?.length) {
-                await applyBookmarkChanges(changes.bookmarks);
+
+            console.log(`[SYNC] Pulling ${changes.length} encrypted changes`);
+
+            // Decrypt and apply changes
+            for (const change of changes) {
+                try {
+                    if (change.action === 'delete') {
+                        // Handle delete - decrypt to get entity info for local delete
+                        const decryptedData = await decryptObject<Record<string, unknown>>(
+                            change.encrypted_data,
+                            change.iv,
+                            key
+                        );
+                        await applyDeleteChange(change.entity_type, change.entity_id, decryptedData);
+                    } else {
+                        // Decrypt and apply upsert
+                        const decryptedData = await decryptObject<Record<string, unknown>>(
+                            change.encrypted_data,
+                            change.iv,
+                            key
+                        );
+                        await applyUpsertChange(change.entity_type, change.entity_id, decryptedData);
+                    }
+                } catch (decryptErr) {
+                    console.error(`[SYNC] Failed to decrypt change ${change.entity_id}:`, decryptErr);
+                    // Continue with other changes
+                }
             }
 
             return true;
@@ -132,78 +281,118 @@ export const useSync = (): UseSyncReturn => {
         }
     }, [lastSyncTime]);
 
-    // Push changes to server
-    const pushChanges = useCallback(async (): Promise<boolean> => {
-        const token = localStorage.getItem(AUTH_TOKEN_KEY);
-        if (!token || pendingChanges.length === 0) return true;
+    // Apply an upserted (created/updated) change to local storage
+    const applyUpsertChange = async (
+        entityType: string,
+        entityId: string,
+        decryptedData: Record<string, unknown>
+    ) => {
+        // Merge entity_id into the decrypted data
+        const fullData = { ...decryptedData, id: entityId };
 
-        try {
-            const deviceId = await (window as any).api?.getDeviceId?.();
-
-            const response = await fetch(`${API_BASE_URL}/api/sync/push`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    device_id: deviceId,
-                    changes: pendingChanges
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`Push failed: ${response.status}`);
+        switch (entityType) {
+            case 'conversation': {
+                const existingConvos = JSON.parse(localStorage.getItem('synced-conversations') || '{}');
+                existingConvos[entityId] = fullData;
+                localStorage.setItem('synced-conversations', JSON.stringify(existingConvos));
+                console.log(`[SYNC] Applied conversation: ${entityId}`);
+                break;
             }
-
-            // Clear pending changes on success
-            clearPendingChanges();
-            return true;
-        } catch (e: any) {
-            console.error('[SYNC] Push error:', e);
-            throw e;
+            case 'message': {
+                const existingMessages = JSON.parse(localStorage.getItem('synced-messages') || '{}');
+                const conversationId = (decryptedData as Record<string, unknown>).conversation_id as string;
+                if (conversationId) {
+                    if (!existingMessages[conversationId]) {
+                        existingMessages[conversationId] = [];
+                    }
+                    // Find and update or add message
+                    const idx = existingMessages[conversationId].findIndex((m: Record<string, unknown>) => m.id === entityId);
+                    if (idx >= 0) {
+                        existingMessages[conversationId][idx] = fullData;
+                    } else {
+                        existingMessages[conversationId].push(fullData);
+                    }
+                    localStorage.setItem('synced-messages', JSON.stringify(existingMessages));
+                    console.log(`[SYNC] Applied message: ${entityId}`);
+                }
+                break;
+            }
+            case 'bookmark': {
+                const existingBookmarks = JSON.parse(localStorage.getItem('synced-bookmarks') || '{}');
+                existingBookmarks[entityId] = fullData;
+                localStorage.setItem('synced-bookmarks', JSON.stringify(existingBookmarks));
+                console.log(`[SYNC] Applied bookmark: ${entityId}`);
+                break;
+            }
+            case 'history': {
+                const existingHistory = JSON.parse(localStorage.getItem('synced-history') || '{}');
+                existingHistory[entityId] = fullData;
+                localStorage.setItem('synced-history', JSON.stringify(existingHistory));
+                console.log(`[SYNC] Applied history: ${entityId}`);
+                break;
+            }
+            case 'memory': {
+                const existingMemories = JSON.parse(localStorage.getItem('synced-memories') || '{}');
+                existingMemories[entityId] = fullData;
+                localStorage.setItem('synced-memories', JSON.stringify(existingMemories));
+                console.log(`[SYNC] Applied memory: ${entityId}`);
+                break;
+            }
+            default:
+                console.warn(`[SYNC] Unknown entity type: ${entityType}`);
         }
-    }, [pendingChanges, clearPendingChanges]);
-
-    // Apply conversation changes from server
-    const applyConversationChanges = async (conversations: any[]) => {
-        // For now, store in localStorage - will integrate with existing conversation storage
-        const existingConvos = JSON.parse(localStorage.getItem('synced-conversations') || '{}');
-
-        for (const convo of conversations) {
-            existingConvos[convo.id] = convo;
-        }
-
-        localStorage.setItem('synced-conversations', JSON.stringify(existingConvos));
-        console.log(`[SYNC] Applied ${conversations.length} conversation changes`);
     };
 
-    // Apply message changes from server
-    const applyMessageChanges = async (messages: any[]) => {
-        // For now, store in localStorage - will integrate with existing message storage
-        const existingMessages = JSON.parse(localStorage.getItem('synced-messages') || '{}');
-
-        for (const msg of messages) {
-            if (!existingMessages[msg.conversation_id]) {
-                existingMessages[msg.conversation_id] = [];
+    // Apply a delete change to local storage
+    const applyDeleteChange = async (
+        entityType: string,
+        entityId: string,
+        _decryptedData: Record<string, unknown>
+    ) => {
+        switch (entityType) {
+            case 'conversation': {
+                const existingConvos = JSON.parse(localStorage.getItem('synced-conversations') || '{}');
+                delete existingConvos[entityId];
+                localStorage.setItem('synced-conversations', JSON.stringify(existingConvos));
+                console.log(`[SYNC] Deleted conversation: ${entityId}`);
+                break;
             }
-            // Merge or add message
-            const idx = existingMessages[msg.conversation_id].findIndex((m: any) => m.id === msg.id);
-            if (idx >= 0) {
-                existingMessages[msg.conversation_id][idx] = msg;
-            } else {
-                existingMessages[msg.conversation_id].push(msg);
+            case 'message': {
+                // Messages need special handling - iterate through all conversations
+                const existingMessages = JSON.parse(localStorage.getItem('synced-messages') || '{}');
+                for (const convId of Object.keys(existingMessages)) {
+                    existingMessages[convId] = existingMessages[convId].filter(
+                        (m: any) => m.id !== entityId
+                    );
+                }
+                localStorage.setItem('synced-messages', JSON.stringify(existingMessages));
+                console.log(`[SYNC] Deleted message: ${entityId}`);
+                break;
             }
+            case 'bookmark': {
+                const existingBookmarks = JSON.parse(localStorage.getItem('synced-bookmarks') || '{}');
+                delete existingBookmarks[entityId];
+                localStorage.setItem('synced-bookmarks', JSON.stringify(existingBookmarks));
+                console.log(`[SYNC] Deleted bookmark: ${entityId}`);
+                break;
+            }
+            case 'history': {
+                const existingHistory = JSON.parse(localStorage.getItem('synced-history') || '{}');
+                delete existingHistory[entityId];
+                localStorage.setItem('synced-history', JSON.stringify(existingHistory));
+                console.log(`[SYNC] Deleted history: ${entityId}`);
+                break;
+            }
+            case 'memory': {
+                const existingMemories = JSON.parse(localStorage.getItem('synced-memories') || '{}');
+                delete existingMemories[entityId];
+                localStorage.setItem('synced-memories', JSON.stringify(existingMemories));
+                console.log(`[SYNC] Deleted memory: ${entityId}`);
+                break;
+            }
+            default:
+                console.warn(`[SYNC] Unknown entity type for delete: ${entityType}`);
         }
-
-        localStorage.setItem('synced-messages', JSON.stringify(existingMessages));
-        console.log(`[SYNC] Applied ${messages.length} message changes`);
-    };
-
-    // Apply bookmark changes from server
-    const applyBookmarkChanges = async (bookmarks: any[]) => {
-        // Will integrate with existing bookmark storage in database
-        console.log(`[SYNC] Would apply ${bookmarks.length} bookmark changes`);
     };
 
     // Main sync function
@@ -225,15 +414,22 @@ export const useSync = (): UseSyncReturn => {
             return;
         }
 
+        if (!hasEncryptionKey()) {
+            console.log('[SYNC] No encryption key available, skipping sync');
+            setSyncStatus('no_encryption_key');
+            setSyncError('Sign in again to enable sync');
+            return;
+        }
+
         syncInProgressRef.current = true;
         setSyncStatus('syncing');
         setSyncError(null);
 
         try {
-            // Push local changes first
+            // Push local changes first (encrypted)
             await pushChanges();
 
-            // Then pull remote changes
+            // Then pull remote changes (decrypt on receive)
             await pullChanges();
 
             // Update last sync time
@@ -242,7 +438,7 @@ export const useSync = (): UseSyncReturn => {
             localStorage.setItem(LAST_SYNC_KEY, now.toISOString());
 
             setSyncStatus('synced');
-            console.log('[SYNC] Sync completed successfully');
+            console.log('[SYNC] E2E sync completed successfully');
         } catch (e: any) {
             console.error('[SYNC] Sync failed:', e);
             setSyncError(e.message || 'Sync failed');
@@ -252,24 +448,37 @@ export const useSync = (): UseSyncReturn => {
         }
     }, [isOnline, pushChanges, pullChanges]);
 
-    // Auto-sync every 30 seconds when online and authenticated
+    // Auto-sync based on configured frequency when online, authenticated, and have encryption key
     useEffect(() => {
         const token = localStorage.getItem(AUTH_TOKEN_KEY);
-        if (!token || !isOnline) {
-            if (syncIntervalRef.current) {
-                clearInterval(syncIntervalRef.current);
-                syncIntervalRef.current = null;
-            }
+        const intervalMs = SYNC_FREQUENCIES[syncFrequency];
+
+        // Clear existing interval
+        if (syncIntervalRef.current) {
+            clearInterval(syncIntervalRef.current);
+            syncIntervalRef.current = null;
+        }
+
+        // Don't set up auto-sync if:
+        // - No token or offline
+        // - Manual sync mode (frequency = 0)
+        if (!token || !isOnline || intervalMs === 0) {
             return;
         }
 
-        // Initial sync
-        triggerSync();
-
-        // Set up interval
-        syncIntervalRef.current = setInterval(() => {
+        // Initial sync (only if encryption key is ready)
+        if (hasEncryptionKey()) {
             triggerSync();
-        }, 30000); // 30 seconds
+        }
+
+        // Set up interval with configured frequency
+        syncIntervalRef.current = setInterval(() => {
+            if (hasEncryptionKey()) {
+                triggerSync();
+            }
+        }, intervalMs);
+
+        console.log(`[SYNC] Auto-sync enabled: every ${syncFrequency}`);
 
         return () => {
             if (syncIntervalRef.current) {
@@ -277,11 +486,11 @@ export const useSync = (): UseSyncReturn => {
                 syncIntervalRef.current = null;
             }
         };
-    }, [isOnline, triggerSync]);
+    }, [isOnline, syncFrequency, triggerSync]);
 
     // Trigger sync when coming back online
     useEffect(() => {
-        if (isOnline && pendingChanges.length > 0) {
+        if (isOnline && pendingChanges.length > 0 && hasEncryptionKey()) {
             triggerSync();
         }
     }, [isOnline]);
@@ -292,9 +501,11 @@ export const useSync = (): UseSyncReturn => {
         lastSyncTime,
         pendingChanges: pendingChanges.length,
         syncError,
+        syncFrequency,
         triggerSync,
         addPendingChange,
-        clearPendingChanges
+        clearPendingChanges,
+        setSyncFrequency
     };
 };
 

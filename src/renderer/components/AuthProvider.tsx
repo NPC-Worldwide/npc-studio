@@ -1,8 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-
-// Clerk configuration - keys should be fetched from environment or config
-// These are placeholder values - in production, use your actual Clerk keys
-const CLERK_PUBLISHABLE_KEY = 'pk_live_Y2xlcmsuaW5jb2duaWRlLmNvbSQ'; // Will be configured
+import { deriveKey, setEncryptionKey, clearEncryptionKey, hasEncryptionKey } from '../utils/encryption';
 
 // API base URL for incognide backend
 const API_BASE_URL = 'https://app.incognide.com';
@@ -32,7 +29,9 @@ interface AuthContextType {
     device: Device | null;
     isAuthenticated: boolean;
     isLoading: boolean;
-    signIn: () => Promise<void>;
+    isEncryptionReady: boolean;  // True when encryption key is derived and ready for sync
+    signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+    signUp: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
     signOut: () => Promise<void>;
     refreshUser: () => Promise<void>;
     error: string | null;
@@ -43,7 +42,9 @@ const AuthContext = createContext<AuthContextType>({
     device: null,
     isAuthenticated: false,
     isLoading: true,
-    signIn: async () => {},
+    isEncryptionReady: false,
+    signIn: async () => ({ success: false }),
+    signUp: async () => ({ success: false }),
     signOut: async () => {},
     refreshUser: async () => {},
     error: null,
@@ -58,11 +59,13 @@ interface AuthProviderProps {
 // Local storage keys
 const AUTH_TOKEN_KEY = 'incognide-auth-token';
 const USER_DATA_KEY = 'incognide-user-data';
+const ENCRYPTION_SALT_KEY = 'incognide-encryption-salt';
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
     const [device, setDevice] = useState<Device | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [isEncryptionReady, setIsEncryptionReady] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     // Load stored user data on mount
@@ -77,7 +80,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                     const userData = JSON.parse(storedUserData);
                     setUser(userData);
 
-                    // Validate token with backend
+                    // Validate token with backend (if online)
                     try {
                         const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
                             headers: {
@@ -124,97 +127,125 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         loadStoredAuth();
     }, []);
 
-    // Sign in - opens Clerk auth flow
-    const signIn = useCallback(async () => {
+    // Sign in with email/password
+    const signIn = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
         setIsLoading(true);
         setError(null);
+        setIsEncryptionReady(false);
 
         try {
-            // For Electron, we'll use a popup window approach for OAuth
-            // This is a simplified implementation - in production, use Clerk's SDK
-            const authWindow = window.open(
-                `${API_BASE_URL}/auth/login?redirect=${encodeURIComponent('incognide://auth/callback')}`,
-                'incognide-auth',
-                'width=500,height=600,menubar=no,toolbar=no,location=no'
-            );
+            const deviceInfo = await (window as any).api?.getDeviceInfo?.();
 
-            // Listen for auth callback
-            const handleAuthCallback = (event: MessageEvent) => {
-                if (event.origin !== API_BASE_URL) return;
+            const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email,
+                    password,
+                    device_id: deviceInfo?.deviceId,
+                    device_name: deviceInfo?.deviceName,
+                    device_type: deviceInfo?.deviceType
+                })
+            });
 
-                if (event.data?.type === 'AUTH_SUCCESS') {
-                    const { token, user: userData } = event.data;
-                    localStorage.setItem(AUTH_TOKEN_KEY, token);
-                    localStorage.setItem(USER_DATA_KEY, JSON.stringify(userData));
-                    setUser(userData);
+            const data = await response.json();
 
-                    // Register device with backend
-                    registerDevice(token);
+            if (!response.ok) {
+                setError(data.error || 'Sign in failed');
+                return { success: false, error: data.error || 'Sign in failed' };
+            }
 
-                    authWindow?.close();
+            // Store token and user data
+            localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+            localStorage.setItem(USER_DATA_KEY, JSON.stringify(data.user));
+            setUser(data.user);
+
+            // Derive and store encryption key for E2E sync
+            if (data.encryptionSalt) {
+                try {
+                    localStorage.setItem(ENCRYPTION_SALT_KEY, data.encryptionSalt);
+                    const encryptionKey = await deriveKey(password, data.encryptionSalt);
+                    setEncryptionKey(encryptionKey);
+                    setIsEncryptionReady(true);
+                    console.log('[AUTH] Encryption key derived successfully');
+                } catch (encErr) {
+                    console.error('[AUTH] Failed to derive encryption key:', encErr);
+                    // Sign-in still succeeds, but sync won't work
                 }
+            }
 
-                if (event.data?.type === 'AUTH_ERROR') {
-                    setError(event.data.error || 'Authentication failed');
-                    authWindow?.close();
-                }
-            };
-
-            window.addEventListener('message', handleAuthCallback);
-
-            // Clean up listener after timeout or window close
-            const cleanup = () => {
-                window.removeEventListener('message', handleAuthCallback);
-                setIsLoading(false);
-            };
-
-            // Poll for window close
-            const checkClosed = setInterval(() => {
-                if (authWindow?.closed) {
-                    clearInterval(checkClosed);
-                    cleanup();
-                }
-            }, 500);
-
-            // Timeout after 5 minutes
-            setTimeout(() => {
-                clearInterval(checkClosed);
-                cleanup();
-                authWindow?.close();
-            }, 300000);
+            console.log('[AUTH] Sign in successful');
+            return { success: true };
 
         } catch (e: any) {
-            setError(e.message || 'Failed to sign in');
+            const errorMsg = e.message || 'Failed to sign in';
+            setError(errorMsg);
+            return { success: false, error: errorMsg };
+        } finally {
             setIsLoading(false);
         }
     }, []);
 
-    // Register device with backend
-    const registerDevice = useCallback(async (token: string) => {
+    // Sign up with email/password
+    const signUp = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
+        setIsLoading(true);
+        setError(null);
+        setIsEncryptionReady(false);
+
         try {
             const deviceInfo = await (window as any).api?.getDeviceInfo?.();
-            if (!deviceInfo) return;
 
-            const response = await fetch(`${API_BASE_URL}/api/auth/device`, {
+            const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    device_id: deviceInfo.deviceId,
-                    device_name: deviceInfo.deviceName,
-                    device_type: deviceInfo.deviceType
+                    email,
+                    password,
+                    name,
+                    device_id: deviceInfo?.deviceId,
+                    device_name: deviceInfo?.deviceName,
+                    device_type: deviceInfo?.deviceType
                 })
             });
 
-            if (response.ok) {
-                const registeredDevice = await response.json();
-                setDevice(registeredDevice);
-                console.log('[AUTH] Device registered:', registeredDevice);
+            const data = await response.json();
+
+            if (!response.ok) {
+                setError(data.error || 'Sign up failed');
+                return { success: false, error: data.error || 'Sign up failed' };
             }
-        } catch (e) {
-            console.error('[AUTH] Failed to register device:', e);
+
+            // Store token and user data
+            localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+            localStorage.setItem(USER_DATA_KEY, JSON.stringify(data.user));
+            setUser(data.user);
+
+            // Derive and store encryption key for E2E sync
+            if (data.encryptionSalt) {
+                try {
+                    localStorage.setItem(ENCRYPTION_SALT_KEY, data.encryptionSalt);
+                    const encryptionKey = await deriveKey(password, data.encryptionSalt);
+                    setEncryptionKey(encryptionKey);
+                    setIsEncryptionReady(true);
+                    console.log('[AUTH] Encryption key derived successfully');
+                } catch (encErr) {
+                    console.error('[AUTH] Failed to derive encryption key:', encErr);
+                }
+            }
+
+            console.log('[AUTH] Sign up successful');
+            return { success: true };
+
+        } catch (e: any) {
+            const errorMsg = e.message || 'Failed to sign up';
+            setError(errorMsg);
+            return { success: false, error: errorMsg };
+        } finally {
+            setIsLoading(false);
         }
     }, []);
 
@@ -226,7 +257,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             // Clear local storage
             localStorage.removeItem(AUTH_TOKEN_KEY);
             localStorage.removeItem(USER_DATA_KEY);
+            localStorage.removeItem(ENCRYPTION_SALT_KEY);
             setUser(null);
+
+            // Clear encryption key from memory
+            clearEncryptionKey();
+            setIsEncryptionReady(false);
 
             // Note: Device info is preserved - user data stays local even when signed out
         } catch (e: any) {
@@ -265,7 +301,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 device,
                 isAuthenticated: !!user,
                 isLoading,
+                isEncryptionReady,
                 signIn,
+                signUp,
                 signOut,
                 refreshUser,
                 error

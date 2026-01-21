@@ -7906,6 +7906,16 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, she
   delete cleanEnv.VSCODE_CWD;
   delete cleanEnv.VSCODE_NLS_CONFIG;
 
+  // Set BROWSER env var to intercept browser launches and open in internal browser
+  const browserInterceptorPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'browser-interceptor.sh')
+    : path.join(__dirname, '..', 'resources', 'browser-interceptor.sh');
+
+  if (fs.existsSync(browserInterceptorPath)) {
+    cleanEnv.BROWSER = browserInterceptorPath;
+    log(`[TERMINAL] Set BROWSER env to: ${browserInterceptorPath}`);
+  }
+
   try {
     const ptyProcess = pty.spawn(shell, args, {
       name: 'xterm-256color',
