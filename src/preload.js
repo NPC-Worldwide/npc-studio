@@ -7,17 +7,8 @@ const DEFAULT_PORT = IS_DEV ? '5437' : '5337';
 const BACKEND_PORT = process.env.INCOGNIDE_PORT || DEFAULT_PORT;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
-// Check for fresh start flag passed via additionalArguments
-const IS_FRESH_START = process.argv.includes('--fresh-start');
-
 contextBridge.exposeInMainWorld('api', {
-    // Synchronous flag to check if this is a fresh start window (no workspace to load)
-    isFreshStart: IS_FRESH_START,
 textPredict: (data) => ipcRenderer.invoke('text-predict', data),
-
-// Shortcut relay methods (for terminal keyboard shortcuts)
-triggerNewTextFile: () => ipcRenderer.send('trigger-new-text-file'),
-triggerBrowserNewTab: () => ipcRenderer.send('trigger-browser-new-tab'),
 
 readCsvContent: (filePath) => 
   ipcRenderer.invoke('read-csv-content', filePath),
@@ -48,10 +39,8 @@ readDocxContent: (filePath) =>
 
    
     generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),
-    generateVideo: (prompt, model, provider, duration, currentPath, referenceImage) => ipcRenderer.invoke('generate_video', { prompt, model, provider, duration, currentPath, referenceImage }),
 
     openNewWindow: (path) => ipcRenderer.invoke('open-new-window', path),
-    closeWindow: () => ipcRenderer.invoke('close-window'),
     openInNativeExplorer: (path) => ipcRenderer.invoke('open-in-native-explorer', path),
 
 
@@ -83,10 +72,6 @@ readDocxContent: (filePath) =>
     gitStash: (repoPath, action, message) => ipcRenderer.invoke('gitStash', repoPath, action, message),
     gitShowFile: (repoPath, filePath, ref) => ipcRenderer.invoke('gitShowFile', repoPath, filePath, ref),
     gitDiscardFile: (repoPath, filePath) => ipcRenderer.invoke('gitDiscardFile', repoPath, filePath),
-    gitAcceptOurs: (repoPath, filePath) => ipcRenderer.invoke('gitAcceptOurs', repoPath, filePath),
-    gitAcceptTheirs: (repoPath, filePath) => ipcRenderer.invoke('gitAcceptTheirs', repoPath, filePath),
-    gitMarkResolved: (repoPath, filePath) => ipcRenderer.invoke('gitMarkResolved', repoPath, filePath),
-    gitAbortMerge: (repoPath) => ipcRenderer.invoke('gitAbortMerge', repoPath),
 
     readFile: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
    
@@ -144,13 +129,6 @@ readDocxContent: (filePath) =>
         return () => ipcRenderer.removeListener('cli-open-workspace', handler);
     },
 
-    // Fresh start - new window should not load from localStorage
-    onFreshStart: (callback) => {
-        const handler = () => callback();
-        ipcRenderer.on('fresh-start', handler);
-        return () => ipcRenderer.removeListener('fresh-start', handler);
-    },
-
     // Open URL in browser pane (from xdg-open or command line)
     onOpenUrlInBrowser: (callback) => {
         const handler = (_, data) => callback(data);
@@ -173,14 +151,6 @@ readDocxContent: (filePath) =>
     onMenuNewTerminal: (callback) => {
         ipcRenderer.on('menu-new-terminal', callback);
         return () => ipcRenderer.removeListener('menu-new-terminal', callback);
-    },
-    onMenuNewTextFile: (callback) => {
-        ipcRenderer.on('menu-new-text-file', callback);
-        return () => ipcRenderer.removeListener('menu-new-text-file', callback);
-    },
-    onMenuReopenTab: (callback) => {
-        ipcRenderer.on('menu-reopen-tab', callback);
-        return () => ipcRenderer.removeListener('menu-reopen-tab', callback);
     },
     onMenuOpenFile: (callback) => {
         ipcRenderer.on('menu-open-file', callback);
@@ -586,16 +556,6 @@ onTerminalClosed: (callback) => {
     setupSkip: () => ipcRenderer.invoke('setup:skip'),
     setupReset: () => ipcRenderer.invoke('setup:reset'),
     setupRestartBackend: () => ipcRenderer.invoke('setup:restartBackend'),
-    getNpcImagesPath: () => ipcRenderer.invoke('setup:getNpcImagesPath'),
-    detectLocalModels: () => ipcRenderer.invoke('setup:detectLocalModels'),
-    checkHomebrew: () => ipcRenderer.invoke('setup:checkHomebrew'),
-    checkXcode: () => ipcRenderer.invoke('setup:checkXcode'),
-    installXcode: () => ipcRenderer.invoke('setup:installXcode'),
-    installOllama: (method) => ipcRenderer.invoke('setup:installOllama', { method }),
-    installHomebrew: () => ipcRenderer.invoke('setup:installHomebrew'),
-    getPlatform: () => ipcRenderer.invoke('setup:getPlatform'),
-    isFirstLaunch: () => ipcRenderer.invoke('setup:isFirstLaunch'),
-    markFirstLaunchDone: () => ipcRenderer.invoke('setup:markFirstLaunchDone'),
     onSetupInstallProgress: (callback) => {
         const handler = (event, data) => callback(data);
         ipcRenderer.on('setup:installProgress', handler);
@@ -626,7 +586,6 @@ onTerminalClosed: (callback) => {
 getFileStats: (filePath) => ipcRenderer.invoke('getFileStats', filePath),
 
 openFile: (path) => ipcRenderer.invoke('open-file', path),
-showItemInFolder: (path) => ipcRenderer.invoke('show-item-in-folder', path),
 
 writeFileBuffer: (path, uint8) => ipcRenderer.invoke('write-file-buffer', path, uint8),
 
@@ -659,11 +618,6 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     saveGlobalSettings: (args) => ipcRenderer.invoke('saveGlobalSettings', args),
     loadProjectSettings: (path) => ipcRenderer.invoke('loadProjectSettings', path),
     saveProjectSettings: (args) => ipcRenderer.invoke('saveProjectSettings', args),
-
-    // Device ID and info for multi-device sync
-    getDeviceInfo: () => ipcRenderer.invoke('getDeviceInfo'),
-    setDeviceName: (name) => ipcRenderer.invoke('setDeviceName', name),
-    getDeviceId: () => ipcRenderer.invoke('getDeviceId'),
 
     npcshCheck: () => ipcRenderer.invoke('npcsh-check'),
     npcshPackageContents: () => ipcRenderer.invoke('npcsh-package-contents'),
@@ -739,10 +693,4 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     // Version and Update APIs
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
-
-    // Media Permissions (macOS)
-    checkMediaPermissions: () => ipcRenderer.invoke('check-media-permissions'),
-    requestMediaPermissions: () => ipcRenderer.invoke('request-media-permissions'),
-    openSystemPreferences: (pane) => ipcRenderer.invoke('open-system-preferences', pane),
-    getScreenCaptureStatus: () => ipcRenderer.invoke('get-screen-capture-status'),
 });

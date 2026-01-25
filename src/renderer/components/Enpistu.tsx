@@ -49,7 +49,6 @@ import PathSwitcher from './PathSwitcher';
 import CronDaemonPanel from './CronDaemonPanel';
 import MemoryManager from './MemoryManager';
 import SearchPane from './SearchPane';
-import { AuthProvider } from './AuthProvider';
 import DownloadManager, { getActiveDownloadsCount, setDownloadToastCallback } from './DownloadManager';
 import { LiveProvider, LivePreview, LiveError } from 'react-live';
 // Components for tile jinx runtime rendering
@@ -688,7 +687,7 @@ const ChatInterface = () => {
     const [isInputExpanded, setIsInputExpanded] = useState(false);
     const [executionMode, setExecutionMode] = useState(() => {
         const saved = localStorage.getItem('npcStudioExecutionMode');
-        return saved ? JSON.parse(saved) : 'tool_agent';
+        return saved ? JSON.parse(saved) : 'chat';
     });
     const [favoriteModels, setFavoriteModels] = useState<Set<string>>(() => {
         const saved = localStorage.getItem('npcStudioFavoriteModels');
@@ -714,18 +713,8 @@ const ChatInterface = () => {
 
     const [draggedItem, setDraggedItem] = useState(null);
     const [dropTarget, setDropTarget] = useState(null);
-
-    // Add overlay class to block webview interaction during drag operations
-    useEffect(() => {
-        if (draggedItem) {
-            document.body.classList.add('layout-resizing');
-        } else {
-            document.body.classList.remove('layout-resizing');
-        }
-    }, [draggedItem]);
-
+   
     const contentDataRef = useRef({});
-    const closedTabsRef = useRef<Array<{contentType: string, contentId: string, browserUrl?: string, browserTitle?: string}>>([]);
     const currentPathRef = useRef(currentPath);
     currentPathRef.current = currentPath;
     const activeContentPaneIdRef = useRef(activeContentPaneId);
@@ -905,25 +894,6 @@ const ChatInterface = () => {
         if (api.api?.onMenuNewTerminal) {
             cleanups.push(api.api.onMenuNewTerminal(() => createNewTerminalRef.current?.()));
         }
-        if (api.api?.onMenuNewTextFile) {
-            cleanups.push(api.api.onMenuNewTextFile(() => createUntitledTextFileRef.current?.()));
-        }
-        if (api.api?.onMenuReopenTab) {
-            cleanups.push(api.api.onMenuReopenTab(() => {
-                const closedTab = closedTabsRef.current.pop();
-                if (closedTab) {
-                    const newPaneId = generateId();
-                    contentDataRef.current[newPaneId] = {
-                        contentType: closedTab.contentType,
-                        contentId: closedTab.contentId,
-                        browserUrl: closedTab.browserUrl,
-                        browserTitle: closedTab.browserTitle
-                    };
-                    setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
-                    setActiveContentPaneId(newPaneId);
-                }
-            }));
-        }
         if (api.api?.onMenuOpenFile) {
             cleanups.push(api.api.onMenuOpenFile(async () => {
                 const result = await api.api.open_directory_picker?.();
@@ -984,8 +954,7 @@ const ChatInterface = () => {
         // Window menu handlers
         if (api.api?.onMenuNewWindow) {
             cleanups.push(api.api.onMenuNewWindow(() => {
-                // Open new window without a folder - let user choose
-                api.api.openNewWindow?.();
+                api.api.openNewWindow?.(currentPathRef.current);
             }));
         }
 
@@ -1386,79 +1355,6 @@ const ChatInterface = () => {
         localStorage.setItem('npcStudioExecutionMode', JSON.stringify(executionMode));
     }, [executionMode]);
 
-    // Project-specific settings: save and restore last used model/provider/NPC/executionMode per project folder
-    const getProjectSettingsKey = useCallback((folderPath: string) => {
-        // Create a unique key for each project folder
-        return `incognide-project-settings-${folderPath.replace(/[/\\]/g, '_')}`;
-    }, []);
-
-    // Save project settings when they change
-    useEffect(() => {
-        if (!currentPath || !currentModel || !currentProvider) return;
-
-        try {
-            const key = getProjectSettingsKey(currentPath);
-            const settings = {
-                lastModel: currentModel,
-                lastProvider: currentProvider,
-                lastNPC: currentNPC,
-                lastExecutionMode: executionMode,
-                updatedAt: new Date().toISOString()
-            };
-            localStorage.setItem(key, JSON.stringify(settings));
-        } catch (e) {
-            console.error('Error saving project settings:', e);
-        }
-    }, [currentPath, currentModel, currentProvider, currentNPC, executionMode, getProjectSettingsKey]);
-
-    // Ref to track if we're restoring project settings (to avoid save loop)
-    const isRestoringProjectSettings = useRef(false);
-    const previousPath = useRef<string | null>(null);
-
-    // Load project settings when path changes
-    useEffect(() => {
-        if (!currentPath || currentPath === previousPath.current) return;
-        previousPath.current = currentPath;
-
-        try {
-            const key = getProjectSettingsKey(currentPath);
-            const savedSettings = localStorage.getItem(key);
-
-            if (savedSettings) {
-                const settings = JSON.parse(savedSettings);
-                isRestoringProjectSettings.current = true;
-
-                // Restore settings from this project
-                if (settings.lastModel) setCurrentModel(settings.lastModel);
-                if (settings.lastProvider) setCurrentProvider(settings.lastProvider);
-                if (settings.lastNPC !== undefined) setCurrentNPC(settings.lastNPC);
-                if (settings.lastExecutionMode) setExecutionMode(settings.lastExecutionMode);
-
-                console.log(`[PROJECT SETTINGS] Restored settings for ${currentPath}:`, settings);
-
-                // Reset the flag after a short delay
-                setTimeout(() => {
-                    isRestoringProjectSettings.current = false;
-                }, 100);
-            } else {
-                // No saved settings for this project - check for defaultToAgent global setting
-                (async () => {
-                    try {
-                        const globalSettings = await window.api.loadGlobalSettings();
-                        if (globalSettings?.global_settings?.default_to_agent) {
-                            setExecutionMode('tool_agent');
-                            console.log('[PROJECT SETTINGS] No saved settings, defaulting to agent mode per global setting');
-                        }
-                    } catch (e) {
-                        console.error('Error loading global settings for default agent mode:', e);
-                    }
-                })();
-            }
-        } catch (e) {
-            console.error('Error loading project settings:', e);
-        }
-    }, [currentPath, getProjectSettingsKey]);
-
     // Save sidebar collapsed states
     useEffect(() => {
         localStorage.setItem('sidebarFilesCollapsed', JSON.stringify(filesCollapsed));
@@ -1741,21 +1637,8 @@ const ChatInterface = () => {
         loadMcpTools();
     }, [executionMode, mcpServerPath, currentPath]);
 
-    // Load MCP servers on initial mount and when currentPath changes
-    useEffect(() => {
-        const loadMcpServers = async () => {
-            if (!currentPath) return;
-            const res = await window.api.getMcpServers(currentPath);
-            if (res && Array.isArray(res.servers)) {
-                setAvailableMcpServers(res.servers);
-                // Set default server path if not already set
-                if (!mcpServerPath && res.servers.length > 0) {
-                    setMcpServerPath(res.servers[0].serverPath);
-                }
-            }
-        };
-        loadMcpServers();
-    }, [currentPath]);
+        
+
 
     useEffect(() => {
         if (selectedJinx && Array.isArray(selectedJinx.inputs)) {
@@ -1797,7 +1680,6 @@ const ChatInterface = () => {
     const createSettingsPaneRef = useRef<(() => void) | null>(null);
     const createSearchPaneRef = useRef<((query?: string) => void) | null>(null);
     const createHelpPaneRef = useRef<(() => void) | null>(null);
-    const createUntitledTextFileRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         const handleKeyDown = async (e: KeyboardEvent) => {
@@ -1866,9 +1748,13 @@ const ChatInterface = () => {
                 return;
             }
 
+            // Ctrl+Shift+C - New Conversation/Chat (but not when in terminal - let terminal handle copy)
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
-                const activePane = contentDataRef.current[activeContentPaneId];
-                if (activePane?.contentType === 'terminal') {
+                // Check if focus is inside a terminal - if so, let the terminal handle the copy
+                const activeElement = document.activeElement;
+                const isInTerminal = activeElement?.closest('.xterm') || activeElement?.closest('[data-terminal]');
+                if (isInTerminal) {
+                    // Don't prevent default - let the terminal's copy handler work
                     return;
                 }
                 e.preventDefault();
@@ -1883,40 +1769,33 @@ const ChatInterface = () => {
                 return;
             }
 
-            // Ctrl+Shift+N - New Workspace/Window (opens without a folder)
+            // Ctrl+Shift+N - New Workspace/Window
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'n' || e.key === 'N')) {
                 e.preventDefault();
                 if ((window as any).api?.openNewWindow) {
-                    (window as any).api.openNewWindow();
+                    (window as any).api.openNewWindow(currentPath);
                 } else {
                     window.open(window.location.href, '_blank');
                 }
                 return;
             }
 
-            // Ctrl+N - New untitled text file
+            // Ctrl+N - New Folder
             if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N') && !e.shiftKey) {
                 e.preventDefault();
-                createUntitledTextFileRef.current?.();
+                handleCreateNewFolderRef.current?.();
                 return;
             }
 
-            // Ctrl+W - Close current tab/pane, or close window if no panes
+            // Ctrl+W - Close current tab/pane (prevent closing window)
             if ((e.ctrlKey || e.metaKey) && (e.key === 'w' || e.key === 'W') && !e.shiftKey) {
                 e.preventDefault();
                 e.stopPropagation();
-
-                // Check if there are any actual panes open
-                const hasPanes = Object.keys(contentDataRef.current).length > 0;
-
-                if (hasPanes && activeContentPaneId) {
+                if (activeContentPaneId) {
                     const nodePath = findNodePath(rootLayoutNodeRef.current, activeContentPaneId);
                     if (nodePath) {
                         closeContentPane(activeContentPaneId, nodePath);
                     }
-                } else if (!hasPanes) {
-                    // No panes open, close the window
-                    (window as any).api?.closeWindow?.();
                 }
                 return;
             }
@@ -2049,7 +1928,7 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
         // Initialize per-pane execution mode if not set - use globally persisted mode
         if (paneData.executionMode === undefined) {
             const savedMode = localStorage.getItem('npcStudioExecutionMode');
-            paneData.executionMode = savedMode ? JSON.parse(savedMode) : 'tool_agent';
+            paneData.executionMode = savedMode ? JSON.parse(savedMode) : 'chat';
             paneData.selectedJinx = null;
             paneData.showJinxDropdown = false;
         }
@@ -2175,21 +2054,13 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
 }, [updateContentPane]);
 
 const closeContentPane = useCallback((paneId, nodePath) => {
+    // Track pane close activity
     const paneData = contentDataRef.current[paneId];
     if (paneData) {
         trackActivity('pane_close', {
             paneType: paneData.contentType,
             filePath: paneData.contentId,
         });
-        closedTabsRef.current.push({
-            contentType: paneData.contentType,
-            contentId: paneData.contentId,
-            browserUrl: paneData.browserUrl,
-            browserTitle: paneData.browserTitle
-        });
-        if (closedTabsRef.current.length > 20) {
-            closedTabsRef.current.shift();
-        }
     }
 
     setRootLayoutNode(oldRoot => {
@@ -2346,67 +2217,6 @@ const handleSaveConversationLabel = useCallback((label: ConversationLabel) => {
 const handleCloseConversationLabelingModal = useCallback(() => {
     setConversationLabelingModal({ isOpen: false, conversation: null });
 }, []);
-
-// Chat pane action handlers
-const handleCopyChat = useCallback(() => {
-    const paneData = contentDataRef.current[activeContentPaneId];
-    if (!paneData || paneData.contentType !== 'chat') return;
-
-    const messages = paneData.chatMessages?.messages || [];
-    // If in selection mode with selected messages, copy only those
-    if (messageSelectionMode && selectedMessages.size > 0) {
-        const selectedMsgs = messages.filter(m => selectedMessages.has(m.id));
-        const text = selectedMsgs.map(m => `${m.role === 'user' ? 'User' : (m.npc || m.model || 'Assistant')}: ${m.content}`).join('\n\n');
-        navigator.clipboard.writeText(text);
-    } else {
-        // Copy all messages
-        const text = messages.map(m => `${m.role === 'user' ? 'User' : (m.npc || m.model || 'Assistant')}: ${m.content}`).join('\n\n');
-        navigator.clipboard.writeText(text);
-    }
-}, [activeContentPaneId, messageSelectionMode, selectedMessages]);
-
-const handleSaveChat = useCallback(async () => {
-    const paneData = contentDataRef.current[activeContentPaneId];
-    if (!paneData || paneData.contentType !== 'chat') return;
-
-    const messages = paneData.chatMessages?.messages || [];
-    const conversationId = paneData.contentId;
-    const text = messages.map(m => `${m.role === 'user' ? 'User' : (m.npc || m.model || 'Assistant')}: ${m.content}`).join('\n\n');
-
-    // Use save dialog
-    const filename = `conversation_${conversationId?.slice(0, 8) || 'export'}_${Date.now()}.md`;
-    const filepath = `${currentPath}/${filename}`;
-
-    try {
-        await window.api.writeFileContent(filepath, `# Conversation Export\n\n${text}`);
-        // Optionally open the file
-        if (handleFileClickRef.current) {
-            handleFileClickRef.current(filepath);
-        }
-    } catch (err) {
-        setError(err.message);
-    }
-}, [activeContentPaneId, currentPath]);
-
-const handleClearChat = useCallback(async () => {
-    const paneData = contentDataRef.current[activeContentPaneId];
-    if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) return;
-
-    // Clear messages in the pane data
-    if (paneData.chatMessages) {
-        paneData.chatMessages.messages = [];
-        paneData.chatMessages.allMessages = [];
-    }
-
-    // Clear from database
-    try {
-        await window.api.clearConversation(paneData.contentId);
-    } catch (err) {
-        console.error('Error clearing conversation:', err);
-    }
-
-    setRootLayoutNode(prev => ({ ...prev }));
-}, [activeContentPaneId]);
 
 // Handle resend message - opens resend modal
 const handleResendMessage = useCallback((messageToResend: any) => {
@@ -3355,13 +3165,13 @@ const handleAICodeAction = useCallback(async (type: string, selectedText: string
         conversationId: conversation.id,
         model: currentModel,
         provider: currentProvider,
-        executionMode: 'tool_agent'
+        executionMode: 'chat'
     });
 }, [currentModel, currentProvider, currentPath]);
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
-    if (!paneData || (!paneData.contentId && !paneData.isUntitled)) {
+    if (!paneData || !paneData.contentId) {
         return <div className="flex-1 flex items-center justify-center theme-text-muted">No file selected</div>;
     }
 
@@ -3391,7 +3201,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             onSendToTerminal={handleSendToTerminal}
         />
     );
-}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal, handleAICodeAction, setPromptModal]);
+}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal, handleAICodeAction]);
 
 const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, shell?: string }) => {
     return (
@@ -3400,12 +3210,11 @@ const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, she
             contentDataRef={contentDataRef}
             currentPath={currentPath}
             activeContentPaneId={activeContentPaneId}
-            setActiveContentPaneId={setActiveContentPaneId}
             shell={shell}
             isDarkMode={isDarkMode}
         />
     );
-}, [currentPath, activeContentPaneId, isDarkMode, setActiveContentPaneId]);
+}, [currentPath, activeContentPaneId, isDarkMode]);
 
 // PDF highlight handlers
 const handleCopyPdfText = useCallback((text: string) => {
@@ -5114,8 +4923,7 @@ useEffect(() => {
 useEffect(() => {
     const cleanup = (window as any).api?.onBrowserNewTab?.(() => {
         // Check if active pane is a browser
-        const currentPaneId = activeContentPaneIdRef.current;
-        const paneData = contentDataRef.current[currentPaneId];
+        const paneData = contentDataRef.current[activeContentPaneId];
 
         if (paneData?.contentType === 'browser') {
             // Active pane is browser - add new tab to it
@@ -5161,7 +4969,7 @@ useEffect(() => {
         }
     });
     return () => cleanup?.();
-}, [createNewBrowser]);
+}, [activeContentPaneId, createNewBrowser]);
 
 // Render SearchPane (for pane-based unified search)
 const renderSearchPane = useCallback(({ nodeId, initialQuery }: { nodeId: string; initialQuery?: string }) => {
@@ -5543,15 +5351,14 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
         const wasVoiceInput = options?.voiceInput || false;
         const genParams = options?.genParams || { temperature: 0.7, top_p: 0.9, top_k: 40, max_tokens: 4096 };
 
-        // Get pane-specific input text, execution mode and selectedJinx
-        const paneInput = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.inputText || '') : '';
-        const paneExecMode = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.executionMode || 'tool_agent') : 'tool_agent';
+        // Get pane-specific execution mode and selectedJinx
+        const paneExecMode = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.executionMode || 'chat') : 'chat';
         const paneSelectedJinx = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.selectedJinx || null) : null;
 
         const isJinxMode = paneExecMode !== 'chat' && paneSelectedJinx;
         const currentJinxInputs = isJinxMode ? (jinxInputValues[paneSelectedJinx.name] || {}) : {};
 
-        const hasContent = (paneInput || '').trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
+        const hasContent = (input || '').trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
 
         if (!hasContent || (!activeContentPaneId && !isJinxMode)) {
             if (!isJinxMode && !activeContentPaneId) {
@@ -5572,7 +5379,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
         streamToPaneRef.current[newStreamId] = activeContentPaneId;
         setIsStreaming(true);
 
-        let finalPromptForUserMessage = paneInput;
+        let finalPromptForUserMessage = input;
         let jinxName = null;
         let jinxArgsForApi: any[] = [];
 
@@ -5689,11 +5496,9 @@ ${contextPrompt}`;
         }
 
         // IMMEDIATELY clear input and files so user can type next message
-        const savedInput = paneInput;
+        const savedInput = input;
         const savedFiles = [...uploadedFiles];
-        if (activeContentPaneId && contentDataRef.current[activeContentPaneId]) {
-            contentDataRef.current[activeContentPaneId].inputText = '';
-        }
+        setInput('');
         setUploadedFiles([]);
         if (isJinxMode) {
             setJinxInputValues(prev => ({
@@ -6288,24 +6093,6 @@ ${contextPrompt}`;
         setActiveContentPaneId(newPaneId);
     }, []);
 
-    // Create untitled text file directly without modal
-    const createUntitledTextFile = useCallback(() => {
-        const newPaneId = generateId();
-        contentDataRef.current[newPaneId] = {
-            contentType: 'editor',
-            contentId: '',
-            fileContent: '',
-            isUntitled: true
-        };
-        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
-        setActiveContentPaneId(newPaneId);
-    }, []);
-
-    // Keep ref updated for keyboard handler
-    useEffect(() => {
-        createUntitledTextFileRef.current = createUntitledTextFile;
-    }, [createUntitledTextFile]);
-
     const createNewTextFile = useCallback((defaultFilename?: string) => {
         const filename = defaultFilename || localStorage.getItem('npcStudio_defaultCodeFileType') || 'untitled.py';
         const finalDefault = filename.includes('.') ? filename : `untitled.${filename}`;
@@ -6717,13 +6504,6 @@ ${contextPrompt}`;
 
             // Only determine initial path on first load (when currentPath is empty)
             if (!currentPath) {
-                // If this is a fresh start window, don't load from storage - let user pick folder
-                if (window.api?.isFreshStart) {
-                    console.log('[FRESH START] Skipping stored workspace, showing folder picker');
-                    setLoading(false);
-                    return;
-                }
-
                 let initialPathToLoad = config.baseDir;
                 // Check sessionStorage first (for hot-reload within same window),
                 // then localStorage (for persistence across app restarts)
@@ -6930,27 +6710,6 @@ ${contextPrompt}`;
             if (!workspaceRestored) {
                 if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
                     await handleConversationSelect(targetConvoId, false, false);
-                } else {
-                    // Check if this is the first launch - if so, create a default chat pane
-                    try {
-                        const isFirstLaunch = await (window as any).api?.isFirstLaunch?.();
-                        if (isFirstLaunch && !rootLayoutNode) {
-                            // Create a welcome chat pane
-                            const newPaneId = generateId();
-                            contentDataRef.current[newPaneId] = {
-                                contentType: 'chat',
-                                contentId: null,
-                                chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
-                            };
-                            setRootLayoutNode({ id: newPaneId, type: 'content' });
-                            setActiveContentPaneId(newPaneId);
-
-                            // Mark first launch as done
-                            await (window as any).api?.markFirstLaunchDone?.();
-                        }
-                    } catch (err) {
-                        console.error('Error checking first launch:', err);
-                    }
                 }
             } else {
                 if (targetConvoId) {
@@ -8302,7 +8061,7 @@ ${contextPrompt}`;
 
 // Per-pane execution mode getter/setter
 const getPaneExecutionMode = useCallback((paneId: string) => {
-    return contentDataRef.current[paneId]?.executionMode || 'tool_agent';
+    return contentDataRef.current[paneId]?.executionMode || 'chat';
 }, []);
 
 const setPaneExecutionMode = useCallback(async (paneId: string, mode: string) => {
@@ -8333,7 +8092,7 @@ const getPaneSelectedJinx = useCallback((paneId: string) => {
 
 const setPaneSelectedJinx = useCallback((paneId: string, jinx: any) => {
     if (!contentDataRef.current[paneId]) {
-        contentDataRef.current[paneId] = { executionMode: 'tool_agent', selectedJinx: jinx, showJinxDropdown: false };
+        contentDataRef.current[paneId] = { executionMode: 'chat', selectedJinx: jinx, showJinxDropdown: false };
     } else {
         contentDataRef.current[paneId].selectedJinx = jinx;
     }
@@ -8356,26 +8115,9 @@ const setPaneShowJinxDropdown = useCallback((paneId: string, show: boolean) => {
     setRootLayoutNode(prev => ({ ...prev }));
 }, []);
 
-// Per-pane input text state
-const getPaneInput = useCallback((paneId: string) => {
-    return contentDataRef.current[paneId]?.inputText || '';
-}, []);
-
-const setPaneInput = useCallback((paneId: string, text: string) => {
-    if (!contentDataRef.current[paneId]) {
-        contentDataRef.current[paneId] = { executionMode: 'tool_agent', selectedJinx: null, showJinxDropdown: false, inputText: text };
-    } else {
-        contentDataRef.current[paneId].inputText = text;
-    }
-    // Trigger re-render
-    setRootLayoutNode(prev => ({ ...prev }));
-}, []);
-
 // Build chatInputProps function that returns props for a specific pane
 const getChatInputProps = useCallback((paneId: string) => ({
-    input: getPaneInput(paneId),
-    setInput: (text: string) => setPaneInput(paneId, text),
-    inputHeight, setInputHeight,
+    input, setInput, inputHeight, setInputHeight,
     isInputMinimized, setIsInputMinimized, isInputExpanded, setIsInputExpanded,
     isResizingInput, setIsResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
@@ -8423,8 +8165,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
             setError("Cannot broadcast: The active pane is not a valid chat window.");
             return;
         }
-        const paneInput = activePaneData.inputText || '';
-        if (isStreaming || !paneInput.trim()) return;
+        if (isStreaming || !input.trim()) return;
 
         // Deduplicate models and npcs
         const uniqueModels = [...new Set(models)];
@@ -8457,7 +8198,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
             const userMessage = {
                 id: userMessageId,
                 role: 'user',
-                content: paneInput,
+                content: input,
                 timestamp: new Date().toISOString(),
                 attachments: uploadedFiles.map(f => ({ name: f.name, path: f.path, size: f.size, type: f.type })),
                 cellId: cellId,
@@ -8533,7 +8274,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
 
         activePaneData.chatMessages.allMessages = allMessages;
         activePaneData.chatMessages.messages = allMessages.slice(-(activePaneData.chatMessages.displayedMessageCount || 20));
-        activePaneData.inputText = '';
+        setInput('');
         setUploadedFiles([]);
         setRootLayoutNode(prev => ({ ...prev }));
 
@@ -8578,7 +8319,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
         setSelectedNPCs([]);
     },
 }), [
-    getPaneInput, setPaneInput, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
+    input, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
     uploadedFiles, contextFiles, contextFilesCollapsed, currentPath,
     getPaneExecutionMode, setPaneExecutionMode, getPaneSelectedJinx, setPaneSelectedJinx,
@@ -8943,7 +8684,7 @@ const renderPaneContextMenu = () => {
     };
 
     const handleNewTextFile = () => {
-        createUntitledTextFile();
+        createNewTextFile();
         setPaneContextMenu(null);
     };
 
@@ -9067,7 +8808,8 @@ const renderBrowserContextMenu = () => {
     const handleSaveImage = async () => {
         if (browserContextMenuPos.srcURL) {
             try {
-                await (window as any).api?.browserSaveImage?.(browserContextMenuPos.srcURL, currentPath);
+                // Trigger download via main process
+                (window as any).api?.downloadFile?.(browserContextMenuPos.srcURL);
             } catch (err) {
                 console.error('Failed to save image:', err);
             }
@@ -9344,8 +9086,8 @@ const renderMainContent = () => {
 
             {/* App Search */}
             <div
-                className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400/30 transition-all flex-shrink min-w-0"
-                style={{ width: Math.max(80, topBarHeight * 3), maxWidth: '200px' }}
+                className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400/30 transition-all"
+                style={{ width: Math.max(100, topBarHeight * 4) }}
             >
                 {/* Custom app search icon - magnifying glass with document */}
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
@@ -9400,7 +9142,7 @@ const renderMainContent = () => {
             </div>
 
             {/* Web Search */}
-            <div className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400/30 transition-all flex-shrink min-w-0" style={{ width: '120px', maxWidth: '160px' }}>
+            <div className="flex items-center gap-2 w-40 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400/30 transition-all">
                 <Globe size={14} className="text-cyan-400 flex-shrink-0" />
                 <input
                     type="text"
@@ -9419,8 +9161,10 @@ const renderMainContent = () => {
                 />
             </div>
 
+            <div className="flex-1" />
+
             {/* Right side - Library, Photo, Disk Usage, Cron/Daemon, DateTime */}
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2">
                 <button
                     onClick={() => createLibraryViewerPane?.()}
                     className="p-2 theme-hover rounded theme-text-muted"
@@ -9705,20 +9449,7 @@ const renderMainContent = () => {
                     <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentApi} />
                 ) : (
                     <div className="flex-1 flex items-center justify-center theme-text-muted">
-                        {loading ? "Loading..." : !currentPath ? (
-                            <div className="flex flex-col items-center gap-4">
-                                <p className="text-gray-400">Select a folder to get started</p>
-                                <button
-                                    onClick={async () => {
-                                        const selectedPath = await (window as any).api.open_directory_picker();
-                                        if (selectedPath) setCurrentPath(selectedPath);
-                                    }}
-                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                                >
-                                    Open Folder
-                                </button>
-                            </div>
-                        ) : "Drag a conversation or file to start."}
+                        {loading ? "Loading..." : "Drag a conversation or file to start."}
                     </div>
                 )}
             </div>
@@ -9888,7 +9619,7 @@ const renderMainContent = () => {
         goUpDirectory={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
         switchToPath={switchToPath}
         handleCreateNewFolder={handleCreateNewFolder}
-        createNewTextFile={createUntitledTextFile}
+        createNewTextFile={createNewTextFile}
         createNewTerminal={createNewTerminal}
         createNewNotebook={createNewJupyterNotebook}
         createNewExperiment={createNewExperiment}

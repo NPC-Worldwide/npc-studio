@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen, systemPreferences, Menu } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen, Menu } = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -339,67 +339,6 @@ const DEFAULT_CONFIG = {
   npc: defaultModelConfig.npc,
 };
 
-// Device ID and configuration for multi-device sync
-const DEVICE_CONFIG_PATH = path.join(os.homedir(), '.npcsh', 'incognide', 'device.json');
-
-function getOrCreateDeviceId() {
-  try {
-    // Ensure directory exists
-    const dir = path.dirname(DEVICE_CONFIG_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    // Try to read existing device config
-    if (fs.existsSync(DEVICE_CONFIG_PATH)) {
-      const config = JSON.parse(fs.readFileSync(DEVICE_CONFIG_PATH, 'utf-8'));
-      if (config.deviceId) {
-        log(`[DEVICE] Using existing device ID: ${config.deviceId}`);
-        return config;
-      }
-    }
-
-    // Generate new device ID and config
-    const newConfig = {
-      deviceId: crypto.randomUUID(),
-      deviceName: os.hostname() || 'My Device',
-      deviceType: process.platform, // 'darwin', 'win32', 'linux'
-      createdAt: new Date().toISOString()
-    };
-
-    fs.writeFileSync(DEVICE_CONFIG_PATH, JSON.stringify(newConfig, null, 2));
-    log(`[DEVICE] Created new device ID: ${newConfig.deviceId}`);
-    return newConfig;
-  } catch (err) {
-    log(`[DEVICE] Error getting/creating device ID: ${err.message}`);
-    // Return a temporary ID that won't persist
-    return {
-      deviceId: crypto.randomUUID(),
-      deviceName: os.hostname() || 'My Device',
-      deviceType: process.platform,
-      createdAt: new Date().toISOString(),
-      isTemporary: true
-    };
-  }
-}
-
-function updateDeviceConfig(updates) {
-  try {
-    const currentConfig = getOrCreateDeviceId();
-    const newConfig = { ...currentConfig, ...updates, updatedAt: new Date().toISOString() };
-    fs.writeFileSync(DEVICE_CONFIG_PATH, JSON.stringify(newConfig, null, 2));
-    log(`[DEVICE] Updated device config:`, updates);
-    return newConfig;
-  } catch (err) {
-    log(`[DEVICE] Error updating device config: ${err.message}`);
-    return null;
-  }
-}
-
-// Initialize device config on startup
-const deviceConfig = getOrCreateDeviceId();
-log(`[DEVICE] Initialized with device ID: ${deviceConfig.deviceId}, name: ${deviceConfig.deviceName}`);
-
 function generateId() {
   return crypto.randomUUID();
 }
@@ -480,17 +419,6 @@ ipcMain.on('set-workspace-path', (event, workspacePath) => {
   }
 });
 
-// Terminal shortcut relay handlers (Ctrl+N and Ctrl+T from terminal)
-ipcMain.on('trigger-new-text-file', (event) => {
-  // Relay to the window that sent this
-  event.sender.send('menu-new-text-file');
-});
-
-ipcMain.on('trigger-browser-new-tab', (event) => {
-  // Relay to the window that sent this
-  event.sender.send('browser-new-tab');
-});
-
 // Helper to get workspace path for a webContents (checks parent windows too)
 function getWorkspacePathForWebContents(webContents) {
   // Try direct ID first
@@ -556,47 +484,6 @@ app.on('web-contents-created', (event, contents) => {
     }
   });
 
-  // Handle permissions for webviews (camera, microphone, screen sharing, etc.)
-  if (contents.getType() === 'webview') {
-    contents.session.setPermissionRequestHandler((webContents, permission, callback, details) => {
-      // Allow media permissions (camera, microphone, screen sharing)
-      const allowedPermissions = [
-        'media',           // camera, microphone
-        'mediaKeySystem',  // encrypted media
-        'geolocation',
-        'notifications',
-        'clipboard-read',
-        'clipboard-write',
-        'display-capture', // screen sharing
-        'video-capture',   // video capture
-        'audio-capture',   // audio capture
-      ];
-      if (allowedPermissions.includes(permission)) {
-        log(`[Permissions] Granting ${permission} for webview`);
-        callback(true);
-      } else {
-        log(`[Permissions] Denying ${permission} for webview`);
-        callback(false);
-      }
-    });
-
-    // Also handle permission check requests
-    contents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
-      const allowedPermissions = [
-        'media',
-        'mediaKeySystem',
-        'geolocation',
-        'notifications',
-        'clipboard-read',
-        'clipboard-write',
-        'display-capture',
-        'video-capture',
-        'audio-capture',
-      ];
-      return allowedPermissions.includes(permission);
-    });
-  }
-
   // Handle new window requests from webviews (ctrl+click, middle-click, target="_blank")
   // Send to renderer to open in new tab instead of new window
   if (contents.getType() === 'webview') {
@@ -646,39 +533,6 @@ app.whenReady().then(async () => {
 
   const dataPath = ensureUserDataDirectory();
   await ensureTablesExist();
-
-  // Request camera and microphone permissions on macOS
-  if (process.platform === 'darwin') {
-    try {
-      const cameraStatus = await systemPreferences.askForMediaAccess('camera');
-      const micStatus = await systemPreferences.askForMediaAccess('microphone');
-      log(`macOS permissions - Camera: ${cameraStatus}, Microphone: ${micStatus}`);
-
-      // If either permission was denied, show a helpful dialog
-      if (!cameraStatus || !micStatus) {
-        const denied = [];
-        if (!cameraStatus) denied.push('Camera');
-        if (!micStatus) denied.push('Microphone');
-
-        const result = await dialog.showMessageBox({
-          type: 'warning',
-          title: 'Permissions Required',
-          message: `${denied.join(' and ')} access was denied`,
-          detail: 'To use video calls in the browser, you need to grant camera and microphone permissions in System Settings.\n\nClick "Open Settings" to go directly to Privacy settings.',
-          buttons: ['Open Settings', 'Later'],
-          defaultId: 0,
-          cancelId: 1
-        });
-
-        if (result.response === 0) {
-          // Open System Preferences to Privacy & Security
-          shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Camera');
-        }
-      }
-    } catch (err) {
-      log(`Failed to request media permissions: ${err.message}`);
-    }
-  }
 
   protocol.registerFileProtocol('file', (request, callback) => {
     const filepath = request.url.replace('file://', '');
@@ -1416,7 +1270,7 @@ if (!gotTheLock) {
 const browserViews = new Map();
 
 function createWindow(cliArgs = {}) {
-    const { folder, bookmarks, openUrl, freshStart } = cliArgs;
+    const { folder, bookmarks, openUrl } = cliArgs;
 
     // Try multiple icon paths for dev vs production
     const possibleIconPaths = [
@@ -1433,17 +1287,11 @@ function createWindow(cliArgs = {}) {
         appIcon = nativeImage.createFromPath(iconPath);
         console.log(`[ICON DEBUG] Created nativeImage, isEmpty: ${appIcon.isEmpty()}`);
     }
-
-    console.log('Creating window', freshStart ? '(fresh start)' : '');
+  
+    console.log('Creating window');
 
     // Set app name for Linux dock
     app.setName('Incognide');
-
-    // Build additional arguments to pass to preload script
-    const additionalArgs = [];
-    if (freshStart) {
-        additionalArgs.push('--fresh-start');
-    }
 
     mainWindow = new BrowserWindow({
       width: 1200,
@@ -1454,16 +1302,15 @@ function createWindow(cliArgs = {}) {
         nodeIntegration: true,
         contextIsolation: true,
         webSecurity: false,
-        webviewTag: true,
-        plugins: true,
+        webviewTag: true, 
+        plugins: true, 
         enableRemoteModule: true,
         nodeIntegrationInSubFrames: true,
         allowRunningInsecureContent: true,
       contentSecurityPolicy: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${BACKEND_URL};`,
-
+        
         experimentalFeatures: true,
-        preload: path.join(__dirname, 'preload.js'),
-        additionalArguments: additionalArgs
+        preload: path.join(__dirname, 'preload.js')
       }
           });
     mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
@@ -1516,6 +1363,7 @@ function createWindow(cliArgs = {}) {
         submenu: [
           {
             label: 'New Chat',
+            accelerator: 'CmdOrCtrl+Shift+C',
             click: () => mainWindow.webContents.send('menu-new-chat')
           },
           {
@@ -1745,12 +1593,6 @@ function createWindow(cliArgs = {}) {
 
     // Send CLI arguments to renderer when ready
     mainWindow.webContents.on('did-finish-load', async () => {
-      // If freshStart flag is set, tell renderer to not load from localStorage
-      if (freshStart) {
-        log(`[CLI] Fresh start requested - window will not load stored workspace`);
-        mainWindow.webContents.send('fresh-start');
-      }
-
       if (folder || (bookmarks && bookmarks.length > 0) || openUrl) {
         log(`[CLI] Sending workspace args to renderer: folder=${folder}, bookmarks=${bookmarks?.length || 0}, openUrl=${openUrl}`);
 
@@ -2173,16 +2015,6 @@ ipcMain.handle('open-file', async (_event, filePath) => {
   }
 });
 
-ipcMain.handle('show-item-in-folder', async (_event, filePath) => {
-  const { shell } = require('electron');
-  try {
-    shell.showItemInFolder(filePath);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
   
   ipcMain.handle('show-open-dialog', async (event, options) => {
     const result = await dialog.showOpenDialog(options);
@@ -2378,15 +2210,9 @@ ipcMain.handle('gitStatus', async (event, repoPath) => {
       let fileStatus = '';
       let isStaged = false;
       let isUntracked = false;
-      let isConflicted = false;
 
-      // Check for merge conflicts (U in index or working_dir means unmerged)
-      if (f.index === 'U' || f.working_dir === 'U' ||
-          (f.index === 'A' && f.working_dir === 'A') ||
-          (f.index === 'D' && f.working_dir === 'D')) {
-        fileStatus = 'Conflict';
-        isConflicted = true;
-      } else if (f.index === 'M') {
+      // Determine the primary status for display
+      if (f.index === 'M') {
         fileStatus = 'Staged Modified'; // Modified in index
         isStaged = true;
       } else if (f.index === 'A') {
@@ -2411,26 +2237,7 @@ ipcMain.handle('gitStatus', async (event, repoPath) => {
         status: fileStatus,
         isStaged: isStaged,
         isUntracked: isUntracked,
-        isConflicted: isConflicted,
       };
-    });
-
-    // Also check simple-git's conflicted array
-    const conflictedFromStatus = (status.conflicted || []).map(path => ({
-      path,
-      status: 'Conflict',
-      isStaged: false,
-      isUntracked: false,
-      isConflicted: true,
-    }));
-
-    // Merge conflicted files (avoid duplicates)
-    const conflictedPaths = new Set(allChangedFiles.filter(f => f.isConflicted).map(f => f.path));
-    conflictedFromStatus.forEach(f => {
-      if (!conflictedPaths.has(f.path)) {
-        allChangedFiles.push(f);
-        conflictedPaths.add(f.path);
-      }
     });
 
     return {
@@ -2439,12 +2246,10 @@ ipcMain.handle('gitStatus', async (event, repoPath) => {
       ahead: status.ahead,
       behind: status.behind,
       // Filter based on the new structured 'allChangedFiles'
-      staged: allChangedFiles.filter(f => f.isStaged && !f.isConflicted),
-      unstaged: allChangedFiles.filter(f => !f.isStaged && !f.isUntracked && !f.isConflicted),
+      staged: allChangedFiles.filter(f => f.isStaged),
+      unstaged: allChangedFiles.filter(f => !f.isStaged && !f.isUntracked),
       untracked: allChangedFiles.filter(f => f.isUntracked),
-      conflicted: allChangedFiles.filter(f => f.isConflicted),
-      hasChanges: allChangedFiles.length > 0,
-      isMerging: status.conflicted && status.conflicted.length > 0
+      hasChanges: allChangedFiles.length > 0
     };
   } catch (err) {
     console.error(`[Git] Error getting status for ${repoPath}:`, err);
@@ -2472,57 +2277,6 @@ ipcMain.handle('gitUnstageFile', async (event, repoPath, file) => {
     return { success: true };
   } catch (err) {
     console.error(`[Git] Error unstaging file ${file} in ${repoPath}:`, err);
-    return { success: false, error: err.message };
-  }
-});
-
-// Merge conflict resolution handlers
-ipcMain.handle('gitAcceptOurs', async (event, repoPath, file) => {
-  log(`[Git] Accepting ours for: ${file} in ${repoPath}`);
-  try {
-    const git = simpleGit(repoPath);
-    await git.checkout(['--ours', file]);
-    await git.add(file);
-    return { success: true };
-  } catch (err) {
-    console.error(`[Git] Error accepting ours for ${file}:`, err);
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('gitAcceptTheirs', async (event, repoPath, file) => {
-  log(`[Git] Accepting theirs for: ${file} in ${repoPath}`);
-  try {
-    const git = simpleGit(repoPath);
-    await git.checkout(['--theirs', file]);
-    await git.add(file);
-    return { success: true };
-  } catch (err) {
-    console.error(`[Git] Error accepting theirs for ${file}:`, err);
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('gitMarkResolved', async (event, repoPath, file) => {
-  log(`[Git] Marking resolved: ${file} in ${repoPath}`);
-  try {
-    const git = simpleGit(repoPath);
-    await git.add(file);
-    return { success: true };
-  } catch (err) {
-    console.error(`[Git] Error marking resolved ${file}:`, err);
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('gitAbortMerge', async (event, repoPath) => {
-  log(`[Git] Aborting merge in: ${repoPath}`);
-  try {
-    const git = simpleGit(repoPath);
-    await git.merge(['--abort']);
-    return { success: true };
-  } catch (err) {
-    console.error(`[Git] Error aborting merge in ${repoPath}:`, err);
     return { success: false, error: err.message };
   }
 });
@@ -2819,29 +2573,8 @@ ipcMain.handle('gitDiscardFile', async (event, repoPath, filePath) => {
   log(`[Git] Discard changes to ${filePath} in ${repoPath}`);
   try {
     const git = simpleGit(repoPath);
-    // First check if file is tracked or untracked
-    const status = await git.status();
-    const isUntracked = status.not_added.includes(filePath) ||
-                        status.files.some(f => f.path === filePath && f.index === '??');
-
-    if (isUntracked) {
-      // For untracked files, delete them
-      const fullPath = path.join(repoPath, filePath);
-      const fs = require('fs');
-      if (fs.existsSync(fullPath)) {
-        const stat = fs.statSync(fullPath);
-        if (stat.isDirectory()) {
-          fs.rmSync(fullPath, { recursive: true });
-        } else {
-          fs.unlinkSync(fullPath);
-        }
-      }
-      return { success: true };
-    } else {
-      // For tracked files, use git checkout
-      await git.checkout(['--', filePath]);
-      return { success: true };
-    }
+    await git.checkout(['--', filePath]);
+    return { success: true };
   } catch (err) {
     console.error(`[Git] Error discarding file:`, err);
     return { success: false, error: err.message };
@@ -2969,22 +2702,6 @@ ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
         mainWindow.webContents.send('browser-navigation-state-updated', { viewId, canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward() });
     });
 
-    // Intercept keyboard shortcuts in browser view before they reach the page
-    wc.on('before-input-event', (event, input) => {
-        if (input.type === 'keyDown') {
-            // Ctrl+N - new text file (prevent browser new window)
-            if (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 'n') {
-                event.preventDefault();
-                mainWindow.webContents.send('menu-new-text-file');
-            }
-            // Ctrl+T - new browser tab
-            if (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 't') {
-                event.preventDefault();
-                mainWindow.webContents.send('browser-new-tab');
-            }
-        }
-    });
-
     // Downloads handled by app.on('web-contents-created') handler
 
     const finalURL = url.startsWith('http') ? url : `https://${url}`;
@@ -3073,11 +2790,7 @@ ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, curr
             // Check if cancelled
             if (controller.signal.aborted) {
                 fileStream.destroy();
-                // On Windows, wait briefly for the file handle to be released before deleting
-                try { fs.unlinkSync(finalPath); } catch (e) {
-                    // If unlink fails (e.g. Windows file lock), try async after a short delay
-                    setTimeout(() => { try { fs.unlinkSync(finalPath); } catch (_) {} }, 500);
-                }
+                fs.unlinkSync(finalPath);
                 throw new Error('Download cancelled');
             }
 
@@ -3095,10 +2808,7 @@ ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, curr
             }
         }
 
-        await new Promise((resolve, reject) => {
-            fileStream.end(() => resolve());
-            fileStream.on('error', reject);
-        });
+        fileStream.end();
         activeDownloads.delete(downloadFilename);
 
         log(`[BROWSER] Download completed: ${finalPath}`);
@@ -4869,175 +4579,15 @@ ipcMain.handle('setup:skip', async () => {
   return { success: true };
 });
 
-// Check if Homebrew is installed (Mac only)
-ipcMain.handle('setup:checkHomebrew', async () => {
-  if (process.platform !== 'darwin') {
-    return { available: false, platform: process.platform };
-  }
-
-  try {
-    const { execSync } = require('child_process');
-    const result = execSync('which brew', { encoding: 'utf8', timeout: 5000 });
-    return { available: !!result.trim(), path: result.trim(), platform: 'darwin' };
-  } catch {
-    return { available: false, platform: 'darwin' };
-  }
-});
-
-// Check if Xcode Command Line Tools are installed (Mac only)
-ipcMain.handle('setup:checkXcode', async () => {
-  if (process.platform !== 'darwin') {
-    return { available: false, platform: process.platform };
-  }
-
-  try {
-    const { execSync } = require('child_process');
-    execSync('xcode-select -p', { encoding: 'utf8', timeout: 5000 });
-    return { available: true, platform: 'darwin' };
-  } catch {
-    return { available: false, platform: 'darwin' };
-  }
-});
-
-// Install Xcode Command Line Tools (Mac only)
-ipcMain.handle('setup:installXcode', async () => {
-  if (process.platform !== 'darwin') {
-    return { success: false, error: 'Xcode is only for macOS' };
-  }
-
-  try {
-    const { exec } = require('child_process');
-    // This opens the Xcode CLT installer dialog
-    exec('xcode-select --install');
-    return { success: true, message: 'Xcode installer opened. Please complete the installation.' };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
-// Install Ollama - prefer DMG download on Mac
-ipcMain.handle('setup:installOllama', async (event, { method } = {}) => {
-  const platform = process.platform;
-
-  if (platform === 'darwin') {
-    if (method === 'brew') {
-      // Mac - brew install (alternative method)
-      try {
-        const { execSync } = require('child_process');
-        const brewPath = execSync('which brew', { encoding: 'utf8', timeout: 5000 }).trim();
-        if (!brewPath) {
-          return { success: false, error: 'Homebrew not found', needsBrew: true };
-        }
-        execSync('brew install ollama', { encoding: 'utf8', timeout: 300000 });
-        return { success: true, message: 'Ollama installed successfully via Homebrew' };
-      } catch (err) {
-        return { success: false, error: err.message };
-      }
-    } else {
-      // Mac - prefer DMG download (default)
-      return {
-        success: false,
-        openDownload: true,
-        downloadUrl: 'https://ollama.com/download/mac',
-        message: 'Opening Ollama download page. Install the app, then click Refresh.'
-      };
-    }
-  } else if (platform === 'linux') {
-    // Linux - use curl installer
-    try {
-      const { execSync } = require('child_process');
-      execSync('curl -fsSL https://ollama.com/install.sh | sh', {
-        encoding: 'utf8',
-        timeout: 300000,
-        shell: '/bin/bash'
-      });
-      return { success: true, message: 'Ollama installed successfully' };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  } else {
-    // Windows - open download page
-    return {
-      success: false,
-      openDownload: true,
-      downloadUrl: 'https://ollama.com/download/windows',
-      message: 'Opening Ollama download page. Install the app, then click Refresh.'
-    };
-  }
-});
-
-// Install Homebrew on Mac
-ipcMain.handle('setup:installHomebrew', async () => {
-  if (process.platform !== 'darwin') {
-    return { success: false, error: 'Homebrew is only for macOS' };
-  }
-
-  try {
-    const { execSync } = require('child_process');
-    // This is the official Homebrew install command
-    execSync('/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"', {
-      encoding: 'utf8',
-      timeout: 600000, // 10 min timeout
-      stdio: 'inherit'
-    });
-    return { success: true, message: 'Homebrew installed successfully' };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
-// Get platform info
-ipcMain.handle('setup:getPlatform', async () => {
-  return { platform: process.platform };
-});
-
-// Check if this is the very first launch after setup (no workspace ever saved)
-ipcMain.handle('setup:isFirstLaunch', async () => {
-  const firstLaunchMarker = path.join(os.homedir(), '.npcsh', 'incognide', '.first_launch_done');
-  try {
-    await fsPromises.access(firstLaunchMarker);
-    return false; // Marker exists, not first launch
-  } catch {
-    return true; // Marker doesn't exist, is first launch
-  }
-});
-
-// Mark first launch as done
-ipcMain.handle('setup:markFirstLaunchDone', async () => {
-  const firstLaunchMarker = path.join(os.homedir(), '.npcsh', 'incognide', '.first_launch_done');
-  try {
-    await fsPromises.mkdir(path.dirname(firstLaunchMarker), { recursive: true });
-    await fsPromises.writeFile(firstLaunchMarker, new Date().toISOString());
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
 // Reset setup to allow re-running the wizard
 ipcMain.handle('setup:reset', async () => {
+  const setupMarkerPath = path.join(os.homedir(), '.npcsh', 'incognide', '.setup_complete');
   try {
-    // Remove setup complete marker
-    const setupMarkerPath = path.join(os.homedir(), '.npcsh', 'incognide', '.setup_complete');
-    try {
-      await fsPromises.unlink(setupMarkerPath);
-    } catch (err) {
-      // File might not exist, that's fine
-    }
-
-    // Also remove BACKEND_PYTHON_PATH from .npcshrc so setup wizard shows
-    const npcshrcPath = path.join(os.homedir(), '.npcshrc');
-    try {
-      let rcContent = await fsPromises.readFile(npcshrcPath, 'utf8');
-      rcContent = rcContent.replace(/^BACKEND_PYTHON_PATH=.*$/gm, '').trim();
-      await fsPromises.writeFile(npcshrcPath, rcContent + '\n', 'utf8');
-    } catch (err) {
-      // File might not exist, that's fine
-    }
-
+    await fsPromises.unlink(setupMarkerPath);
     return { success: true };
   } catch (err) {
-    return { success: false, error: err.message };
+    // File might not exist, that's fine
+    return { success: true };
   }
 });
 
@@ -5089,131 +4639,6 @@ ipcMain.handle('setup:restartBackend', async () => {
   } catch (err) {
     return { success: false, error: err.message };
   }
-});
-
-// Get path to NPC images (from npcsh repo)
-ipcMain.handle('setup:getNpcImagesPath', async () => {
-  // Try common locations for npcsh npc_team images
-  const possiblePaths = [
-    path.join(__dirname, '..', '..', 'npcsh', 'npcsh', 'npc_team'),
-    path.join(os.homedir(), 'npcww', 'npc-core', 'npcsh', 'npcsh', 'npc_team'),
-    path.join(os.homedir(), '.npcsh', 'npc_team'),
-  ];
-
-  for (const p of possiblePaths) {
-    try {
-      await fsPromises.access(p);
-      return p;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-});
-
-// Detect locally available model providers (ollama, lmstudio, llamacpp)
-ipcMain.handle('setup:detectLocalModels', async () => {
-  const models = [];
-  const platform = process.platform;
-
-  // Check Ollama
-  try {
-    const ollamaResult = { provider: 'ollama', models: [], available: false };
-
-    // Try to connect to Ollama API
-    const response = await fetch('http://localhost:11434/api/tags', {
-      method: 'GET',
-      signal: AbortSignal.timeout(2000)
-    }).catch(() => null);
-
-    if (response && response.ok) {
-      const data = await response.json();
-      ollamaResult.available = true;
-      ollamaResult.models = (data.models || []).map(m => m.name);
-    } else {
-      // Check if ollama binary exists
-      const ollamaPaths = platform === 'darwin'
-        ? ['/usr/local/bin/ollama', '/opt/homebrew/bin/ollama', path.join(os.homedir(), '.ollama', 'ollama')]
-        : platform === 'win32'
-        ? [path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe')]
-        : ['/usr/local/bin/ollama', '/usr/bin/ollama', path.join(os.homedir(), '.local', 'bin', 'ollama')];
-
-      for (const p of ollamaPaths) {
-        try {
-          await fsPromises.access(p);
-          ollamaResult.available = true;
-          break;
-        } catch {
-          continue;
-        }
-      }
-    }
-    models.push(ollamaResult);
-  } catch (err) {
-    models.push({ provider: 'ollama', models: [], available: false });
-  }
-
-  // Check LM Studio
-  try {
-    const lmstudioResult = { provider: 'lmstudio', models: [], available: false };
-
-    // Try LM Studio API
-    const response = await fetch('http://localhost:1234/v1/models', {
-      method: 'GET',
-      signal: AbortSignal.timeout(2000)
-    }).catch(() => null);
-
-    if (response && response.ok) {
-      lmstudioResult.available = true;
-    } else {
-      // Check if LM Studio is installed
-      const lmstudioPaths = platform === 'darwin'
-        ? ['/Applications/LM Studio.app']
-        : platform === 'win32'
-        ? [path.join(process.env.LOCALAPPDATA || '', 'Programs', 'LM Studio', 'LM Studio.exe')]
-        : [path.join(os.homedir(), '.local', 'share', 'LM Studio')];
-
-      for (const p of lmstudioPaths) {
-        try {
-          await fsPromises.access(p);
-          lmstudioResult.available = true;
-          break;
-        } catch {
-          continue;
-        }
-      }
-    }
-    models.push(lmstudioResult);
-  } catch (err) {
-    models.push({ provider: 'lmstudio', models: [], available: false });
-  }
-
-  // Check llama.cpp
-  try {
-    const llamacppResult = { provider: 'llamacpp', models: [], available: false };
-
-    // Check common llama.cpp locations
-    const llamacppPaths = platform === 'darwin'
-      ? ['/usr/local/bin/llama-server', '/opt/homebrew/bin/llama-server', path.join(os.homedir(), 'llama.cpp', 'llama-server')]
-      : platform === 'win32'
-      ? [path.join(os.homedir(), 'llama.cpp', 'build', 'bin', 'Release', 'llama-server.exe')]
-      : ['/usr/local/bin/llama-server', '/usr/bin/llama-server', path.join(os.homedir(), 'llama.cpp', 'llama-server')];
-
-    for (const p of llamacppPaths) {
-      try {
-        await fsPromises.access(p);
-        llamacppResult.available = true;
-        break;
-      } catch {
-        continue;
-      }
-    }
-    models.push(llamacppResult);
-  } catch (err) {
-    models.push({ provider: 'llamacpp', models: [], available: false });
-  }
-
-  return { models };
 });
 
 // ==================== END FIRST-RUN SETUP ====================
@@ -6539,20 +5964,6 @@ app.on('will-quit', () => {
     }
   );
 
-  // Device ID and info handlers for multi-device sync
-  ipcMain.handle('getDeviceInfo', async () => {
-    return getOrCreateDeviceId();
-  });
-
-  ipcMain.handle('setDeviceName', async (event, newName) => {
-    return updateDeviceConfig({ deviceName: newName });
-  });
-
-  ipcMain.handle('getDeviceId', async () => {
-    const config = getOrCreateDeviceId();
-    return config.deviceId;
-  });
-
 
   ipcMain.handle('get_attachment_response', async (_, attachmentData, messages) => {
     try {
@@ -6731,15 +6142,7 @@ ipcMain.handle('db:getTableSchema', async (event, { tableName }) => {
   }
 });
 ipcMain.handle('open-new-window', async (event, initialPath) => {
-    // Pass folder as object property, or freshStart flag for folder-less window
-    createWindow(initialPath ? { folder: initialPath } : { freshStart: true });
-});
-
-ipcMain.handle('close-window', async (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) {
-        win.close();
-    }
+    createWindow(initialPath); // Your existing window creation function
 });
 
 ipcMain.handle('open-in-native-explorer', async (event, folderPath) => {
@@ -7843,11 +7246,6 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       assistantMessageId: data.assistantMessageId,
       // For sub-branches: the parent of the user message (points to an assistant message)
       userParentMessageId: data.userParentMessageId,
-      // LLM generation parameters
-      temperature: data.temperature,
-      top_p: data.top_p,
-      top_k: data.top_k,
-      max_tokens: data.max_tokens,
     };
     
     const response = await fetch(apiUrl, {
@@ -8496,47 +7894,7 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
   }
 });
 
-// Video generation handler
-ipcMain.handle('generate_video', async (event, { prompt, model, provider, duration, currentPath, referenceImage }) => {
-  log(`[Main Process] Received request to generate video with prompt: "${prompt}" using model: "${model}" (${provider})`);
 
-  if (!prompt) {
-    return { error: 'Prompt cannot be empty' };
-  }
-  if (!model || !provider) {
-    return { error: 'Video model and provider must be selected.' };
-  }
-
-  try {
-    const apiUrl = `${BACKEND_URL}/api/generate_video`;
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt,
-        model,
-        provider,
-        duration: duration || 5,
-        currentPath: currentPath || '~/.npcsh/videos',
-        reference_image: referenceImage || null
-      })
-    });
-    const data = await response.json();
-
-    if (data.error) {
-      return { error: data.error };
-    }
-    return {
-      success: true,
-      video_path: data.video_path,
-      video_base64: data.video_base64,
-      message: data.message
-    };
-  } catch (error) {
-    log('Error generating video in main process handler:', error);
-    return { error: error.message || 'Video generation failed in main process' };
-  }
-});
 
 ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, shellType }) => {
   if (!pty) {
@@ -8546,18 +7904,13 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, she
   // Store the sender's webContents for multi-window support
   const senderWebContents = event.sender;
 
-  // Cancel any pending kill timer for this session
   if (ptyKillTimers.has(id)) {
     clearTimeout(ptyKillTimers.get(id));
     ptyKillTimers.delete(id);
-  }
 
-  // Reuse existing session if it exists (reconnect after layout change)
-  if (ptySessions.has(id)) {
-    const existingSession = ptySessions.get(id);
-    // Update webContents reference in case component remounted
-    existingSession.webContents = senderWebContents;
-    return { success: true, shell: existingSession.shellType, reconnected: true };
+    if (ptySessions.has(id)) {
+      return { success: true };
+    }
   }
 
   const workingDir = cwd || os.homedir();
@@ -8650,15 +8003,21 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, she
 
   // Create clean env without VS Code artifacts
   const cleanEnv = { ...process.env };
-  delete cleanEnv.PYTHONSTARTUP;
+  delete cleanEnv.PYTHONSTARTUP;  // Remove VS Code Python extension startup
   delete cleanEnv.VSCODE_PID;
   delete cleanEnv.VSCODE_CWD;
   delete cleanEnv.VSCODE_NLS_CONFIG;
 
-  if (app.isPackaged) {
-    cleanEnv.BROWSER = `${process.execPath} %s`;
+  // Set BROWSER to incognide so URLs opened from terminal (like gcloud auth login)
+  // open in incognide's browser pane instead of the system browser
+  // This works because incognide's second-instance handler catches URL arguments
+  // In dev mode, we need to pass the app path to electron
+  if (IS_DEV_MODE) {
+    // In development, create a command that runs: electron /path/to/app <url>
+    cleanEnv.BROWSER = `${process.execPath} ${app.getAppPath()}`;
   } else {
-    cleanEnv.BROWSER = `${process.execPath} ${app.getAppPath()} %s`;
+    // In production, the executable directly handles URL arguments
+    cleanEnv.BROWSER = process.execPath;
   }
 
   try {
@@ -8734,18 +8093,15 @@ ipcMain.handle('closeTerminalSession', (event, id) => {
   if (ptySessions.has(id)) {
     if (ptyKillTimers.has(id)) return { success: true };
 
-    // Use 2000ms delay to give React time to remount during layout changes
-    // This prevents terminal sessions from being killed during pane splits/resizes
     const timer = setTimeout(() => {
       if (ptySessions.has(id)) {
         const session = ptySessions.get(id);
         if (session?.ptyProcess) {
           session.ptyProcess.kill();
         }
-        ptySessions.delete(id);
       }
       ptyKillTimers.delete(id);
-    }, 2000);
+    }, 100);
 
     ptyKillTimers.set(id, timer);
   }
@@ -9148,7 +8504,6 @@ ipcMain.handle('getConversations', async (_, path) => {
             ch.tool_calls,
             ch.tool_results,
             ch.parent_message_id,
-            ch.params,
             json_group_array(
                 json_object(
                     'id', ma.id,
@@ -9212,14 +8567,6 @@ ipcMain.handle('getConversations', async (_, path) => {
                 } catch (e) {}
             }
 
-            // Parse params JSON and extract individual fields
-            let llmParams = null;
-            if (row.params) {
-                try {
-                    llmParams = JSON.parse(row.params);
-                } catch (e) {}
-            }
-
             const newRow = {
                 ...row,
                 attachments,
@@ -9227,19 +8574,13 @@ ipcMain.handle('getConversations', async (_, path) => {
                 reasoningContent: row.reasoning_content,
                 toolCalls,
                 toolResults,
-                parentMessageId: row.parent_message_id,
-                // Add individual llm param fields for easy access
-                temperature: llmParams?.temperature,
-                top_p: llmParams?.top_p,
-                top_k: llmParams?.top_k,
-                max_tokens: llmParams?.max_tokens
+                parentMessageId: row.parent_message_id
             };
             delete newRow.attachments_json;
             delete newRow.reasoning_content;
             delete newRow.tool_calls;
             delete newRow.tool_results;
             delete newRow.parent_message_id;
-            delete newRow.params;
             return newRow;
         });
 
@@ -10698,75 +10039,6 @@ ipcMain.handle('jupyter:registerKernel', async (_, { workspacePath, kernelName =
     } catch (err) {
         return { success: false, error: err.message };
     }
-});
-
-// Media permissions handler (macOS)
-ipcMain.handle('check-media-permissions', async () => {
-  if (process.platform !== 'darwin') {
-    return { camera: true, microphone: true };
-  }
-
-  const cameraStatus = systemPreferences.getMediaAccessStatus('camera');
-  const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-
-  return {
-    camera: cameraStatus === 'granted',
-    microphone: micStatus === 'granted',
-    cameraStatus,
-    micStatus
-  };
-});
-
-ipcMain.handle('request-media-permissions', async () => {
-  if (process.platform !== 'darwin') {
-    return { camera: true, microphone: true };
-  }
-
-  const cameraStatus = await systemPreferences.askForMediaAccess('camera');
-  const micStatus = await systemPreferences.askForMediaAccess('microphone');
-
-  // If denied, offer to open settings
-  if (!cameraStatus || !micStatus) {
-    const denied = [];
-    if (!cameraStatus) denied.push('Camera');
-    if (!micStatus) denied.push('Microphone');
-
-    const result = await dialog.showMessageBox({
-      type: 'warning',
-      title: 'Permissions Required',
-      message: `${denied.join(' and ')} access was denied`,
-      detail: 'To use video calls in the browser, you need to grant camera and microphone permissions in System Settings.\n\nClick "Open Settings" to go directly to Privacy settings.',
-      buttons: ['Open Settings', 'Later'],
-      defaultId: 0,
-      cancelId: 1
-    });
-
-    if (result.response === 0) {
-      shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Camera');
-    }
-  }
-
-  return { camera: cameraStatus, microphone: micStatus };
-});
-
-ipcMain.handle('open-system-preferences', async (_, pane) => {
-  if (process.platform !== 'darwin') return false;
-  const paneMap = {
-    camera: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
-    microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
-    screen_recording: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
-    accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
-    privacy: 'x-apple.systempreferences:com.apple.preference.security?Privacy',
-  };
-  const url = paneMap[pane] || paneMap.privacy;
-  shell.openExternal(url);
-  return true;
-});
-
-ipcMain.handle('get-screen-capture-status', async () => {
-  if (process.platform !== 'darwin') return { granted: true };
-  const status = systemPreferences.getMediaAccessStatus('screen');
-  return { granted: status === 'granted', status };
 });
 
 // Version update checker
