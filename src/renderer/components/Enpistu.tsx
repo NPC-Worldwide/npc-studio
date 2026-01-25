@@ -716,6 +716,7 @@ const ChatInterface = () => {
     const [dropTarget, setDropTarget] = useState(null);
    
     const contentDataRef = useRef({});
+    const closedTabsRef = useRef<Array<{contentType: string, contentId: string, browserUrl?: string, browserTitle?: string}>>([]);
     const currentPathRef = useRef(currentPath);
     currentPathRef.current = currentPath;
     const activeContentPaneIdRef = useRef(activeContentPaneId);
@@ -894,6 +895,25 @@ const ChatInterface = () => {
         }
         if (api.api?.onMenuNewTerminal) {
             cleanups.push(api.api.onMenuNewTerminal(() => createNewTerminalRef.current?.()));
+        }
+        if (api.api?.onMenuNewTextFile) {
+            cleanups.push(api.api.onMenuNewTextFile(() => createUntitledTextFileRef.current?.()));
+        }
+        if (api.api?.onMenuReopenTab) {
+            cleanups.push(api.api.onMenuReopenTab(() => {
+                const closedTab = closedTabsRef.current.pop();
+                if (closedTab) {
+                    const newPaneId = generateId();
+                    contentDataRef.current[newPaneId] = {
+                        contentType: closedTab.contentType,
+                        contentId: closedTab.contentId,
+                        browserUrl: closedTab.browserUrl,
+                        browserTitle: closedTab.browserTitle
+                    };
+                    setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+                    setActiveContentPaneId(newPaneId);
+                }
+            }));
         }
         if (api.api?.onMenuOpenFile) {
             cleanups.push(api.api.onMenuOpenFile(async () => {
@@ -1754,6 +1774,7 @@ const ChatInterface = () => {
     const createSettingsPaneRef = useRef<(() => void) | null>(null);
     const createSearchPaneRef = useRef<((query?: string) => void) | null>(null);
     const createHelpPaneRef = useRef<(() => void) | null>(null);
+    const createUntitledTextFileRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         const handleKeyDown = async (e: KeyboardEvent) => {
@@ -1822,13 +1843,9 @@ const ChatInterface = () => {
                 return;
             }
 
-            // Ctrl+Shift+C - New Conversation/Chat (but not when in terminal - let terminal handle copy)
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
-                // Check if focus is inside a terminal - if so, let the terminal handle the copy
-                const activeElement = document.activeElement;
-                const isInTerminal = activeElement?.closest('.xterm') || activeElement?.closest('[data-terminal]');
-                if (isInTerminal) {
-                    // Don't prevent default - let the terminal's copy handler work
+                const activePane = contentDataRef.current[activeContentPaneId];
+                if (activePane?.contentType === 'terminal') {
                     return;
                 }
                 e.preventDefault();
@@ -1854,10 +1871,10 @@ const ChatInterface = () => {
                 return;
             }
 
-            // Ctrl+N - New Folder
+            // Ctrl+N - New untitled text file
             if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N') && !e.shiftKey) {
                 e.preventDefault();
-                handleCreateNewFolderRef.current?.();
+                createUntitledTextFileRef.current?.();
                 return;
             }
 
@@ -2128,13 +2145,21 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
 }, [updateContentPane]);
 
 const closeContentPane = useCallback((paneId, nodePath) => {
-    // Track pane close activity
     const paneData = contentDataRef.current[paneId];
     if (paneData) {
         trackActivity('pane_close', {
             paneType: paneData.contentType,
             filePath: paneData.contentId,
         });
+        closedTabsRef.current.push({
+            contentType: paneData.contentType,
+            contentId: paneData.contentId,
+            browserUrl: paneData.browserUrl,
+            browserTitle: paneData.browserTitle
+        });
+        if (closedTabsRef.current.length > 20) {
+            closedTabsRef.current.shift();
+        }
     }
 
     setRootLayoutNode(oldRoot => {
@@ -2291,6 +2316,67 @@ const handleSaveConversationLabel = useCallback((label: ConversationLabel) => {
 const handleCloseConversationLabelingModal = useCallback(() => {
     setConversationLabelingModal({ isOpen: false, conversation: null });
 }, []);
+
+// Chat pane action handlers
+const handleCopyChat = useCallback(() => {
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'chat') return;
+
+    const messages = paneData.chatMessages?.messages || [];
+    // If in selection mode with selected messages, copy only those
+    if (messageSelectionMode && selectedMessages.size > 0) {
+        const selectedMsgs = messages.filter(m => selectedMessages.has(m.id));
+        const text = selectedMsgs.map(m => `${m.role === 'user' ? 'User' : (m.npc || m.model || 'Assistant')}: ${m.content}`).join('\n\n');
+        navigator.clipboard.writeText(text);
+    } else {
+        // Copy all messages
+        const text = messages.map(m => `${m.role === 'user' ? 'User' : (m.npc || m.model || 'Assistant')}: ${m.content}`).join('\n\n');
+        navigator.clipboard.writeText(text);
+    }
+}, [activeContentPaneId, messageSelectionMode, selectedMessages]);
+
+const handleSaveChat = useCallback(async () => {
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'chat') return;
+
+    const messages = paneData.chatMessages?.messages || [];
+    const conversationId = paneData.contentId;
+    const text = messages.map(m => `${m.role === 'user' ? 'User' : (m.npc || m.model || 'Assistant')}: ${m.content}`).join('\n\n');
+
+    // Use save dialog
+    const filename = `conversation_${conversationId?.slice(0, 8) || 'export'}_${Date.now()}.md`;
+    const filepath = `${currentPath}/${filename}`;
+
+    try {
+        await window.api.writeFileContent(filepath, `# Conversation Export\n\n${text}`);
+        // Optionally open the file
+        if (handleFileClickRef.current) {
+            handleFileClickRef.current(filepath);
+        }
+    } catch (err) {
+        setError(err.message);
+    }
+}, [activeContentPaneId, currentPath]);
+
+const handleClearChat = useCallback(async () => {
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) return;
+
+    // Clear messages in the pane data
+    if (paneData.chatMessages) {
+        paneData.chatMessages.messages = [];
+        paneData.chatMessages.allMessages = [];
+    }
+
+    // Clear from database
+    try {
+        await window.api.clearConversation(paneData.contentId);
+    } catch (err) {
+        console.error('Error clearing conversation:', err);
+    }
+
+    setRootLayoutNode(prev => ({ ...prev }));
+}, [activeContentPaneId]);
 
 // Handle resend message - opens resend modal
 const handleResendMessage = useCallback((messageToResend: any) => {
@@ -3245,7 +3331,7 @@ const handleAICodeAction = useCallback(async (type: string, selectedText: string
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
-    if (!paneData || !paneData.contentId) {
+    if (!paneData || (!paneData.contentId && !paneData.isUntitled)) {
         return <div className="flex-1 flex items-center justify-center theme-text-muted">No file selected</div>;
     }
 
@@ -3275,7 +3361,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             onSendToTerminal={handleSendToTerminal}
         />
     );
-}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal, handleAICodeAction]);
+}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal, handleAICodeAction, setPromptModal]);
 
 const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, shell?: string }) => {
     return (
@@ -3284,11 +3370,12 @@ const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, she
             contentDataRef={contentDataRef}
             currentPath={currentPath}
             activeContentPaneId={activeContentPaneId}
+            setActiveContentPaneId={setActiveContentPaneId}
             shell={shell}
             isDarkMode={isDarkMode}
         />
     );
-}, [currentPath, activeContentPaneId, isDarkMode]);
+}, [currentPath, activeContentPaneId, isDarkMode, setActiveContentPaneId]);
 
 // PDF highlight handlers
 const handleCopyPdfText = useCallback((text: string) => {
@@ -4997,7 +5084,8 @@ useEffect(() => {
 useEffect(() => {
     const cleanup = (window as any).api?.onBrowserNewTab?.(() => {
         // Check if active pane is a browser
-        const paneData = contentDataRef.current[activeContentPaneId];
+        const currentPaneId = activeContentPaneIdRef.current;
+        const paneData = contentDataRef.current[currentPaneId];
 
         if (paneData?.contentType === 'browser') {
             // Active pane is browser - add new tab to it
@@ -5043,7 +5131,7 @@ useEffect(() => {
         }
     });
     return () => cleanup?.();
-}, [activeContentPaneId, createNewBrowser]);
+}, [createNewBrowser]);
 
 // Render SearchPane (for pane-based unified search)
 const renderSearchPane = useCallback(({ nodeId, initialQuery }: { nodeId: string; initialQuery?: string }) => {
@@ -6166,6 +6254,24 @@ ${contextPrompt}`;
         setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
     }, []);
+
+    // Create untitled text file directly without modal
+    const createUntitledTextFile = useCallback(() => {
+        const newPaneId = generateId();
+        contentDataRef.current[newPaneId] = {
+            contentType: 'editor',
+            contentId: '',
+            fileContent: '',
+            isUntitled: true
+        };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+        setActiveContentPaneId(newPaneId);
+    }, []);
+
+    // Keep ref updated for keyboard handler
+    useEffect(() => {
+        createUntitledTextFileRef.current = createUntitledTextFile;
+    }, [createUntitledTextFile]);
 
     const createNewTextFile = useCallback((defaultFilename?: string) => {
         const filename = defaultFilename || localStorage.getItem('npcStudio_defaultCodeFileType') || 'untitled.py';
@@ -8758,7 +8864,7 @@ const renderPaneContextMenu = () => {
     };
 
     const handleNewTextFile = () => {
-        createNewTextFile();
+        createUntitledTextFile();
         setPaneContextMenu(null);
     };
 
@@ -9160,8 +9266,8 @@ const renderMainContent = () => {
 
             {/* App Search */}
             <div
-                className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400/30 transition-all"
-                style={{ width: Math.max(100, topBarHeight * 4) }}
+                className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400/30 transition-all flex-shrink min-w-0"
+                style={{ width: Math.max(80, topBarHeight * 3), maxWidth: '200px' }}
             >
                 {/* Custom app search icon - magnifying glass with document */}
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
@@ -9216,7 +9322,7 @@ const renderMainContent = () => {
             </div>
 
             {/* Web Search */}
-            <div className="flex items-center gap-2 w-40 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400/30 transition-all">
+            <div className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400/30 transition-all flex-shrink min-w-0" style={{ width: '120px', maxWidth: '160px' }}>
                 <Globe size={14} className="text-cyan-400 flex-shrink-0" />
                 <input
                     type="text"
@@ -9235,10 +9341,8 @@ const renderMainContent = () => {
                 />
             </div>
 
-            <div className="flex-1" />
-
             {/* Right side - Library, Photo, Disk Usage, Cron/Daemon, DateTime */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                     onClick={() => createLibraryViewerPane?.()}
                     className="p-2 theme-hover rounded theme-text-muted"
@@ -9693,7 +9797,7 @@ const renderMainContent = () => {
         goUpDirectory={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
         switchToPath={switchToPath}
         handleCreateNewFolder={handleCreateNewFolder}
-        createNewTextFile={createNewTextFile}
+        createNewTextFile={createUntitledTextFile}
         createNewTerminal={createNewTerminal}
         createNewNotebook={createNewJupyterNotebook}
         createNewExperiment={createNewExperiment}

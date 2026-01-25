@@ -3227,20 +3227,12 @@ const renderDatasetManager = useCallback(() => {
 // Video Generator
 const renderVideoGenerator = useCallback(() => {
     const VIDEO_MODELS = [
-        // OpenAI Sora
-        { id: 'sora-2', name: 'OpenAI Sora 2', provider: 'openai', maxDuration: 90 },
-        { id: 'sora-2-pro', name: 'OpenAI Sora 2 Pro', provider: 'openai', maxDuration: 90 },
-        // Google Veo
-        { id: 'veo-3.1-generate-preview', name: 'Google Veo 3.1', provider: 'gemini', maxDuration: 8 },
-        { id: 'veo-3.1-fast', name: 'Google Veo 3.1 Fast', provider: 'gemini', maxDuration: 8 },
-        // Runway
-        { id: 'gen-3-alpha', name: 'Runway Gen-3 Alpha', provider: 'runway', maxDuration: 10 },
-        { id: 'gen-3-alpha-turbo', name: 'Runway Gen-3 Alpha Turbo', provider: 'runway', maxDuration: 10 },
-        // Others
-        { id: 'kling-1.6-pro', name: 'Kling 1.6 Pro', provider: 'kling', maxDuration: 10 },
-        { id: 'luma-ray-2', name: 'Luma Ray 2', provider: 'luma', maxDuration: 9 },
-        { id: 'minimax-video-01', name: 'MiniMax Video-01', provider: 'minimax', maxDuration: 6 },
-        { id: 'pika-2.0', name: 'Pika 2.0', provider: 'pika', maxDuration: 10 }
+        // Google Veo via Gemini API (requires GEMINI_API_KEY)
+        { id: 'veo-3.1-generate-preview', name: 'Veo 3.1', provider: 'gemini', maxDuration: 8 },
+        { id: 'veo-3.1-fast-generate-preview', name: 'Veo 3.1 Fast', provider: 'gemini', maxDuration: 8 },
+        { id: 'veo-2.0-generate-001', name: 'Veo 2', provider: 'gemini', maxDuration: 8 },
+        // Diffusers - damo-vilab/text-to-video-ms-1.7b (local)
+        { id: 'damo-vilab/text-to-video-ms-1.7b', name: 'ModelScope 1.7B (Local)', provider: 'diffusers', maxDuration: 4 },
     ];
 
     return (
@@ -3312,12 +3304,23 @@ const renderVideoGenerator = useCallback(() => {
                         }
                         setGeneratingVideo(true);
                         try {
-                            // TODO: Integrate with video generation API
-                            await new Promise(r => setTimeout(r, 3000));
+                            const selectedModelData = VIDEO_MODELS.find(m => m.id === videoModel);
+                            const result = await window.api.generateVideo(
+                                videoPrompt,
+                                videoModel,
+                                selectedModelData?.provider || 'gemini',
+                                videoDurationSetting,
+                                currentPath,
+                                selectedImage ? selectedImage.base64 : null
+                            );
+                            if (result.error) {
+                                throw new Error(result.error);
+                            }
                             setGeneratedVideos(prev => [...prev, {
                                 id: `video_${Date.now()}`,
                                 prompt: videoPrompt,
-                                url: '',
+                                url: result.video_base64 || '',
+                                path: result.video_path || '',
                                 createdAt: new Date().toISOString()
                             }]);
                         } catch (err) {

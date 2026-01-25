@@ -3,6 +3,7 @@ import { BACKEND_URL } from '../config';
 import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Keyboard, KeyRound, Plus, Copy, ExternalLink, Terminal, Volume2, Mic, Play, Square } from 'lucide-react';
 import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
 import PythonEnvSettings from './PythonEnvSettings';
+import UserMenu from './UserMenu';
 
 // Password Manager Component
 const PasswordManager = () => {
@@ -1400,6 +1401,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
     };
 
     const tabs = [
+        { id: 'account', name: 'Account' },
         { id: 'global', name: 'Global Settings' },
         { id: 'theme', name: 'Theme' },
         { id: 'shortcuts', name: 'Keyboard Shortcuts' },
@@ -1420,6 +1422,16 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
             <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
 
             <div className={`${embedded ? 'flex-1' : ''} overflow-y-auto p-6 space-y-4`}>
+                {activeTab === 'account' && (
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium text-white">Account & Sync</h3>
+                        <p className="text-sm text-gray-400">Sign in to sync your settings, conversations, and files across devices.</p>
+                        <div className="max-w-sm">
+                            <UserMenu />
+                        </div>
+                    </div>
+                )}
+
                 {activeTab === 'global' && (
                     <>
                         <Input

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen, systemPreferences } = require('electron');
-=======
-const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen, Menu } = require('electron');
->>>>>>> 7ee3349 (chat temp fix, chat message loading fix. rerordering git pane contents, folder opening behaviors, adding proper controls to top bar.)
+const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen, systemPreferences, Menu } = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -482,6 +478,17 @@ ipcMain.on('set-workspace-path', (event, workspacePath) => {
     workspacePathByWindow.set(windowId, workspacePath);
     log(`[DOWNLOAD] Workspace path for window ${windowId}: ${workspacePath}`);
   }
+});
+
+// Terminal shortcut relay handlers (Ctrl+N and Ctrl+T from terminal)
+ipcMain.on('trigger-new-text-file', (event) => {
+  // Relay to the window that sent this
+  event.sender.send('menu-new-text-file');
+});
+
+ipcMain.on('trigger-browser-new-tab', (event) => {
+  // Relay to the window that sent this
+  event.sender.send('browser-new-tab');
 });
 
 // Helper to get workspace path for a webContents (checks parent windows too)
@@ -1502,7 +1509,6 @@ function createWindow(cliArgs = {}) {
         submenu: [
           {
             label: 'New Chat',
-            accelerator: 'CmdOrCtrl+Shift+C',
             click: () => mainWindow.webContents.send('menu-new-chat')
           },
           {
@@ -2349,9 +2355,15 @@ ipcMain.handle('gitStatus', async (event, repoPath) => {
       let fileStatus = '';
       let isStaged = false;
       let isUntracked = false;
+      let isConflicted = false;
 
-      // Determine the primary status for display
-      if (f.index === 'M') {
+      // Check for merge conflicts (U in index or working_dir means unmerged)
+      if (f.index === 'U' || f.working_dir === 'U' ||
+          (f.index === 'A' && f.working_dir === 'A') ||
+          (f.index === 'D' && f.working_dir === 'D')) {
+        fileStatus = 'Conflict';
+        isConflicted = true;
+      } else if (f.index === 'M') {
         fileStatus = 'Staged Modified'; // Modified in index
         isStaged = true;
       } else if (f.index === 'A') {
@@ -2376,7 +2388,26 @@ ipcMain.handle('gitStatus', async (event, repoPath) => {
         status: fileStatus,
         isStaged: isStaged,
         isUntracked: isUntracked,
+        isConflicted: isConflicted,
       };
+    });
+
+    // Also check simple-git's conflicted array
+    const conflictedFromStatus = (status.conflicted || []).map(path => ({
+      path,
+      status: 'Conflict',
+      isStaged: false,
+      isUntracked: false,
+      isConflicted: true,
+    }));
+
+    // Merge conflicted files (avoid duplicates)
+    const conflictedPaths = new Set(allChangedFiles.filter(f => f.isConflicted).map(f => f.path));
+    conflictedFromStatus.forEach(f => {
+      if (!conflictedPaths.has(f.path)) {
+        allChangedFiles.push(f);
+        conflictedPaths.add(f.path);
+      }
     });
 
     return {
@@ -2385,10 +2416,12 @@ ipcMain.handle('gitStatus', async (event, repoPath) => {
       ahead: status.ahead,
       behind: status.behind,
       // Filter based on the new structured 'allChangedFiles'
-      staged: allChangedFiles.filter(f => f.isStaged),
-      unstaged: allChangedFiles.filter(f => !f.isStaged && !f.isUntracked),
+      staged: allChangedFiles.filter(f => f.isStaged && !f.isConflicted),
+      unstaged: allChangedFiles.filter(f => !f.isStaged && !f.isUntracked && !f.isConflicted),
       untracked: allChangedFiles.filter(f => f.isUntracked),
-      hasChanges: allChangedFiles.length > 0
+      conflicted: allChangedFiles.filter(f => f.isConflicted),
+      hasChanges: allChangedFiles.length > 0,
+      isMerging: status.conflicted && status.conflicted.length > 0
     };
   } catch (err) {
     console.error(`[Git] Error getting status for ${repoPath}:`, err);
@@ -2416,6 +2449,57 @@ ipcMain.handle('gitUnstageFile', async (event, repoPath, file) => {
     return { success: true };
   } catch (err) {
     console.error(`[Git] Error unstaging file ${file} in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Merge conflict resolution handlers
+ipcMain.handle('gitAcceptOurs', async (event, repoPath, file) => {
+  log(`[Git] Accepting ours for: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.checkout(['--ours', file]);
+    await git.add(file);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error accepting ours for ${file}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitAcceptTheirs', async (event, repoPath, file) => {
+  log(`[Git] Accepting theirs for: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.checkout(['--theirs', file]);
+    await git.add(file);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error accepting theirs for ${file}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitMarkResolved', async (event, repoPath, file) => {
+  log(`[Git] Marking resolved: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.add(file);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error marking resolved ${file}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitAbortMerge', async (event, repoPath) => {
+  log(`[Git] Aborting merge in: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.merge(['--abort']);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error aborting merge in ${repoPath}:`, err);
     return { success: false, error: err.message };
   }
 });
@@ -2712,8 +2796,29 @@ ipcMain.handle('gitDiscardFile', async (event, repoPath, filePath) => {
   log(`[Git] Discard changes to ${filePath} in ${repoPath}`);
   try {
     const git = simpleGit(repoPath);
-    await git.checkout(['--', filePath]);
-    return { success: true };
+    // First check if file is tracked or untracked
+    const status = await git.status();
+    const isUntracked = status.not_added.includes(filePath) ||
+                        status.files.some(f => f.path === filePath && f.index === '??');
+
+    if (isUntracked) {
+      // For untracked files, delete them
+      const fullPath = path.join(repoPath, filePath);
+      const fs = require('fs');
+      if (fs.existsSync(fullPath)) {
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory()) {
+          fs.rmSync(fullPath, { recursive: true });
+        } else {
+          fs.unlinkSync(fullPath);
+        }
+      }
+      return { success: true };
+    } else {
+      // For tracked files, use git checkout
+      await git.checkout(['--', filePath]);
+      return { success: true };
+    }
   } catch (err) {
     console.error(`[Git] Error discarding file:`, err);
     return { success: false, error: err.message };
@@ -2839,6 +2944,22 @@ ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
     wc.on('did-stop-loading', () => {
         mainWindow.webContents.send('browser-loading', { viewId, loading: false });
         mainWindow.webContents.send('browser-navigation-state-updated', { viewId, canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward() });
+    });
+
+    // Intercept keyboard shortcuts in browser view before they reach the page
+    wc.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown') {
+            // Ctrl+N - new text file (prevent browser new window)
+            if (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 'n') {
+                event.preventDefault();
+                mainWindow.webContents.send('menu-new-text-file');
+            }
+            // Ctrl+T - new browser tab
+            if (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 't') {
+                event.preventDefault();
+                mainWindow.webContents.send('browser-new-tab');
+            }
+        }
     });
 
     // Downloads handled by app.on('web-contents-created') handler
@@ -8047,7 +8168,47 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
   }
 });
 
+// Video generation handler
+ipcMain.handle('generate_video', async (event, { prompt, model, provider, duration, currentPath, referenceImage }) => {
+  log(`[Main Process] Received request to generate video with prompt: "${prompt}" using model: "${model}" (${provider})`);
 
+  if (!prompt) {
+    return { error: 'Prompt cannot be empty' };
+  }
+  if (!model || !provider) {
+    return { error: 'Video model and provider must be selected.' };
+  }
+
+  try {
+    const apiUrl = `${BACKEND_URL}/api/generate_video`;
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        model,
+        provider,
+        duration: duration || 5,
+        currentPath: currentPath || '~/.npcsh/videos',
+        reference_image: referenceImage || null
+      })
+    });
+    const data = await response.json();
+
+    if (data.error) {
+      return { error: data.error };
+    }
+    return {
+      success: true,
+      video_path: data.video_path,
+      video_base64: data.video_base64,
+      message: data.message
+    };
+  } catch (error) {
+    log('Error generating video in main process handler:', error);
+    return { error: error.message || 'Video generation failed in main process' };
+  }
+});
 
 ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, shellType }) => {
   if (!pty) {
@@ -8156,32 +8317,15 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, she
 
   // Create clean env without VS Code artifacts
   const cleanEnv = { ...process.env };
-  delete cleanEnv.PYTHONSTARTUP;  // Remove VS Code Python extension startup
+  delete cleanEnv.PYTHONSTARTUP;
   delete cleanEnv.VSCODE_PID;
   delete cleanEnv.VSCODE_CWD;
   delete cleanEnv.VSCODE_NLS_CONFIG;
 
-<<<<<<< HEAD
-  // Set BROWSER env var to intercept browser launches and open in internal browser
-  const browserInterceptorPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'browser-interceptor.sh')
-    : path.join(__dirname, '..', 'resources', 'browser-interceptor.sh');
-
-  if (fs.existsSync(browserInterceptorPath)) {
-    cleanEnv.BROWSER = browserInterceptorPath;
-    log(`[TERMINAL] Set BROWSER env to: ${browserInterceptorPath}`);
-=======
-  // Set BROWSER to incognide so URLs opened from terminal (like gcloud auth login)
-  // open in incognide's browser pane instead of the system browser
-  // This works because incognide's second-instance handler catches URL arguments
-  // In dev mode, we need to pass the app path to electron
-  if (IS_DEV_MODE) {
-    // In development, create a command that runs: electron /path/to/app <url>
-    cleanEnv.BROWSER = `${process.execPath} ${app.getAppPath()}`;
+  if (app.isPackaged) {
+    cleanEnv.BROWSER = `${process.execPath} %s`;
   } else {
-    // In production, the executable directly handles URL arguments
-    cleanEnv.BROWSER = process.execPath;
->>>>>>> 7ee3349 (chat temp fix, chat message loading fix. rerordering git pane contents, folder opening behaviors, adding proper controls to top bar.)
+    cleanEnv.BROWSER = `${process.execPath} ${app.getAppPath()} %s`;
   }
 
   try {

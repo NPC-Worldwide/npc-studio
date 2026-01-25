@@ -40,7 +40,6 @@ import LibraryViewer from './LibraryViewer';
 import GraphViewer from './GraphViewer';
 import PhotoViewer from './PhotoViewer';
 import SettingsMenu from './SettingsMenu';
-import UserMenu from './UserMenu';
 import npcLogo from '../../assets/icon.png';
 
 const Sidebar = (props: any) => {
@@ -345,15 +344,12 @@ const Sidebar = (props: any) => {
         { ext: 'java', label: 'Java', icon: '☕' },
     ];
 
-    // Create file with specific extension
+    // Create file with specific extension - just create untitled file directly
     const createFileWithExtension = (ext: string) => {
         setCodeFileDropdownOpen(false);
-        const filename = `untitled.${ext}`;
-        // Call createNewTextFile with the pre-filled filename
+        // Just call createNewTextFile which now creates an untitled file directly
         if (createNewTextFile) {
-            // We need to trigger the modal with a default filename
-            // For now, just set a global or pass through props
-            window.dispatchEvent(new CustomEvent('createNewFileWithName', { detail: { filename } }));
+            createNewTextFile();
         }
     };
 
@@ -3774,7 +3770,8 @@ const renderFolderList = (structure) => {
         const staged = Array.isArray(gitStatus.staged) ? gitStatus.staged : [];
         const unstaged = Array.isArray(gitStatus.unstaged) ? gitStatus.unstaged : [];
         const untracked = Array.isArray(gitStatus.untracked) ? gitStatus.untracked : [];
-        const totalChanges = staged.length + unstaged.length + untracked.length;
+        const conflicted = Array.isArray(gitStatus.conflicted) ? gitStatus.conflicted : [];
+        const totalChanges = staged.length + unstaged.length + untracked.length + conflicted.length;
 
         const openDiffViewer = (filePath: string, status: string) => {
             // Open a diff pane for this file
@@ -3833,11 +3830,11 @@ const renderFolderList = (structure) => {
         );
 
         return (
-            <div className="flex flex-col">
+            <div className="flex flex-col h-full">
                 {header}
                 {!gitPanelCollapsed && (
-                    <div className="theme-bg-secondary overflow-hidden">
-                        <div className="overflow-auto max-h-[300px] p-2 space-y-2">
+                    <div className="theme-bg-secondary overflow-hidden flex-1 min-h-0">
+                        <div className="overflow-auto h-full p-2 space-y-2">
                             {/* Open Full Git Pane button */}
                             <button
                                 onClick={() => createGitPane?.()}
@@ -3857,7 +3854,7 @@ const renderFolderList = (structure) => {
                                                 for (const file of [...unstaged, ...untracked]) {
                                                     await (window as any).api?.gitStageFile?.(currentPath, file.path);
                                                 }
-                                                loadGitStatus();
+                                                await loadGitStatus();
                                             }}
                                             className="flex-1 px-2 py-1 text-[10px] bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded flex items-center justify-center gap-1"
                                             title="Stage all changes"
@@ -3872,7 +3869,7 @@ const renderFolderList = (structure) => {
                                                 for (const file of staged) {
                                                     await (window as any).api?.gitUnstageFile?.(currentPath, file.path);
                                                 }
-                                                loadGitStatus();
+                                                await loadGitStatus();
                                             }}
                                             className="flex-1 px-2 py-1 text-[10px] bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded flex items-center justify-center gap-1"
                                             title="Unstage all changes"
@@ -3925,13 +3922,88 @@ const renderFolderList = (structure) => {
                             {/* Separator before file list */}
                             {totalChanges > 0 && <div className="border-t border-gray-700/50" />}
 
+                            {/* Merge conflicts - show prominently at top */}
+                            {conflicted.length > 0 && (
+                                <div className="bg-red-900/20 rounded p-1.5 border border-red-500/30">
+                                    <div className="text-[10px] font-medium text-red-400 mb-1 flex items-center justify-between">
+                                        <span className="flex items-center gap-1">
+                                            <AlertCircle size={10} /> Conflicts ({conflicted.length})
+                                        </span>
+                                        <button
+                                            onClick={async () => {
+                                                if (confirm('Abort merge and discard all merge changes?')) {
+                                                    await (window as any).api?.gitAbortMerge?.(currentPath);
+                                                    await loadGitStatus();
+                                                }
+                                            }}
+                                            className="text-[9px] px-1.5 py-0.5 bg-red-600/30 hover:bg-red-600/50 rounded text-red-300"
+                                            title="Abort merge"
+                                        >
+                                            Abort
+                                        </button>
+                                    </div>
+                                    {conflicted.map(file => (
+                                        <div
+                                            key={file.path}
+                                            className="flex flex-col w-full px-1 py-1 text-[10px] hover:bg-red-500/10 rounded"
+                                        >
+                                            <button
+                                                onClick={() => openDiffViewer(file.path, 'conflict')}
+                                                className="text-red-300 truncate text-left hover:underline mb-1"
+                                            >
+                                                {file.path}
+                                            </button>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={async () => {
+                                                        await (window as any).api?.gitAcceptOurs?.(currentPath, file.path);
+                                                        await loadGitStatus();
+                                                    }}
+                                                    className="flex-1 px-1 py-0.5 text-[9px] bg-blue-600/30 hover:bg-blue-600/50 rounded text-blue-300"
+                                                    title="Keep our version"
+                                                >
+                                                    Ours
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        await (window as any).api?.gitAcceptTheirs?.(currentPath, file.path);
+                                                        await loadGitStatus();
+                                                    }}
+                                                    className="flex-1 px-1 py-0.5 text-[9px] bg-purple-600/30 hover:bg-purple-600/50 rounded text-purple-300"
+                                                    title="Accept their version"
+                                                >
+                                                    Theirs
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        await (window as any).api?.gitMarkResolved?.(currentPath, file.path);
+                                                        await loadGitStatus();
+                                                    }}
+                                                    className="flex-1 px-1 py-0.5 text-[9px] bg-green-600/30 hover:bg-green-600/50 rounded text-green-300"
+                                                    title="Mark as resolved (after manual edit)"
+                                                >
+                                                    Resolved
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
                             {/* Unstaged files */}
                             {unstaged.length > 0 && (
                                 <div>
                                     <div className="text-[10px] font-medium text-yellow-400 mb-1 flex items-center gap-1">
                                         <Edit size={10} /> Modified ({unstaged.length})
                                     </div>
-                                    {unstaged.map(file => (
+                                    {unstaged.map(file => {
+                                        // Convert verbose status to short code
+                                        const shortStatus = file.status?.toLowerCase().includes('modif') ? 'M' :
+                                            file.status?.toLowerCase().includes('delet') ? 'D' :
+                                            file.status?.toLowerCase().includes('renam') ? 'R' :
+                                            file.status?.toLowerCase().includes('unknown') ? '?' :
+                                            file.status?.charAt(0)?.toUpperCase() || '?';
+                                        return (
                                         <div
                                             key={file.path}
                                             className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-yellow-500/10 rounded group"
@@ -3943,21 +4015,35 @@ const renderFolderList = (structure) => {
                                                 {file.path}
                                             </button>
                                             <div className="flex items-center gap-1">
-                                                <span className="text-yellow-500 text-[9px] opacity-60">{file.status}</span>
+                                                <span className="text-yellow-500 text-[9px] opacity-60" title={file.status}>{shortStatus}</span>
                                                 <button
                                                     onClick={async (e) => {
                                                         e.stopPropagation();
                                                         await (window as any).api?.gitStageFile?.(currentPath, file.path);
-                                                        loadGitStatus();
+                                                        await loadGitStatus();
                                                     }}
                                                     className="p-0.5 hover:bg-green-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                                     title="Stage file"
                                                 >
                                                     <Plus size={10} className="text-green-400" />
                                                 </button>
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        if (confirm(`Discard changes to ${file.path}?`)) {
+                                                            const result = await (window as any).api?.gitDiscardFile?.(currentPath, file.path);
+                                                            console.log('Discard result:', result);
+                                                            await loadGitStatus();
+                                                        }
+                                                    }}
+                                                    className="p-0.5 hover:bg-red-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    title="Discard changes"
+                                                >
+                                                    <RotateCcw size={10} className="text-red-400" />
+                                                </button>
                                             </div>
                                         </div>
-                                    ))}
+                                    );})}
                                 </div>
                             )}
 
@@ -3967,7 +4053,14 @@ const renderFolderList = (structure) => {
                                     <div className="text-[10px] font-medium text-green-400 mb-1 flex items-center gap-1">
                                         <Check size={10} /> Staged ({staged.length})
                                     </div>
-                                    {staged.map(file => (
+                                    {staged.map(file => {
+                                        const shortStatus = file.status?.toLowerCase().includes('modif') ? 'M' :
+                                            file.status?.toLowerCase().includes('add') ? 'A' :
+                                            file.status?.toLowerCase().includes('delet') ? 'D' :
+                                            file.status?.toLowerCase().includes('renam') ? 'R' :
+                                            file.status?.toLowerCase().includes('unknown') ? '?' :
+                                            file.status?.charAt(0)?.toUpperCase() || '?';
+                                        return (
                                         <div
                                             key={file.path}
                                             className="flex items-center justify-between w-full px-2 py-1 text-[10px] hover:bg-green-500/10 rounded group"
@@ -3979,12 +4072,12 @@ const renderFolderList = (structure) => {
                                                 {file.path}
                                             </button>
                                             <div className="flex items-center gap-1">
-                                                <span className="text-green-500 text-[9px] opacity-60">{file.status}</span>
+                                                <span className="text-green-500 text-[9px] opacity-60" title={file.status}>{shortStatus}</span>
                                                 <button
                                                     onClick={async (e) => {
                                                         e.stopPropagation();
                                                         await (window as any).api?.gitUnstageFile?.(currentPath, file.path);
-                                                        loadGitStatus();
+                                                        await loadGitStatus();
                                                     }}
                                                     className="p-0.5 hover:bg-red-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                                     title="Unstage file"
@@ -3993,7 +4086,7 @@ const renderFolderList = (structure) => {
                                                 </button>
                                             </div>
                                         </div>
-                                    ))}
+                                    );})}
                                 </div>
                             )}
 
@@ -4020,12 +4113,25 @@ const renderFolderList = (structure) => {
                                                     onClick={async (e) => {
                                                         e.stopPropagation();
                                                         await (window as any).api?.gitStageFile?.(currentPath, file.path);
-                                                        loadGitStatus();
+                                                        await loadGitStatus();
                                                     }}
                                                     className="p-0.5 hover:bg-green-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                                     title="Stage file"
                                                 >
                                                     <Plus size={10} className="text-green-400" />
+                                                </button>
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        if (confirm(`Delete untracked file ${file.path}?`)) {
+                                                            await (window as any).api?.deleteFile?.(`${currentPath}/${file.path}`);
+                                                            await loadGitStatus();
+                                                        }
+                                                    }}
+                                                    className="p-0.5 hover:bg-red-500/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    title="Delete file"
+                                                >
+                                                    <Trash size={10} className="text-red-400" />
                                                 </button>
                                             </div>
                                         </div>
@@ -4926,18 +5032,6 @@ return (
         </div>
 
         {sidebarCollapsed && <div className="flex-1"></div>}
-
-        {/* User Menu - Auth & Sync */}
-        {!sidebarCollapsed && (
-            <div className="px-2 py-2 border-t border-gray-700">
-                <UserMenu
-                    onOpenSettings={() => {
-                        // Open settings pane
-                        if (createSettingsPane) createSettingsPane();
-                    }}
-                />
-            </div>
-        )}
 
         {/* Collapse controls row: Down arrow (left) | Sidebar collapse (right) */}
         {!sidebarCollapsed && (

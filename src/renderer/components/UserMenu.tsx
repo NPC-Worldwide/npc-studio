@@ -127,8 +127,8 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
         );
     }
 
-    // Auth Modal
-    const AuthModal = () => (
+    // Auth Modal - rendered inline to avoid re-creation on state changes
+    const authModalContent = showAuthModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAuthModal(false)}>
             <div
                 ref={modalRef}
@@ -149,7 +149,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <form onSubmit={handleSubmit} className="p-6 space-y-4" onMouseDown={e => e.stopPropagation()}>
                     {isSignUp && (
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -159,6 +159,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                                 type="text"
                                 value={name}
                                 onChange={e => setName(e.target.value)}
+                                onMouseDown={e => e.stopPropagation()}
                                 placeholder="Your name"
                                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
                                 required={isSignUp}
@@ -174,6 +175,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                             type="email"
                             value={email}
                             onChange={e => setEmail(e.target.value)}
+                            onMouseDown={e => e.stopPropagation()}
                             placeholder="you@example.com"
                             className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
                             required
@@ -189,6 +191,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                                 type={showPassword ? 'text' : 'password'}
                                 value={password}
                                 onChange={e => setPassword(e.target.value)}
+                                onMouseDown={e => e.stopPropagation()}
                                 placeholder={isSignUp ? 'At least 8 characters' : 'Your password'}
                                 className="w-full px-3 py-2 pr-10 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
                                 required
@@ -213,6 +216,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                             type="text"
                             value={deviceName}
                             onChange={e => setDeviceName(e.target.value)}
+                            onMouseDown={e => e.stopPropagation()}
                             placeholder="My MacBook"
                             className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
                         />
@@ -269,7 +273,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                     <LogIn size={16} />
                     <span className="text-sm font-medium">Sign In</span>
                 </button>
-                {showAuthModal && <AuthModal />}
+                {authModalContent}
             </>
         );
     }
@@ -411,7 +415,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                 </div>
             )}
 
-            {showAuthModal && <AuthModal />}
+            {authModalContent}
         </div>
     );
 };

@@ -10,6 +10,10 @@ const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 contextBridge.exposeInMainWorld('api', {
 textPredict: (data) => ipcRenderer.invoke('text-predict', data),
 
+// Shortcut relay methods (for terminal keyboard shortcuts)
+triggerNewTextFile: () => ipcRenderer.send('trigger-new-text-file'),
+triggerBrowserNewTab: () => ipcRenderer.send('trigger-browser-new-tab'),
+
 readCsvContent: (filePath) => 
   ipcRenderer.invoke('read-csv-content', filePath),
 
@@ -39,6 +43,7 @@ readDocxContent: (filePath) =>
 
    
     generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),
+    generateVideo: (prompt, model, provider, duration, currentPath, referenceImage) => ipcRenderer.invoke('generate_video', { prompt, model, provider, duration, currentPath, referenceImage }),
 
     openNewWindow: (path) => ipcRenderer.invoke('open-new-window', path),
     openInNativeExplorer: (path) => ipcRenderer.invoke('open-in-native-explorer', path),
@@ -72,6 +77,10 @@ readDocxContent: (filePath) =>
     gitStash: (repoPath, action, message) => ipcRenderer.invoke('gitStash', repoPath, action, message),
     gitShowFile: (repoPath, filePath, ref) => ipcRenderer.invoke('gitShowFile', repoPath, filePath, ref),
     gitDiscardFile: (repoPath, filePath) => ipcRenderer.invoke('gitDiscardFile', repoPath, filePath),
+    gitAcceptOurs: (repoPath, filePath) => ipcRenderer.invoke('gitAcceptOurs', repoPath, filePath),
+    gitAcceptTheirs: (repoPath, filePath) => ipcRenderer.invoke('gitAcceptTheirs', repoPath, filePath),
+    gitMarkResolved: (repoPath, filePath) => ipcRenderer.invoke('gitMarkResolved', repoPath, filePath),
+    gitAbortMerge: (repoPath) => ipcRenderer.invoke('gitAbortMerge', repoPath),
 
     readFile: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
    
@@ -151,6 +160,14 @@ readDocxContent: (filePath) =>
     onMenuNewTerminal: (callback) => {
         ipcRenderer.on('menu-new-terminal', callback);
         return () => ipcRenderer.removeListener('menu-new-terminal', callback);
+    },
+    onMenuNewTextFile: (callback) => {
+        ipcRenderer.on('menu-new-text-file', callback);
+        return () => ipcRenderer.removeListener('menu-new-text-file', callback);
+    },
+    onMenuReopenTab: (callback) => {
+        ipcRenderer.on('menu-reopen-tab', callback);
+        return () => ipcRenderer.removeListener('menu-reopen-tab', callback);
     },
     onMenuOpenFile: (callback) => {
         ipcRenderer.on('menu-open-file', callback);

@@ -114,18 +114,16 @@ const ChatHeaderContent: React.FC<ChatHeaderContentProps> = ({
             )}
 
             {/* Buttons area */}
-            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+            <div style={{ flex: '1 1 0', width: 0, minWidth: 0, display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end', overflow: 'hidden', flexWrap: 'nowrap' }}>
                 {/* Stats dropdown */}
-                <div className="relative mr-2">
+                <div className="relative flex-shrink-0">
                     <button
                         onClick={(e) => { e.stopPropagation(); setStatsExpanded(!statsExpanded); }}
-                        className="flex items-center gap-1 px-2 py-1 text-[10px] text-gray-400 hover:text-gray-200 rounded theme-hover"
-                        title="Toggle stats"
+                        className="flex items-center gap-1 px-1.5 py-1 text-[10px] text-gray-400 hover:text-gray-200 rounded theme-hover"
+                        title={`${chatStats.messageCount} messages, ~${chatStats.tokenCount.toLocaleString()} tokens${tokenCost > 0 ? `, $${tokenCost.toFixed(2)}` : ''}`}
                     >
                         <BarChart3 size={12} />
-                        <span>{chatStats.messageCount}m</span>
-                        <span>~{(chatStats.tokenCount / 1000).toFixed(1)}k</span>
-                        {tokenCost > 0 && <span className="text-green-500">${tokenCost.toFixed(2)}</span>}
+                        <span className="hidden sm:inline">{chatStats.messageCount}m</span>
                         {statsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                     </button>
                     {statsExpanded && (
@@ -151,40 +149,41 @@ const ChatHeaderContent: React.FC<ChatHeaderContentProps> = ({
                 {/* Auto-scroll toggle */}
                 <button
                     onClick={(e) => { e.stopPropagation(); setAutoScrollEnabled(!autoScrollEnabled); }}
-                    className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
+                    className={`p-1 rounded text-xs transition-all flex items-center gap-0.5 flex-shrink-0 ${
                         autoScrollEnabled ? 'theme-button-success' : 'theme-button'
                     } theme-hover`}
                     title={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
                 >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M12 5v14M19 12l-7 7-7-7"/>
                     </svg>
-                    {autoScrollEnabled ? 'Auto' : 'Manual'}
                 </button>
 
                 {/* Selection mode toggle */}
                 <button
                     onClick={(e) => { e.stopPropagation(); toggleMessageSelectionMode(); }}
-                    className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`}
+                    className={`p-1 rounded text-xs transition-all flex items-center gap-0.5 flex-shrink-0 ${messageSelectionMode ? 'theme-button-primary' : 'theme-button theme-hover'}`}
+                    title={messageSelectionMode ? `Exit selection (${selectedMessages.size} selected)` : 'Select messages'}
                 >
-                    <ListFilter size={14} />{messageSelectionMode ? `Exit (${selectedMessages.size})` : 'Select'}
+                    <ListFilter size={12} />
+                    {messageSelectionMode && selectedMessages.size > 0 && <span className="text-[10px]">{selectedMessages.size}</span>}
                 </button>
 
                 {/* Branching UI toggle */}
                 <button
                     onClick={(e) => { e.stopPropagation(); setShowBranchingUI(!showBranchingUI); }}
-                    className={`px-3 py-1 rounded text-xs transition-all flex items-center gap-1 ${
+                    className={`p-1 rounded text-xs transition-all flex items-center gap-0.5 flex-shrink-0 ${
                         showBranchingUI ? 'theme-button-primary' : 'theme-button theme-hover'
                     }`}
                     title="Manage conversation branches"
                 >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <line x1="6" y1="3" x2="6" y2="15"></line>
                         <circle cx="18" cy="6" r="3"></circle>
                         <circle cx="6" cy="18" r="3"></circle>
                         <path d="M18 9a9 9 0 0 1-9 9"></path>
                     </svg>
-                    {conversationBranches.size > 0 && `(${conversationBranches.size})`}
+                    {conversationBranches.size > 0 && <span className="text-[10px]">{conversationBranches.size}</span>}
                 </button>
             </div>
         </div>

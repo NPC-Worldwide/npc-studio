@@ -139,7 +139,7 @@ const THEME_PRESETS = {
     }
 };
 
-const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId, shell, isDarkMode = true }) => {
+const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId, setActiveContentPaneId, shell, isDarkMode = true }) => {
     const terminalRef = useRef(null);
     const xtermInstance = useRef(null);
     const fitAddonRef = useRef(null);
@@ -454,6 +454,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
 
                 // Ctrl+Shift+C or Cmd+Shift+C for copy (terminal standard)
                 if (isMeta && event.shiftKey && key === 'c') {
+                    event.stopPropagation();
                     const selection = term.getSelection();
                     if (selection) {
                         navigator.clipboard.writeText(selection);
@@ -581,6 +582,24 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     if (isSessionReady.current) {
                         window.api.writeToTerminal({ id: terminalId, data: '\x1bf' });
                     }
+                    return false;
+                }
+
+                // Ctrl+N - Create new text file (app-level shortcut)
+                if (event.ctrlKey && !event.metaKey && !event.shiftKey && key === 'n') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    // Trigger the menu-new-text-file event via IPC
+                    (window as any).api?.triggerNewTextFile?.();
+                    return false;
+                }
+
+                // Ctrl+T - New browser tab (app-level shortcut)
+                if (event.ctrlKey && !event.metaKey && !event.shiftKey && key === 't') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    // Trigger the browser-new-tab event via IPC
+                    (window as any).api?.triggerBrowserNewTab?.();
                     return false;
                 }
 
@@ -1184,7 +1203,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                 </div>
             )}
 
-            <div ref={terminalRef} className="w-full h-full" data-terminal="true" />
+            <div ref={terminalRef} className="w-full h-full" />
 
             {contextMenu && (
                 <>
