@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen, systemPreferences, Menu } = require('electron');
 const { desktopCapturer } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -339,6 +339,67 @@ const DEFAULT_CONFIG = {
   npc: defaultModelConfig.npc,
 };
 
+// Device ID and configuration for multi-device sync
+const DEVICE_CONFIG_PATH = path.join(os.homedir(), '.npcsh', 'incognide', 'device.json');
+
+function getOrCreateDeviceId() {
+  try {
+    // Ensure directory exists
+    const dir = path.dirname(DEVICE_CONFIG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Try to read existing device config
+    if (fs.existsSync(DEVICE_CONFIG_PATH)) {
+      const config = JSON.parse(fs.readFileSync(DEVICE_CONFIG_PATH, 'utf-8'));
+      if (config.deviceId) {
+        log(`[DEVICE] Using existing device ID: ${config.deviceId}`);
+        return config;
+      }
+    }
+
+    // Generate new device ID and config
+    const newConfig = {
+      deviceId: crypto.randomUUID(),
+      deviceName: os.hostname() || 'My Device',
+      deviceType: process.platform, // 'darwin', 'win32', 'linux'
+      createdAt: new Date().toISOString()
+    };
+
+    fs.writeFileSync(DEVICE_CONFIG_PATH, JSON.stringify(newConfig, null, 2));
+    log(`[DEVICE] Created new device ID: ${newConfig.deviceId}`);
+    return newConfig;
+  } catch (err) {
+    log(`[DEVICE] Error getting/creating device ID: ${err.message}`);
+    // Return a temporary ID that won't persist
+    return {
+      deviceId: crypto.randomUUID(),
+      deviceName: os.hostname() || 'My Device',
+      deviceType: process.platform,
+      createdAt: new Date().toISOString(),
+      isTemporary: true
+    };
+  }
+}
+
+function updateDeviceConfig(updates) {
+  try {
+    const currentConfig = getOrCreateDeviceId();
+    const newConfig = { ...currentConfig, ...updates, updatedAt: new Date().toISOString() };
+    fs.writeFileSync(DEVICE_CONFIG_PATH, JSON.stringify(newConfig, null, 2));
+    log(`[DEVICE] Updated device config:`, updates);
+    return newConfig;
+  } catch (err) {
+    log(`[DEVICE] Error updating device config: ${err.message}`);
+    return null;
+  }
+}
+
+// Initialize device config on startup
+const deviceConfig = getOrCreateDeviceId();
+log(`[DEVICE] Initialized with device ID: ${deviceConfig.deviceId}, name: ${deviceConfig.deviceName}`);
+
 function generateId() {
   return crypto.randomUUID();
 }
@@ -419,6 +480,17 @@ ipcMain.on('set-workspace-path', (event, workspacePath) => {
   }
 });
 
+// Terminal shortcut relay handlers (Ctrl+N and Ctrl+T from terminal)
+ipcMain.on('trigger-new-text-file', (event) => {
+  // Relay to the window that sent this
+  event.sender.send('menu-new-text-file');
+});
+
+ipcMain.on('trigger-browser-new-tab', (event) => {
+  // Relay to the window that sent this
+  event.sender.send('browser-new-tab');
+});
+
 // Helper to get workspace path for a webContents (checks parent windows too)
 function getWorkspacePathForWebContents(webContents) {
   // Try direct ID first
@@ -484,6 +556,47 @@ app.on('web-contents-created', (event, contents) => {
     }
   });
 
+  // Handle permissions for webviews (camera, microphone, screen sharing, etc.)
+  if (contents.getType() === 'webview') {
+    contents.session.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      // Allow media permissions (camera, microphone, screen sharing)
+      const allowedPermissions = [
+        'media',           // camera, microphone
+        'mediaKeySystem',  // encrypted media
+        'geolocation',
+        'notifications',
+        'clipboard-read',
+        'clipboard-write',
+        'display-capture', // screen sharing
+        'video-capture',   // video capture
+        'audio-capture',   // audio capture
+      ];
+      if (allowedPermissions.includes(permission)) {
+        log(`[Permissions] Granting ${permission} for webview`);
+        callback(true);
+      } else {
+        log(`[Permissions] Denying ${permission} for webview`);
+        callback(false);
+      }
+    });
+
+    // Also handle permission check requests
+    contents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+      const allowedPermissions = [
+        'media',
+        'mediaKeySystem',
+        'geolocation',
+        'notifications',
+        'clipboard-read',
+        'clipboard-write',
+        'display-capture',
+        'video-capture',
+        'audio-capture',
+      ];
+      return allowedPermissions.includes(permission);
+    });
+  }
+
   // Handle new window requests from webviews (ctrl+click, middle-click, target="_blank")
   // Send to renderer to open in new tab instead of new window
   if (contents.getType() === 'webview') {
@@ -533,6 +646,39 @@ app.whenReady().then(async () => {
 
   const dataPath = ensureUserDataDirectory();
   await ensureTablesExist();
+
+  // Request camera and microphone permissions on macOS
+  if (process.platform === 'darwin') {
+    try {
+      const cameraStatus = await systemPreferences.askForMediaAccess('camera');
+      const micStatus = await systemPreferences.askForMediaAccess('microphone');
+      log(`macOS permissions - Camera: ${cameraStatus}, Microphone: ${micStatus}`);
+
+      // If either permission was denied, show a helpful dialog
+      if (!cameraStatus || !micStatus) {
+        const denied = [];
+        if (!cameraStatus) denied.push('Camera');
+        if (!micStatus) denied.push('Microphone');
+
+        const result = await dialog.showMessageBox({
+          type: 'warning',
+          title: 'Permissions Required',
+          message: `${denied.join(' and ')} access was denied`,
+          detail: 'To use video calls in the browser, you need to grant camera and microphone permissions in System Settings.\n\nClick "Open Settings" to go directly to Privacy settings.',
+          buttons: ['Open Settings', 'Later'],
+          defaultId: 0,
+          cancelId: 1
+        });
+
+        if (result.response === 0) {
+          // Open System Preferences to Privacy & Security
+          shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Camera');
+        }
+      }
+    } catch (err) {
+      log(`Failed to request media permissions: ${err.message}`);
+    }
+  }
 
   protocol.registerFileProtocol('file', (request, callback) => {
     const filepath = request.url.replace('file://', '');
@@ -673,11 +819,19 @@ app.whenReady().then(async () => {
   const folderArg = process.argv.find(arg => arg.startsWith('--folder='));
   const bookmarksArg = process.argv.find(arg => arg.startsWith('--bookmarks='));
 
+  // Check for URL arguments (from xdg-open or when set as default browser)
+  const urlArg = process.argv.slice(2).find(arg =>
+    arg.startsWith('http://') || arg.startsWith('https://') || arg.startsWith('file://')
+  );
+
   // Support bare path argument: incognide /path/to/folder
   // Look for arguments that look like paths (start with / or ~ or .)
   const barePathArg = process.argv.slice(2).find(arg =>
     !arg.startsWith('--') &&
     !arg.startsWith('-') &&
+    !arg.startsWith('http://') &&
+    !arg.startsWith('https://') &&
+    !arg.startsWith('file://') &&
     (arg.startsWith('/') || arg.startsWith('~') || arg.startsWith('.'))
   );
 
@@ -700,6 +854,11 @@ app.whenReady().then(async () => {
     const urls = bookmarksArg.split('=')[1].replace(/^"|"$/g, '');
     cliArgs.bookmarks = urls.split(',').filter(u => u.trim());
     log(`[CLI] Workspace bookmarks: ${cliArgs.bookmarks.join(', ')}`);
+  }
+
+  if (urlArg) {
+    cliArgs.openUrl = urlArg;
+    log(`[CLI] URL to open in browser: ${urlArg}`);
   }
 
   createWindow(cliArgs);
@@ -1078,13 +1237,8 @@ function registerGlobalShortcut(win) {
       }
     });
 
-    // Ctrl+T for new browser tab - intercept before Chromium handles it
-    const ctrlTSuccess = globalShortcut.register('Ctrl+T', () => {
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('browser-new-tab');
-      }
-    });
-    console.log('Ctrl+T shortcut registered:', ctrlTSuccess);
+    // Ctrl+T handled via window input event instead of global shortcut
+    // to avoid interfering with other applications
 
   } catch (error) {
     console.error('Failed to register global shortcut:', error);
@@ -1120,6 +1274,19 @@ if (!gotTheLock) {
         !arg.startsWith('-') && (arg.startsWith('/') || arg.startsWith('~') || arg.startsWith('.'))
       );
       const actionArg = commandLine.find(arg => arg.startsWith('--action='));
+
+      // Check for URL arguments (from xdg-open or similar)
+      const urlArg = commandLine.slice(1).find(arg =>
+        arg.startsWith('http://') || arg.startsWith('https://') || arg.startsWith('file://')
+      );
+
+      if (urlArg) {
+        log(`[SECOND-INSTANCE] Opening URL in browser pane: ${urlArg}`);
+        mainWindow.webContents.send('open-url-in-browser', { url: urlArg });
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+        return;
+      }
 
       // Send workspace change
       let folder = null;
@@ -1249,7 +1416,7 @@ if (!gotTheLock) {
 const browserViews = new Map();
 
 function createWindow(cliArgs = {}) {
-    const { folder, bookmarks } = cliArgs;
+    const { folder, bookmarks, openUrl } = cliArgs;
 
     // Try multiple icon paths for dev vs production
     const possibleIconPaths = [
@@ -1312,6 +1479,213 @@ function createWindow(cliArgs = {}) {
   
     registerGlobalShortcut(mainWindow);
 
+    // Set up application menu
+    const isMac = process.platform === 'darwin';
+    const menuTemplate = [
+      // App menu (macOS only)
+      ...(isMac ? [{
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          {
+            label: 'Settings',
+            accelerator: 'CmdOrCtrl+,',
+            click: () => mainWindow.webContents.send('menu-open-settings')
+          },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit' }
+        ]
+      }] : []),
+      // File menu
+      {
+        label: 'File',
+        submenu: [
+          {
+            label: 'New Chat',
+            click: () => mainWindow.webContents.send('menu-new-chat')
+          },
+          {
+            label: 'New Terminal',
+            accelerator: 'CmdOrCtrl+Shift+T',
+            click: () => mainWindow.webContents.send('menu-new-terminal')
+          },
+          {
+            label: 'New Browser Tab',
+            accelerator: 'CmdOrCtrl+T',
+            click: () => mainWindow.webContents.send('browser-new-tab')
+          },
+          { type: 'separator' },
+          {
+            label: 'Open File...',
+            accelerator: 'CmdOrCtrl+O',
+            click: () => mainWindow.webContents.send('menu-open-file')
+          },
+          {
+            label: 'Open Folder...',
+            accelerator: 'CmdOrCtrl+Shift+O',
+            click: () => mainWindow.webContents.send('open-folder-picker')
+          },
+          { type: 'separator' },
+          {
+            label: 'Save',
+            accelerator: 'CmdOrCtrl+S',
+            click: () => mainWindow.webContents.send('menu-save-file')
+          },
+          {
+            label: 'Save As...',
+            accelerator: 'CmdOrCtrl+Shift+S',
+            click: () => mainWindow.webContents.send('menu-save-file-as')
+          },
+          { type: 'separator' },
+          {
+            label: 'Close Tab',
+            accelerator: 'CmdOrCtrl+W',
+            click: () => mainWindow.webContents.send('menu-close-tab')
+          },
+          { type: 'separator' },
+          ...(isMac ? [] : [
+            {
+              label: 'Settings',
+              accelerator: 'CmdOrCtrl+,',
+              click: () => mainWindow.webContents.send('menu-open-settings')
+            },
+            { type: 'separator' },
+            { role: 'quit' }
+          ])
+        ]
+      },
+      // Edit menu
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'pasteAndMatchStyle' },
+          { role: 'delete' },
+          { role: 'selectAll' },
+          { type: 'separator' },
+          {
+            label: 'Find',
+            accelerator: 'CmdOrCtrl+F',
+            click: () => mainWindow.webContents.send('menu-find')
+          },
+          {
+            label: 'Find in Files',
+            accelerator: 'CmdOrCtrl+Shift+F',
+            click: () => mainWindow.webContents.send('menu-global-search')
+          }
+        ]
+      },
+      // View menu
+      {
+        label: 'View',
+        submenu: [
+          {
+            label: 'Command Palette',
+            accelerator: 'CmdOrCtrl+P',
+            click: () => mainWindow.webContents.send('menu-command-palette')
+          },
+          { type: 'separator' },
+          {
+            label: 'Toggle Sidebar',
+            accelerator: 'CmdOrCtrl+B',
+            click: () => mainWindow.webContents.send('menu-toggle-sidebar')
+          },
+          { type: 'separator' },
+          { role: 'reload' },
+          { role: 'forceReload' },
+          { role: 'toggleDevTools' },
+          { type: 'separator' },
+          { role: 'resetZoom' },
+          { role: 'zoomIn' },
+          { role: 'zoomOut' },
+          { type: 'separator' },
+          { role: 'togglefullscreen' }
+        ]
+      },
+      // Window menu
+      {
+        label: 'Window',
+        submenu: [
+          {
+            label: 'New Window',
+            accelerator: 'CmdOrCtrl+Shift+N',
+            click: () => mainWindow.webContents.send('menu-new-window')
+          },
+          { type: 'separator' },
+          { role: 'minimize' },
+          { role: 'zoom' },
+          ...(isMac ? [
+            { type: 'separator' },
+            { role: 'front' },
+            { type: 'separator' },
+            { role: 'window' }
+          ] : [
+            { role: 'close' }
+          ]),
+          { type: 'separator' },
+          {
+            label: 'Split Pane Right',
+            click: () => mainWindow.webContents.send('menu-split-right')
+          },
+          {
+            label: 'Split Pane Down',
+            click: () => mainWindow.webContents.send('menu-split-down')
+          }
+        ]
+      },
+      // Help menu
+      {
+        label: 'Help',
+        submenu: [
+          {
+            label: 'Help & Documentation',
+            click: () => mainWindow.webContents.send('menu-open-help')
+          },
+          {
+            label: 'Keyboard Shortcuts',
+            accelerator: 'CmdOrCtrl+/',
+            click: () => mainWindow.webContents.send('menu-show-shortcuts')
+          },
+          { type: 'separator' },
+          {
+            label: 'Report Issue',
+            click: () => shell.openExternal('https://github.com/NPC-Worldwide/incognide/issues')
+          },
+          {
+            label: 'Visit Website',
+            click: () => shell.openExternal('https://incognide.com')
+          },
+          { type: 'separator' },
+          {
+            label: 'About Incognide',
+            click: () => {
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'About Incognide',
+                message: 'Incognide',
+                detail: `Version: ${app.getVersion()}\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\nNode: ${process.versions.node}`
+              });
+            }
+          }
+        ]
+      }
+    ];
+
+    const menu = Menu.buildFromTemplate(menuTemplate);
+    Menu.setApplicationMenu(menu);
+
     mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
       callback({
         responseHeaders: {
@@ -1346,10 +1720,26 @@ function createWindow(cliArgs = {}) {
       console.error('Failed to load:', errorCode, errorDescription);
     });
 
+    // Handle keyboard shortcuts at window level (not global) to avoid interfering with other apps
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown') {
+        // Ctrl+T - new browser tab (only when window is focused)
+        if (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 't') {
+          event.preventDefault();
+          mainWindow.webContents.send('browser-new-tab');
+        }
+        // Ctrl+Shift+O - open folder picker
+        if (input.control && input.shift && !input.alt && input.key.toLowerCase() === 'o') {
+          event.preventDefault();
+          mainWindow.webContents.send('open-folder-picker');
+        }
+      }
+    });
+
     // Send CLI arguments to renderer when ready
     mainWindow.webContents.on('did-finish-load', async () => {
-      if (folder || (bookmarks && bookmarks.length > 0)) {
-        log(`[CLI] Sending workspace args to renderer: folder=${folder}, bookmarks=${bookmarks?.length || 0}`);
+      if (folder || (bookmarks && bookmarks.length > 0) || openUrl) {
+        log(`[CLI] Sending workspace args to renderer: folder=${folder}, bookmarks=${bookmarks?.length || 0}, openUrl=${openUrl}`);
 
         // If folder is specified, set it as the current working directory for the workspace
         if (folder) {
@@ -1371,6 +1761,12 @@ function createWindow(cliArgs = {}) {
             }
           }
           mainWindow.webContents.send('cli-bookmarks-added', { bookmarks, folder });
+        }
+
+        // If URL is specified (from xdg-open or similar), open it in a browser pane
+        if (openUrl) {
+          log(`[CLI] Opening URL in browser pane: ${openUrl}`);
+          mainWindow.webContents.send('open-url-in-browser', { url: openUrl });
         }
       }
     });
@@ -1959,9 +2355,15 @@ ipcMain.handle('gitStatus', async (event, repoPath) => {
       let fileStatus = '';
       let isStaged = false;
       let isUntracked = false;
+      let isConflicted = false;
 
-      // Determine the primary status for display
-      if (f.index === 'M') {
+      // Check for merge conflicts (U in index or working_dir means unmerged)
+      if (f.index === 'U' || f.working_dir === 'U' ||
+          (f.index === 'A' && f.working_dir === 'A') ||
+          (f.index === 'D' && f.working_dir === 'D')) {
+        fileStatus = 'Conflict';
+        isConflicted = true;
+      } else if (f.index === 'M') {
         fileStatus = 'Staged Modified'; // Modified in index
         isStaged = true;
       } else if (f.index === 'A') {
@@ -1986,7 +2388,26 @@ ipcMain.handle('gitStatus', async (event, repoPath) => {
         status: fileStatus,
         isStaged: isStaged,
         isUntracked: isUntracked,
+        isConflicted: isConflicted,
       };
+    });
+
+    // Also check simple-git's conflicted array
+    const conflictedFromStatus = (status.conflicted || []).map(path => ({
+      path,
+      status: 'Conflict',
+      isStaged: false,
+      isUntracked: false,
+      isConflicted: true,
+    }));
+
+    // Merge conflicted files (avoid duplicates)
+    const conflictedPaths = new Set(allChangedFiles.filter(f => f.isConflicted).map(f => f.path));
+    conflictedFromStatus.forEach(f => {
+      if (!conflictedPaths.has(f.path)) {
+        allChangedFiles.push(f);
+        conflictedPaths.add(f.path);
+      }
     });
 
     return {
@@ -1995,10 +2416,12 @@ ipcMain.handle('gitStatus', async (event, repoPath) => {
       ahead: status.ahead,
       behind: status.behind,
       // Filter based on the new structured 'allChangedFiles'
-      staged: allChangedFiles.filter(f => f.isStaged),
-      unstaged: allChangedFiles.filter(f => !f.isStaged && !f.isUntracked),
+      staged: allChangedFiles.filter(f => f.isStaged && !f.isConflicted),
+      unstaged: allChangedFiles.filter(f => !f.isStaged && !f.isUntracked && !f.isConflicted),
       untracked: allChangedFiles.filter(f => f.isUntracked),
-      hasChanges: allChangedFiles.length > 0
+      conflicted: allChangedFiles.filter(f => f.isConflicted),
+      hasChanges: allChangedFiles.length > 0,
+      isMerging: status.conflicted && status.conflicted.length > 0
     };
   } catch (err) {
     console.error(`[Git] Error getting status for ${repoPath}:`, err);
@@ -2026,6 +2449,57 @@ ipcMain.handle('gitUnstageFile', async (event, repoPath, file) => {
     return { success: true };
   } catch (err) {
     console.error(`[Git] Error unstaging file ${file} in ${repoPath}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Merge conflict resolution handlers
+ipcMain.handle('gitAcceptOurs', async (event, repoPath, file) => {
+  log(`[Git] Accepting ours for: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.checkout(['--ours', file]);
+    await git.add(file);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error accepting ours for ${file}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitAcceptTheirs', async (event, repoPath, file) => {
+  log(`[Git] Accepting theirs for: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.checkout(['--theirs', file]);
+    await git.add(file);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error accepting theirs for ${file}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitMarkResolved', async (event, repoPath, file) => {
+  log(`[Git] Marking resolved: ${file} in ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.add(file);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error marking resolved ${file}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('gitAbortMerge', async (event, repoPath) => {
+  log(`[Git] Aborting merge in: ${repoPath}`);
+  try {
+    const git = simpleGit(repoPath);
+    await git.merge(['--abort']);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Git] Error aborting merge in ${repoPath}:`, err);
     return { success: false, error: err.message };
   }
 });
@@ -2322,8 +2796,29 @@ ipcMain.handle('gitDiscardFile', async (event, repoPath, filePath) => {
   log(`[Git] Discard changes to ${filePath} in ${repoPath}`);
   try {
     const git = simpleGit(repoPath);
-    await git.checkout(['--', filePath]);
-    return { success: true };
+    // First check if file is tracked or untracked
+    const status = await git.status();
+    const isUntracked = status.not_added.includes(filePath) ||
+                        status.files.some(f => f.path === filePath && f.index === '??');
+
+    if (isUntracked) {
+      // For untracked files, delete them
+      const fullPath = path.join(repoPath, filePath);
+      const fs = require('fs');
+      if (fs.existsSync(fullPath)) {
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory()) {
+          fs.rmSync(fullPath, { recursive: true });
+        } else {
+          fs.unlinkSync(fullPath);
+        }
+      }
+      return { success: true };
+    } else {
+      // For tracked files, use git checkout
+      await git.checkout(['--', filePath]);
+      return { success: true };
+    }
   } catch (err) {
     console.error(`[Git] Error discarding file:`, err);
     return { success: false, error: err.message };
@@ -2449,6 +2944,22 @@ ipcMain.handle('show-browser', async (event, { url, bounds, viewId }) => {
     wc.on('did-stop-loading', () => {
         mainWindow.webContents.send('browser-loading', { viewId, loading: false });
         mainWindow.webContents.send('browser-navigation-state-updated', { viewId, canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward() });
+    });
+
+    // Intercept keyboard shortcuts in browser view before they reach the page
+    wc.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown') {
+            // Ctrl+N - new text file (prevent browser new window)
+            if (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 'n') {
+                event.preventDefault();
+                mainWindow.webContents.send('menu-new-text-file');
+            }
+            // Ctrl+T - new browser tab
+            if (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 't') {
+                event.preventDefault();
+                mainWindow.webContents.send('browser-new-tab');
+            }
+        }
     });
 
     // Downloads handled by app.on('web-contents-created') handler
@@ -5713,6 +6224,20 @@ app.on('will-quit', () => {
     }
   );
 
+  // Device ID and info handlers for multi-device sync
+  ipcMain.handle('getDeviceInfo', async () => {
+    return getOrCreateDeviceId();
+  });
+
+  ipcMain.handle('setDeviceName', async (event, newName) => {
+    return updateDeviceConfig({ deviceName: newName });
+  });
+
+  ipcMain.handle('getDeviceId', async () => {
+    const config = getOrCreateDeviceId();
+    return config.deviceId;
+  });
+
 
   ipcMain.handle('get_attachment_response', async (_, attachmentData, messages) => {
     try {
@@ -7643,7 +8168,47 @@ ipcMain.handle('generate_images', async (event, { prompt, n, model, provider, at
   }
 });
 
+// Video generation handler
+ipcMain.handle('generate_video', async (event, { prompt, model, provider, duration, currentPath, referenceImage }) => {
+  log(`[Main Process] Received request to generate video with prompt: "${prompt}" using model: "${model}" (${provider})`);
 
+  if (!prompt) {
+    return { error: 'Prompt cannot be empty' };
+  }
+  if (!model || !provider) {
+    return { error: 'Video model and provider must be selected.' };
+  }
+
+  try {
+    const apiUrl = `${BACKEND_URL}/api/generate_video`;
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        model,
+        provider,
+        duration: duration || 5,
+        currentPath: currentPath || '~/.npcsh/videos',
+        reference_image: referenceImage || null
+      })
+    });
+    const data = await response.json();
+
+    if (data.error) {
+      return { error: data.error };
+    }
+    return {
+      success: true,
+      video_path: data.video_path,
+      video_base64: data.video_base64,
+      message: data.message
+    };
+  } catch (error) {
+    log('Error generating video in main process handler:', error);
+    return { error: error.message || 'Video generation failed in main process' };
+  }
+});
 
 ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, shellType }) => {
   if (!pty) {
@@ -7752,10 +8317,16 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, she
 
   // Create clean env without VS Code artifacts
   const cleanEnv = { ...process.env };
-  delete cleanEnv.PYTHONSTARTUP;  // Remove VS Code Python extension startup
+  delete cleanEnv.PYTHONSTARTUP;
   delete cleanEnv.VSCODE_PID;
   delete cleanEnv.VSCODE_CWD;
   delete cleanEnv.VSCODE_NLS_CONFIG;
+
+  if (app.isPackaged) {
+    cleanEnv.BROWSER = `${process.execPath} %s`;
+  } else {
+    cleanEnv.BROWSER = `${process.execPath} ${app.getAppPath()} %s`;
+  }
 
   try {
     const ptyProcess = pty.spawn(shell, args, {
@@ -9776,6 +10347,55 @@ ipcMain.handle('jupyter:registerKernel', async (_, { workspacePath, kernelName =
     } catch (err) {
         return { success: false, error: err.message };
     }
+});
+
+// Media permissions handler (macOS)
+ipcMain.handle('check-media-permissions', async () => {
+  if (process.platform !== 'darwin') {
+    return { camera: true, microphone: true };
+  }
+
+  const cameraStatus = systemPreferences.getMediaAccessStatus('camera');
+  const micStatus = systemPreferences.getMediaAccessStatus('microphone');
+
+  return {
+    camera: cameraStatus === 'granted',
+    microphone: micStatus === 'granted',
+    cameraStatus,
+    micStatus
+  };
+});
+
+ipcMain.handle('request-media-permissions', async () => {
+  if (process.platform !== 'darwin') {
+    return { camera: true, microphone: true };
+  }
+
+  const cameraStatus = await systemPreferences.askForMediaAccess('camera');
+  const micStatus = await systemPreferences.askForMediaAccess('microphone');
+
+  // If denied, offer to open settings
+  if (!cameraStatus || !micStatus) {
+    const denied = [];
+    if (!cameraStatus) denied.push('Camera');
+    if (!micStatus) denied.push('Microphone');
+
+    const result = await dialog.showMessageBox({
+      type: 'warning',
+      title: 'Permissions Required',
+      message: `${denied.join(' and ')} access was denied`,
+      detail: 'To use video calls in the browser, you need to grant camera and microphone permissions in System Settings.\n\nClick "Open Settings" to go directly to Privacy settings.',
+      buttons: ['Open Settings', 'Later'],
+      defaultId: 0,
+      cancelId: 1
+    });
+
+    if (result.response === 0) {
+      shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Camera');
+    }
+  }
+
+  return { camera: cameraStatus, microphone: micStatus };
 });
 
 // Version update checker

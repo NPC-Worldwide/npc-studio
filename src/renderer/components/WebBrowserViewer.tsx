@@ -87,6 +87,8 @@ const WebBrowserViewer = memo(({
     const historyDebounceRef = useRef<NodeJS.Timeout | null>(null);
     const hasInitializedRef = useRef(false);
     const lastKnownPaneUrlRef = useRef<string | null>(null);
+    // Track the current tab ID to prevent URL bleeding between tabs during async navigation callbacks
+    const currentTabIdRef = useRef<string | null>(null);
 
     const paneData = contentDataRef.current[nodeId];
     // Capture initial URL only once using a ref to prevent reload loops
@@ -131,6 +133,18 @@ const WebBrowserViewer = memo(({
         }
     }, [nodeId, currentUrl, title]);
 
+    // Track the current tab ID to prevent URL bleeding between tabs
+    // This updates whenever the active tab changes
+    useEffect(() => {
+        const paneData = contentDataRef.current[nodeId];
+        if (paneData?.tabs && paneData.activeTabIndex !== undefined) {
+            const activeTab = paneData.tabs[paneData.activeTabIndex];
+            currentTabIdRef.current = activeTab?.id || null;
+        } else {
+            currentTabIdRef.current = null;
+        }
+    });
+
     useEffect(() => {
         const webview = webviewRef.current;
         if (!webview) return;
@@ -173,6 +187,11 @@ const WebBrowserViewer = memo(({
         };
 
         const handleDidNavigate = (e) => {
+            // Only handle main frame navigations - ignore iframes (like Google's contacts widget)
+            if (e.isMainFrame === false) {
+                return;
+            }
+
             const url = e.url;
 
             // Skip if this is the same URL we just processed (prevents loops)
@@ -223,12 +242,14 @@ const WebBrowserViewer = memo(({
                 // Also update our tracking ref to prevent the tab-switch effect from re-navigating
                 lastKnownPaneUrlRef.current = url;
 
-                // Also update the active tab's browserUrl so tabs maintain separate URLs
+                // Update the tab's browserUrl using tab ID (not activeTabIndex) to prevent URL bleeding
+                // This ensures we update the correct tab even if a tab switch happened during navigation
                 const paneData = contentDataRef.current[nodeId];
-                if (paneData?.tabs && paneData.activeTabIndex !== undefined) {
-                    const activeTab = paneData.tabs[paneData.activeTabIndex];
-                    if (activeTab && activeTab.contentType === 'browser') {
-                        activeTab.browserUrl = url;
+                if (paneData?.tabs && currentTabIdRef.current) {
+                    // Find the tab by ID, not by activeTabIndex
+                    const tabToUpdate = paneData.tabs.find(t => t.id === currentTabIdRef.current);
+                    if (tabToUpdate && tabToUpdate.contentType === 'browser') {
+                        tabToUpdate.browserUrl = url;
                     }
                 }
             }
@@ -243,12 +264,13 @@ const WebBrowserViewer = memo(({
             if (contentDataRef.current[nodeId]) {
                 contentDataRef.current[nodeId].browserTitle = newTitle;
 
-                // Also update the active tab's browserTitle so tabs maintain separate titles
+                // Update the tab's browserTitle using tab ID (not activeTabIndex) to prevent title bleeding
                 const paneData = contentDataRef.current[nodeId];
-                if (paneData?.tabs && paneData.activeTabIndex !== undefined) {
-                    const activeTab = paneData.tabs[paneData.activeTabIndex];
-                    if (activeTab && activeTab.contentType === 'browser') {
-                        activeTab.browserTitle = newTitle;
+                if (paneData?.tabs && currentTabIdRef.current) {
+                    // Find the tab by ID, not by activeTabIndex
+                    const tabToUpdate = paneData.tabs.find(t => t.id === currentTabIdRef.current);
+                    if (tabToUpdate && tabToUpdate.contentType === 'browser') {
+                        tabToUpdate.browserTitle = newTitle;
                     }
                 }
             }
@@ -427,43 +449,22 @@ const WebBrowserViewer = memo(({
     const handleRefresh = useCallback(() => webviewRef.current?.reload(), []);
     const handleHardRefresh = useCallback(() => webviewRef.current?.reloadIgnoringCache(), []);
 
-    // Keyboard shortcuts: Backspace for back, Ctrl+Shift+R for hard refresh, Ctrl+T new tab, Ctrl+N new pane
+    // Keyboard shortcuts: Backspace for back (only when this pane is focused)
+    // Note: Ctrl+R, Ctrl+T, Ctrl+N are handled globally in Enpistu.tsx and main.js
     useEffect(() => {
+        const containerRef = document.querySelector(`[data-pane-id="${nodeId}"]`);
+
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Ctrl+T = new tab in this pane
-            if (e.ctrlKey && !e.shiftKey && e.key === 't') {
-                e.preventDefault();
-                e.stopPropagation();
-                handleNewBrowserTab?.('');
-                return;
-            }
-            // Ctrl+N = new browser in next pane
-            if (e.ctrlKey && !e.shiftKey && e.key === 'n') {
-                e.preventDefault();
-                e.stopPropagation();
-                const nodePath = findNodePath(rootLayoutNode, nodeId);
-                if (nodePath && performSplit) {
-                    performSplit(nodePath, 'right', 'browser', 'about:blank');
-                }
-                return;
-            }
-            // Ctrl+Shift+R = hard refresh (bypass cache)
-            if (e.ctrlKey && e.shiftKey && e.key === 'R') {
-                e.preventDefault();
-                e.stopPropagation();
-                handleHardRefresh();
-                return;
-            }
-            // Ctrl+R = normal refresh
-            if (e.ctrlKey && !e.shiftKey && e.key === 'r') {
-                e.preventDefault();
-                e.stopPropagation();
-                handleRefresh();
-                return;
-            }
-            // Backspace = go back
+            // Only handle shortcuts if this browser pane is focused
+            // Check if the event target is within this pane's container
+            const target = e.target as HTMLElement;
+            const isWithinThisPane = containerRef?.contains(target) ||
+                                      target.closest(`[data-pane-id="${nodeId}"]`) !== null;
+
+            if (!isWithinThisPane) return;
+
+            // Backspace = go back (only if not in a text input)
             if (e.key === 'Backspace') {
-                const target = e.target as HTMLElement;
                 const isTextInput = target.tagName === 'INPUT' ||
                                    target.tagName === 'TEXTAREA' ||
                                    target.isContentEditable;
@@ -474,9 +475,9 @@ const WebBrowserViewer = memo(({
             }
         };
 
-        document.addEventListener('keydown', handleKeyDown, true); // Use capture to intercept before Electron
+        document.addEventListener('keydown', handleKeyDown, true);
         return () => document.removeEventListener('keydown', handleKeyDown, true);
-    }, [canGoBack, handleBack, handleRefresh, handleHardRefresh, handleNewBrowserTab, findNodePath, rootLayoutNode, nodeId, performSplit]);
+    }, [canGoBack, handleBack, nodeId]);
     const handleHome = useCallback(() => {
         const initial = initialUrlRef.current;
         let homeUrl = initial;
@@ -673,8 +674,8 @@ const WebBrowserViewer = memo(({
         const site = getSiteFromUrl(url);
         try {
             const result = await (window as any).api?.passwordGetForSite?.(site);
-            if (result?.success && result.passwords?.length > 0) {
-                setSavedPasswords(result.passwords);
+            if (result?.success && result.credentials?.length > 0) {
+                setSavedPasswords(result.credentials);
                 setShowPasswordFill(true);
             } else {
                 setSavedPasswords([]);
@@ -696,16 +697,24 @@ const WebBrowserViewer = memo(({
         }
     }, [pendingCredentials]);
 
-    const handleFillPassword = useCallback(async (password: any) => {
+    const handleFillPassword = useCallback(async (credential: any) => {
         const webview = webviewRef.current;
         if (!webview) return;
 
         try {
+            // Fetch the full credential with password
+            const result = await (window as any).api?.passwordGet?.(credential.id);
+            if (!result?.success || !result.credential) {
+                console.error('[Browser] Failed to get credential for fill');
+                return;
+            }
+            const fullCredential = result.credential;
+
             // Inject script to fill the login form
             await webview.executeJavaScript(`
                 (function() {
-                    const username = ${JSON.stringify(password.username)};
-                    const pwd = ${JSON.stringify(password.password)};
+                    const username = ${JSON.stringify(fullCredential.username)};
+                    const pwd = ${JSON.stringify(fullCredential.password)};
 
                     // Find username/email fields
                     const usernameInputs = document.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"], input[id*="user"], input[id*="email"], input[id*="login"]');
@@ -742,7 +751,7 @@ const WebBrowserViewer = memo(({
         try {
             const result = await (window as any).api?.passwordList?.();
             if (result?.success) {
-                setAllPasswords(result.passwords || []);
+                setAllPasswords(result.credentials || []);
             }
         } catch (err) {
             console.error('[Browser] Failed to load passwords:', err);
@@ -807,34 +816,96 @@ const WebBrowserViewer = memo(({
                         if (window.__npcPasswordDetectorInstalled) return;
                         window.__npcPasswordDetectorInstalled = true;
 
-                        document.addEventListener('submit', function(e) {
-                            const form = e.target;
-                            const passwordInputs = form.querySelectorAll('input[type="password"]');
-                            if (passwordInputs.length === 0) return;
+                        // Track last known credentials
+                        let lastUsername = '';
+                        let lastPassword = '';
 
-                            // Find username/email field
-                            const usernameInputs = form.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"]');
-                            let username = '';
-                            for (const input of usernameInputs) {
+                        // Scan page for credentials
+                        function scanForCredentials() {
+                            const passwordInputs = document.querySelectorAll('input[type="password"]');
+                            if (passwordInputs.length === 0) return null;
+
+                            let password = '';
+                            for (const input of passwordInputs) {
                                 if (input.value) {
-                                    username = input.value;
+                                    password = input.value;
                                     break;
                                 }
                             }
 
-                            const password = passwordInputs[0].value;
+                            // Find username/email - search whole page, not just form
+                            const usernameInputs = document.querySelectorAll('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"], input[name*="login"], input[autocomplete*="user"], input[autocomplete="email"]');
+                            let username = '';
+                            for (const input of usernameInputs) {
+                                if (input.value && input.value.includes('@')) {
+                                    username = input.value;
+                                    break;
+                                }
+                            }
+                            // Fallback - any text input with value
+                            if (!username) {
+                                for (const input of usernameInputs) {
+                                    if (input.value) {
+                                        username = input.value;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            return { username, password };
+                        }
+
+                        // Signal credentials are ready
+                        function signalCredentials(username, password) {
                             if (username && password) {
-                                // Store securely for retrieval - don't log
                                 window.__npcPendingCredentials = {
                                     site: window.location.hostname,
                                     username: username,
                                     password: password,
                                     timestamp: Date.now()
                                 };
-                                // Signal without exposing data
                                 console.log('npc-credentials-ready');
                             }
+                        }
+
+                        // Listen for form submit
+                        document.addEventListener('submit', function(e) {
+                            const creds = scanForCredentials();
+                            if (creds) signalCredentials(creds.username, creds.password);
                         }, true);
+
+                        // Track password field changes
+                        document.addEventListener('input', function(e) {
+                            if (e.target.type === 'password' && e.target.value) {
+                                lastPassword = e.target.value;
+                            }
+                            if ((e.target.type === 'text' || e.target.type === 'email') && e.target.value) {
+                                lastUsername = e.target.value;
+                            }
+                        }, true);
+
+                        // Detect button clicks that might submit (for JS-based forms)
+                        document.addEventListener('click', function(e) {
+                            const btn = e.target.closest('button, input[type="submit"], [role="button"]');
+                            if (btn) {
+                                // Check if there's a password field with value
+                                setTimeout(() => {
+                                    const creds = scanForCredentials();
+                                    if (creds && creds.password) {
+                                        signalCredentials(creds.username || lastUsername, creds.password);
+                                    } else if (lastPassword) {
+                                        signalCredentials(lastUsername, lastPassword);
+                                    }
+                                }, 100);
+                            }
+                        }, true);
+
+                        // Also check before navigation
+                        window.addEventListener('beforeunload', function() {
+                            if (lastPassword) {
+                                signalCredentials(lastUsername, lastPassword);
+                            }
+                        });
                     })();
                 `);
             } catch (err) {
@@ -1367,6 +1438,7 @@ const WebBrowserViewer = memo(({
                     className="absolute inset-0 w-full h-full"
                     partition={`persist:${viewId}`}
                     allowpopups="true"
+                    allowusermedia="true"
                     webpreferences="contextIsolation=no, javascript=yes, webSecurity=yes, allowRunningInsecureContent=no, spellcheck=yes, enableRemoteModule=no"
                     style={{ visibility: error ? 'hidden' : 'visible' }}
                 />

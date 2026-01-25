@@ -49,6 +49,7 @@ import PathSwitcher from './PathSwitcher';
 import CronDaemonPanel from './CronDaemonPanel';
 import MemoryManager from './MemoryManager';
 import SearchPane from './SearchPane';
+import { AuthProvider } from './AuthProvider';
 import DownloadManager, { getActiveDownloadsCount, setDownloadToastCallback } from './DownloadManager';
 import { LiveProvider, LivePreview, LiveError } from 'react-live';
 // Components for tile jinx runtime rendering
@@ -373,6 +374,7 @@ const ChatInterface = () => {
         const saved = localStorage.getItem('npcStudioShowDateTime');
         return saved !== null ? JSON.parse(saved) : false;
     });
+    const [currentTime, setCurrentTime] = useState(new Date());
     const [showCronDaemonPanel, setShowCronDaemonPanel] = useState(false);
     const [showMemoryManager, setShowMemoryManager] = useState(false);
     const [pendingMemoryCount, setPendingMemoryCount] = useState(0);
@@ -714,8 +716,11 @@ const ChatInterface = () => {
     const [dropTarget, setDropTarget] = useState(null);
    
     const contentDataRef = useRef({});
+    const closedTabsRef = useRef<Array<{contentType: string, contentId: string, browserUrl?: string, browserTitle?: string}>>([]);
     const currentPathRef = useRef(currentPath);
     currentPathRef.current = currentPath;
+    const activeContentPaneIdRef = useRef(activeContentPaneId);
+    activeContentPaneIdRef.current = activeContentPaneId;
     const [editorContextMenuPos, setEditorContextMenuPos] = useState(null);
     const rootLayoutNodeRef = useRef(rootLayoutNode);
     const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -726,7 +731,7 @@ const ChatInterface = () => {
     // Global keyboard shortcuts (must be after activeContentPaneId and contentDataRef are defined)
     useEffect(() => {
         const handleGlobalKeyDown = (e: KeyboardEvent) => {
-            // Ctrl+R = refresh browser page (when active pane is browser)
+            // Ctrl+R = refresh browser page (when active pane is browser), or reverse search in terminal
             if (e.ctrlKey && !e.shiftKey && e.key === 'r') {
                 const activePane = contentDataRef.current[activeContentPaneId];
                 if (activePane?.contentType === 'browser') {
@@ -740,7 +745,12 @@ const ChatInterface = () => {
                     }
                     return;
                 }
-                // For non-browser panes, prevent default to avoid Electron refresh
+                // For terminal panes, let Ctrl+R pass through for reverse search (bash/zsh)
+                if (activePane?.contentType === 'terminal') {
+                    // Don't prevent default - let it reach the terminal
+                    return;
+                }
+                // For non-browser/non-terminal panes, prevent default to avoid Electron refresh
                 e.preventDefault();
             }
             // Ctrl+Shift+R = hard refresh browser or refresh Electron window
@@ -826,6 +836,159 @@ const ChatInterface = () => {
 
         return () => {
             if (unsubscribe) unsubscribe();
+        };
+    }, []);
+
+    // Listen for Ctrl+Shift+O folder picker shortcut
+    useEffect(() => {
+        const api = window as any;
+        if (!api.api?.onOpenFolderPicker) return;
+
+        const unsubscribe = api.api.onOpenFolderPicker(async () => {
+            console.log('[SHORTCUT] Opening folder picker (Ctrl+Shift+O)');
+            const selectedPath = await api.api.open_directory_picker();
+            if (selectedPath) {
+                console.log('[SHORTCUT] Selected folder:', selectedPath);
+                setCurrentPath(selectedPath);
+            }
+        });
+
+        return () => {
+            if (unsubscribe) unsubscribe();
+        };
+    }, []);
+
+    // Listen for external URL open requests (from xdg-open, gcloud auth, etc.)
+    useEffect(() => {
+        const api = window as any;
+        if (!api.api?.onOpenUrlInBrowser) return;
+
+        const unsubscribe = api.api.onOpenUrlInBrowser((data: { url: string }) => {
+            if (data?.url) {
+                console.log('[EXTERNAL] Opening URL in browser pane:', data.url);
+                // Create a new browser pane with the URL
+                const newPaneId = generateId();
+                const newBrowserId = `browser_${Date.now()}`;
+                contentDataRef.current[newPaneId] = {
+                    contentType: 'browser',
+                    contentId: newBrowserId,
+                    browserUrl: data.url
+                };
+                setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+                setActiveContentPaneId(newPaneId);
+            }
+        });
+
+        return () => {
+            if (unsubscribe) unsubscribe();
+        };
+    }, []);
+
+    // Menu bar event handlers - use refs to access latest function versions
+    useEffect(() => {
+        const api = window as any;
+        const cleanups: (() => void)[] = [];
+
+        // File menu handlers
+        if (api.api?.onMenuNewChat) {
+            cleanups.push(api.api.onMenuNewChat(() => createNewConversationRef.current?.()));
+        }
+        if (api.api?.onMenuNewTerminal) {
+            cleanups.push(api.api.onMenuNewTerminal(() => createNewTerminalRef.current?.()));
+        }
+        if (api.api?.onMenuNewTextFile) {
+            cleanups.push(api.api.onMenuNewTextFile(() => createUntitledTextFileRef.current?.()));
+        }
+        if (api.api?.onMenuReopenTab) {
+            cleanups.push(api.api.onMenuReopenTab(() => {
+                const closedTab = closedTabsRef.current.pop();
+                if (closedTab) {
+                    const newPaneId = generateId();
+                    contentDataRef.current[newPaneId] = {
+                        contentType: closedTab.contentType,
+                        contentId: closedTab.contentId,
+                        browserUrl: closedTab.browserUrl,
+                        browserTitle: closedTab.browserTitle
+                    };
+                    setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+                    setActiveContentPaneId(newPaneId);
+                }
+            }));
+        }
+        if (api.api?.onMenuOpenFile) {
+            cleanups.push(api.api.onMenuOpenFile(async () => {
+                const result = await api.api.open_directory_picker?.();
+                if (result) {
+                    // Open file in editor
+                    const stats = await api.api.readDirectory?.(result);
+                    if (stats && !stats.error) {
+                        // It's a directory, switch to it
+                        setCurrentPath(result);
+                    }
+                }
+            }));
+        }
+        if (api.api?.onMenuSaveFile) {
+            cleanups.push(api.api.onMenuSaveFile(() => {
+                // Trigger save on active editor pane - use contentDataRef which is always current
+                const activePaneId = activeContentPaneIdRef.current;
+                const paneData = contentDataRef.current[activePaneId];
+                if (paneData?.contentType === 'editor' && paneData.fileContent !== undefined) {
+                    api.api.writeFileContent?.(paneData.contentId, paneData.fileContent);
+                    paneData.fileChanged = false;
+                    setRootLayoutNode(prev => ({ ...prev }));
+                }
+            }));
+        }
+        if (api.api?.onMenuCloseTab) {
+            cleanups.push(api.api.onMenuCloseTab(() => {
+                const activePaneId = activeContentPaneIdRef.current;
+                if (activePaneId) {
+                    closeContentPaneRef.current?.(activePaneId, []);
+                }
+            }));
+        }
+        if (api.api?.onMenuOpenSettings) {
+            cleanups.push(api.api.onMenuOpenSettings(() => createSettingsPaneRef.current?.()));
+        }
+
+        // Edit menu handlers
+        if (api.api?.onMenuGlobalSearch) {
+            cleanups.push(api.api.onMenuGlobalSearch(() => {
+                // Open search pane
+                createSearchPaneRef.current?.('');
+            }));
+        }
+        if (api.api?.onMenuCommandPalette) {
+            cleanups.push(api.api.onMenuCommandPalette(() => {
+                setCommandPaletteOpen(true);
+            }));
+        }
+
+        // View menu handlers
+        if (api.api?.onMenuToggleSidebar) {
+            cleanups.push(api.api.onMenuToggleSidebar(() => {
+                setSidebarCollapsed(prev => !prev);
+            }));
+        }
+
+        // Window menu handlers
+        if (api.api?.onMenuNewWindow) {
+            cleanups.push(api.api.onMenuNewWindow(() => {
+                api.api.openNewWindow?.(currentPathRef.current);
+            }));
+        }
+
+        // Help menu handlers
+        if (api.api?.onMenuOpenHelp) {
+            cleanups.push(api.api.onMenuOpenHelp(() => createHelpPaneRef.current?.()));
+        }
+        if (api.api?.onMenuShowShortcuts) {
+            cleanups.push(api.api.onMenuShowShortcuts(() => createHelpPaneRef.current?.()));
+        }
+
+        return () => {
+            cleanups.forEach(cleanup => cleanup?.());
         };
     }, []);
 
@@ -1181,6 +1344,14 @@ const ChatInterface = () => {
         localStorage.setItem('npcStudioShowDateTime', JSON.stringify(showDateTime));
     }, [showDateTime]);
 
+    // Update clock every second
+    useEffect(() => {
+        const clockInterval = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 1000);
+        return () => clearInterval(clockInterval);
+    }, []);
+
     // Save model/provider/NPC preferences
     useEffect(() => {
         if (currentModel !== null) {
@@ -1204,6 +1375,79 @@ const ChatInterface = () => {
     useEffect(() => {
         localStorage.setItem('npcStudioExecutionMode', JSON.stringify(executionMode));
     }, [executionMode]);
+
+    // Project-specific settings: save and restore last used model/provider/NPC/executionMode per project folder
+    const getProjectSettingsKey = useCallback((folderPath: string) => {
+        // Create a unique key for each project folder
+        return `incognide-project-settings-${folderPath.replace(/[/\\]/g, '_')}`;
+    }, []);
+
+    // Save project settings when they change
+    useEffect(() => {
+        if (!currentPath || !currentModel || !currentProvider) return;
+
+        try {
+            const key = getProjectSettingsKey(currentPath);
+            const settings = {
+                lastModel: currentModel,
+                lastProvider: currentProvider,
+                lastNPC: currentNPC,
+                lastExecutionMode: executionMode,
+                updatedAt: new Date().toISOString()
+            };
+            localStorage.setItem(key, JSON.stringify(settings));
+        } catch (e) {
+            console.error('Error saving project settings:', e);
+        }
+    }, [currentPath, currentModel, currentProvider, currentNPC, executionMode, getProjectSettingsKey]);
+
+    // Ref to track if we're restoring project settings (to avoid save loop)
+    const isRestoringProjectSettings = useRef(false);
+    const previousPath = useRef<string | null>(null);
+
+    // Load project settings when path changes
+    useEffect(() => {
+        if (!currentPath || currentPath === previousPath.current) return;
+        previousPath.current = currentPath;
+
+        try {
+            const key = getProjectSettingsKey(currentPath);
+            const savedSettings = localStorage.getItem(key);
+
+            if (savedSettings) {
+                const settings = JSON.parse(savedSettings);
+                isRestoringProjectSettings.current = true;
+
+                // Restore settings from this project
+                if (settings.lastModel) setCurrentModel(settings.lastModel);
+                if (settings.lastProvider) setCurrentProvider(settings.lastProvider);
+                if (settings.lastNPC !== undefined) setCurrentNPC(settings.lastNPC);
+                if (settings.lastExecutionMode) setExecutionMode(settings.lastExecutionMode);
+
+                console.log(`[PROJECT SETTINGS] Restored settings for ${currentPath}:`, settings);
+
+                // Reset the flag after a short delay
+                setTimeout(() => {
+                    isRestoringProjectSettings.current = false;
+                }, 100);
+            } else {
+                // No saved settings for this project - check for defaultToAgent global setting
+                (async () => {
+                    try {
+                        const globalSettings = await window.api.loadGlobalSettings();
+                        if (globalSettings?.global_settings?.default_to_agent) {
+                            setExecutionMode('tool_agent');
+                            console.log('[PROJECT SETTINGS] No saved settings, defaulting to agent mode per global setting');
+                        }
+                    } catch (e) {
+                        console.error('Error loading global settings for default agent mode:', e);
+                    }
+                })();
+            }
+        } catch (e) {
+            console.error('Error loading project settings:', e);
+        }
+    }, [currentPath, getProjectSettingsKey]);
 
     // Save sidebar collapsed states
     useEffect(() => {
@@ -1520,12 +1764,17 @@ const ChatInterface = () => {
 
 
 
-    // Refs to hold callbacks for use in keyboard handler
+    // Refs to hold callbacks for use in keyboard handler and menu handlers
     const handleFileClickRef = useRef<((filePath: string) => void) | null>(null);
     const createNewTerminalRef = useRef<(() => void) | null>(null);
     const createNewConversationRef = useRef<(() => void) | null>(null);
     const createNewBrowserRef = useRef<(() => void) | null>(null);
     const handleCreateNewFolderRef = useRef<(() => void) | null>(null);
+    const closeContentPaneRef = useRef<((paneId: string, nodePath: string[]) => void) | null>(null);
+    const createSettingsPaneRef = useRef<(() => void) | null>(null);
+    const createSearchPaneRef = useRef<((query?: string) => void) | null>(null);
+    const createHelpPaneRef = useRef<(() => void) | null>(null);
+    const createUntitledTextFileRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         const handleKeyDown = async (e: KeyboardEvent) => {
@@ -1594,13 +1843,9 @@ const ChatInterface = () => {
                 return;
             }
 
-            // Ctrl+Shift+C - New Conversation/Chat (but not when in terminal - let terminal handle copy)
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
-                // Check if focus is inside a terminal - if so, let the terminal handle the copy
-                const activeElement = document.activeElement;
-                const isInTerminal = activeElement?.closest('.xterm') || activeElement?.closest('[data-terminal]');
-                if (isInTerminal) {
-                    // Don't prevent default - let the terminal's copy handler work
+                const activePane = contentDataRef.current[activeContentPaneId];
+                if (activePane?.contentType === 'terminal') {
                     return;
                 }
                 e.preventDefault();
@@ -1626,10 +1871,10 @@ const ChatInterface = () => {
                 return;
             }
 
-            // Ctrl+N - New Folder
+            // Ctrl+N - New untitled text file
             if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N') && !e.shiftKey) {
                 e.preventDefault();
-                handleCreateNewFolderRef.current?.();
+                createUntitledTextFileRef.current?.();
                 return;
             }
 
@@ -1646,7 +1891,7 @@ const ChatInterface = () => {
                 return;
             }
 
-            // Ctrl+Shift+R - Hard refresh browser pane, or refresh incognide for other panes
+            // Ctrl+Shift+R - Hard refresh browser pane, or reload chat messages for chat panes
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'r' || e.key === 'R')) {
                 const activePane = contentDataRef.current[activeContentPaneId];
                 if (activePane?.contentType === 'browser' && activePane?.contentId) {
@@ -1655,7 +1900,31 @@ const ChatInterface = () => {
                     (window as any).api?.browserHardRefresh?.({ viewId: activePane.contentId });
                     return;
                 }
-                // For non-browser panes, let the default Electron refresh happen
+                // For chat panes, reload the conversation messages
+                if (activePane?.contentType === 'chat' && activePane?.contentId) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    (async () => {
+                        try {
+                            const msgs = await window.api.getConversationMessages(activePane.contentId);
+                            const formatted = (msgs && Array.isArray(msgs))
+                                ? msgs.map((m: any) => ({ ...m, id: m.message_id || m.id || generateId() }))
+                                : [];
+                            if (!activePane.chatMessages) {
+                                activePane.chatMessages = { messages: [], allMessages: [], displayedMessageCount: 20 };
+                            }
+                            activePane.chatMessages.allMessages = formatted;
+                            activePane.chatMessages.messages = formatted.slice(-activePane.chatMessages.displayedMessageCount);
+                            setRootLayoutNode(prev => ({ ...prev }));
+                            console.log('[REFRESH] Reloaded', formatted.length, 'messages for conversation', activePane.contentId);
+                        } catch (err) {
+                            console.error('[REFRESH] Failed to reload messages:', err);
+                        }
+                    })();
+                    return;
+                }
+                // For non-browser/non-chat panes, prevent Electron refresh
+                e.preventDefault();
             }
         };
 
@@ -1876,13 +2145,21 @@ const performSplit = useCallback((targetNodePath, side, newContentType, newConte
 }, [updateContentPane]);
 
 const closeContentPane = useCallback((paneId, nodePath) => {
-    // Track pane close activity
     const paneData = contentDataRef.current[paneId];
     if (paneData) {
         trackActivity('pane_close', {
             paneType: paneData.contentType,
             filePath: paneData.contentId,
         });
+        closedTabsRef.current.push({
+            contentType: paneData.contentType,
+            contentId: paneData.contentId,
+            browserUrl: paneData.browserUrl,
+            browserTitle: paneData.browserTitle
+        });
+        if (closedTabsRef.current.length > 20) {
+            closedTabsRef.current.shift();
+        }
     }
 
     setRootLayoutNode(oldRoot => {
@@ -2039,6 +2316,67 @@ const handleSaveConversationLabel = useCallback((label: ConversationLabel) => {
 const handleCloseConversationLabelingModal = useCallback(() => {
     setConversationLabelingModal({ isOpen: false, conversation: null });
 }, []);
+
+// Chat pane action handlers
+const handleCopyChat = useCallback(() => {
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'chat') return;
+
+    const messages = paneData.chatMessages?.messages || [];
+    // If in selection mode with selected messages, copy only those
+    if (messageSelectionMode && selectedMessages.size > 0) {
+        const selectedMsgs = messages.filter(m => selectedMessages.has(m.id));
+        const text = selectedMsgs.map(m => `${m.role === 'user' ? 'User' : (m.npc || m.model || 'Assistant')}: ${m.content}`).join('\n\n');
+        navigator.clipboard.writeText(text);
+    } else {
+        // Copy all messages
+        const text = messages.map(m => `${m.role === 'user' ? 'User' : (m.npc || m.model || 'Assistant')}: ${m.content}`).join('\n\n');
+        navigator.clipboard.writeText(text);
+    }
+}, [activeContentPaneId, messageSelectionMode, selectedMessages]);
+
+const handleSaveChat = useCallback(async () => {
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'chat') return;
+
+    const messages = paneData.chatMessages?.messages || [];
+    const conversationId = paneData.contentId;
+    const text = messages.map(m => `${m.role === 'user' ? 'User' : (m.npc || m.model || 'Assistant')}: ${m.content}`).join('\n\n');
+
+    // Use save dialog
+    const filename = `conversation_${conversationId?.slice(0, 8) || 'export'}_${Date.now()}.md`;
+    const filepath = `${currentPath}/${filename}`;
+
+    try {
+        await window.api.writeFileContent(filepath, `# Conversation Export\n\n${text}`);
+        // Optionally open the file
+        if (handleFileClickRef.current) {
+            handleFileClickRef.current(filepath);
+        }
+    } catch (err) {
+        setError(err.message);
+    }
+}, [activeContentPaneId, currentPath]);
+
+const handleClearChat = useCallback(async () => {
+    const paneData = contentDataRef.current[activeContentPaneId];
+    if (!paneData || paneData.contentType !== 'chat' || !paneData.contentId) return;
+
+    // Clear messages in the pane data
+    if (paneData.chatMessages) {
+        paneData.chatMessages.messages = [];
+        paneData.chatMessages.allMessages = [];
+    }
+
+    // Clear from database
+    try {
+        await window.api.clearConversation(paneData.contentId);
+    } catch (err) {
+        console.error('Error clearing conversation:', err);
+    }
+
+    setRootLayoutNode(prev => ({ ...prev }));
+}, [activeContentPaneId]);
 
 // Handle resend message - opens resend modal
 const handleResendMessage = useCallback((messageToResend: any) => {
@@ -2216,6 +2554,11 @@ const handleBroadcast = useCallback(async (messageToResend: any, models: string[
                 parentMessageId: targetMessage.id || targetMessage.timestamp,
                 // Pass frontend message IDs
                 assistantMessageId: newStreamId,
+                // Use original message's params or defaults
+                temperature: targetMessage.temperature ?? 0.7,
+                top_p: targetMessage.top_p ?? 0.9,
+                top_k: targetMessage.top_k ?? 40,
+                max_tokens: targetMessage.max_tokens ?? 4096,
             });
         } catch (err: any) {
             console.error('[BROADCAST] Error for', model, npc, err);
@@ -2396,6 +2739,11 @@ const handleBranchOptionsConfirm = useCallback(async (options: BranchOptions) =>
                 parentMessageId: userMessage?.id,
                 // Pass frontend message IDs
                 assistantMessageId: newStreamId,
+                // Use original message's params or defaults
+                temperature: userMessage?.temperature ?? 0.7,
+                top_p: userMessage?.top_p ?? 0.9,
+                top_k: userMessage?.top_k ?? 40,
+                max_tokens: userMessage?.max_tokens ?? 4096,
             });
         } catch (err: any) {
             console.error('[BRANCH RESEND] Error:', err);
@@ -2787,7 +3135,7 @@ const renderChatView = useCallback(({ nodeId }) => {
             })}
         </div>
     );
-}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleBroadcast, handleExpandBranches, handleSwitchRun, activeRuns, handleCreateBranch, findNodePath, performSplit, availableModels, availableNPCs, expandedBranchPath]);
+}, [selectedMessages, messageSelectionMode, searchTerm, handleLabelMessage, messageLabels, handleResendMessage, handleBroadcast, handleExpandBranches, handleSwitchRun, activeRuns, handleCreateBranch, findNodePath, performSplit, availableModels, availableNPCs, expandedBranchPath, rootLayoutNode]);
 
 // Render branch comparison view - shows all branches side by side
 const renderBranchComparisonPane = useCallback(({ nodeId }) => {
@@ -2983,7 +3331,7 @@ const handleAICodeAction = useCallback(async (type: string, selectedText: string
 
 const renderFileEditor = useCallback(({ nodeId }) => {
     const paneData = contentDataRef.current[nodeId];
-    if (!paneData || !paneData.contentId) {
+    if (!paneData || (!paneData.contentId && !paneData.isUntitled)) {
         return <div className="flex-1 flex items-center justify-center theme-text-muted">No file selected</div>;
     }
 
@@ -3013,7 +3361,7 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             onSendToTerminal={handleSendToTerminal}
         />
     );
-}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal, handleAICodeAction]);
+}, [activeContentPaneId, editorContextMenuPos, aiEditModal, renamingPaneId, editedFileName, setRootLayoutNode, currentPath, handleRunScript, handleSendToTerminal, handleAICodeAction, setPromptModal]);
 
 const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, shell?: string }) => {
     return (
@@ -3022,11 +3370,12 @@ const renderTerminalView = useCallback(({ nodeId, shell }: { nodeId: string, she
             contentDataRef={contentDataRef}
             currentPath={currentPath}
             activeContentPaneId={activeContentPaneId}
+            setActiveContentPaneId={setActiveContentPaneId}
             shell={shell}
             isDarkMode={isDarkMode}
         />
     );
-}, [currentPath, activeContentPaneId, isDarkMode]);
+}, [currentPath, activeContentPaneId, isDarkMode, setActiveContentPaneId]);
 
 // PDF highlight handlers
 const handleCopyPdfText = useCallback((text: string) => {
@@ -4735,7 +5084,8 @@ useEffect(() => {
 useEffect(() => {
     const cleanup = (window as any).api?.onBrowserNewTab?.(() => {
         // Check if active pane is a browser
-        const paneData = contentDataRef.current[activeContentPaneId];
+        const currentPaneId = activeContentPaneIdRef.current;
+        const paneData = contentDataRef.current[currentPaneId];
 
         if (paneData?.contentType === 'browser') {
             // Active pane is browser - add new tab to it
@@ -4781,7 +5131,7 @@ useEffect(() => {
         }
     });
     return () => cleanup?.();
-}, [activeContentPaneId, createNewBrowser]);
+}, [createNewBrowser]);
 
 // Render SearchPane (for pane-based unified search)
 const renderSearchPane = useCallback(({ nodeId, initialQuery }: { nodeId: string; initialQuery?: string }) => {
@@ -5158,9 +5508,10 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
     };
 
     // Main input submit handler
-    const handleInputSubmit = async (e: React.FormEvent, options?: { voiceInput?: boolean }) => {
+    const handleInputSubmit = async (e: React.FormEvent, options?: { voiceInput?: boolean; genParams?: { temperature: number; top_p: number; top_k: number; max_tokens: number } }) => {
         e.preventDefault();
         const wasVoiceInput = options?.voiceInput || false;
+        const genParams = options?.genParams || { temperature: 0.7, top_p: 0.9, top_k: 40, max_tokens: 4096 };
 
         // Get pane-specific execution mode and selectedJinx
         const paneExecMode = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.executionMode || 'chat') : 'chat';
@@ -5352,6 +5703,11 @@ ${contextPrompt}`;
                 npc: useNpc, model: useModel, provider: useProvider, npcSource: useNpcSource,
                 parentMessageId: userMessage.id, // Link assistant response to its user message
                 cellId: cellId,
+                // Model parameters
+                temperature: genParams.temperature,
+                top_p: genParams.top_p,
+                top_k: genParams.top_k,
+                max_tokens: genParams.max_tokens,
             };
 
             console.log('[BRANCH] Sending to branch:', branchParent?.id, 'using NPC:', useNpc, 'model:', useModel);
@@ -5378,6 +5734,10 @@ ${contextPrompt}`;
                         npc: npcName,
                         npcSource: useNpcSource,
                         streamId: branchStreamId,
+                        temperature: genParams.temperature,
+                        top_p: genParams.top_p,
+                        top_k: genParams.top_k,
+                        max_tokens: genParams.max_tokens,
                     });
                 } else {
                     const commandData = {
@@ -5402,6 +5762,11 @@ ${contextPrompt}`;
                         userMessageId: userMessage.id,
                         assistantMessageId: branchStreamId,
                         parentMessageId: userMessage.id, // Assistant's parent is the user message
+                        // Generation parameters
+                        temperature: genParams.temperature,
+                        top_p: genParams.top_p,
+                        top_k: genParams.top_k,
+                        max_tokens: genParams.max_tokens,
                     };
                     await window.api.executeCommandStream(commandData);
                 }
@@ -5703,6 +6068,11 @@ ${contextPrompt}`;
                 parentMessageId: messageIdToResend,
                 // Pass frontend message IDs
                 assistantMessageId: newStreamId,
+                // Use original message's params or defaults
+                temperature: messageToResend.temperature ?? 0.7,
+                top_p: messageToResend.top_p ?? 0.9,
+                top_k: messageToResend.top_k ?? 40,
+                max_tokens: messageToResend.max_tokens ?? 4096,
             });
 
             setResendModal({ isOpen: false, message: null, selectedModel: '', selectedNPC: '' });
@@ -5869,6 +6239,14 @@ ${contextPrompt}`;
         setActiveContentPaneId(newPaneId);
     }, []);
 
+    // Keep menu handler refs updated
+    useEffect(() => {
+        closeContentPaneRef.current = closeContentPane;
+        createSettingsPaneRef.current = createSettingsPane;
+        createSearchPaneRef.current = createSearchPane;
+        createHelpPaneRef.current = createHelpPane;
+    }, [closeContentPane, createSettingsPane, createSearchPane, createHelpPane]);
+
     // Create Git pane
     const createGitPane = useCallback(async () => {
         const newPaneId = generateId();
@@ -5876,6 +6254,24 @@ ${contextPrompt}`;
         setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
         setActiveContentPaneId(newPaneId);
     }, []);
+
+    // Create untitled text file directly without modal
+    const createUntitledTextFile = useCallback(() => {
+        const newPaneId = generateId();
+        contentDataRef.current[newPaneId] = {
+            contentType: 'editor',
+            contentId: '',
+            fileContent: '',
+            isUntitled: true
+        };
+        setRootLayoutNode(oldRoot => addPaneToLayout(oldRoot, newPaneId));
+        setActiveContentPaneId(newPaneId);
+    }, []);
+
+    // Keep ref updated for keyboard handler
+    useEffect(() => {
+        createUntitledTextFileRef.current = createUntitledTextFile;
+    }, [createUntitledTextFile]);
 
     const createNewTextFile = useCallback((defaultFilename?: string) => {
         const filename = defaultFilename || localStorage.getItem('npcStudio_defaultCodeFileType') || 'untitled.py';
@@ -6569,6 +6965,24 @@ ${contextPrompt}`;
             loadDirectoryStructure(currentPath);
         }
     }
+
+    // Periodic refresh for files/folders and conversations (every 15 seconds)
+    useEffect(() => {
+        if (!currentPath) return;
+
+        const refreshInterval = setInterval(() => {
+            // Refresh files if not collapsed
+            if (!filesCollapsed) {
+                loadDirectoryStructure(currentPath);
+            }
+            // Refresh conversations if not collapsed
+            if (!conversationsCollapsed) {
+                loadConversationsWithoutAutoSelect(currentPath);
+            }
+        }, 15000);
+
+        return () => clearInterval(refreshInterval);
+    }, [currentPath, filesCollapsed, conversationsCollapsed, loadDirectoryStructure, loadConversationsWithoutAutoSelect]);
 
 
 
@@ -7281,6 +7695,11 @@ ${contextPrompt}`;
                                 userMessageId: userMsg.id,
                                 assistantMessageId: newStreamId,
                                 parentMessageId: userMsg.id,
+                                // Default generation params for macros
+                                temperature: 0.7,
+                                top_p: 0.9,
+                                top_k: 40,
+                                max_tokens: 4096,
                             });
                         } catch (err: any) {
                             console.error('[MacroInput onSubmit] Error:', err);
@@ -8061,6 +8480,11 @@ const getChatInputProps = useCallback((paneId: string) => ({
                     // Pass frontend-generated message IDs so backend uses the same IDs
                     userMessageId: exec.userMessageId,
                     assistantMessageId: exec.streamId,
+                    // Default generation params for broadcast
+                    temperature: 0.7,
+                    top_p: 0.9,
+                    top_k: 40,
+                    max_tokens: 4096,
                 });
             } catch (err: any) {
                 console.error('[BROADCAST] Error for', exec.model, exec.npcKey, err);
@@ -8440,7 +8864,7 @@ const renderPaneContextMenu = () => {
     };
 
     const handleNewTextFile = () => {
-        createNewTextFile();
+        createUntitledTextFile();
         setPaneContextMenu(null);
     };
 
@@ -8842,8 +9266,8 @@ const renderMainContent = () => {
 
             {/* App Search */}
             <div
-                className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400/30 transition-all"
-                style={{ width: Math.max(100, topBarHeight * 4) }}
+                className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400/30 transition-all flex-shrink min-w-0"
+                style={{ width: Math.max(80, topBarHeight * 3), maxWidth: '200px' }}
             >
                 {/* Custom app search icon - magnifying glass with document */}
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
@@ -8898,7 +9322,7 @@ const renderMainContent = () => {
             </div>
 
             {/* Web Search */}
-            <div className="flex items-center gap-2 w-40 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400/30 transition-all">
+            <div className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400/30 transition-all flex-shrink min-w-0" style={{ width: '120px', maxWidth: '160px' }}>
                 <Globe size={14} className="text-cyan-400 flex-shrink-0" />
                 <input
                     type="text"
@@ -8917,10 +9341,8 @@ const renderMainContent = () => {
                 />
             </div>
 
-            <div className="flex-1" />
-
             {/* Right side - Library, Photo, Disk Usage, Cron/Daemon, DateTime */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                     onClick={() => createLibraryViewerPane?.()}
                     className="p-2 theme-hover rounded theme-text-muted"
@@ -8975,9 +9397,9 @@ const renderMainContent = () => {
                     title={showDateTime ? "Hide date/time" : "Show date/time"}
                 >
                     {showDateTime ? (
-                        `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        `${currentTime.toLocaleDateString()} ${currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
                     ) : (
-                        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     )}
                 </span>
             </div>
@@ -9117,7 +9539,12 @@ const renderMainContent = () => {
                                     "Hover over icons for tooltips",
                                     "Check the status bar for git and system info",
                                 ];
-                                return tips[Math.floor(Math.random() * tips.length)];
+                                // Use day of year to pick tip - only changes once per day
+                                const now = new Date();
+                                const start = new Date(now.getFullYear(), 0, 0);
+                                const diff = now.getTime() - start.getTime();
+                                const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
+                                return tips[dayOfYear % tips.length];
                             })()}</span>
                         </div>
                         {/* Version info */}
@@ -9370,7 +9797,7 @@ const renderMainContent = () => {
         goUpDirectory={() => goUpDirectory(currentPath, baseDir, switchToPath, setError)}
         switchToPath={switchToPath}
         handleCreateNewFolder={handleCreateNewFolder}
-        createNewTextFile={createNewTextFile}
+        createNewTextFile={createUntitledTextFile}
         createNewTerminal={createNewTerminal}
         createNewNotebook={createNewJupyterNotebook}
         createNewExperiment={createNewExperiment}

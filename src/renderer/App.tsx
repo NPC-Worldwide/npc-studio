@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Enpistu from './components/Enpistu';
 import SetupWizard from './components/SetupWizard';
+import { AuthProvider } from './components/AuthProvider';
 
 const App: React.FC = () => {
   const [showSetup, setShowSetup] = useState<boolean | null>(null);
@@ -29,10 +30,18 @@ const App: React.FC = () => {
 
   // Show setup wizard if needed
   if (showSetup) {
-    return <SetupWizard onComplete={() => setShowSetup(false)} />;
+    return (
+      <AuthProvider>
+        <SetupWizard onComplete={() => setShowSetup(false)} />
+      </AuthProvider>
+    );
   }
 
-  return <Enpistu />;
+  return (
+    <AuthProvider>
+      <Enpistu />
+    </AuthProvider>
+  );
 };
 
 export default App;

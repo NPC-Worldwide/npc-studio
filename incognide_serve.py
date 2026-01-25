@@ -5,19 +5,9 @@ import os
 import sys
 
 if __name__ == "__main__":
-    # Check for --dev flag or detect dev environment
-    # Dev mode is enabled if:
-    # 1. --dev flag is passed
-    # 2. NODE_ENV=development is set
-    # 3. Running from npc-studio directory (dev setup, not installed app)
-    is_dev_flag = '--dev' in sys.argv
-    is_dev_env = os.environ.get('NODE_ENV') == 'development'
-
-    # Check if running from source directory (dev) vs installed location
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    is_running_from_source = 'npc-studio' in script_dir and not '/app/' in script_dir
-
-    is_dev = is_dev_flag or is_dev_env or is_running_from_source
+    # Detect if running as compiled executable (prod) or Python script (dev)
+    is_frozen = getattr(sys, 'frozen', False)
+    is_dev = not is_frozen
 
     # Dev: 5437, Prod: 5337
     default_port = '5437' if is_dev else '5337'

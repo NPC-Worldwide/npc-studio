@@ -6,7 +6,7 @@ import {
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
     Image as ImageIcon, Tag, Folder, Users, Settings, Images, BookOpen,
     FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2, Maximize2, Minimize2,
-    FlaskConical, HelpCircle, Search, Music
+    FlaskConical, HelpCircle, Search, Music, Save
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
@@ -658,6 +658,11 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         if (activeTab.contentType === 'browser' && activeTab.browserUrl) {
                             targetPaneData.browserUrl = activeTab.browserUrl;
                         }
+                        // Preserve fileContent for editor tabs
+                        if (activeTab.contentType === 'editor' && activeTab.fileContent !== undefined) {
+                            targetPaneData.fileContent = activeTab.fileContent;
+                            targetPaneData.fileChanged = activeTab.fileChanged || false;
+                        }
 
                         // Close the source pane
                         closeContentPane(component.draggedItem.id, component.draggedItem.nodePath);
@@ -847,11 +852,19 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         const handleTabClose = (index: number) => {
             if (paneData && tabs.length > 0) {
-                // Save current browser URL/title to active tab before closing
+                // Save current tab state before closing
                 const currentTabIndex = paneData.activeTabIndex || 0;
-                if (tabs[currentTabIndex] && tabs[currentTabIndex].contentType === 'browser') {
-                    if (paneData.browserUrl) tabs[currentTabIndex].browserUrl = paneData.browserUrl;
-                    if (paneData.browserTitle) tabs[currentTabIndex].browserTitle = paneData.browserTitle;
+                if (tabs[currentTabIndex]) {
+                    // Save browser URL/title for browser tabs
+                    if (tabs[currentTabIndex].contentType === 'browser') {
+                        if (paneData.browserUrl) tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                        if (paneData.browserTitle) tabs[currentTabIndex].browserTitle = paneData.browserTitle;
+                    }
+                    // Save file content for editor tabs
+                    if (tabs[currentTabIndex].contentType === 'editor') {
+                        tabs[currentTabIndex].fileContent = paneData.fileContent;
+                        tabs[currentTabIndex].fileChanged = paneData.fileChanged;
+                    }
                 }
 
                 const newTabs = [...tabs];
@@ -866,10 +879,15 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     if (paneData.activeTabIndex >= newTabs.length) {
                         paneData.activeTabIndex = newTabs.length - 1;
                     }
-                    // Restore URL from new active tab if it's a browser
+                    // Restore state from new active tab
                     const newActiveTab = newTabs[paneData.activeTabIndex];
                     if (newActiveTab?.contentType === 'browser' && newActiveTab.browserUrl) {
                         paneData.browserUrl = newActiveTab.browserUrl;
+                    }
+                    // Restore file content for editor tabs
+                    if (newActiveTab?.contentType === 'editor') {
+                        paneData.fileContent = newActiveTab.fileContent;
+                        paneData.fileChanged = newActiveTab.fileChanged || false;
                     }
                     setRootLayoutNode?.(prev => ({ ...prev }));
                 }
@@ -878,10 +896,16 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         const handleTabReorder = (fromIndex: number, toIndex: number) => {
             if (paneData && tabs.length > 0) {
-                // Save current browser URL to active tab before reordering
+                // Save current tab state before reordering
                 const currentTabIndex = paneData.activeTabIndex || 0;
-                if (tabs[currentTabIndex] && tabs[currentTabIndex].contentType === 'browser' && paneData.browserUrl) {
-                    tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                if (tabs[currentTabIndex]) {
+                    if (tabs[currentTabIndex].contentType === 'browser' && paneData.browserUrl) {
+                        tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                    }
+                    if (tabs[currentTabIndex].contentType === 'editor') {
+                        tabs[currentTabIndex].fileContent = paneData.fileContent;
+                        tabs[currentTabIndex].fileChanged = paneData.fileChanged;
+                    }
                 }
 
                 const newTabs = [...tabs];
@@ -1086,39 +1110,65 @@ export const LayoutNode = memo(({ node, path, component }) => {
         // HTML preview button for .html/.htm files
         const isHtmlFile = contentType === 'editor' && (contentId?.toLowerCase().endsWith('.html') || contentId?.toLowerCase().endsWith('.htm'));
 
-        if (isMarkdownFile) {
+        // Editor pane buttons (copy, save, and optionally preview)
+        if (contentType === 'editor') {
+            const handleCopyFile = () => {
+                const content = paneData?.fileContent || '';
+                navigator.clipboard.writeText(content);
+            };
+
             paneHeaderChildren = (
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        const nodePath = findNodePath(rootLayoutNode, node.id);
-                        if (nodePath) {
-                            performSplit(nodePath, 'right', 'markdown-preview', contentId);
-                        }
-                    }}
-                    className="px-3 py-1 rounded text-xs transition-all flex items-center gap-1 theme-button theme-hover"
-                    title="Preview Markdown (Ctrl+Shift+V)"
-                >
-                    <Play size={14} />
-                    Preview
-                </button>
-            );
-        } else if (isHtmlFile) {
-            paneHeaderChildren = (
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        const nodePath = findNodePath(rootLayoutNode, node.id);
-                        if (nodePath) {
-                            performSplit(nodePath, 'right', 'html-preview', contentId);
-                        }
-                    }}
-                    className="px-3 py-1 rounded text-xs transition-all flex items-center gap-1 theme-button theme-hover"
-                    title="Preview HTML"
-                >
-                    <Play size={14} />
-                    Preview
-                </button>
+                <div className="flex items-center gap-1">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleCopyFile(); }}
+                        className="p-1 rounded text-xs theme-button theme-hover"
+                        title="Copy file contents"
+                    >
+                        <Copy size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            // Trigger save - this will be handled by CodeEditor's onSave
+                            const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true });
+                            document.dispatchEvent(event);
+                        }}
+                        className="p-1 rounded text-xs theme-button theme-hover"
+                        title="Save file (Ctrl+S)"
+                    >
+                        <Save size={12} />
+                    </button>
+                    {isMarkdownFile && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const nodePath = findNodePath(rootLayoutNode, node.id);
+                                if (nodePath) {
+                                    performSplit(nodePath, 'right', 'markdown-preview', contentId);
+                                }
+                            }}
+                            className="p-1 rounded text-xs theme-button theme-hover"
+                            title="Preview Markdown"
+                        >
+                            <Play size={12} />
+                        </button>
+                    )}
+                    {isHtmlFile && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const nodePath = findNodePath(rootLayoutNode, node.id);
+                                if (nodePath) {
+                                    performSplit(nodePath, 'right', 'html-preview', contentId);
+                                }
+                            }}
+                            className="p-1 rounded text-xs theme-button theme-hover"
+                            title="Preview HTML"
+                        >
+                            <Play size={12} />
+                        </button>
+                    )}
+                </div>
             );
         }
 

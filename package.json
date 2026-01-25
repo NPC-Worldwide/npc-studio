@@ -1,6 +1,6 @@
 {
   "name": "incognide",
-  "version": "0.0.37",
+  "version": "0.1.0",
   "description": "Explore the unknown, build the future, own your data.",
   "author": "Chris Agostino <info@npcworldwi.de>",
   "main": "src/main.js",
@@ -13,7 +13,9 @@
   ],
   "scripts": {
     "generate-icons": "electron-icon-builder --input=./assets/icon.png --output=./build",
+    "reset-permissions": "tccutil reset Camera com.github.Electron 2>/dev/null; tccutil reset Microphone com.github.Electron 2>/dev/null; echo 'Permissions reset for Electron'",
     "start": "cross-env NODE_ENV=development electron .",
+    "start:fresh": "npm run reset-permissions && npm run start",
     "dev": "vite",
     "build:vite": "vite build",
     "build": "npm run build:vite && electron-builder",
@@ -42,6 +44,12 @@
     ],
     "mac": {
       "icon": "assets/icon.png",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "This app needs camera access for video calls in the browser.",
+        "NSMicrophoneUsageDescription": "This app needs microphone access for audio calls in the browser."
+      },
       "extraResources": [
         {
           "from": "resources/backend/incognide_serve",

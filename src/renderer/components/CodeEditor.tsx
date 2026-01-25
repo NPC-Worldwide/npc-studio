@@ -375,12 +375,37 @@ const CodeEditorPane = ({
 
     const onSave = useCallback(async () => {
         const currentPaneData = contentDataRef.current[nodeId];
-        if (currentPaneData?.contentId && currentPaneData.fileChanged) {
+        if (!currentPaneData) return;
+
+        // If untitled file, prompt for filename
+        if (!currentPaneData.contentId && currentPaneData.isUntitled) {
+            setPromptModal({
+                isOpen: true,
+                title: 'Save File',
+                message: 'Enter filename with extension (e.g., script.py, index.js, notes.md)',
+                defaultValue: 'untitled.txt',
+                onConfirm: async (inputFilename) => {
+                    if (!inputFilename || inputFilename.trim() === '') return;
+                    const cleanName = inputFilename.trim();
+                    const filepath = `${currentPath}/${cleanName}`;
+                    await window.api.writeFileContent(filepath, currentPaneData.fileContent || '');
+                    // Update pane data with the new file path
+                    currentPaneData.contentId = filepath;
+                    currentPaneData.isUntitled = false;
+                    currentPaneData.fileChanged = false;
+                    setRootLayoutNode(p => ({ ...p }));
+                }
+            });
+            return;
+        }
+
+        // Normal save for existing files
+        if (currentPaneData.contentId && currentPaneData.fileChanged) {
             await window.api.writeFileContent(currentPaneData.contentId, currentPaneData.fileContent);
             currentPaneData.fileChanged = false;
             setRootLayoutNode(p => ({ ...p }));
         }
-    }, [nodeId, contentDataRef, setRootLayoutNode]);
+    }, [nodeId, contentDataRef, setRootLayoutNode, setPromptModal, currentPath]);
 
     const onEditorContextMenu = useCallback((e, selection) => {
         e.preventDefault();
