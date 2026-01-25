@@ -260,7 +260,10 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         try {
             const text = await navigator.clipboard.readText();
             if (isSessionReady.current && text) {
-                window.api.writeToTerminal({ id: terminalId, data: text });
+                // Use bracketed paste mode to prevent multi-line pastes from executing line by line
+                // This wraps the paste in escape sequences that tell the shell it's a paste operation
+                const bracketedText = '\x1b[200~' + text + '\x1b[201~';
+                window.api.writeToTerminal({ id: terminalId, data: bracketedText });
             }
         } catch (err) {
             console.error('Failed to paste:', err);
@@ -401,6 +404,17 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                 const isMeta = event.ctrlKey || event.metaKey;
                 const key = event.key.toLowerCase();
 
+                // Tab key - send tab character to terminal for shell completion
+                // Must prevent default to avoid browser focus navigation
+                if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (isSessionReady.current) {
+                        window.api.writeToTerminal({ id: terminalId, data: '\t' });
+                    }
+                    return false;
+                }
+
                 // Escape key - send ESC to terminal (needed for vim, Claude Code, etc)
                 if (event.key === 'Escape') {
                     if (isSessionReady.current) {
@@ -429,7 +443,10 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     event.stopPropagation();
                     navigator.clipboard.readText().then(text => {
                         if (isSessionReady.current && text) {
-                            window.api.writeToTerminal({ id: terminalId, data: text });
+                            // Use bracketed paste mode to prevent multi-line pastes from executing line by line
+                            // This wraps the paste in escape sequences that tell the shell it's a paste operation
+                            const bracketedText = '\x1b[200~' + text + '\x1b[201~';
+                            window.api.writeToTerminal({ id: terminalId, data: bracketedText });
                         }
                     });
                     return false;
@@ -583,8 +600,6 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         const dataCallback = (_, { id, data }) => {
             if (id === terminalId && !isEffectCancelled) {
                 xtermInstance.current?.write(data);
-                // Scroll to bottom to keep cursor visible
-                xtermInstance.current?.scrollToBottom();
                 // Capture output in buffer for chat context
                 terminalOutputBuffer.current.push(data);
                 // Keep buffer size manageable - trim to last N lines

@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen, systemPreferences } = require('electron');
+=======
+const { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, BrowserView, safeStorage, session, nativeImage, dialog, screen, Menu } = require('electron');
+>>>>>>> 7ee3349 (chat temp fix, chat message loading fix. rerordering git pane contents, folder opening behaviors, adding proper controls to top bar.)
 const { desktopCapturer } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -808,11 +812,19 @@ app.whenReady().then(async () => {
   const folderArg = process.argv.find(arg => arg.startsWith('--folder='));
   const bookmarksArg = process.argv.find(arg => arg.startsWith('--bookmarks='));
 
+  // Check for URL arguments (from xdg-open or when set as default browser)
+  const urlArg = process.argv.slice(2).find(arg =>
+    arg.startsWith('http://') || arg.startsWith('https://') || arg.startsWith('file://')
+  );
+
   // Support bare path argument: incognide /path/to/folder
   // Look for arguments that look like paths (start with / or ~ or .)
   const barePathArg = process.argv.slice(2).find(arg =>
     !arg.startsWith('--') &&
     !arg.startsWith('-') &&
+    !arg.startsWith('http://') &&
+    !arg.startsWith('https://') &&
+    !arg.startsWith('file://') &&
     (arg.startsWith('/') || arg.startsWith('~') || arg.startsWith('.'))
   );
 
@@ -835,6 +847,11 @@ app.whenReady().then(async () => {
     const urls = bookmarksArg.split('=')[1].replace(/^"|"$/g, '');
     cliArgs.bookmarks = urls.split(',').filter(u => u.trim());
     log(`[CLI] Workspace bookmarks: ${cliArgs.bookmarks.join(', ')}`);
+  }
+
+  if (urlArg) {
+    cliArgs.openUrl = urlArg;
+    log(`[CLI] URL to open in browser: ${urlArg}`);
   }
 
   createWindow(cliArgs);
@@ -1213,13 +1230,8 @@ function registerGlobalShortcut(win) {
       }
     });
 
-    // Ctrl+T for new browser tab - intercept before Chromium handles it
-    const ctrlTSuccess = globalShortcut.register('Ctrl+T', () => {
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('browser-new-tab');
-      }
-    });
-    console.log('Ctrl+T shortcut registered:', ctrlTSuccess);
+    // Ctrl+T handled via window input event instead of global shortcut
+    // to avoid interfering with other applications
 
   } catch (error) {
     console.error('Failed to register global shortcut:', error);
@@ -1255,6 +1267,19 @@ if (!gotTheLock) {
         !arg.startsWith('-') && (arg.startsWith('/') || arg.startsWith('~') || arg.startsWith('.'))
       );
       const actionArg = commandLine.find(arg => arg.startsWith('--action='));
+
+      // Check for URL arguments (from xdg-open or similar)
+      const urlArg = commandLine.slice(1).find(arg =>
+        arg.startsWith('http://') || arg.startsWith('https://') || arg.startsWith('file://')
+      );
+
+      if (urlArg) {
+        log(`[SECOND-INSTANCE] Opening URL in browser pane: ${urlArg}`);
+        mainWindow.webContents.send('open-url-in-browser', { url: urlArg });
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+        return;
+      }
 
       // Send workspace change
       let folder = null;
@@ -1384,7 +1409,7 @@ if (!gotTheLock) {
 const browserViews = new Map();
 
 function createWindow(cliArgs = {}) {
-    const { folder, bookmarks } = cliArgs;
+    const { folder, bookmarks, openUrl } = cliArgs;
 
     // Try multiple icon paths for dev vs production
     const possibleIconPaths = [
@@ -1447,6 +1472,214 @@ function createWindow(cliArgs = {}) {
   
     registerGlobalShortcut(mainWindow);
 
+    // Set up application menu
+    const isMac = process.platform === 'darwin';
+    const menuTemplate = [
+      // App menu (macOS only)
+      ...(isMac ? [{
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          {
+            label: 'Settings',
+            accelerator: 'CmdOrCtrl+,',
+            click: () => mainWindow.webContents.send('menu-open-settings')
+          },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit' }
+        ]
+      }] : []),
+      // File menu
+      {
+        label: 'File',
+        submenu: [
+          {
+            label: 'New Chat',
+            accelerator: 'CmdOrCtrl+Shift+C',
+            click: () => mainWindow.webContents.send('menu-new-chat')
+          },
+          {
+            label: 'New Terminal',
+            accelerator: 'CmdOrCtrl+Shift+T',
+            click: () => mainWindow.webContents.send('menu-new-terminal')
+          },
+          {
+            label: 'New Browser Tab',
+            accelerator: 'CmdOrCtrl+T',
+            click: () => mainWindow.webContents.send('browser-new-tab')
+          },
+          { type: 'separator' },
+          {
+            label: 'Open File...',
+            accelerator: 'CmdOrCtrl+O',
+            click: () => mainWindow.webContents.send('menu-open-file')
+          },
+          {
+            label: 'Open Folder...',
+            accelerator: 'CmdOrCtrl+Shift+O',
+            click: () => mainWindow.webContents.send('open-folder-picker')
+          },
+          { type: 'separator' },
+          {
+            label: 'Save',
+            accelerator: 'CmdOrCtrl+S',
+            click: () => mainWindow.webContents.send('menu-save-file')
+          },
+          {
+            label: 'Save As...',
+            accelerator: 'CmdOrCtrl+Shift+S',
+            click: () => mainWindow.webContents.send('menu-save-file-as')
+          },
+          { type: 'separator' },
+          {
+            label: 'Close Tab',
+            accelerator: 'CmdOrCtrl+W',
+            click: () => mainWindow.webContents.send('menu-close-tab')
+          },
+          { type: 'separator' },
+          ...(isMac ? [] : [
+            {
+              label: 'Settings',
+              accelerator: 'CmdOrCtrl+,',
+              click: () => mainWindow.webContents.send('menu-open-settings')
+            },
+            { type: 'separator' },
+            { role: 'quit' }
+          ])
+        ]
+      },
+      // Edit menu
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'pasteAndMatchStyle' },
+          { role: 'delete' },
+          { role: 'selectAll' },
+          { type: 'separator' },
+          {
+            label: 'Find',
+            accelerator: 'CmdOrCtrl+F',
+            click: () => mainWindow.webContents.send('menu-find')
+          },
+          {
+            label: 'Find in Files',
+            accelerator: 'CmdOrCtrl+Shift+F',
+            click: () => mainWindow.webContents.send('menu-global-search')
+          }
+        ]
+      },
+      // View menu
+      {
+        label: 'View',
+        submenu: [
+          {
+            label: 'Command Palette',
+            accelerator: 'CmdOrCtrl+P',
+            click: () => mainWindow.webContents.send('menu-command-palette')
+          },
+          { type: 'separator' },
+          {
+            label: 'Toggle Sidebar',
+            accelerator: 'CmdOrCtrl+B',
+            click: () => mainWindow.webContents.send('menu-toggle-sidebar')
+          },
+          { type: 'separator' },
+          { role: 'reload' },
+          { role: 'forceReload' },
+          { role: 'toggleDevTools' },
+          { type: 'separator' },
+          { role: 'resetZoom' },
+          { role: 'zoomIn' },
+          { role: 'zoomOut' },
+          { type: 'separator' },
+          { role: 'togglefullscreen' }
+        ]
+      },
+      // Window menu
+      {
+        label: 'Window',
+        submenu: [
+          {
+            label: 'New Window',
+            accelerator: 'CmdOrCtrl+Shift+N',
+            click: () => mainWindow.webContents.send('menu-new-window')
+          },
+          { type: 'separator' },
+          { role: 'minimize' },
+          { role: 'zoom' },
+          ...(isMac ? [
+            { type: 'separator' },
+            { role: 'front' },
+            { type: 'separator' },
+            { role: 'window' }
+          ] : [
+            { role: 'close' }
+          ]),
+          { type: 'separator' },
+          {
+            label: 'Split Pane Right',
+            click: () => mainWindow.webContents.send('menu-split-right')
+          },
+          {
+            label: 'Split Pane Down',
+            click: () => mainWindow.webContents.send('menu-split-down')
+          }
+        ]
+      },
+      // Help menu
+      {
+        label: 'Help',
+        submenu: [
+          {
+            label: 'Help & Documentation',
+            click: () => mainWindow.webContents.send('menu-open-help')
+          },
+          {
+            label: 'Keyboard Shortcuts',
+            accelerator: 'CmdOrCtrl+/',
+            click: () => mainWindow.webContents.send('menu-show-shortcuts')
+          },
+          { type: 'separator' },
+          {
+            label: 'Report Issue',
+            click: () => shell.openExternal('https://github.com/NPC-Worldwide/incognide/issues')
+          },
+          {
+            label: 'Visit Website',
+            click: () => shell.openExternal('https://incognide.com')
+          },
+          { type: 'separator' },
+          {
+            label: 'About Incognide',
+            click: () => {
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'About Incognide',
+                message: 'Incognide',
+                detail: `Version: ${app.getVersion()}\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\nNode: ${process.versions.node}`
+              });
+            }
+          }
+        ]
+      }
+    ];
+
+    const menu = Menu.buildFromTemplate(menuTemplate);
+    Menu.setApplicationMenu(menu);
+
     mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
       callback({
         responseHeaders: {
@@ -1481,10 +1714,26 @@ function createWindow(cliArgs = {}) {
       console.error('Failed to load:', errorCode, errorDescription);
     });
 
+    // Handle keyboard shortcuts at window level (not global) to avoid interfering with other apps
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown') {
+        // Ctrl+T - new browser tab (only when window is focused)
+        if (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 't') {
+          event.preventDefault();
+          mainWindow.webContents.send('browser-new-tab');
+        }
+        // Ctrl+Shift+O - open folder picker
+        if (input.control && input.shift && !input.alt && input.key.toLowerCase() === 'o') {
+          event.preventDefault();
+          mainWindow.webContents.send('open-folder-picker');
+        }
+      }
+    });
+
     // Send CLI arguments to renderer when ready
     mainWindow.webContents.on('did-finish-load', async () => {
-      if (folder || (bookmarks && bookmarks.length > 0)) {
-        log(`[CLI] Sending workspace args to renderer: folder=${folder}, bookmarks=${bookmarks?.length || 0}`);
+      if (folder || (bookmarks && bookmarks.length > 0) || openUrl) {
+        log(`[CLI] Sending workspace args to renderer: folder=${folder}, bookmarks=${bookmarks?.length || 0}, openUrl=${openUrl}`);
 
         // If folder is specified, set it as the current working directory for the workspace
         if (folder) {
@@ -1506,6 +1755,12 @@ function createWindow(cliArgs = {}) {
             }
           }
           mainWindow.webContents.send('cli-bookmarks-added', { bookmarks, folder });
+        }
+
+        // If URL is specified (from xdg-open or similar), open it in a browser pane
+        if (openUrl) {
+          log(`[CLI] Opening URL in browser pane: ${openUrl}`);
+          mainWindow.webContents.send('open-url-in-browser', { url: openUrl });
         }
       }
     });
@@ -7906,6 +8161,7 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, she
   delete cleanEnv.VSCODE_CWD;
   delete cleanEnv.VSCODE_NLS_CONFIG;
 
+<<<<<<< HEAD
   // Set BROWSER env var to intercept browser launches and open in internal browser
   const browserInterceptorPath = app.isPackaged
     ? path.join(process.resourcesPath, 'browser-interceptor.sh')
@@ -7914,6 +8170,18 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, she
   if (fs.existsSync(browserInterceptorPath)) {
     cleanEnv.BROWSER = browserInterceptorPath;
     log(`[TERMINAL] Set BROWSER env to: ${browserInterceptorPath}`);
+=======
+  // Set BROWSER to incognide so URLs opened from terminal (like gcloud auth login)
+  // open in incognide's browser pane instead of the system browser
+  // This works because incognide's second-instance handler catches URL arguments
+  // In dev mode, we need to pass the app path to electron
+  if (IS_DEV_MODE) {
+    // In development, create a command that runs: electron /path/to/app <url>
+    cleanEnv.BROWSER = `${process.execPath} ${app.getAppPath()}`;
+  } else {
+    // In production, the executable directly handles URL arguments
+    cleanEnv.BROWSER = process.execPath;
+>>>>>>> 7ee3349 (chat temp fix, chat message loading fix. rerordering git pane contents, folder opening behaviors, adding proper controls to top bar.)
   }
 
   try {

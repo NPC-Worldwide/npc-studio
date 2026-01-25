@@ -129,6 +129,86 @@ readDocxContent: (filePath) =>
         return () => ipcRenderer.removeListener('cli-open-workspace', handler);
     },
 
+    // Open URL in browser pane (from xdg-open or command line)
+    onOpenUrlInBrowser: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('open-url-in-browser', handler);
+        return () => ipcRenderer.removeListener('open-url-in-browser', handler);
+    },
+
+    // Ctrl+Shift+O folder picker shortcut
+    onOpenFolderPicker: (callback) => {
+        const handler = () => callback();
+        ipcRenderer.on('open-folder-picker', handler);
+        return () => ipcRenderer.removeListener('open-folder-picker', handler);
+    },
+
+    // Menu bar event listeners
+    onMenuNewChat: (callback) => {
+        ipcRenderer.on('menu-new-chat', callback);
+        return () => ipcRenderer.removeListener('menu-new-chat', callback);
+    },
+    onMenuNewTerminal: (callback) => {
+        ipcRenderer.on('menu-new-terminal', callback);
+        return () => ipcRenderer.removeListener('menu-new-terminal', callback);
+    },
+    onMenuOpenFile: (callback) => {
+        ipcRenderer.on('menu-open-file', callback);
+        return () => ipcRenderer.removeListener('menu-open-file', callback);
+    },
+    onMenuSaveFile: (callback) => {
+        ipcRenderer.on('menu-save-file', callback);
+        return () => ipcRenderer.removeListener('menu-save-file', callback);
+    },
+    onMenuSaveFileAs: (callback) => {
+        ipcRenderer.on('menu-save-file-as', callback);
+        return () => ipcRenderer.removeListener('menu-save-file-as', callback);
+    },
+    onMenuCloseTab: (callback) => {
+        ipcRenderer.on('menu-close-tab', callback);
+        return () => ipcRenderer.removeListener('menu-close-tab', callback);
+    },
+    onMenuOpenSettings: (callback) => {
+        ipcRenderer.on('menu-open-settings', callback);
+        return () => ipcRenderer.removeListener('menu-open-settings', callback);
+    },
+    onMenuFind: (callback) => {
+        ipcRenderer.on('menu-find', callback);
+        return () => ipcRenderer.removeListener('menu-find', callback);
+    },
+    onMenuGlobalSearch: (callback) => {
+        ipcRenderer.on('menu-global-search', callback);
+        return () => ipcRenderer.removeListener('menu-global-search', callback);
+    },
+    onMenuCommandPalette: (callback) => {
+        ipcRenderer.on('menu-command-palette', callback);
+        return () => ipcRenderer.removeListener('menu-command-palette', callback);
+    },
+    onMenuToggleSidebar: (callback) => {
+        ipcRenderer.on('menu-toggle-sidebar', callback);
+        return () => ipcRenderer.removeListener('menu-toggle-sidebar', callback);
+    },
+    onMenuNewWindow: (callback) => {
+        ipcRenderer.on('menu-new-window', callback);
+        return () => ipcRenderer.removeListener('menu-new-window', callback);
+    },
+    onMenuSplitRight: (callback) => {
+        ipcRenderer.on('menu-split-right', callback);
+        return () => ipcRenderer.removeListener('menu-split-right', callback);
+    },
+    onMenuSplitDown: (callback) => {
+        ipcRenderer.on('menu-split-down', callback);
+        return () => ipcRenderer.removeListener('menu-split-down', callback);
+    },
+    onMenuOpenHelp: (callback) => {
+        ipcRenderer.on('menu-open-help', callback);
+        return () => ipcRenderer.removeListener('menu-open-help', callback);
+    },
+    onMenuShowShortcuts: (callback) => {
+        ipcRenderer.on('menu-show-shortcuts', callback);
+        return () => ipcRenderer.removeListener('menu-show-shortcuts', callback);
+    },
+
     // External studio action execution - for CLI/LLM control
     onExecuteStudioAction: (callback) => {
         const handler = (_, data) => callback(data);

@@ -658,6 +658,11 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         if (activeTab.contentType === 'browser' && activeTab.browserUrl) {
                             targetPaneData.browserUrl = activeTab.browserUrl;
                         }
+                        // Preserve fileContent for editor tabs
+                        if (activeTab.contentType === 'editor' && activeTab.fileContent !== undefined) {
+                            targetPaneData.fileContent = activeTab.fileContent;
+                            targetPaneData.fileChanged = activeTab.fileChanged || false;
+                        }
 
                         // Close the source pane
                         closeContentPane(component.draggedItem.id, component.draggedItem.nodePath);
@@ -847,11 +852,19 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         const handleTabClose = (index: number) => {
             if (paneData && tabs.length > 0) {
-                // Save current browser URL/title to active tab before closing
+                // Save current tab state before closing
                 const currentTabIndex = paneData.activeTabIndex || 0;
-                if (tabs[currentTabIndex] && tabs[currentTabIndex].contentType === 'browser') {
-                    if (paneData.browserUrl) tabs[currentTabIndex].browserUrl = paneData.browserUrl;
-                    if (paneData.browserTitle) tabs[currentTabIndex].browserTitle = paneData.browserTitle;
+                if (tabs[currentTabIndex]) {
+                    // Save browser URL/title for browser tabs
+                    if (tabs[currentTabIndex].contentType === 'browser') {
+                        if (paneData.browserUrl) tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                        if (paneData.browserTitle) tabs[currentTabIndex].browserTitle = paneData.browserTitle;
+                    }
+                    // Save file content for editor tabs
+                    if (tabs[currentTabIndex].contentType === 'editor') {
+                        tabs[currentTabIndex].fileContent = paneData.fileContent;
+                        tabs[currentTabIndex].fileChanged = paneData.fileChanged;
+                    }
                 }
 
                 const newTabs = [...tabs];
@@ -866,10 +879,15 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     if (paneData.activeTabIndex >= newTabs.length) {
                         paneData.activeTabIndex = newTabs.length - 1;
                     }
-                    // Restore URL from new active tab if it's a browser
+                    // Restore state from new active tab
                     const newActiveTab = newTabs[paneData.activeTabIndex];
                     if (newActiveTab?.contentType === 'browser' && newActiveTab.browserUrl) {
                         paneData.browserUrl = newActiveTab.browserUrl;
+                    }
+                    // Restore file content for editor tabs
+                    if (newActiveTab?.contentType === 'editor') {
+                        paneData.fileContent = newActiveTab.fileContent;
+                        paneData.fileChanged = newActiveTab.fileChanged || false;
                     }
                     setRootLayoutNode?.(prev => ({ ...prev }));
                 }
@@ -878,10 +896,16 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
         const handleTabReorder = (fromIndex: number, toIndex: number) => {
             if (paneData && tabs.length > 0) {
-                // Save current browser URL to active tab before reordering
+                // Save current tab state before reordering
                 const currentTabIndex = paneData.activeTabIndex || 0;
-                if (tabs[currentTabIndex] && tabs[currentTabIndex].contentType === 'browser' && paneData.browserUrl) {
-                    tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                if (tabs[currentTabIndex]) {
+                    if (tabs[currentTabIndex].contentType === 'browser' && paneData.browserUrl) {
+                        tabs[currentTabIndex].browserUrl = paneData.browserUrl;
+                    }
+                    if (tabs[currentTabIndex].contentType === 'editor') {
+                        tabs[currentTabIndex].fileContent = paneData.fileContent;
+                        tabs[currentTabIndex].fileChanged = paneData.fileChanged;
+                    }
                 }
 
                 const newTabs = [...tabs];

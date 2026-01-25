@@ -43,7 +43,7 @@ interface ChatInputProps {
     setIsResizingInput: (val: boolean) => void;
     // Streaming
     isStreaming: boolean;
-    handleInputSubmit: (e: any, options?: { voiceInput?: boolean }) => void;
+    handleInputSubmit: (e: any, options?: { voiceInput?: boolean; genParams?: { temperature: number; top_p: number; top_k: number; max_tokens: number } }) => void;
     handleInterruptStream: () => void;
     // Files
     uploadedFiles: any[];
@@ -800,7 +800,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     if (shouldBroadcast) {
                                         onBroadcast(selectedModels, selectedNPCs);
                                     } else {
-                                        handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch });
+                                        handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch, genParams });
                                         setUsedVoiceInput(false);
                                     }
                                     setIsInputExpanded(false);
@@ -824,7 +824,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 if (shouldBroadcast) {
                                     onBroadcast(selectedModels, selectedNPCs);
                                 } else {
-                                    handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch });
+                                    handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch, genParams });
                                     setUsedVoiceInput(false);
                                 }
                                 setIsInputExpanded(false);
@@ -957,7 +957,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                                 if (shouldBroadcast) {
                                                     onBroadcast(selectedModels, selectedNPCs);
                                                 } else {
-                                                    handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch });
+                                                    handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch, genParams });
                                                     setUsedVoiceInput(false);
                                                 }
                                             }
@@ -1047,7 +1047,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     if (shouldBroadcast && canSend) {
                                         onBroadcast(selectedModels, selectedNPCs);
                                     } else {
-                                        handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch });
+                                        handleInputSubmit(e, { voiceInput: usedVoiceInput, useKgSearch, useMemorySearch, genParams });
                                         setUsedVoiceInput(false);
                                     }
                                 }}

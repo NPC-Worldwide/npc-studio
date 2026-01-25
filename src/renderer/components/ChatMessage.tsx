@@ -1,7 +1,7 @@
 import React, { memo, useState, useRef } from 'react';
 import { BACKEND_URL } from '../config';
 import MarkdownRenderer from './MarkdownRenderer';
-import { Paperclip, Tag, Star, ChevronDown, ChevronUp, Volume2, VolumeX, Loader, RotateCcw, History, Cpu, Bot, Zap, Send, GitBranch, Columns, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Paperclip, Tag, Star, ChevronDown, ChevronUp, Volume2, VolumeX, Loader, RotateCcw, History, Cpu, Bot, Zap, Send, GitBranch, Columns, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
 
 const highlightSearchTerm = (content: string, searchTerm: string): string => {
     if (!searchTerm || !content) return content;
@@ -583,6 +583,20 @@ export const ChatMessage = memo(({
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-600/20 text-gray-300 border border-gray-600/30" title={`${message.runCount} runs for this cell`}>
                                     <History size={10} />
                                     {message.runCount} runs
+                                </span>
+                            )}
+                            {/* Model parameters - hover tooltip */}
+                            {(message.temperature !== undefined || message.top_k !== undefined || message.top_p !== undefined || message.max_tokens !== undefined) && (
+                                <span className="relative group/params">
+                                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] bg-gray-700/40 text-gray-500 hover:text-gray-300 hover:bg-gray-600/50 cursor-help transition-colors">
+                                        <SlidersHorizontal size={10} />
+                                    </span>
+                                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded bg-gray-900 border border-gray-700 text-[10px] text-gray-300 whitespace-nowrap opacity-0 group-hover/params:opacity-100 pointer-events-none transition-opacity z-50 shadow-lg">
+                                        {message.temperature !== undefined && <span className="mr-2">T:{message.temperature}</span>}
+                                        {message.top_p !== undefined && <span className="mr-2">P:{message.top_p}</span>}
+                                        {message.top_k !== undefined && <span className="mr-2">K:{message.top_k}</span>}
+                                        {message.max_tokens !== undefined && <span>M:{message.max_tokens}</span>}
+                                    </span>
                                 </span>
                             )}
                         </div>

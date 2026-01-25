@@ -87,6 +87,8 @@ const WebBrowserViewer = memo(({
     const historyDebounceRef = useRef<NodeJS.Timeout | null>(null);
     const hasInitializedRef = useRef(false);
     const lastKnownPaneUrlRef = useRef<string | null>(null);
+    // Track the current tab ID to prevent URL bleeding between tabs during async navigation callbacks
+    const currentTabIdRef = useRef<string | null>(null);
 
     const paneData = contentDataRef.current[nodeId];
     // Capture initial URL only once using a ref to prevent reload loops
@@ -131,6 +133,18 @@ const WebBrowserViewer = memo(({
         }
     }, [nodeId, currentUrl, title]);
 
+    // Track the current tab ID to prevent URL bleeding between tabs
+    // This updates whenever the active tab changes
+    useEffect(() => {
+        const paneData = contentDataRef.current[nodeId];
+        if (paneData?.tabs && paneData.activeTabIndex !== undefined) {
+            const activeTab = paneData.tabs[paneData.activeTabIndex];
+            currentTabIdRef.current = activeTab?.id || null;
+        } else {
+            currentTabIdRef.current = null;
+        }
+    });
+
     useEffect(() => {
         const webview = webviewRef.current;
         if (!webview) return;
@@ -173,6 +187,11 @@ const WebBrowserViewer = memo(({
         };
 
         const handleDidNavigate = (e) => {
+            // Only handle main frame navigations - ignore iframes (like Google's contacts widget)
+            if (e.isMainFrame === false) {
+                return;
+            }
+
             const url = e.url;
 
             // Skip if this is the same URL we just processed (prevents loops)
@@ -223,12 +242,14 @@ const WebBrowserViewer = memo(({
                 // Also update our tracking ref to prevent the tab-switch effect from re-navigating
                 lastKnownPaneUrlRef.current = url;
 
-                // Also update the active tab's browserUrl so tabs maintain separate URLs
+                // Update the tab's browserUrl using tab ID (not activeTabIndex) to prevent URL bleeding
+                // This ensures we update the correct tab even if a tab switch happened during navigation
                 const paneData = contentDataRef.current[nodeId];
-                if (paneData?.tabs && paneData.activeTabIndex !== undefined) {
-                    const activeTab = paneData.tabs[paneData.activeTabIndex];
-                    if (activeTab && activeTab.contentType === 'browser') {
-                        activeTab.browserUrl = url;
+                if (paneData?.tabs && currentTabIdRef.current) {
+                    // Find the tab by ID, not by activeTabIndex
+                    const tabToUpdate = paneData.tabs.find(t => t.id === currentTabIdRef.current);
+                    if (tabToUpdate && tabToUpdate.contentType === 'browser') {
+                        tabToUpdate.browserUrl = url;
                     }
                 }
             }
@@ -243,12 +264,13 @@ const WebBrowserViewer = memo(({
             if (contentDataRef.current[nodeId]) {
                 contentDataRef.current[nodeId].browserTitle = newTitle;
 
-                // Also update the active tab's browserTitle so tabs maintain separate titles
+                // Update the tab's browserTitle using tab ID (not activeTabIndex) to prevent title bleeding
                 const paneData = contentDataRef.current[nodeId];
-                if (paneData?.tabs && paneData.activeTabIndex !== undefined) {
-                    const activeTab = paneData.tabs[paneData.activeTabIndex];
-                    if (activeTab && activeTab.contentType === 'browser') {
-                        activeTab.browserTitle = newTitle;
+                if (paneData?.tabs && currentTabIdRef.current) {
+                    // Find the tab by ID, not by activeTabIndex
+                    const tabToUpdate = paneData.tabs.find(t => t.id === currentTabIdRef.current);
+                    if (tabToUpdate && tabToUpdate.contentType === 'browser') {
+                        tabToUpdate.browserTitle = newTitle;
                     }
                 }
             }
@@ -427,43 +449,22 @@ const WebBrowserViewer = memo(({
     const handleRefresh = useCallback(() => webviewRef.current?.reload(), []);
     const handleHardRefresh = useCallback(() => webviewRef.current?.reloadIgnoringCache(), []);
 
-    // Keyboard shortcuts: Backspace for back, Ctrl+Shift+R for hard refresh, Ctrl+T new tab, Ctrl+N new pane
+    // Keyboard shortcuts: Backspace for back (only when this pane is focused)
+    // Note: Ctrl+R, Ctrl+T, Ctrl+N are handled globally in Enpistu.tsx and main.js
     useEffect(() => {
+        const containerRef = document.querySelector(`[data-pane-id="${nodeId}"]`);
+
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Ctrl+T = new tab in this pane
-            if (e.ctrlKey && !e.shiftKey && e.key === 't') {
-                e.preventDefault();
-                e.stopPropagation();
-                handleNewBrowserTab?.('');
-                return;
-            }
-            // Ctrl+N = new browser in next pane
-            if (e.ctrlKey && !e.shiftKey && e.key === 'n') {
-                e.preventDefault();
-                e.stopPropagation();
-                const nodePath = findNodePath(rootLayoutNode, nodeId);
-                if (nodePath && performSplit) {
-                    performSplit(nodePath, 'right', 'browser', 'about:blank');
-                }
-                return;
-            }
-            // Ctrl+Shift+R = hard refresh (bypass cache)
-            if (e.ctrlKey && e.shiftKey && e.key === 'R') {
-                e.preventDefault();
-                e.stopPropagation();
-                handleHardRefresh();
-                return;
-            }
-            // Ctrl+R = normal refresh
-            if (e.ctrlKey && !e.shiftKey && e.key === 'r') {
-                e.preventDefault();
-                e.stopPropagation();
-                handleRefresh();
-                return;
-            }
-            // Backspace = go back
+            // Only handle shortcuts if this browser pane is focused
+            // Check if the event target is within this pane's container
+            const target = e.target as HTMLElement;
+            const isWithinThisPane = containerRef?.contains(target) ||
+                                      target.closest(`[data-pane-id="${nodeId}"]`) !== null;
+
+            if (!isWithinThisPane) return;
+
+            // Backspace = go back (only if not in a text input)
             if (e.key === 'Backspace') {
-                const target = e.target as HTMLElement;
                 const isTextInput = target.tagName === 'INPUT' ||
                                    target.tagName === 'TEXTAREA' ||
                                    target.isContentEditable;
@@ -474,9 +475,9 @@ const WebBrowserViewer = memo(({
             }
         };
 
-        document.addEventListener('keydown', handleKeyDown, true); // Use capture to intercept before Electron
+        document.addEventListener('keydown', handleKeyDown, true);
         return () => document.removeEventListener('keydown', handleKeyDown, true);
-    }, [canGoBack, handleBack, handleRefresh, handleHardRefresh, handleNewBrowserTab, findNodePath, rootLayoutNode, nodeId, performSplit]);
+    }, [canGoBack, handleBack, nodeId]);
     const handleHome = useCallback(() => {
         const initial = initialUrlRef.current;
         let homeUrl = initial;
