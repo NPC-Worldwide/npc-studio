@@ -127,6 +127,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         loadStoredAuth();
     }, []);
 
+    // Helper to safely parse JSON response
+    const safeJsonParse = async (response: Response): Promise<any> => {
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error('Auth service unavailable. Please try again later.');
+        }
+        return response.json();
+    };
+
     // Sign in with email/password
     const signIn = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
         setIsLoading(true);
@@ -150,7 +159,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 })
             });
 
-            const data = await response.json();
+            const data = await safeJsonParse(response);
 
             if (!response.ok) {
                 setError(data.error || 'Sign in failed');
@@ -212,7 +221,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 })
             });
 
-            const data = await response.json();
+            const data = await safeJsonParse(response);
 
             if (!response.ok) {
                 setError(data.error || 'Sign up failed');
