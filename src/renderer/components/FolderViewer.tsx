@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Folder, File, ChevronLeft, ChevronRight, Home, Grid, List,
     ArrowUp, RefreshCw, Search, SortAsc, SortDesc, Image, FileText,
-    Music, Video, Archive, Code, Database, Terminal as TerminalIcon
+    Music, Video, Archive, Code, Database, Terminal as TerminalIcon,
+    ChevronDown, Check
 } from 'lucide-react';
 import { getFileIcon } from './utils';
 
@@ -90,12 +91,26 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
-    const [sortBy, setSortBy] = useState<'name' | 'size' | 'modified' | 'type'>('name');
-    const [sortAsc, setSortAsc] = useState(true);
+    const [sortBy, setSortBy] = useState<'name' | 'size' | 'modified' | 'type'>('modified');
+    const [sortAsc, setSortAsc] = useState(false);
+    const [foldersFirst, setFoldersFirst] = useState(false);
+    const [showSortMenu, setShowSortMenu] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
     const [history, setHistory] = useState<string[]>([folderPath]);
     const [historyIndex, setHistoryIndex] = useState(0);
+    const sortMenuRef = useRef<HTMLDivElement>(null);
+
+    // Close sort menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) {
+                setShowSortMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const loadDirectory = useCallback(async (dirPath: string) => {
         setLoading(true);
@@ -190,8 +205,8 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
     const sortedItems = [...items]
         .filter(item => !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase()))
         .sort((a, b) => {
-            // Directories first
-            if (a.type !== b.type) {
+            // Optionally put directories first
+            if (foldersFirst && a.type !== b.type) {
                 return a.type === 'directory' ? -1 : 1;
             }
 
@@ -207,6 +222,13 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
             }
             return sortAsc ? comparison : -comparison;
         });
+
+    const sortLabels: Record<string, string> = {
+        name: 'Name',
+        size: 'Size',
+        modified: 'Date Modified',
+        type: 'Type'
+    };
 
     const pathParts = currentPath.split('/').filter(Boolean);
 
@@ -297,14 +319,57 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
                     </button>
                 </div>
 
-                {/* Sort */}
-                <button
-                    onClick={() => setSortAsc(!sortAsc)}
-                    className="p-1.5 rounded hover:bg-gray-700"
-                    title={sortAsc ? 'Sort ascending' : 'Sort descending'}
-                >
-                    {sortAsc ? <SortAsc size={14} /> : <SortDesc size={14} />}
-                </button>
+                {/* Sort dropdown */}
+                <div className="relative" ref={sortMenuRef}>
+                    <button
+                        onClick={() => setShowSortMenu(!showSortMenu)}
+                        className="flex items-center gap-1 px-2 py-1 text-xs rounded hover:bg-gray-700 border theme-border"
+                        title="Sort options"
+                    >
+                        {sortAsc ? <SortAsc size={14} /> : <SortDesc size={14} />}
+                        <span className="hidden sm:inline">{sortLabels[sortBy]}</span>
+                        <ChevronDown size={12} />
+                    </button>
+                    {showSortMenu && (
+                        <div className="absolute right-0 top-full mt-1 w-48 bg-gray-800 border theme-border rounded-lg shadow-xl z-50 py-1">
+                            <div className="px-2 py-1 text-[10px] text-gray-500 uppercase tracking-wide">Sort by</div>
+                            {(['modified', 'name', 'size', 'type'] as const).map(option => (
+                                <button
+                                    key={option}
+                                    onClick={() => { setSortBy(option); }}
+                                    className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-700 flex items-center justify-between ${sortBy === option ? 'text-blue-400' : 'text-gray-300'}`}
+                                >
+                                    {sortLabels[option]}
+                                    {sortBy === option && <Check size={12} />}
+                                </button>
+                            ))}
+                            <div className="border-t theme-border my-1" />
+                            <div className="px-2 py-1 text-[10px] text-gray-500 uppercase tracking-wide">Order</div>
+                            <button
+                                onClick={() => setSortAsc(true)}
+                                className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-700 flex items-center justify-between ${sortAsc ? 'text-blue-400' : 'text-gray-300'}`}
+                            >
+                                Ascending
+                                {sortAsc && <Check size={12} />}
+                            </button>
+                            <button
+                                onClick={() => setSortAsc(false)}
+                                className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-700 flex items-center justify-between ${!sortAsc ? 'text-blue-400' : 'text-gray-300'}`}
+                            >
+                                Descending
+                                {!sortAsc && <Check size={12} />}
+                            </button>
+                            <div className="border-t theme-border my-1" />
+                            <button
+                                onClick={() => setFoldersFirst(!foldersFirst)}
+                                className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-700 flex items-center justify-between ${foldersFirst ? 'text-blue-400' : 'text-gray-300'}`}
+                            >
+                                Folders first
+                                {foldersFirst && <Check size={12} />}
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Content */}

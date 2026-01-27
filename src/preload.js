@@ -573,6 +573,16 @@ onTerminalClosed: (callback) => {
     setupSkip: () => ipcRenderer.invoke('setup:skip'),
     setupReset: () => ipcRenderer.invoke('setup:reset'),
     setupRestartBackend: () => ipcRenderer.invoke('setup:restartBackend'),
+    getNpcImagesPath: () => ipcRenderer.invoke('setup:getNpcImagesPath'),
+    detectLocalModels: () => ipcRenderer.invoke('setup:detectLocalModels'),
+    checkHomebrew: () => ipcRenderer.invoke('setup:checkHomebrew'),
+    checkXcode: () => ipcRenderer.invoke('setup:checkXcode'),
+    installXcode: () => ipcRenderer.invoke('setup:installXcode'),
+    installOllama: (method) => ipcRenderer.invoke('setup:installOllama', { method }),
+    installHomebrew: () => ipcRenderer.invoke('setup:installHomebrew'),
+    getPlatform: () => ipcRenderer.invoke('setup:getPlatform'),
+    isFirstLaunch: () => ipcRenderer.invoke('setup:isFirstLaunch'),
+    markFirstLaunchDone: () => ipcRenderer.invoke('setup:markFirstLaunchDone'),
     onSetupInstallProgress: (callback) => {
         const handler = (event, data) => callback(data);
         ipcRenderer.on('setup:installProgress', handler);
