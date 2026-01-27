@@ -682,11 +682,15 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     encoding: 'utf8'
                 });
 
+                // Store both path and base64 data - data serves as fallback if path becomes invalid
+                const base64Data = btoa(unescape(encodeURIComponent(text)));
+
                 setUploadedFiles((prev: any[]) => [...prev, {
                     id: Math.random().toString(36).substr(2, 9),
                     name: fileName,
                     type: 'text/plain',
                     path: result?.path || null,
+                    data: base64Data, // Always include data as fallback
                     size: text.length,
                     preview: null
                 }]);
@@ -853,7 +857,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
             />
 
             <div
-                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col m-2 overflow-visible z-20"
+                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col m-2 overflow-visible z-40"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsHovering(true); }}
                 onDragEnter={(e) => { e.stopPropagation(); setIsHovering(true); }}
                 onDragLeave={(e) => { e.stopPropagation(); setIsHovering(false); }}
@@ -973,7 +977,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                     />
                                     {/* Jinx suggestion popup */}
                                     {showJinxSuggestion && detectedJinx && (
-                                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-gradient-to-r from-purple-900/95 to-pink-900/95 backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden z-50">
+                                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-gradient-to-r from-purple-900/95 to-pink-900/95 backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden z-[100]">
                                             <button
                                                 onClick={() => {
                                                     setExecutionMode(detectedJinx.name);
@@ -1075,7 +1079,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                 </div>
 
                 {/* Compact selector strip - now below input */}
-                <div className={`px-1.5 py-1 relative z-30 ${isStreaming ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className={`px-1.5 py-1 relative z-50 ${isStreaming ? 'opacity-50 pointer-events-none' : ''}`}>
                 <div className="flex items-center gap-1">
                     {/* Mode tile */}
                     <div className="relative flex-1">
@@ -1095,7 +1099,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             <ChevronDown size={12} className={`transition-transform flex-shrink-0 ${showJinxDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showJinxDropdown && (
-                            <div className="absolute z-50 left-0 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-64">
+                            <div className="absolute z-[100] left-0 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-64">
                                 <div className="px-2 py-1.5 border-b border-white/5">
                                     <input
                                         ref={jinxSearchRef}
@@ -1178,7 +1182,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             <ChevronDown size={12} className={`transition-transform flex-shrink-0 ${showModelsDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showModelsDropdown && !modelsLoading && !modelsError && (
-                            <div className="absolute z-50 left-0 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-72">
+                            <div className="absolute z-[100] left-0 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-72">
                                 <div className="px-2 py-1.5 border-b border-white/5">
                                     <input
                                         ref={modelSearchRef}
@@ -1258,7 +1262,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             <ChevronDown size={12} className={`transition-transform flex-shrink-0 ${showNpcsDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showNpcsDropdown && !npcsLoading && !npcsError && (
-                            <div className="absolute z-50 left-0 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-64">
+                            <div className="absolute z-[100] left-0 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-64">
                                 <div className="px-2 py-1.5 border-b border-white/5">
                                     <input
                                         ref={npcSearchRef}
@@ -1327,7 +1331,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 <ChevronDown size={10} className={`transition-transform flex-shrink-0 text-purple-400 ${showJinxConfigDropdown ? 'rotate-180' : ''}`} />
                             </button>
                             {showJinxConfigDropdown && jinxConfigInputs.length > 0 && (
-                                <div className="absolute z-50 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden w-80">
+                                <div className="absolute z-[100] right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden w-80">
                                     <div className="px-3 py-2 border-b border-purple-500/20 flex items-center justify-between bg-gradient-to-r from-purple-900/30 to-pink-900/30">
                                         <span className="text-[10px] uppercase text-purple-300 font-medium flex items-center gap-1.5">
                                             <Zap size={10} /> {selectedJinx.name} Defaults
@@ -1377,7 +1381,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 <ChevronDown size={10} className={`transition-transform flex-shrink-0 text-gray-500 ${showParamsDropdown ? 'rotate-180' : ''}`} />
                             </button>
                             {showParamsDropdown && (
-                                <div className="absolute z-50 right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-72">
+                                <div className="absolute z-[100] right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-72">
                                     <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
                                         <span className="text-[10px] uppercase text-gray-500 font-medium flex items-center gap-1.5">
                                             <SlidersHorizontal size={10} /> Generation Parameters
@@ -1556,7 +1560,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                             </button>
                             {showMcpServersDropdown && (
                                 <div
-                                    className="absolute z-50 w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto"
+                                    className="absolute z-[100] w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto"
                                     onKeyDown={(e) => {
                                         if (e.key === 'Escape') {
                                             setShowMcpServersDropdown(false);

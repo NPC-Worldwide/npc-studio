@@ -44,8 +44,8 @@
     ],
     "mac": {
       "icon": "assets/icon.png",
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.plist",
       "extendInfo": {
         "NSCameraUsageDescription": "This app needs camera access for video calls in the browser.",
         "NSMicrophoneUsageDescription": "This app needs microphone access for audio calls in the browser."

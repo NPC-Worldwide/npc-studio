@@ -688,7 +688,7 @@ const ChatInterface = () => {
     const [isInputExpanded, setIsInputExpanded] = useState(false);
     const [executionMode, setExecutionMode] = useState(() => {
         const saved = localStorage.getItem('npcStudioExecutionMode');
-        return saved ? JSON.parse(saved) : 'chat';
+        return saved ? JSON.parse(saved) : 'tool_agent';
     });
     const [favoriteModels, setFavoriteModels] = useState<Set<string>>(() => {
         const saved = localStorage.getItem('npcStudioFavoriteModels');
@@ -1731,8 +1731,21 @@ const ChatInterface = () => {
         loadMcpTools();
     }, [executionMode, mcpServerPath, currentPath]);
 
-        
-
+    // Load MCP servers on initial mount and when currentPath changes
+    useEffect(() => {
+        const loadMcpServers = async () => {
+            if (!currentPath) return;
+            const res = await window.api.getMcpServers(currentPath);
+            if (res && Array.isArray(res.servers)) {
+                setAvailableMcpServers(res.servers);
+                // Set default server path if not already set
+                if (!mcpServerPath && res.servers.length > 0) {
+                    setMcpServerPath(res.servers[0].serverPath);
+                }
+            }
+        };
+        loadMcpServers();
+    }, [currentPath]);
 
     useEffect(() => {
         if (selectedJinx && Array.isArray(selectedJinx.inputs)) {
@@ -2019,7 +2032,7 @@ const updateContentPane = useCallback(async (paneId, newContentType, newContentI
         // Initialize per-pane execution mode if not set - use globally persisted mode
         if (paneData.executionMode === undefined) {
             const savedMode = localStorage.getItem('npcStudioExecutionMode');
-            paneData.executionMode = savedMode ? JSON.parse(savedMode) : 'chat';
+            paneData.executionMode = savedMode ? JSON.parse(savedMode) : 'tool_agent';
             paneData.selectedJinx = null;
             paneData.showJinxDropdown = false;
         }
@@ -3325,7 +3338,7 @@ const handleAICodeAction = useCallback(async (type: string, selectedText: string
         conversationId: conversation.id,
         model: currentModel,
         provider: currentProvider,
-        executionMode: 'chat'
+        executionMode: 'tool_agent'
     });
 }, [currentModel, currentProvider, currentPath]);
 
@@ -5513,14 +5526,15 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
         const wasVoiceInput = options?.voiceInput || false;
         const genParams = options?.genParams || { temperature: 0.7, top_p: 0.9, top_k: 40, max_tokens: 4096 };
 
-        // Get pane-specific execution mode and selectedJinx
-        const paneExecMode = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.executionMode || 'chat') : 'chat';
+        // Get pane-specific input text, execution mode and selectedJinx
+        const paneInput = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.inputText || '') : '';
+        const paneExecMode = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.executionMode || 'tool_agent') : 'tool_agent';
         const paneSelectedJinx = activeContentPaneId ? (contentDataRef.current[activeContentPaneId]?.selectedJinx || null) : null;
 
         const isJinxMode = paneExecMode !== 'chat' && paneSelectedJinx;
         const currentJinxInputs = isJinxMode ? (jinxInputValues[paneSelectedJinx.name] || {}) : {};
 
-        const hasContent = (input || '').trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
+        const hasContent = (paneInput || '').trim() || uploadedFiles.length > 0 || (isJinxMode && Object.values(currentJinxInputs).some(val => val !== null && String(val).trim()));
 
         if (!hasContent || (!activeContentPaneId && !isJinxMode)) {
             if (!isJinxMode && !activeContentPaneId) {
@@ -5541,7 +5555,7 @@ const moveContentPane = useCallback((draggedId, draggedPath, targetPath, dropSid
         streamToPaneRef.current[newStreamId] = activeContentPaneId;
         setIsStreaming(true);
 
-        let finalPromptForUserMessage = input;
+        let finalPromptForUserMessage = paneInput;
         let jinxName = null;
         let jinxArgsForApi: any[] = [];
 
@@ -5658,9 +5672,11 @@ ${contextPrompt}`;
         }
 
         // IMMEDIATELY clear input and files so user can type next message
-        const savedInput = input;
+        const savedInput = paneInput;
         const savedFiles = [...uploadedFiles];
-        setInput('');
+        if (activeContentPaneId && contentDataRef.current[activeContentPaneId]) {
+            contentDataRef.current[activeContentPaneId].inputText = '';
+        }
         setUploadedFiles([]);
         if (isJinxMode) {
             setJinxInputValues(prev => ({
@@ -8241,7 +8257,7 @@ ${contextPrompt}`;
 
 // Per-pane execution mode getter/setter
 const getPaneExecutionMode = useCallback((paneId: string) => {
-    return contentDataRef.current[paneId]?.executionMode || 'chat';
+    return contentDataRef.current[paneId]?.executionMode || 'tool_agent';
 }, []);
 
 const setPaneExecutionMode = useCallback(async (paneId: string, mode: string) => {
@@ -8272,7 +8288,7 @@ const getPaneSelectedJinx = useCallback((paneId: string) => {
 
 const setPaneSelectedJinx = useCallback((paneId: string, jinx: any) => {
     if (!contentDataRef.current[paneId]) {
-        contentDataRef.current[paneId] = { executionMode: 'chat', selectedJinx: jinx, showJinxDropdown: false };
+        contentDataRef.current[paneId] = { executionMode: 'tool_agent', selectedJinx: jinx, showJinxDropdown: false };
     } else {
         contentDataRef.current[paneId].selectedJinx = jinx;
     }
@@ -8295,9 +8311,26 @@ const setPaneShowJinxDropdown = useCallback((paneId: string, show: boolean) => {
     setRootLayoutNode(prev => ({ ...prev }));
 }, []);
 
+// Per-pane input text state
+const getPaneInput = useCallback((paneId: string) => {
+    return contentDataRef.current[paneId]?.inputText || '';
+}, []);
+
+const setPaneInput = useCallback((paneId: string, text: string) => {
+    if (!contentDataRef.current[paneId]) {
+        contentDataRef.current[paneId] = { executionMode: 'tool_agent', selectedJinx: null, showJinxDropdown: false, inputText: text };
+    } else {
+        contentDataRef.current[paneId].inputText = text;
+    }
+    // Trigger re-render
+    setRootLayoutNode(prev => ({ ...prev }));
+}, []);
+
 // Build chatInputProps function that returns props for a specific pane
 const getChatInputProps = useCallback((paneId: string) => ({
-    input, setInput, inputHeight, setInputHeight,
+    input: getPaneInput(paneId),
+    setInput: (text: string) => setPaneInput(paneId, text),
+    inputHeight, setInputHeight,
     isInputMinimized, setIsInputMinimized, isInputExpanded, setIsInputExpanded,
     isResizingInput, setIsResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
@@ -8345,7 +8378,8 @@ const getChatInputProps = useCallback((paneId: string) => ({
             setError("Cannot broadcast: The active pane is not a valid chat window.");
             return;
         }
-        if (isStreaming || !input.trim()) return;
+        const paneInput = activePaneData.inputText || '';
+        if (isStreaming || !paneInput.trim()) return;
 
         // Deduplicate models and npcs
         const uniqueModels = [...new Set(models)];
@@ -8378,7 +8412,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
             const userMessage = {
                 id: userMessageId,
                 role: 'user',
-                content: input,
+                content: paneInput,
                 timestamp: new Date().toISOString(),
                 attachments: uploadedFiles.map(f => ({ name: f.name, path: f.path, size: f.size, type: f.type })),
                 cellId: cellId,
@@ -8454,7 +8488,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
 
         activePaneData.chatMessages.allMessages = allMessages;
         activePaneData.chatMessages.messages = allMessages.slice(-(activePaneData.chatMessages.displayedMessageCount || 20));
-        setInput('');
+        activePaneData.inputText = '';
         setUploadedFiles([]);
         setRootLayoutNode(prev => ({ ...prev }));
 
@@ -8499,7 +8533,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
         setSelectedNPCs([]);
     },
 }), [
-    input, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
+    getPaneInput, setPaneInput, inputHeight, isInputMinimized, isInputExpanded, isResizingInput,
     isStreaming, handleInputSubmit, handleInterruptStream,
     uploadedFiles, contextFiles, contextFilesCollapsed, currentPath,
     getPaneExecutionMode, setPaneExecutionMode, getPaneSelectedJinx, setPaneSelectedJinx,

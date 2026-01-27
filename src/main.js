@@ -7520,6 +7520,11 @@ ipcMain.handle('executeCommandStream', async (event, data) => {
       assistantMessageId: data.assistantMessageId,
       // For sub-branches: the parent of the user message (points to an assistant message)
       userParentMessageId: data.userParentMessageId,
+      // LLM generation parameters
+      temperature: data.temperature,
+      top_p: data.top_p,
+      top_k: data.top_k,
+      max_tokens: data.max_tokens,
     };
     
     const response = await fetch(apiUrl, {
@@ -8812,6 +8817,7 @@ ipcMain.handle('getConversations', async (_, path) => {
             ch.tool_calls,
             ch.tool_results,
             ch.parent_message_id,
+            ch.params,
             json_group_array(
                 json_object(
                     'id', ma.id,
@@ -8875,6 +8881,14 @@ ipcMain.handle('getConversations', async (_, path) => {
                 } catch (e) {}
             }
 
+            // Parse params JSON and extract individual fields
+            let llmParams = null;
+            if (row.params) {
+                try {
+                    llmParams = JSON.parse(row.params);
+                } catch (e) {}
+            }
+
             const newRow = {
                 ...row,
                 attachments,
@@ -8882,13 +8896,19 @@ ipcMain.handle('getConversations', async (_, path) => {
                 reasoningContent: row.reasoning_content,
                 toolCalls,
                 toolResults,
-                parentMessageId: row.parent_message_id
+                parentMessageId: row.parent_message_id,
+                // Add individual llm param fields for easy access
+                temperature: llmParams?.temperature,
+                top_p: llmParams?.top_p,
+                top_k: llmParams?.top_k,
+                max_tokens: llmParams?.max_tokens
             };
             delete newRow.attachments_json;
             delete newRow.reasoning_content;
             delete newRow.tool_calls;
             delete newRow.tool_results;
             delete newRow.parent_message_id;
+            delete newRow.params;
             return newRow;
         });
 

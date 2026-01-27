@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { BACKEND_URL } from '../config';
-import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Keyboard, KeyRound, Plus, Copy, ExternalLink, Terminal, Volume2, Mic, Play, Square } from 'lucide-react';
+import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Keyboard, KeyRound, Plus, Copy, ExternalLink, Terminal, Volume2, Mic, Play, Square, Upload } from 'lucide-react';
 import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
 import PythonEnvSettings from './PythonEnvSettings';
 import UserMenu from './UserMenu';
+import PasswordImport from './PasswordImport';
+import { PasswordEntry } from '../utils/passwordImport';
 
 // Password Manager Component
 const PasswordManager = () => {
@@ -15,6 +17,8 @@ const PasswordManager = () => {
     const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
     const [formData, setFormData] = useState({ site: '', username: '', password: '', notes: '' });
     const [revealedPasswords, setRevealedPasswords] = useState<Record<string, string>>({});
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
 
     const loadCredentials = useCallback(async () => {
         setLoading(true);
@@ -110,6 +114,41 @@ const PasswordManager = () => {
         }
     };
 
+    // Handle importing passwords from external password managers
+    const handleImport = useCallback(async (importedPasswords: PasswordEntry[]) => {
+        setImportProgress({ current: 0, total: importedPasswords.length });
+
+        let imported = 0;
+        for (const entry of importedPasswords) {
+            try {
+                // Convert to the format expected by the existing API
+                const result = await (window as any).api.passwordSave({
+                    site: entry.url || entry.name,
+                    username: entry.username || '',
+                    password: entry.password,
+                    notes: [
+                        entry.notes,
+                        entry.folder ? `Folder: ${entry.folder}` : '',
+                        entry.totp ? `TOTP: ${entry.totp}` : ''
+                    ].filter(Boolean).join('\n')
+                });
+
+                if (result.success) {
+                    imported++;
+                }
+            } catch (err) {
+                console.error(`Failed to import ${entry.name}:`, err);
+            }
+
+            setImportProgress({ current: imported, total: importedPasswords.length });
+        }
+
+        // Reload credentials after import
+        await loadCredentials();
+        setImportProgress(null);
+        setShowImportModal(false);
+    }, [loadCredentials]);
+
     if (loading) {
         return <div className="text-center py-8 text-gray-400">Loading credentials...</div>;
     }
@@ -177,16 +216,30 @@ const PasswordManager = () => {
                     </div>
                 </Card>
             ) : (
-                <Button variant="primary" onClick={() => setShowAddForm(true)}>
-                    <Plus size={16} /> Add Credential
-                </Button>
+                <div className="flex gap-2">
+                    <Button variant="primary" onClick={() => setShowAddForm(true)}>
+                        <Plus size={16} /> Add Credential
+                    </Button>
+                    <Button variant="secondary" onClick={() => setShowImportModal(true)}>
+                        <Upload size={16} /> Import
+                    </Button>
+                </div>
+            )}
+
+            {/* Import progress */}
+            {importProgress && (
+                <div className="bg-blue-900/30 rounded-lg p-3 text-sm text-blue-400">
+                    Importing passwords... {importProgress.current} / {importProgress.total}
+                </div>
             )}
 
             {/* Credentials list */}
             <div className="space-y-2">
                 {credentials.length === 0 ? (
                     <div className="text-center py-8 text-gray-400">
-                        No saved credentials yet. Add one to get started.
+                        <KeyRound size={32} className="mx-auto mb-2 text-gray-600" />
+                        <p>No saved credentials yet.</p>
+                        <p className="text-sm mt-1">Add manually or import from another password manager.</p>
                     </div>
                 ) : (
                     credentials.map((cred) => (
@@ -245,6 +298,13 @@ const PasswordManager = () => {
                     ))
                 )}
             </div>
+
+            {/* Import Modal */}
+            <PasswordImport
+                isOpen={showImportModal}
+                onClose={() => setShowImportModal(false)}
+                onImport={handleImport}
+            />
         </div>
     );
 };
