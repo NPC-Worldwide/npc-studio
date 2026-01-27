@@ -205,14 +205,27 @@ export const FolderViewer: React.FC<FolderViewerProps> = ({
     const sortedItems = [...items]
         .filter(item => !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase()))
         .sort((a, b) => {
-            // Optionally put directories first
-            if (foldersFirst && a.type !== b.type) {
-                return a.type === 'directory' ? -1 : 1;
+            const aHidden = a.name.startsWith('.');
+            const bHidden = b.name.startsWith('.');
+            const aIsDir = a.type === 'directory';
+            const bIsDir = b.type === 'directory';
+
+            // Sort order: non-hidden files, non-hidden folders, hidden items
+            // Files before folders (unless foldersFirst is enabled)
+            if (aHidden !== bHidden) {
+                return aHidden ? 1 : -1; // Hidden items last
+            }
+
+            if (foldersFirst && aIsDir !== bIsDir) {
+                return aIsDir ? -1 : 1; // Folders first if enabled
+            } else if (!foldersFirst && aIsDir !== bIsDir) {
+                return aIsDir ? 1 : -1; // Files first by default
             }
 
             let comparison = 0;
             if (sortBy === 'name') {
-                comparison = a.name.localeCompare(b.name);
+                // Case-insensitive name comparison
+                comparison = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
             } else if (sortBy === 'size') {
                 comparison = (a.size || 0) - (b.size || 0);
             } else if (sortBy === 'modified') {

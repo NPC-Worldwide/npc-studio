@@ -7,7 +7,12 @@ const DEFAULT_PORT = IS_DEV ? '5437' : '5337';
 const BACKEND_PORT = process.env.INCOGNIDE_PORT || DEFAULT_PORT;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
+// Check for fresh start flag passed via additionalArguments
+const IS_FRESH_START = process.argv.includes('--fresh-start');
+
 contextBridge.exposeInMainWorld('api', {
+    // Synchronous flag to check if this is a fresh start window (no workspace to load)
+    isFreshStart: IS_FRESH_START,
 textPredict: (data) => ipcRenderer.invoke('text-predict', data),
 
 // Shortcut relay methods (for terminal keyboard shortcuts)
@@ -46,6 +51,7 @@ readDocxContent: (filePath) =>
     generateVideo: (prompt, model, provider, duration, currentPath, referenceImage) => ipcRenderer.invoke('generate_video', { prompt, model, provider, duration, currentPath, referenceImage }),
 
     openNewWindow: (path) => ipcRenderer.invoke('open-new-window', path),
+    closeWindow: () => ipcRenderer.invoke('close-window'),
     openInNativeExplorer: (path) => ipcRenderer.invoke('open-in-native-explorer', path),
 
 
@@ -136,6 +142,13 @@ readDocxContent: (filePath) =>
         const handler = (_, data) => callback(data);
         ipcRenderer.on('cli-open-workspace', handler);
         return () => ipcRenderer.removeListener('cli-open-workspace', handler);
+    },
+
+    // Fresh start - new window should not load from localStorage
+    onFreshStart: (callback) => {
+        const handler = () => callback();
+        ipcRenderer.on('fresh-start', handler);
+        return () => ipcRenderer.removeListener('fresh-start', handler);
     },
 
     // Open URL in browser pane (from xdg-open or command line)

@@ -1416,7 +1416,7 @@ if (!gotTheLock) {
 const browserViews = new Map();
 
 function createWindow(cliArgs = {}) {
-    const { folder, bookmarks, openUrl } = cliArgs;
+    const { folder, bookmarks, openUrl, freshStart } = cliArgs;
 
     // Try multiple icon paths for dev vs production
     const possibleIconPaths = [
@@ -1433,11 +1433,17 @@ function createWindow(cliArgs = {}) {
         appIcon = nativeImage.createFromPath(iconPath);
         console.log(`[ICON DEBUG] Created nativeImage, isEmpty: ${appIcon.isEmpty()}`);
     }
-  
-    console.log('Creating window');
+
+    console.log('Creating window', freshStart ? '(fresh start)' : '');
 
     // Set app name for Linux dock
     app.setName('Incognide');
+
+    // Build additional arguments to pass to preload script
+    const additionalArgs = [];
+    if (freshStart) {
+        additionalArgs.push('--fresh-start');
+    }
 
     mainWindow = new BrowserWindow({
       width: 1200,
@@ -1448,15 +1454,16 @@ function createWindow(cliArgs = {}) {
         nodeIntegration: true,
         contextIsolation: true,
         webSecurity: false,
-        webviewTag: true, 
-        plugins: true, 
+        webviewTag: true,
+        plugins: true,
         enableRemoteModule: true,
         nodeIntegrationInSubFrames: true,
         allowRunningInsecureContent: true,
       contentSecurityPolicy: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${BACKEND_URL};`,
-        
+
         experimentalFeatures: true,
-        preload: path.join(__dirname, 'preload.js')
+        preload: path.join(__dirname, 'preload.js'),
+        additionalArguments: additionalArgs
       }
           });
     mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
@@ -1738,6 +1745,12 @@ function createWindow(cliArgs = {}) {
 
     // Send CLI arguments to renderer when ready
     mainWindow.webContents.on('did-finish-load', async () => {
+      // If freshStart flag is set, tell renderer to not load from localStorage
+      if (freshStart) {
+        log(`[CLI] Fresh start requested - window will not load stored workspace`);
+        mainWindow.webContents.send('fresh-start');
+      }
+
       if (folder || (bookmarks && bookmarks.length > 0) || openUrl) {
         log(`[CLI] Sending workspace args to renderer: folder=${folder}, bookmarks=${bookmarks?.length || 0}, openUrl=${openUrl}`);
 
@@ -4986,13 +4999,28 @@ ipcMain.handle('setup:markFirstLaunchDone', async () => {
 
 // Reset setup to allow re-running the wizard
 ipcMain.handle('setup:reset', async () => {
-  const setupMarkerPath = path.join(os.homedir(), '.npcsh', 'incognide', '.setup_complete');
   try {
-    await fsPromises.unlink(setupMarkerPath);
+    // Remove setup complete marker
+    const setupMarkerPath = path.join(os.homedir(), '.npcsh', 'incognide', '.setup_complete');
+    try {
+      await fsPromises.unlink(setupMarkerPath);
+    } catch (err) {
+      // File might not exist, that's fine
+    }
+
+    // Also remove BACKEND_PYTHON_PATH from .npcshrc so setup wizard shows
+    const npcshrcPath = path.join(os.homedir(), '.npcshrc');
+    try {
+      let rcContent = await fsPromises.readFile(npcshrcPath, 'utf8');
+      rcContent = rcContent.replace(/^BACKEND_PYTHON_PATH=.*$/gm, '').trim();
+      await fsPromises.writeFile(npcshrcPath, rcContent + '\n', 'utf8');
+    } catch (err) {
+      // File might not exist, that's fine
+    }
+
     return { success: true };
   } catch (err) {
-    // File might not exist, that's fine
-    return { success: true };
+    return { success: false, error: err.message };
   }
 });
 
@@ -6686,7 +6714,15 @@ ipcMain.handle('db:getTableSchema', async (event, { tableName }) => {
   }
 });
 ipcMain.handle('open-new-window', async (event, initialPath) => {
-    createWindow(initialPath); // Your existing window creation function
+    // Pass folder as object property, or freshStart flag for folder-less window
+    createWindow(initialPath ? { folder: initialPath } : { freshStart: true });
+});
+
+ipcMain.handle('close-window', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+        win.close();
+    }
 });
 
 ipcMain.handle('open-in-native-explorer', async (event, folderPath) => {

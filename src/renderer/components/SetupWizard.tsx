@@ -457,11 +457,11 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                     <h3 className="font-semibold text-white">NPCs (Personas)</h3>
                 </div>
                 <p className="text-sm text-gray-300 mb-3">
-                    NPCs are agent personas - each with a specific role, personality, and set of jinxs they can execute.
+                    NPCs are personas that can be used in chat or as autonomous agents - each with a specific role, personality, and set of jinxs they can invoke.
                 </p>
                 <ul className="text-sm text-gray-400 space-y-1 ml-4">
-                    <li>• Use NPCs in chats or as autonomous agents</li>
-                    <li>• Each NPC has different jinxs available</li>
+                    <li>• Chat with NPCs or let them work autonomously</li>
+                    <li>• Each NPC has different tools and capabilities</li>
                     <li>• Create your own custom NPCs</li>
                 </ul>
             </div>
@@ -470,17 +470,20 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
             <div className="bg-gradient-to-br from-green-900/30 to-green-800/20 border border-green-500/30 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
                     <Wand2 size={20} className="text-green-400" />
-                    <h3 className="font-semibold text-white">Jinxs (Execution Templates)</h3>
+                    <h3 className="font-semibold text-white">Jinxs (Tools & Spells)</h3>
                 </div>
                 <p className="text-sm text-gray-300 mb-3">
-                    Jinxs are execution templates that define what actions NPCs can perform:
+                    Jinxs are reusable action templates that you and your agents can invoke. They're built with Jinja templating, so they can adapt to different inputs and contexts:
                 </p>
                 <ul className="text-sm text-gray-400 space-y-1 ml-4">
-                    <li>• <span className="text-green-300">sh</span> - run shell commands</li>
-                    <li>• <span className="text-green-300">python</span> - execute Python code</li>
-                    <li>• <span className="text-green-300">browser</span> - control a web browser</li>
-                    <li>• <span className="text-green-300">search</span> - search the web</li>
+                    <li>• <span className="text-green-300">search</span> - search the web for information</li>
+                    <li>• <span className="text-green-300">browser</span> - control and automate a web browser</li>
+                    <li>• <span className="text-green-300">summarize</span> - condense documents and content</li>
+                    <li>• <span className="text-green-300">sh / python</span> - run commands and scripts</li>
                 </ul>
+                <p className="text-xs text-gray-500 mt-2">
+                    Create custom jinxs to automate any workflow.
+                </p>
             </div>
 
             <div className="flex gap-3">
