@@ -137,13 +137,26 @@ const JinxMenu = ({ isOpen, onClose, currentPath, embedded = false, isGlobal = t
     };
 const handleJinxSelect = async (jinx) => {
     setSelectedJinx(jinx);
-    setEditedJinx({ ...jinx });
-    setTestOutput(null);
-    
+
+    // Normalize inputs - can be strings or objects like { "model": "default_value" }
+    const normalizedInputs = [];
     const inputs = {};
+
     for (const inp of (jinx.inputs || [])) {
-        inputs[inp] = '';
+        if (typeof inp === 'string') {
+            normalizedInputs.push(inp);
+            inputs[inp] = '';
+        } else if (typeof inp === 'object' && inp !== null) {
+            // Object format: { "input_name": "default_value" }
+            const name = Object.keys(inp)[0] || '';
+            const defaultVal = inp[name];
+            normalizedInputs.push(name);
+            inputs[name] = defaultVal != null ? String(defaultVal) : '';
+        }
     }
+
+    setEditedJinx({ ...jinx, inputs: normalizedInputs });
+    setTestOutput(null);
     setTestInputs(inputs);
     
     const historyResponse = await fetch(

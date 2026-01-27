@@ -162,13 +162,17 @@ const Sidebar = (props: any) => {
     // Files settings
     const [filesSettings, setFilesSettings] = useState(() => {
         const saved = localStorage.getItem('npcStudio_filesSettings');
-        return saved ? JSON.parse(saved) : {
+        const defaults = {
             showHidden: false,
             allowedExtensions: '',  // comma-separated, empty = all
             excludedExtensions: '.pyc,.pyo,.git,.DS_Store,__pycache__',
             excludedFolders: 'node_modules,.git,__pycache__,.venv,venv',
-            maxDepth: 10
+            maxDepth: 10,
+            sortBy: 'name',  // 'name' | 'modified' | 'size' | 'type'
+            sortAsc: true,
+            filesFirst: true  // files before folders
         };
+        return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
     });
 
     // Websites settings
@@ -2794,7 +2798,15 @@ const renderWebsiteList = () => {
         </>
     );
 };
-const renderFolderList = (structure) => {
+const renderFolderList = (structure, filesSettings) => {
+    // Ensure filesSettings has defaults
+    const settings = {
+        filesFirst: true,
+        sortBy: 'name',
+        sortAsc: true,
+        ...filesSettings
+    };
+
     if (!structure || typeof structure !== 'object' || structure.error) {
         return <div className="p-2 text-xs text-red-500">Error: {structure?.error || 'Failed to load'}</div>;
     }
@@ -2931,7 +2943,7 @@ const renderFolderList = (structure) => {
                         className="flex items-center gap-0.5 p-1 hover:bg-white/10 transition-colors rounded text-gray-400 hover:text-yellow-400"
                         title={currentPath}
                     >
-                        <span className="text-[9px] font-medium truncate max-w-[100px]">{(() => { const name = currentPath?.split('/').pop() || 'Root'; return name.length > 7 ? name.slice(0, 7) + '…' : name; })()}</span>
+                        <span className="text-[9px] font-medium truncate max-w-[100px]">{(() => { const name = currentPath?.split('/').pop() || ''; return name.length > 7 ? name.slice(0, 7) + '…' : name; })()}</span>
                         <ChevronDown size={8} className={`flex-shrink-0 transition-transform text-gray-600 dark:text-gray-400 ${folderDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
                 </div>
@@ -3067,6 +3079,37 @@ const renderFolderList = (structure) => {
                             max="50"
                         />
                     </div>
+                    <div className="border-t border-white/10 pt-2 mt-2">
+                        <label className="text-gray-400 block mb-1">Sort by</label>
+                        <div className="flex gap-1">
+                            <select
+                                value={filesSettings.sortBy}
+                                onChange={(e) => setFilesSettings(s => ({ ...s, sortBy: e.target.value }))}
+                                className="flex-1 bg-black/30 border border-white/10 rounded px-2 py-1 text-gray-200"
+                            >
+                                <option value="name">Name</option>
+                                <option value="modified">Modified</option>
+                                <option value="size">Size</option>
+                                <option value="type">Type</option>
+                            </select>
+                            <button
+                                onClick={() => setFilesSettings(s => ({ ...s, sortAsc: !s.sortAsc }))}
+                                className="px-2 py-1 bg-black/30 border border-white/10 rounded text-gray-300 hover:bg-white/10"
+                                title={filesSettings.sortAsc ? 'Ascending' : 'Descending'}
+                            >
+                                {filesSettings.sortAsc ? <SortAsc size={12} /> : <SortDesc size={12} />}
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <label className="text-gray-300">Files before folders</label>
+                        <input
+                            type="checkbox"
+                            checked={filesSettings.filesFirst}
+                            onChange={(e) => setFilesSettings(s => ({ ...s, filesFirst: e.target.checked }))}
+                            className="rounded"
+                        />
+                    </div>
                 </div>
             )}
             {!filesCollapsed && (
@@ -3184,9 +3227,41 @@ const renderFolderList = (structure) => {
         }
 
         items = items.filter(Boolean).sort((a, b) => {
-            if (a.type === 'directory' && b.type !== 'directory') return -1;
-            if (a.type !== 'directory' && b.type === 'directory') return 1;
-            return (a.name || '').localeCompare(b.name || '');
+            // Extract name from path if name property doesn't exist
+            const aName = a.name || a.path?.split('/').pop() || '';
+            const bName = b.name || b.path?.split('/').pop() || '';
+            const aHidden = aName.startsWith('.');
+            const bHidden = bName.startsWith('.');
+            const aIsDir = a.type === 'directory';
+            const bIsDir = b.type === 'directory';
+
+            // Hidden items always last
+            if (aHidden !== bHidden) return aHidden ? 1 : -1;
+
+            // Files vs folders ordering
+            if (aIsDir !== bIsDir) {
+                return settings.filesFirst
+                    ? (aIsDir ? 1 : -1)   // Files first
+                    : (aIsDir ? -1 : 1);  // Folders first
+            }
+
+            // Sort by selected criteria
+            let comparison = 0;
+            switch (settings.sortBy) {
+                case 'modified':
+                    comparison = (a.modified || '').localeCompare(b.modified || '');
+                    break;
+                case 'size':
+                    comparison = (a.size || 0) - (b.size || 0);
+                    break;
+                case 'type':
+                    comparison = (a.extension || '').localeCompare(b.extension || '');
+                    break;
+                case 'name':
+                default:
+                    comparison = aName.toLowerCase().localeCompare(bName.toLowerCase());
+            }
+            return settings.sortAsc ? comparison : -comparison;
         });
 
         return items.map(content => {
@@ -4636,7 +4711,7 @@ return (
                 <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
                     {/* Show files section header with folder dropdown even during loading */}
                     <div data-section-id="files" className="flex-shrink-0">
-                        {renderFolderList(folderStructure || {})}
+                        {renderFolderList(folderStructure || {}, filesSettings)}
                     </div>
                     <div className="p-4 theme-text-muted">Loading...</div>
                 </div>
@@ -4716,7 +4791,7 @@ return (
                                 style={isCollapsed ? {} : { flex: sectionId === 'websites' ? '1 1 0%' : '1.4 1 0%' }}
                             >
                                 {sectionId === 'websites' && renderWebsiteList()}
-                                {sectionId === 'files' && renderFolderList(folderStructure)}
+                                {sectionId === 'files' && renderFolderList(folderStructure, filesSettings)}
                                 {sectionId === 'conversations' && renderConversationList(directoryConversations)}
                                 {sectionId === 'git' && renderGitSection()}
                             </div>
@@ -5090,7 +5165,7 @@ return (
                 <Trash size={18} />
             </button>
             <button
-                onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(currentPath); else window.open(window.location.href, '_blank'); }}
+                onClick={() => { if ((window as any).api?.openNewWindow) (window as any).api.openNewWindow(); else window.open(window.location.href, '_blank'); }}
                 className="p-2 rounded-full hover:bg-teal-500/20 text-gray-400 hover:text-white transition-all"
                 title="New Incognide Window (Alt+N)"
             >

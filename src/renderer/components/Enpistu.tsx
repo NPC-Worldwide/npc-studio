@@ -975,7 +975,8 @@ const ChatInterface = () => {
         // Window menu handlers
         if (api.api?.onMenuNewWindow) {
             cleanups.push(api.api.onMenuNewWindow(() => {
-                api.api.openNewWindow?.(currentPathRef.current);
+                // Open new window without a folder - let user choose
+                api.api.openNewWindow?.();
             }));
         }
 
@@ -1873,11 +1874,11 @@ const ChatInterface = () => {
                 return;
             }
 
-            // Ctrl+Shift+N - New Workspace/Window
+            // Ctrl+Shift+N - New Workspace/Window (opens without a folder)
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'n' || e.key === 'N')) {
                 e.preventDefault();
                 if ((window as any).api?.openNewWindow) {
-                    (window as any).api.openNewWindow(currentPath);
+                    (window as any).api.openNewWindow();
                 } else {
                     window.open(window.location.href, '_blank');
                 }
@@ -1891,15 +1892,22 @@ const ChatInterface = () => {
                 return;
             }
 
-            // Ctrl+W - Close current tab/pane (prevent closing window)
+            // Ctrl+W - Close current tab/pane, or close window if no panes
             if ((e.ctrlKey || e.metaKey) && (e.key === 'w' || e.key === 'W') && !e.shiftKey) {
                 e.preventDefault();
                 e.stopPropagation();
-                if (activeContentPaneId) {
+
+                // Check if there are any actual panes open
+                const hasPanes = Object.keys(contentDataRef.current).length > 0;
+
+                if (hasPanes && activeContentPaneId) {
                     const nodePath = findNodePath(rootLayoutNodeRef.current, activeContentPaneId);
                     if (nodePath) {
                         closeContentPane(activeContentPaneId, nodePath);
                     }
+                } else if (!hasPanes) {
+                    // No panes open, close the window
+                    (window as any).api?.closeWindow?.();
                 }
                 return;
             }
@@ -6700,6 +6708,13 @@ ${contextPrompt}`;
 
             // Only determine initial path on first load (when currentPath is empty)
             if (!currentPath) {
+                // If this is a fresh start window, don't load from storage - let user pick folder
+                if (window.api?.isFreshStart) {
+                    console.log('[FRESH START] Skipping stored workspace, showing folder picker');
+                    setLoading(false);
+                    return;
+                }
+
                 let initialPathToLoad = config.baseDir;
                 // Check sessionStorage first (for hot-reload within same window),
                 // then localStorage (for persistence across app restarts)
@@ -9682,7 +9697,20 @@ const renderMainContent = () => {
                     <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentApi} />
                 ) : (
                     <div className="flex-1 flex items-center justify-center theme-text-muted">
-                        {loading ? "Loading..." : "Drag a conversation or file to start."}
+                        {loading ? "Loading..." : !currentPath ? (
+                            <div className="flex flex-col items-center gap-4">
+                                <p className="text-gray-400">Select a folder to get started</p>
+                                <button
+                                    onClick={async () => {
+                                        const selectedPath = await (window as any).api.open_directory_picker();
+                                        if (selectedPath) setCurrentPath(selectedPath);
+                                    }}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                                >
+                                    Open Folder
+                                </button>
+                            </div>
+                        ) : "Drag a conversation or file to start."}
                     </div>
                 )}
             </div>
