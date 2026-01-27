@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { BACKEND_URL } from '../config';
 import { Settings, X, Save, FolderOpen, Eye, EyeOff, DownloadCloud, Trash2, Keyboard, KeyRound, Plus, Copy, ExternalLink, Terminal, Volume2, Mic, Play, Square, Upload } from 'lucide-react';
-import { Modal, Tabs, Card, Button, Input, Select } from 'npcts';
+import { Modal, Card, Button, Input, Select } from 'npcts';
 import PythonEnvSettings from './PythonEnvSettings';
 import UserMenu from './UserMenu';
 import PasswordImport from './PasswordImport';
@@ -1479,7 +1479,25 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
 
     const content = (
         <div className={`flex flex-col ${embedded ? 'h-full' : 'max-h-[80vh]'}`}>
-            <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+            {/* Scrollable tabs with hidden scrollbar */}
+            <div className="relative">
+                <div className="flex gap-1 px-2 py-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                    {tabs.map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${
+                                activeTab === tab.id
+                                    ? 'bg-blue-600 text-white'
+                                    : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                            }`}
+                        >
+                            {tab.name}
+                        </button>
+                    ))}
+                </div>
+                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-gray-800 to-transparent pointer-events-none" />
+            </div>
 
             <div className={`${embedded ? 'flex-1' : ''} overflow-y-auto p-6 space-y-4`}>
                 {activeTab === 'account' && (

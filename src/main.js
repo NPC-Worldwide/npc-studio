@@ -4839,6 +4839,151 @@ ipcMain.handle('setup:skip', async () => {
   return { success: true };
 });
 
+// Check if Homebrew is installed (Mac only)
+ipcMain.handle('setup:checkHomebrew', async () => {
+  if (process.platform !== 'darwin') {
+    return { available: false, platform: process.platform };
+  }
+
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('which brew', { encoding: 'utf8', timeout: 5000 });
+    return { available: !!result.trim(), path: result.trim(), platform: 'darwin' };
+  } catch {
+    return { available: false, platform: 'darwin' };
+  }
+});
+
+// Check if Xcode Command Line Tools are installed (Mac only)
+ipcMain.handle('setup:checkXcode', async () => {
+  if (process.platform !== 'darwin') {
+    return { available: false, platform: process.platform };
+  }
+
+  try {
+    const { execSync } = require('child_process');
+    execSync('xcode-select -p', { encoding: 'utf8', timeout: 5000 });
+    return { available: true, platform: 'darwin' };
+  } catch {
+    return { available: false, platform: 'darwin' };
+  }
+});
+
+// Install Xcode Command Line Tools (Mac only)
+ipcMain.handle('setup:installXcode', async () => {
+  if (process.platform !== 'darwin') {
+    return { success: false, error: 'Xcode is only for macOS' };
+  }
+
+  try {
+    const { exec } = require('child_process');
+    // This opens the Xcode CLT installer dialog
+    exec('xcode-select --install');
+    return { success: true, message: 'Xcode installer opened. Please complete the installation.' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Install Ollama - prefer DMG download on Mac
+ipcMain.handle('setup:installOllama', async (event, { method } = {}) => {
+  const platform = process.platform;
+
+  if (platform === 'darwin') {
+    if (method === 'brew') {
+      // Mac - brew install (alternative method)
+      try {
+        const { execSync } = require('child_process');
+        const brewPath = execSync('which brew', { encoding: 'utf8', timeout: 5000 }).trim();
+        if (!brewPath) {
+          return { success: false, error: 'Homebrew not found', needsBrew: true };
+        }
+        execSync('brew install ollama', { encoding: 'utf8', timeout: 300000 });
+        return { success: true, message: 'Ollama installed successfully via Homebrew' };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    } else {
+      // Mac - prefer DMG download (default)
+      return {
+        success: false,
+        openDownload: true,
+        downloadUrl: 'https://ollama.com/download/mac',
+        message: 'Opening Ollama download page. Install the app, then click Refresh.'
+      };
+    }
+  } else if (platform === 'linux') {
+    // Linux - use curl installer
+    try {
+      const { execSync } = require('child_process');
+      execSync('curl -fsSL https://ollama.com/install.sh | sh', {
+        encoding: 'utf8',
+        timeout: 300000,
+        shell: '/bin/bash'
+      });
+      return { success: true, message: 'Ollama installed successfully' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  } else {
+    // Windows - open download page
+    return {
+      success: false,
+      openDownload: true,
+      downloadUrl: 'https://ollama.com/download/windows',
+      message: 'Opening Ollama download page. Install the app, then click Refresh.'
+    };
+  }
+});
+
+// Install Homebrew on Mac
+ipcMain.handle('setup:installHomebrew', async () => {
+  if (process.platform !== 'darwin') {
+    return { success: false, error: 'Homebrew is only for macOS' };
+  }
+
+  try {
+    const { execSync } = require('child_process');
+    // This is the official Homebrew install command
+    execSync('/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"', {
+      encoding: 'utf8',
+      timeout: 600000, // 10 min timeout
+      stdio: 'inherit'
+    });
+    return { success: true, message: 'Homebrew installed successfully' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Get platform info
+ipcMain.handle('setup:getPlatform', async () => {
+  return { platform: process.platform };
+});
+
+// Check if this is the very first launch after setup (no workspace ever saved)
+ipcMain.handle('setup:isFirstLaunch', async () => {
+  const firstLaunchMarker = path.join(os.homedir(), '.npcsh', 'incognide', '.first_launch_done');
+  try {
+    await fsPromises.access(firstLaunchMarker);
+    return false; // Marker exists, not first launch
+  } catch {
+    return true; // Marker doesn't exist, is first launch
+  }
+});
+
+// Mark first launch as done
+ipcMain.handle('setup:markFirstLaunchDone', async () => {
+  const firstLaunchMarker = path.join(os.homedir(), '.npcsh', 'incognide', '.first_launch_done');
+  try {
+    await fsPromises.mkdir(path.dirname(firstLaunchMarker), { recursive: true });
+    await fsPromises.writeFile(firstLaunchMarker, new Date().toISOString());
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 // Reset setup to allow re-running the wizard
 ipcMain.handle('setup:reset', async () => {
   const setupMarkerPath = path.join(os.homedir(), '.npcsh', 'incognide', '.setup_complete');
@@ -4899,6 +5044,131 @@ ipcMain.handle('setup:restartBackend', async () => {
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+// Get path to NPC images (from npcsh repo)
+ipcMain.handle('setup:getNpcImagesPath', async () => {
+  // Try common locations for npcsh npc_team images
+  const possiblePaths = [
+    path.join(__dirname, '..', '..', 'npcsh', 'npcsh', 'npc_team'),
+    path.join(os.homedir(), 'npcww', 'npc-core', 'npcsh', 'npcsh', 'npc_team'),
+    path.join(os.homedir(), '.npcsh', 'npc_team'),
+  ];
+
+  for (const p of possiblePaths) {
+    try {
+      await fsPromises.access(p);
+      return p;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+});
+
+// Detect locally available model providers (ollama, lmstudio, llamacpp)
+ipcMain.handle('setup:detectLocalModels', async () => {
+  const models = [];
+  const platform = process.platform;
+
+  // Check Ollama
+  try {
+    const ollamaResult = { provider: 'ollama', models: [], available: false };
+
+    // Try to connect to Ollama API
+    const response = await fetch('http://localhost:11434/api/tags', {
+      method: 'GET',
+      signal: AbortSignal.timeout(2000)
+    }).catch(() => null);
+
+    if (response && response.ok) {
+      const data = await response.json();
+      ollamaResult.available = true;
+      ollamaResult.models = (data.models || []).map(m => m.name);
+    } else {
+      // Check if ollama binary exists
+      const ollamaPaths = platform === 'darwin'
+        ? ['/usr/local/bin/ollama', '/opt/homebrew/bin/ollama', path.join(os.homedir(), '.ollama', 'ollama')]
+        : platform === 'win32'
+        ? [path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe')]
+        : ['/usr/local/bin/ollama', '/usr/bin/ollama', path.join(os.homedir(), '.local', 'bin', 'ollama')];
+
+      for (const p of ollamaPaths) {
+        try {
+          await fsPromises.access(p);
+          ollamaResult.available = true;
+          break;
+        } catch {
+          continue;
+        }
+      }
+    }
+    models.push(ollamaResult);
+  } catch (err) {
+    models.push({ provider: 'ollama', models: [], available: false });
+  }
+
+  // Check LM Studio
+  try {
+    const lmstudioResult = { provider: 'lmstudio', models: [], available: false };
+
+    // Try LM Studio API
+    const response = await fetch('http://localhost:1234/v1/models', {
+      method: 'GET',
+      signal: AbortSignal.timeout(2000)
+    }).catch(() => null);
+
+    if (response && response.ok) {
+      lmstudioResult.available = true;
+    } else {
+      // Check if LM Studio is installed
+      const lmstudioPaths = platform === 'darwin'
+        ? ['/Applications/LM Studio.app']
+        : platform === 'win32'
+        ? [path.join(process.env.LOCALAPPDATA || '', 'Programs', 'LM Studio', 'LM Studio.exe')]
+        : [path.join(os.homedir(), '.local', 'share', 'LM Studio')];
+
+      for (const p of lmstudioPaths) {
+        try {
+          await fsPromises.access(p);
+          lmstudioResult.available = true;
+          break;
+        } catch {
+          continue;
+        }
+      }
+    }
+    models.push(lmstudioResult);
+  } catch (err) {
+    models.push({ provider: 'lmstudio', models: [], available: false });
+  }
+
+  // Check llama.cpp
+  try {
+    const llamacppResult = { provider: 'llamacpp', models: [], available: false };
+
+    // Check common llama.cpp locations
+    const llamacppPaths = platform === 'darwin'
+      ? ['/usr/local/bin/llama-server', '/opt/homebrew/bin/llama-server', path.join(os.homedir(), 'llama.cpp', 'llama-server')]
+      : platform === 'win32'
+      ? [path.join(os.homedir(), 'llama.cpp', 'build', 'bin', 'Release', 'llama-server.exe')]
+      : ['/usr/local/bin/llama-server', '/usr/bin/llama-server', path.join(os.homedir(), 'llama.cpp', 'llama-server')];
+
+    for (const p of llamacppPaths) {
+      try {
+        await fsPromises.access(p);
+        llamacppResult.available = true;
+        break;
+      } catch {
+        continue;
+      }
+    }
+    models.push(llamacppResult);
+  } catch (err) {
+    models.push({ provider: 'llamacpp', models: [], available: false });
+  }
+
+  return { models };
 });
 
 // ==================== END FIRST-RUN SETUP ====================
@@ -8223,13 +8493,18 @@ ipcMain.handle('createTerminalSession', async (event, { id, cwd, cols, rows, she
   // Store the sender's webContents for multi-window support
   const senderWebContents = event.sender;
 
+  // Cancel any pending kill timer for this session
   if (ptyKillTimers.has(id)) {
     clearTimeout(ptyKillTimers.get(id));
     ptyKillTimers.delete(id);
+  }
 
-    if (ptySessions.has(id)) {
-      return { success: true };
-    }
+  // Reuse existing session if it exists (reconnect after layout change)
+  if (ptySessions.has(id)) {
+    const existingSession = ptySessions.get(id);
+    // Update webContents reference in case component remounted
+    existingSession.webContents = senderWebContents;
+    return { success: true, shell: existingSession.shellType, reconnected: true };
   }
 
   const workingDir = cwd || os.homedir();
@@ -8406,15 +8681,18 @@ ipcMain.handle('closeTerminalSession', (event, id) => {
   if (ptySessions.has(id)) {
     if (ptyKillTimers.has(id)) return { success: true };
 
+    // Use 2000ms delay to give React time to remount during layout changes
+    // This prevents terminal sessions from being killed during pane splits/resizes
     const timer = setTimeout(() => {
       if (ptySessions.has(id)) {
         const session = ptySessions.get(id);
         if (session?.ptyProcess) {
           session.ptyProcess.kill();
         }
+        ptySessions.delete(id);
       }
       ptyKillTimers.delete(id);
-    }, 100);
+    }, 2000);
 
     ptyKillTimers.set(id, timer);
   }

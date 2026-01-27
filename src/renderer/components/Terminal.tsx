@@ -613,8 +613,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         if (isSessionReady.current) return;
 
         isSessionReady.current = false;
-        xtermInstance.current.clear();
-        xtermInstance.current.write('Initializing session...\r\n');
+        // Don't clear or show message yet - wait to see if we're reconnecting
 
         const dataCallback = (_, { id, data }) => {
             if (id === terminalId && !isEffectCancelled) {
@@ -668,16 +667,17 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     if (activeContentPaneId === nodeId) {
                         xtermInstance.current.focus();
                     }
-                    // Check if this is the first terminal startup
+                    // Check if this is the first terminal startup (not a reconnection)
+                    // result.reconnected would be true if session already existed
                     const hasBeenPrompted = localStorage.getItem(SHELL_PROMPT_KEY);
                     if (!hasBeenPrompted && result.shell === 'system') {
                         setShowShellPrompt(true);
                     }
                 } else {
-                    xtermInstance.current.write(`\r\n[FATAL] Backend failed: ${result.error}\r\n`);
+                    xtermInstance.current.write(`[FATAL] Backend failed: ${result.error}\r\n`);
                 }
             } catch (err) {
-                if (!isEffectCancelled) xtermInstance.current.write(`\r\n[FATAL] IPC Error: ${err.message}\r\n`);
+                if (!isEffectCancelled) xtermInstance.current.write(`[FATAL] IPC Error: ${err.message}\r\n`);
             }
         };
 

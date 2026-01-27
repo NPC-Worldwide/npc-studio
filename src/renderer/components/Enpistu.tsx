@@ -6906,6 +6906,27 @@ ${contextPrompt}`;
             if (!workspaceRestored) {
                 if (targetConvoId && currentConversations.find(c => c.id === targetConvoId)) {
                     await handleConversationSelect(targetConvoId, false, false);
+                } else {
+                    // Check if this is the first launch - if so, create a default chat pane
+                    try {
+                        const isFirstLaunch = await (window as any).api?.isFirstLaunch?.();
+                        if (isFirstLaunch && !rootLayoutNode) {
+                            // Create a welcome chat pane
+                            const newPaneId = generateId();
+                            contentDataRef.current[newPaneId] = {
+                                contentType: 'chat',
+                                contentId: null,
+                                chatMessages: { messages: [], allMessages: [], displayedMessageCount: 20 }
+                            };
+                            setRootLayoutNode({ id: newPaneId, type: 'content' });
+                            setActiveContentPaneId(newPaneId);
+
+                            // Mark first launch as done
+                            await (window as any).api?.markFirstLaunchDone?.();
+                        }
+                    } catch (err) {
+                        console.error('Error checking first launch:', err);
+                    }
                 }
             } else {
                 if (targetConvoId) {
