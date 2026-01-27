@@ -280,7 +280,21 @@ export const ChatMessage = memo(({
             )}
 
             <div className="flex justify-between items-center text-xs theme-text-muted mb-1 opacity-80">
-                <span className="font-semibold">{message.role === 'user' ? 'You' : (stripSourcePrefix(message.npc) || 'Agent')}</span>
+                <div className="flex items-center gap-1.5">
+                    <span className="font-semibold">{message.role === 'user' ? 'You' : (stripSourcePrefix(message.npc) || 'Agent')}</span>
+                    {/* Params icon next to agent name - shows values on hover */}
+                    {message.role !== 'user' && (message.temperature !== undefined || message.top_p !== undefined || message.top_k !== undefined || message.max_tokens !== undefined) && (
+                        <span className="relative group/params">
+                            <SlidersHorizontal size={10} className="text-gray-500 hover:text-gray-300 cursor-help" />
+                            <span className="absolute left-0 bottom-full mb-1 px-2 py-1 rounded bg-gray-900 border border-gray-700 text-[10px] text-gray-300 whitespace-nowrap opacity-0 group-hover/params:opacity-100 pointer-events-none transition-opacity z-50 shadow-lg">
+                                {message.temperature !== undefined && <span className="mr-2">T:{message.temperature}</span>}
+                                {message.top_p !== undefined && <span className="mr-2">P:{message.top_p}</span>}
+                                {message.top_k !== undefined && <span className="mr-2">K:{message.top_k}</span>}
+                                {message.max_tokens !== undefined && <span>M:{message.max_tokens}</span>}
+                            </span>
+                        </span>
+                    )}
+                </div>
                 <div className="flex items-center gap-2">
                     {message.role !== 'user' && message.model && (
                         <span className="truncate" title={message.model}>{message.model}</span>
@@ -304,7 +318,7 @@ export const ChatMessage = memo(({
                     <div className="mb-3 px-3 py-2 theme-bg-tertiary rounded-md border-l-2 border-yellow-500">
                         <div className="text-xs text-yellow-400 mb-1 font-semibold">Thinking Process:</div>
                         <div className="prose prose-sm prose-invert max-w-none theme-text-secondary text-sm">
-                            <MarkdownRenderer content={message.reasoningContent || ''} />
+                            <MarkdownRenderer content={message.reasoningContent || ''} onOpenFile={onOpenFile} />
                         </div>
                     </div>
                 )}
@@ -316,9 +330,9 @@ export const ChatMessage = memo(({
                                 return (
                                     <div key={partIdx} className={`prose prose-sm prose-invert max-w-none theme-text-primary`}>
                                         {searchTerm ? (
-                                            <MarkdownRenderer content={highlightSearchTerm(part.content, searchTerm)} />
+                                            <MarkdownRenderer content={highlightSearchTerm(part.content, searchTerm)} onOpenFile={onOpenFile} />
                                         ) : (
-                                            <MarkdownRenderer content={part.content || ''} />
+                                            <MarkdownRenderer content={part.content || ''} onOpenFile={onOpenFile} />
                                         )}
                                     </div>
                                 );
@@ -366,9 +380,9 @@ export const ChatMessage = memo(({
                     <>
                         <div className={`prose prose-sm prose-invert max-w-none theme-text-primary ${isLongMessage && !isExpanded ? 'max-h-24 overflow-hidden relative' : ''}`}>
                             {searchTerm && message.content ? (
-                                <MarkdownRenderer content={highlightSearchTerm(message.content, searchTerm)} />
+                                <MarkdownRenderer content={highlightSearchTerm(message.content, searchTerm)} onOpenFile={onOpenFile} />
                             ) : (
-                                <MarkdownRenderer content={message.content || ''} />
+                                <MarkdownRenderer content={message.content || ''} onOpenFile={onOpenFile} />
                             )}
                             {showStreamingIndicators && message.type !== 'error' && (
                                 <span className="ml-1 inline-block w-0.5 h-4 theme-text-primary animate-pulse stream-cursor"></span>

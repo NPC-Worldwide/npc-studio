@@ -423,7 +423,7 @@ const ImageComponent = memo(({ src, alt, title }) => {
 
 
 // Custom component to parse and render HTML img tags manually
-const ContentWithImages = memo(({ content }) => {
+const ContentWithImages = memo(({ content, onOpenFile }: { content: string; onOpenFile?: (path: string) => void }) => {
   if (!content || typeof content !== 'string') {
     return null;
   }
@@ -485,10 +485,47 @@ const ContentWithImages = memo(({ content }) => {
               key={part.key}
               remarkPlugins={[remarkGfm]}
               components={{
-                code: CodeBlock,
+                code: ({ node, inline, className, children, ...props }: any) => {
+                  // For inline code that looks like a file path, make it clickable
+                  const text = String(children).replace(/\n$/, '');
+                  // In react-markdown v9, detect inline by: no className AND no newlines in content
+                  const isInline = inline !== false && !className && !text.includes('\n');
+                  // More permissive file path regex - allows common path characters
+                  const isFilePath = /^(\/[^\s<>"'`]+|~\/[^\s<>"'`]+|[A-Za-z]:\\[^\s<>"'`]+)$/.test(text) && text.length > 2;
+
+                  if (isInline && isFilePath && onOpenFile) {
+                    return (
+                      <code
+                        className="theme-code-inline px-1 py-0.5 rounded-sm font-mono text-xs text-blue-400 hover:text-blue-300 cursor-pointer hover:underline"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onOpenFile(text);
+                        }}
+                        title={`Open ${text}`}
+                        {...props}
+                      >
+                        {children}
+                      </code>
+                    );
+                  }
+
+                  // Use the regular CodeBlock for non-path code
+                  return <CodeBlock node={node} inline={isInline} className={className} {...props}>{children}</CodeBlock>;
+                },
                 img: ImageComponent,
                 p: ({ node, children, ...props }) => {
-                  return <p className="mb-2 theme-text-primary" {...props}>{children}</p>;
+                  // Process children to make file paths clickable
+                  const processChildren = (child: any): any => {
+                    if (typeof child === 'string') {
+                      return <TextWithPaths text={child} onOpenFile={onOpenFile} />;
+                    }
+                    if (Array.isArray(child)) {
+                      return child.map((c, i) => <React.Fragment key={i}>{processChildren(c)}</React.Fragment>);
+                    }
+                    return child;
+                  };
+                  return <p className="mb-2 theme-text-primary" {...props}>{processChildren(children)}</p>;
                 },
                 a: ({ node, ...props }) => (
                   <a className="theme-text-link hover:underline font-medium" target="_blank" rel="noopener noreferrer" {...props} />
@@ -525,7 +562,58 @@ const ContentWithImages = memo(({ content }) => {
 });
 
 
-const MarkdownRenderer = ({ content }) => {
+// Regex to detect file paths (Unix and Windows styles) - more permissive
+const FILE_PATH_REGEX = /(?:^|[\s`'"({\[])((?:\/[^\s<>"'`()\[\]{}]+)+|(?:[A-Za-z]:\\[^\s<>"'`()\[\]{}]+)+|~\/[^\s<>"'`()\[\]{}]+)/g;
+
+// Component to render text with clickable file paths
+const TextWithPaths = memo(({ text, onOpenFile }: { text: string; onOpenFile?: (path: string) => void }) => {
+  if (!onOpenFile || !text) return <>{text}</>;
+
+  const parts: (string | JSX.Element)[] = [];
+  let lastIndex = 0;
+  let match;
+
+  // Reset regex
+  FILE_PATH_REGEX.lastIndex = 0;
+
+  while ((match = FILE_PATH_REGEX.exec(text)) !== null) {
+    const fullMatch = match[0];
+    const path = match[1];
+    const matchStart = match.index + (fullMatch.length - path.length);
+
+    // Add text before the path
+    if (matchStart > lastIndex) {
+      parts.push(text.slice(lastIndex, matchStart));
+    }
+
+    // Add clickable path
+    parts.push(
+      <span
+        key={matchStart}
+        className="text-blue-400 hover:text-blue-300 hover:underline cursor-pointer font-mono"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpenFile(path);
+        }}
+        title={`Open ${path}`}
+      >
+        {path}
+      </span>
+    );
+
+    lastIndex = matchStart + path.length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts.length > 0 ? parts : text}</>;
+});
+
+const MarkdownRenderer = ({ content, onOpenFile }: { content: string; onOpenFile?: (path: string) => void }) => {
   // Check for tabular data first
   const { isTabular, data } = detectTabularData(content || '');
 
@@ -533,7 +621,7 @@ const MarkdownRenderer = ({ content }) => {
     return <DataTableComponent data={data} />;
   }
 
-  return <ContentWithImages content={content} />;
+  return <ContentWithImages content={content} onOpenFile={onOpenFile} />;
 };
 
 export default memo(MarkdownRenderer);
