@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '../components/AuthProvider';
 import {
     getEncryptionKey,
     hasEncryptionKey,
@@ -11,7 +12,6 @@ import {
 const API_BASE_URL = 'https://app.incognide.com';
 
 // Local storage keys
-const AUTH_TOKEN_KEY = 'incognide-auth-token';
 const LAST_SYNC_KEY = 'incognide-last-sync';
 const PENDING_CHANGES_KEY = 'incognide-pending-changes';
 const SYNC_FREQUENCY_KEY = 'incognide-sync-frequency';
@@ -65,6 +65,8 @@ interface UseSyncReturn extends SyncState {
 }
 
 export const useSync = (): UseSyncReturn => {
+    const { isAuthenticated, isEncryptionReady, getToken } = useAuth();
+
     const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [lastSyncTime, setLastSyncTime] = useState<Date | null>(() => {
@@ -166,8 +168,13 @@ export const useSync = (): UseSyncReturn => {
 
     // Push encrypted changes to server
     const pushChanges = useCallback(async (): Promise<boolean> => {
-        const token = localStorage.getItem(AUTH_TOKEN_KEY);
-        if (!token || pendingChanges.length === 0) return true;
+        if (pendingChanges.length === 0) return true;
+
+        const token = await getToken();
+        if (!token) {
+            console.log('[SYNC] No auth token, cannot push changes');
+            return false;
+        }
 
         if (!hasEncryptionKey()) {
             console.log('[SYNC] No encryption key, cannot push changes');
@@ -207,12 +214,15 @@ export const useSync = (): UseSyncReturn => {
             console.error('[SYNC] Push error:', e);
             throw e;
         }
-    }, [pendingChanges, clearPendingChanges, encryptChanges]);
+    }, [pendingChanges, clearPendingChanges, encryptChanges, getToken]);
 
     // Pull and decrypt changes from server
     const pullChanges = useCallback(async (): Promise<boolean> => {
-        const token = localStorage.getItem(AUTH_TOKEN_KEY);
-        if (!token) return false;
+        const token = await getToken();
+        if (!token) {
+            console.log('[SYNC] No auth token, cannot pull changes');
+            return false;
+        }
 
         if (!hasEncryptionKey()) {
             console.log('[SYNC] No encryption key, cannot pull changes');
@@ -279,7 +289,7 @@ export const useSync = (): UseSyncReturn => {
             console.error('[SYNC] Pull error:', e);
             throw e;
         }
-    }, [lastSyncTime]);
+    }, [lastSyncTime, getToken]);
 
     // Apply an upserted (created/updated) change to local storage
     const applyUpsertChange = async (
@@ -402,9 +412,8 @@ export const useSync = (): UseSyncReturn => {
             return;
         }
 
-        const token = localStorage.getItem(AUTH_TOKEN_KEY);
-        if (!token) {
-            console.log('[SYNC] No auth token, skipping sync');
+        if (!isAuthenticated) {
+            console.log('[SYNC] Not authenticated, skipping sync');
             return;
         }
 
@@ -414,10 +423,10 @@ export const useSync = (): UseSyncReturn => {
             return;
         }
 
-        if (!hasEncryptionKey()) {
-            console.log('[SYNC] No encryption key available, skipping sync');
+        if (!isEncryptionReady || !hasEncryptionKey()) {
+            console.log('[SYNC] Encryption not ready, skipping sync');
             setSyncStatus('no_encryption_key');
-            setSyncError('Sign in again to enable sync');
+            setSyncError('Enter your passphrase to enable sync');
             return;
         }
 
@@ -446,11 +455,10 @@ export const useSync = (): UseSyncReturn => {
         } finally {
             syncInProgressRef.current = false;
         }
-    }, [isOnline, pushChanges, pullChanges]);
+    }, [isOnline, isAuthenticated, isEncryptionReady, pushChanges, pullChanges]);
 
     // Auto-sync based on configured frequency when online, authenticated, and have encryption key
     useEffect(() => {
-        const token = localStorage.getItem(AUTH_TOKEN_KEY);
         const intervalMs = SYNC_FREQUENCIES[syncFrequency];
 
         // Clear existing interval
@@ -460,22 +468,18 @@ export const useSync = (): UseSyncReturn => {
         }
 
         // Don't set up auto-sync if:
-        // - No token or offline
+        // - Not authenticated or offline or encryption not ready
         // - Manual sync mode (frequency = 0)
-        if (!token || !isOnline || intervalMs === 0) {
+        if (!isAuthenticated || !isOnline || !isEncryptionReady || intervalMs === 0) {
             return;
         }
 
-        // Initial sync (only if encryption key is ready)
-        if (hasEncryptionKey()) {
-            triggerSync();
-        }
+        // Initial sync
+        triggerSync();
 
         // Set up interval with configured frequency
         syncIntervalRef.current = setInterval(() => {
-            if (hasEncryptionKey()) {
-                triggerSync();
-            }
+            triggerSync();
         }, intervalMs);
 
         console.log(`[SYNC] Auto-sync enabled: every ${syncFrequency}`);
@@ -486,14 +490,14 @@ export const useSync = (): UseSyncReturn => {
                 syncIntervalRef.current = null;
             }
         };
-    }, [isOnline, syncFrequency, triggerSync]);
+    }, [isOnline, isAuthenticated, isEncryptionReady, syncFrequency, triggerSync]);
 
     // Trigger sync when coming back online
     useEffect(() => {
-        if (isOnline && pendingChanges.length > 0 && hasEncryptionKey()) {
+        if (isOnline && isAuthenticated && isEncryptionReady && pendingChanges.length > 0) {
             triggerSync();
         }
-    }, [isOnline]);
+    }, [isOnline, isAuthenticated, isEncryptionReady]);
 
     return {
         syncStatus,

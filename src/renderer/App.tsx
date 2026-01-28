@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { ClerkProvider } from '@clerk/clerk-react';
 import Enpistu from './components/Enpistu';
 import SetupWizard from './components/SetupWizard';
 import { AuthProvider } from './components/AuthProvider';
+
+// Clerk publishable key from environment
+const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || '';
 
 const App: React.FC = () => {
   const [showSetup, setShowSetup] = useState<boolean | null>(null);
@@ -31,16 +35,20 @@ const App: React.FC = () => {
   // Show setup wizard if needed
   if (showSetup) {
     return (
-      <AuthProvider>
-        <SetupWizard onComplete={() => setShowSetup(false)} />
-      </AuthProvider>
+      <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
+        <AuthProvider>
+          <SetupWizard onComplete={() => setShowSetup(false)} />
+        </AuthProvider>
+      </ClerkProvider>
     );
   }
 
   return (
-    <AuthProvider>
-      <Enpistu />
-    </AuthProvider>
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
+      <AuthProvider>
+        <Enpistu />
+      </AuthProvider>
+    </ClerkProvider>
   );
 };
 
