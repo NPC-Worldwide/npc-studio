@@ -34,11 +34,8 @@ Built for seamless workflows, Incognide eliminates distractions and context swit
 - Manage agents, have them run on jobs, edit team context, integrate with MCP Servers, approve or rejected suggested memories, prune and evolve knowledge graphs.
 - Fine-tune your own image and text models using curated data from your conversations and memories.
 
-## Demo Video
-
-<a href="https://www.youtube.com/watch?v=rXkc2CrLNb4" target="_blank">
-  <img src="https://img.youtube.com/vi/rXkc2CrLNb4/0.jpg" alt="Watch the demo video" />
-</a>
+## Demo Video 
+Updated version coming soon....
 
 ---
 
