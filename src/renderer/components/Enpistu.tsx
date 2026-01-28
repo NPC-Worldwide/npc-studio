@@ -714,7 +714,16 @@ const ChatInterface = () => {
 
     const [draggedItem, setDraggedItem] = useState(null);
     const [dropTarget, setDropTarget] = useState(null);
-   
+
+    // Add overlay class to block webview interaction during drag operations
+    useEffect(() => {
+        if (draggedItem) {
+            document.body.classList.add('layout-resizing');
+        } else {
+            document.body.classList.remove('layout-resizing');
+        }
+    }, [draggedItem]);
+
     const contentDataRef = useRef({});
     const closedTabsRef = useRef<Array<{contentType: string, contentId: string, browserUrl?: string, browserTitle?: string}>>([]);
     const currentPathRef = useRef(currentPath);

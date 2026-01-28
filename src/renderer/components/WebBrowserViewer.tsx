@@ -1443,6 +1443,9 @@ const WebBrowserViewer = memo(({
                     style={{ visibility: error ? 'hidden' : 'visible' }}
                 />
 
+                {/* Overlay to block webview interaction during layout resize/drag */}
+                <div className="webview-resize-overlay absolute inset-0 z-10" />
+
                 {/* Password Save Prompt */}
                 {showPasswordPrompt && pendingCredentials && (
                     <div className="absolute bottom-4 right-4 z-50 theme-bg-secondary border theme-border rounded-lg shadow-lg p-4 max-w-sm">

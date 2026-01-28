@@ -1459,3 +1459,15 @@ body.light-mode .p-2.rounded-full.text-red-400 {
 .pptx-slide-content span[style*="font-weight"] {
     font-weight: revert !important;
 }
+
+/* Webview overlay to block interaction during layout resize/drag */
+.webview-resize-overlay {
+    pointer-events: none;
+    display: none;
+}
+
+body.layout-resizing .webview-resize-overlay {
+    display: block;
+    pointer-events: auto;
+    cursor: inherit;
+}
