@@ -8,6 +8,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      build_mas:
+        description: 'Build Mac App Store version'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -25,30 +31,29 @@ jobs:
             platform: macos
             arch: arm64
 
-    
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Get version from package.json
         id: version
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
         shell: bash
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-    
+
       - name: Install Python dependencies
         run: pip install -r requirements.txt pyinstaller
-      
+
       - name: Install macOS build dependencies
         if: runner.os == 'macOS'
         run: |
@@ -71,7 +76,7 @@ jobs:
           npm install node-pty@beta --save-optional --ignore-scripts
         env:
           npm_config_optional: true
-                
+
       - name: Install dependencies (macOS ARM64)
         if: runner.os == 'macOS' && matrix.arch == 'arm64'
         run: |
@@ -79,7 +84,7 @@ jobs:
           npm install @rollup/rollup-darwin-arm64 sqlite3 --save
         env:
           npm_config_optional: true
-          
+
       - name: Build PyInstaller binary (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -102,14 +107,14 @@ jobs:
           mkdir -p resources/backend
           cp pyinstaller_dist/incognide_serve resources/backend/
           chmod +x resources/backend/incognide_serve
-      
+
       - name: Build PyInstaller binary (Windows)
         if: runner.os == 'Windows'
         run: |
           python -m PyInstaller --onefile --clean --distpath pyinstaller_dist --noupx --hidden-import=npcpy --hidden-import=npcsh --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow --hidden-import=nltk --hidden-import=litellm --hidden-import=anthropic --hidden-import=openai --hidden-import=google-genai --hidden-import=tiktoken_ext.openai_public --hidden-import=tiktoken_ext --hidden-import=sentence_transformers --hidden-import=chromadb --hidden-import=pydantic --collect-data=litellm --collect-data=npcpy --collect-data=npcsh incognide_serve.py
           mkdir -p resources/backend
           copy pyinstaller_dist\incognide_serve.exe resources\backend\incognide_serve.exe
-      
+
       - name: Build PyInstaller binary (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -132,7 +137,7 @@ jobs:
           mkdir -p resources/backend
           cp pyinstaller_dist/incognide_serve resources/backend/incognide_serve
           chmod +x resources/backend/incognide_serve
-      
+
       - name: Build frontend
         run: npm run build:vite
 
@@ -147,6 +152,7 @@ jobs:
         run: |
           npx electron-rebuild --force --module-dir . --which-module sqlite3
           npx electron-rebuild --force --module-dir . --which-module node-pty || true
+
       - name: Import Apple Developer ID certificate and set signing environment
         if: runner.os == 'macOS'
         env:
@@ -154,62 +160,93 @@ jobs:
         run: |
           # Decode the certificate and save it
           echo "${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}" | base64 --decode > build_cert.p12
-          
+
           # Create a temporary keychain
           security create-keychain -p "$P12_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$P12_PASSWORD" build.keychain
-          
+          security set-keychain-settings -t 3600 -u build.keychain
+
           # Import the certificate into the keychain
-          security import build_cert.p12 -k build.keychain -P "$P12_PASSWORD" -A
-          
+          security import build_cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+
           # Allow access to the certificate for code signing tools
           security set-key-partition-list -S apple-tool:,apple: -s -k "$P12_PASSWORD" build.keychain
-          
-          # Set environment variables for electron-builder to pick up for signing and notarization
+
+          # Set environment variables for electron-builder signing
           echo "CSC_LINK=$(pwd)/build_cert.p12" >> $GITHUB_ENV
           echo "CSC_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
-      - name: Build Electron app
+
+      - name: Sign the backend binary (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Sign the PyInstaller backend binary with hardened runtime before packaging
+          if [ -f "resources/backend/incognide_serve" ]; then
+            codesign --force --options runtime \
+              --entitlements resources/entitlements.mac.inherit.plist \
+              --sign "Developer ID Application" \
+              resources/backend/incognide_serve
+            echo "Backend binary signed successfully"
+            codesign --verify --verbose resources/backend/incognide_serve
+          fi
+
+      - name: Build Electron app (DMG + ZIP for direct distribution)
         run: npm run electron:build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_ARCH: ${{ matrix.arch }}
-      
+          # Notarization credentials (macOS only — electron-builder ignores on other platforms)
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Verify notarization (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          DMG_FILE=$(find dist-electron -name "*.dmg" | head -1)
+          if [ -n "$DMG_FILE" ]; then
+            echo "Verifying notarization for: $DMG_FILE"
+            spctl --assess --type open --context context:primary-signature "$DMG_FILE" || echo "Warning: notarization verification returned non-zero (may need stapling)"
+            codesign --verify --verbose=2 "$DMG_FILE" || true
+          fi
+
       - name: Prepare files for upload
         id: prepare
         run: |
           mkdir -p upload
           VERSION="${{ steps.version.outputs.version }}"
-          
+
           if [ "${{ runner.os }}" = "Linux" ]; then
             find dist-electron -name "*.deb" -exec cp {} upload/incognide_${VERSION}_${{ matrix.arch }}.deb \;
             echo "files=upload/incognide_${VERSION}_${{ matrix.arch }}.deb" >> $GITHUB_OUTPUT
             echo "gcs_path=linux-${{ matrix.arch }}" >> $GITHUB_OUTPUT
           elif [ "${{ runner.os }}" = "Windows" ]; then
-            find dist-electron -maxdepth 1 -name "*.exe" -exec cp {} upload/incognide_${VERSION}_${{ matrix.arch }}.exe \; 
+            find dist-electron -maxdepth 1 -name "*.exe" -exec cp {} upload/incognide_${VERSION}_${{ matrix.arch }}.exe \;
             echo "files=upload/incognide_${VERSION}_${{ matrix.arch }}.exe" >> $GITHUB_OUTPUT
             echo "gcs_path=windows-${{ matrix.arch }}" >> $GITHUB_OUTPUT
           elif [ "${{ runner.os }}" = "macOS" ]; then
             find dist-electron -name "*.dmg" -exec cp {} upload/incognide_${VERSION}_${{ matrix.arch }}.dmg \;
+            # Also grab the zip for auto-update support
+            find dist-electron -name "*.zip" -exec cp {} upload/incognide_${VERSION}_${{ matrix.arch }}.zip \; 2>/dev/null || true
             echo "files=upload/incognide_${VERSION}_${{ matrix.arch }}.dmg" >> $GITHUB_OUTPUT
             echo "gcs_path=macos-${{ matrix.arch }}" >> $GITHUB_OUTPUT
           fi
         shell: bash
-      
+
       - name: Authenticate to Google Cloud
         if: github.ref == 'refs/heads/main'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-      
+
       - name: Set up Cloud SDK
         if: github.ref == 'refs/heads/main'
         uses: google-github-actions/setup-gcloud@v2
-      
+
       - name: Upload to Google Cloud Storage
         if: github.ref == 'refs/heads/main'
         run: |
-          for file in ${{ steps.prepare.outputs.files }}; do
+          for file in upload/*; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
               gsutil cp "$file" gs://incognide-executables/${{ steps.prepare.outputs.gcs_path }}/"$filename"
@@ -217,7 +254,7 @@ jobs:
             fi
           done
         shell: bash
-      
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -225,11 +262,155 @@ jobs:
           path: upload/*
           retention-days: 30
 
+  # Mac App Store build (separate job, triggered manually or on main)
+  build-mas:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_mas == 'true'
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Install macOS build dependencies
+        run: brew install xz pkg-config
+
+      - name: Install dependencies (macOS ARM64)
+        run: |
+          npm install
+          npm install @rollup/rollup-darwin-arm64 sqlite3 --save
+        env:
+          npm_config_optional: true
+
+      - name: Build PyInstaller binary (macOS)
+        run: |
+          pyinstaller --onefile --clean --distpath pyinstaller_dist --noupx \
+            --hidden-import=npcpy --hidden-import=npcsh --hidden-import=litellm --hidden-import=ollama \
+            --hidden-import=flask --hidden-import=flask_cors --hidden-import=flask_sse \
+            --hidden-import=redis --hidden-import=pyyaml --hidden-import=pillow \
+            --hidden-import=anthropic --hidden-import=openai --hidden-import=google-genai \
+            --hidden-import=tiktoken_ext.openai_public --hidden-import=tiktoken_ext \
+            --hidden-import=chromadb --hidden-import=pydantic \
+            --exclude-module=scipy --exclude-module=tensorflow --exclude-module=torch \
+            --exclude-module=sklearn --exclude-module=notebook --exclude-module=ipython \
+            --exclude-module=jupyter --exclude-module=nbconvert --exclude-module=cv2 \
+            --exclude-module=PIL.ImageTk --exclude-module=PIL.ImageQt --exclude-module=docx \
+            --exclude-module=pptx --exclude-module=cuda --exclude-module=cudnn \
+            --exclude-module=cudart --exclude-module=cublas --exclude-module=cupy \
+            --exclude-module=logfire --exclude-module=numba.cuda --exclude-module=torch.cuda \
+            --exclude-module=nltk --exclude-module=tensorflow.python.framework.cuda_util \
+            --collect-data=litellm --collect-data=npcpy --collect-data=npcsh incognide_serve.py
+          mkdir -p resources/backend
+          cp pyinstaller_dist/incognide_serve resources/backend/incognide_serve
+          chmod +x resources/backend/incognide_serve
+
+      - name: Build frontend
+        run: npm run build:vite
+
+      - name: Rebuild native modules for Electron
+        run: |
+          npx electron-rebuild --force --module-dir . --which-module sqlite3
+          npx electron-rebuild --force --module-dir . --which-module node-pty || true
+
+      - name: Import MAS certificates and provisioning profile
+        env:
+          P12_PASSWORD: ${{ secrets.APPLE_MAS_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create temporary keychain
+          security create-keychain -p "$P12_PASSWORD" mas_build.keychain
+          security default-keychain -s mas_build.keychain
+          security unlock-keychain -p "$P12_PASSWORD" mas_build.keychain
+          security set-keychain-settings -t 3600 -u mas_build.keychain
+
+          # Import 3rd Party Mac Developer Application certificate (for signing the app)
+          echo "${{ secrets.APPLE_MAS_APPLICATION_CERT }}" | base64 --decode > mas_app_cert.p12
+          security import mas_app_cert.p12 -k mas_build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+
+          # Import 3rd Party Mac Developer Installer certificate (for signing the pkg)
+          echo "${{ secrets.APPLE_MAS_INSTALLER_CERT }}" | base64 --decode > mas_installer_cert.p12
+          security import mas_installer_cert.p12 -k mas_build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+
+          # Allow access
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$P12_PASSWORD" mas_build.keychain
+
+          # Install provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.APPLE_MAS_PROVISIONING_PROFILE }}" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/incognide_mas.provisionprofile
+
+          # Set env vars for electron-builder
+          echo "CSC_LINK=$(pwd)/mas_app_cert.p12" >> $GITHUB_ENV
+          echo "CSC_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
+          echo "CSC_INSTALLER_LINK=$(pwd)/mas_installer_cert.p12" >> $GITHUB_ENV
+          echo "CSC_INSTALLER_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
+
+      - name: Sign the backend binary for MAS
+        run: |
+          if [ -f "resources/backend/incognide_serve" ]; then
+            codesign --force --options runtime \
+              --entitlements resources/entitlements.mas.inherit.plist \
+              --sign "Apple Distribution" \
+              resources/backend/incognide_serve
+            echo "Backend binary signed for MAS"
+            codesign --verify --verbose resources/backend/incognide_serve
+          fi
+
+      - name: Build MAS package
+        run: |
+          npx electron-builder --mac mas --arm64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Prepare MAS artifact
+        id: prepare_mas
+        run: |
+          mkdir -p upload
+          VERSION="${{ steps.version.outputs.version }}"
+          find dist-electron -name "*.pkg" -exec cp {} upload/incognide_${VERSION}_mas.pkg \;
+          echo "pkg_file=upload/incognide_${VERSION}_mas.pkg" >> $GITHUB_OUTPUT
+
+      - name: Upload MAS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: incognide-mas-arm64
+          path: upload/*.pkg
+          retention-days: 30
+
+      - name: Upload to App Store Connect via Transporter
+        if: github.ref == 'refs/heads/main'
+        run: |
+          PKG_FILE="${{ steps.prepare_mas.outputs.pkg_file }}"
+          if [ -f "$PKG_FILE" ]; then
+            xcrun altool --upload-app \
+              --type macos \
+              --file "$PKG_FILE" \
+              --username "${{ secrets.APPLE_ID }}" \
+              --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
+              --asc-provider "${{ secrets.APPLE_TEAM_ID }}" || echo "Warning: App Store upload failed. You can upload manually via Transporter app."
+          fi
+
   update_manifest:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    
+
     steps:
       - uses: actions/checkout@v4
       - name: Get version from package.json
@@ -237,15 +418,15 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-      
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-      
+
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
-      
+
       - name: Update manifest
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -267,7 +448,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    
+
     steps:
       - uses: actions/checkout@v4
       - name: Get version from package.json
@@ -275,7 +456,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-      
+
       - name: Create download links summary
         run: |
           VERSION="${{ steps.version.outputs.version }}"

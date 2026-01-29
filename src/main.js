@@ -10732,6 +10732,26 @@ ipcMain.handle('request-media-permissions', async () => {
   return { camera: cameraStatus, microphone: micStatus };
 });
 
+ipcMain.handle('open-system-preferences', async (_, pane) => {
+  if (process.platform !== 'darwin') return false;
+  const paneMap = {
+    camera: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
+    microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+    screen_recording: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+    accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+    privacy: 'x-apple.systempreferences:com.apple.preference.security?Privacy',
+  };
+  const url = paneMap[pane] || paneMap.privacy;
+  shell.openExternal(url);
+  return true;
+});
+
+ipcMain.handle('get-screen-capture-status', async () => {
+  if (process.platform !== 'darwin') return { granted: true };
+  const status = systemPreferences.getMediaAccessStatus('screen');
+  return { granted: status === 'granted', status };
+});
+
 // Version update checker
 const packageJson = require('../package.json');
 const APP_VERSION = packageJson.version;

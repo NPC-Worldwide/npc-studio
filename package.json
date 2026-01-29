@@ -44,11 +44,47 @@
     ],
     "mac": {
       "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64"]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
       "entitlements": "resources/entitlements.mac.plist",
-      "entitlementsInherit": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.inherit.plist",
+      "notarize": true,
       "extendInfo": {
-        "NSCameraUsageDescription": "This app needs camera access for video calls in the browser.",
-        "NSMicrophoneUsageDescription": "This app needs microphone access for audio calls in the browser."
+        "NSCameraUsageDescription": "This app needs camera access for video calls and media capture.",
+        "NSMicrophoneUsageDescription": "This app needs microphone access for audio recording and voice input.",
+        "NSScreenCaptureUsageDescription": "This app needs screen capture access for screenshots.",
+        "NSAppleEventsUsageDescription": "This app needs automation access to open System Settings."
+      },
+      "extraResources": [
+        {
+          "from": "resources/backend/incognide_serve",
+          "to": "backend/incognide_serve"
+        }
+      ]
+    },
+    "mas": {
+      "entitlements": "resources/entitlements.mas.plist",
+      "entitlementsInherit": "resources/entitlements.mas.inherit.plist",
+      "hardenedRuntime": false,
+      "category": "public.app-category.productivity",
+      "provisioningProfile": "incognide_mas.provisionprofile",
+      "identity": "Apple Distribution",
+      "extendInfo": {
+        "NSCameraUsageDescription": "This app needs camera access for video calls and media capture.",
+        "NSMicrophoneUsageDescription": "This app needs microphone access for audio recording and voice input.",
+        "NSScreenCaptureUsageDescription": "This app needs screen capture access for screenshots.",
+        "NSAppleEventsUsageDescription": "This app needs automation access to open System Settings."
       },
       "extraResources": [
         {
