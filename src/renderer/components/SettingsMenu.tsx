@@ -1305,6 +1305,188 @@ const ModelManager = () => {
     );
 };
 
+// Permissions Manager Component (macOS)
+const PermissionsManager = () => {
+    const [permissions, setPermissions] = useState<any>({
+        camera: false,
+        microphone: false,
+        cameraStatus: 'unknown',
+        micStatus: 'unknown',
+    });
+    const [screenCapture, setScreenCapture] = useState<any>({ granted: false, status: 'unknown' });
+    const [loading, setLoading] = useState(true);
+    const isMac = navigator.platform?.toLowerCase().includes('mac');
+
+    const checkPermissions = useCallback(async () => {
+        setLoading(true);
+        try {
+            const media = await (window as any).api.checkMediaPermissions();
+            setPermissions(media);
+            const screen = await (window as any).api.getScreenCaptureStatus();
+            setScreenCapture(screen);
+        } catch (err) {
+            console.error('Failed to check permissions:', err);
+        }
+        setLoading(false);
+    }, []);
+
+    useEffect(() => { checkPermissions(); }, [checkPermissions]);
+
+    const requestMedia = async () => {
+        try {
+            const result = await (window as any).api.requestMediaPermissions();
+            setPermissions((prev: any) => ({ ...prev, camera: result.camera, microphone: result.microphone }));
+            // Re-check after a moment since the dialog may have changed things
+            setTimeout(checkPermissions, 1000);
+        } catch (err) {
+            console.error('Failed to request permissions:', err);
+        }
+    };
+
+    const openSettings = async (pane: string) => {
+        try {
+            await (window as any).api.openSystemPreferences(pane);
+        } catch (err) {
+            console.error('Failed to open system preferences:', err);
+        }
+    };
+
+    const StatusBadge = ({ granted, status }: { granted: boolean; status: string }) => (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+            granted ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'
+        }`}>
+            {granted ? 'Granted' : status === 'denied' ? 'Denied' : status === 'restricted' ? 'Restricted' : 'Not Granted'}
+        </span>
+    );
+
+    if (!isMac) {
+        return (
+            <div className="space-y-4">
+                <h3 className="text-lg font-medium text-white">Permissions</h3>
+                <p className="text-sm text-gray-400">Permission management is only available on macOS.</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            <h3 className="text-lg font-medium text-white">macOS Permissions</h3>
+            <p className="text-sm text-gray-400">
+                Manage system permissions required for camera, microphone, and screen capture features.
+            </p>
+
+            {loading ? (
+                <p className="text-sm text-gray-500">Checking permissions...</p>
+            ) : (
+                <div className="space-y-3">
+                    {/* Camera */}
+                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
+                                <span className="text-sm">📷</span>
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium text-white">Camera</p>
+                                <p className="text-xs text-gray-400">Required for video calls in browser tabs</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <StatusBadge granted={permissions.camera} status={permissions.cameraStatus} />
+                            {!permissions.camera && (
+                                <button onClick={() => openSettings('camera')}
+                                    className="text-xs text-blue-400 hover:text-blue-300 underline">
+                                    Open Settings
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Microphone */}
+                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
+                                <span className="text-sm">🎤</span>
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium text-white">Microphone</p>
+                                <p className="text-xs text-gray-400">Required for voice input and audio calls</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <StatusBadge granted={permissions.microphone} status={permissions.micStatus} />
+                            {!permissions.microphone && (
+                                <button onClick={() => openSettings('microphone')}
+                                    className="text-xs text-blue-400 hover:text-blue-300 underline">
+                                    Open Settings
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Screen Recording */}
+                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
+                                <span className="text-sm">🖥</span>
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium text-white">Screen Recording</p>
+                                <p className="text-xs text-gray-400">Required for screenshot capture (Ctrl+Alt+4)</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <StatusBadge granted={screenCapture.granted} status={screenCapture.status} />
+                            {!screenCapture.granted && (
+                                <button onClick={() => openSettings('screen_recording')}
+                                    className="text-xs text-blue-400 hover:text-blue-300 underline">
+                                    Open Settings
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Accessibility */}
+                    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
+                                <span className="text-sm">♿</span>
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium text-white">Accessibility</p>
+                                <p className="text-xs text-gray-400">May be required for global shortcuts</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => openSettings('accessibility')}
+                                className="text-xs text-blue-400 hover:text-blue-300 underline">
+                                Open Settings
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+                <button onClick={requestMedia}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-500 transition-colors">
+                    Request Camera & Microphone
+                </button>
+                <button onClick={checkPermissions}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors">
+                    Refresh Status
+                </button>
+            </div>
+
+            <div className="p-3 bg-gray-800/30 rounded-lg border border-gray-700/50">
+                <p className="text-xs text-gray-500">
+                    If a permission shows as denied, you need to enable it manually in System Settings &gt; Privacy &amp; Security.
+                    macOS requires you to toggle the permission off and on again if you previously denied it.
+                </p>
+            </div>
+        </div>
+    );
+};
+
 const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableModels = [], embedded = false, initialTab = 'global' }) => {
     const [activeTab, setActiveTab] = useState(initialTab);
     const [globalSettings, setGlobalSettings] = useState(defaultSettings);
@@ -1469,7 +1651,8 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
         { id: 'voice', name: 'Voice / TTS' },
         { id: 'providers', name: 'Custom Providers' },
         { id: 'passwords', name: 'Passwords' },
-        { id: 'python', name: 'Python Environment' }
+        { id: 'python', name: 'Python Environment' },
+        { id: 'permissions', name: 'Permissions' }
     ];
 
     const isSensitiveField = (key) => {
@@ -1864,6 +2047,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
 
                 {activeTab === 'passwords' && <PasswordManager />}
                 {activeTab === 'python' && <PythonEnvSettings currentPath={currentPath} />}
+                {activeTab === 'permissions' && <PermissionsManager />}
             </div>
 
             <div className="border-t border-gray-700 p-4 flex justify-end">

@@ -743,4 +743,6 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     // Media Permissions (macOS)
     checkMediaPermissions: () => ipcRenderer.invoke('check-media-permissions'),
     requestMediaPermissions: () => ipcRenderer.invoke('request-media-permissions'),
+    openSystemPreferences: (pane) => ipcRenderer.invoke('open-system-preferences', pane),
+    getScreenCaptureStatus: () => ipcRenderer.invoke('get-screen-capture-status'),
 });
