@@ -9067,8 +9067,7 @@ const renderBrowserContextMenu = () => {
     const handleSaveImage = async () => {
         if (browserContextMenuPos.srcURL) {
             try {
-                // Trigger download via main process
-                (window as any).api?.downloadFile?.(browserContextMenuPos.srcURL);
+                await (window as any).api?.browserSaveImage?.(browserContextMenuPos.srcURL, currentPath);
             } catch (err) {
                 console.error('Failed to save image:', err);
             }
