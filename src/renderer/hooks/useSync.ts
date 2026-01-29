@@ -9,7 +9,7 @@ import {
 } from '../utils/encryption';
 
 // API base URL for incognide backend
-const API_BASE_URL = 'https://app.incognide.com';
+const API_BASE_URL = 'https://api.incognide.com';
 
 // Local storage keys
 const LAST_SYNC_KEY = 'incognide-last-sync';

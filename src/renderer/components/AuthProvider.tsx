@@ -3,7 +3,7 @@ import { useUser, useAuth as useClerkAuth, useClerk } from '@clerk/clerk-react';
 import { deriveKey, setEncryptionKey, clearEncryptionKey, hasEncryptionKey } from '../utils/encryption';
 
 // API base URL for incognide backend
-const API_BASE_URL = 'https://app.incognide.com';
+const API_BASE_URL = 'https://api.incognide.com';
 
 // Auth types
 interface User {
