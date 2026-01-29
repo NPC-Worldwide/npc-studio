@@ -367,6 +367,7 @@ jobs:
 
       - name: Build MAS package
         run: |
+          rm -rf dist-electron
           npx electron-builder --mac mas --arm64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
