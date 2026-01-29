@@ -626,6 +626,7 @@ onTerminalClosed: (callback) => {
 getFileStats: (filePath) => ipcRenderer.invoke('getFileStats', filePath),
 
 openFile: (path) => ipcRenderer.invoke('open-file', path),
+showItemInFolder: (path) => ipcRenderer.invoke('show-item-in-folder', path),
 
 writeFileBuffer: (path, uint8) => ipcRenderer.invoke('write-file-buffer', path, uint8),
 
