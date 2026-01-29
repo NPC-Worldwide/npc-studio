@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User, LogOut, LogIn, Settings, Cloud, Monitor, ChevronDown, Loader2, Crown, X, Eye, EyeOff, Edit2 } from 'lucide-react';
+import { User, LogOut, LogIn, Settings, Cloud, Monitor, ChevronDown, Loader2, Crown, X, Eye, EyeOff, Edit2, Lock, Key } from 'lucide-react';
+import { SignInButton, SignUpButton, useClerk } from '@clerk/clerk-react';
 import { useAuth } from './AuthProvider';
 
 interface UserMenuProps {
@@ -8,17 +9,30 @@ interface UserMenuProps {
 }
 
 const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) => {
-    const { user, device, isAuthenticated, isLoading, signIn, signUp, signOut, error } = useAuth();
+    const {
+        user,
+        device,
+        isAuthenticated,
+        isLoading,
+        isEncryptionReady,
+        hasPassphrase,
+        needsPassphraseSetup,
+        setupPassphrase,
+        unlockWithPassphrase,
+        signOut,
+        error
+    } = useAuth();
+    const { openSignIn, openSignUp } = useClerk();
+
     const [isOpen, setIsOpen] = useState(false);
-    const [showAuthModal, setShowAuthModal] = useState(false);
-    const [isSignUp, setIsSignUp] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
+    const [showPassphraseModal, setShowPassphraseModal] = useState(false);
+    const [isSettingUpPassphrase, setIsSettingUpPassphrase] = useState(false);
+    const [showPassphrase, setShowPassphrase] = useState(false);
     const [editingDeviceName, setEditingDeviceName] = useState(false);
 
     // Form state
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [name, setName] = useState('');
+    const [passphrase, setPassphrase] = useState('');
+    const [confirmPassphrase, setConfirmPassphrase] = useState('');
     const [deviceName, setDeviceName] = useState('');
     const [formError, setFormError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
@@ -32,6 +46,18 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
             setDeviceName(device.deviceName);
         }
     }, [device]);
+
+    // Auto-show passphrase modal if user needs to set up or unlock
+    useEffect(() => {
+        if (isAuthenticated && !isEncryptionReady && !showPassphraseModal) {
+            // Small delay to let the UI settle
+            const timer = setTimeout(() => {
+                setShowPassphraseModal(true);
+                setIsSettingUpPassphrase(needsPassphraseSetup);
+            }, 500);
+            return () => clearTimeout(timer);
+        }
+    }, [isAuthenticated, isEncryptionReady, needsPassphraseSetup]);
 
     // Close menu when clicking outside
     useEffect(() => {
@@ -55,7 +81,10 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
         const handleEscape = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 setIsOpen(false);
-                setShowAuthModal(false);
+                // Don't close passphrase modal on escape if encryption not ready
+                if (isEncryptionReady) {
+                    setShowPassphraseModal(false);
+                }
             }
         };
 
@@ -63,7 +92,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
         return () => {
             document.removeEventListener('keydown', handleEscape);
         };
-    }, []);
+    }, [isEncryptionReady]);
 
     const formatStorageUsed = (bytes: number) => {
         if (bytes < 1024) return `${bytes} B`;
@@ -72,32 +101,33 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
         return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handlePassphraseSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setFormError(null);
         setSubmitting(true);
 
         try {
-            // Update device name if changed
-            if (deviceName && deviceName !== device?.deviceName) {
-                await (window as any).api?.setDeviceName?.(deviceName);
-            }
-
             let result;
-            if (isSignUp) {
-                result = await signUp(email, password, name);
+            if (isSettingUpPassphrase) {
+                // Setting up new passphrase
+                if (passphrase !== confirmPassphrase) {
+                    setFormError('Passphrases do not match');
+                    setSubmitting(false);
+                    return;
+                }
+                result = await setupPassphrase(passphrase);
             } else {
-                result = await signIn(email, password);
+                // Unlocking with existing passphrase
+                result = await unlockWithPassphrase(passphrase);
             }
 
             if (result.success) {
-                setShowAuthModal(false);
-                setEmail('');
-                setPassword('');
-                setName('');
+                setShowPassphraseModal(false);
+                setPassphrase('');
+                setConfirmPassphrase('');
                 setFormError(null);
             } else {
-                setFormError(result.error || 'Authentication failed');
+                setFormError(result.error || 'Failed');
             }
         } catch (err: any) {
             setFormError(err.message || 'An error occurred');
@@ -113,12 +143,6 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
         setEditingDeviceName(false);
     };
 
-    const openAuthModal = (signUpMode: boolean = false) => {
-        setIsSignUp(signUpMode);
-        setShowAuthModal(true);
-        setFormError(null);
-    };
-
     if (isLoading) {
         return (
             <div className="flex items-center justify-center p-2">
@@ -127,9 +151,9 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
         );
     }
 
-    // Auth Modal - rendered inline to avoid re-creation on state changes
-    const authModalContent = showAuthModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAuthModal(false)}>
+    // Passphrase Modal
+    const passphraseModalContent = showPassphraseModal && isAuthenticated && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => isEncryptionReady && setShowPassphraseModal(false)}>
             <div
                 ref={modalRef}
                 className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
@@ -137,93 +161,79 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
             >
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
-                    <h2 className="text-lg font-semibold text-white">
-                        {isSignUp ? 'Create Account' : 'Sign In'}
-                    </h2>
-                    <button
-                        onClick={() => setShowAuthModal(false)}
-                        className="p-1 hover:bg-gray-700 rounded-lg transition-colors"
-                    >
-                        <X size={20} className="text-gray-400" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <Lock size={20} className="text-blue-400" />
+                        <h2 className="text-lg font-semibold text-white">
+                            {isSettingUpPassphrase ? 'Set Up Encryption' : 'Unlock Your Data'}
+                        </h2>
+                    </div>
+                    {isEncryptionReady && (
+                        <button
+                            onClick={() => setShowPassphraseModal(false)}
+                            className="p-1 hover:bg-gray-700 rounded-lg transition-colors"
+                        >
+                            <X size={20} className="text-gray-400" />
+                        </button>
+                    )}
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} className="p-6 space-y-4" onMouseDown={e => e.stopPropagation()}>
-                    {isSignUp && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-1">
-                                Name
-                            </label>
-                            <input
-                                type="text"
-                                value={name}
-                                onChange={e => setName(e.target.value)}
-                                onMouseDown={e => e.stopPropagation()}
-                                placeholder="Your name"
-                                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                                required={isSignUp}
-                            />
-                        </div>
-                    )}
+                <form onSubmit={handlePassphraseSubmit} className="p-6 space-y-4" onMouseDown={e => e.stopPropagation()}>
+                    <p className="text-sm text-gray-400">
+                        {isSettingUpPassphrase
+                            ? 'Create a passphrase to encrypt your synced data. This passphrase is never sent to our servers - only you can decrypt your data.'
+                            : 'Enter your passphrase to unlock and sync your encrypted data.'
+                        }
+                    </p>
 
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1">
-                            Email
-                        </label>
-                        <input
-                            type="email"
-                            value={email}
-                            onChange={e => setEmail(e.target.value)}
-                            onMouseDown={e => e.stopPropagation()}
-                            placeholder="you@example.com"
-                            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">
-                            Password
+                            {isSettingUpPassphrase ? 'Encryption Passphrase' : 'Passphrase'}
                         </label>
                         <div className="relative">
                             <input
-                                type={showPassword ? 'text' : 'password'}
-                                value={password}
-                                onChange={e => setPassword(e.target.value)}
+                                type={showPassphrase ? 'text' : 'password'}
+                                value={passphrase}
+                                onChange={e => setPassphrase(e.target.value)}
                                 onMouseDown={e => e.stopPropagation()}
-                                placeholder={isSignUp ? 'At least 8 characters' : 'Your password'}
+                                placeholder={isSettingUpPassphrase ? 'At least 8 characters' : 'Enter your passphrase'}
                                 className="w-full px-3 py-2 pr-10 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
                                 required
-                                minLength={isSignUp ? 8 : undefined}
+                                minLength={8}
+                                autoFocus
                             />
                             <button
                                 type="button"
-                                onClick={() => setShowPassword(!showPassword)}
+                                onClick={() => setShowPassphrase(!showPassphrase)}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white"
                             >
-                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                {showPassphrase ? <EyeOff size={18} /> : <Eye size={18} />}
                             </button>
                         </div>
                     </div>
 
-                    {/* Device Name */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">
-                            Device Name
-                        </label>
-                        <input
-                            type="text"
-                            value={deviceName}
-                            onChange={e => setDeviceName(e.target.value)}
-                            onMouseDown={e => e.stopPropagation()}
-                            placeholder="My MacBook"
-                            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                            This helps identify this device when syncing
-                        </p>
-                    </div>
+                    {isSettingUpPassphrase && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-1">
+                                Confirm Passphrase
+                            </label>
+                            <input
+                                type={showPassphrase ? 'text' : 'password'}
+                                value={confirmPassphrase}
+                                onChange={e => setConfirmPassphrase(e.target.value)}
+                                onMouseDown={e => e.stopPropagation()}
+                                placeholder="Confirm your passphrase"
+                                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                                required
+                            />
+                        </div>
+                    )}
+
+                    {isSettingUpPassphrase && (
+                        <div className="px-3 py-2 bg-yellow-900/30 border border-yellow-700/50 rounded-lg text-sm text-yellow-400">
+                            <strong>Important:</strong> If you forget this passphrase, your synced data cannot be recovered. Store it safely!
+                        </div>
+                    )}
 
                     {formError && (
                         <div className="px-3 py-2 bg-red-900/50 border border-red-700 rounded-lg text-sm text-red-400">
@@ -239,26 +249,29 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                         {submitting ? (
                             <>
                                 <Loader2 size={18} className="animate-spin" />
-                                {isSignUp ? 'Creating account...' : 'Signing in...'}
+                                {isSettingUpPassphrase ? 'Setting up...' : 'Unlocking...'}
                             </>
                         ) : (
-                            isSignUp ? 'Create Account' : 'Sign In'
+                            <>
+                                <Key size={18} />
+                                {isSettingUpPassphrase ? 'Set Up Encryption' : 'Unlock'}
+                            </>
                         )}
                     </button>
-                </form>
 
-                {/* Footer */}
-                <div className="px-6 py-4 bg-gray-900/50 border-t border-gray-700 text-center">
-                    <p className="text-sm text-gray-400">
-                        {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-                        <button
-                            onClick={() => setIsSignUp(!isSignUp)}
-                            className="text-blue-400 hover:text-blue-300 font-medium"
-                        >
-                            {isSignUp ? 'Sign in' : 'Sign up'}
-                        </button>
-                    </p>
-                </div>
+                    {!isEncryptionReady && (
+                        <p className="text-xs text-center text-gray-500">
+                            You can skip this for now, but sync won't work without encryption.
+                            <button
+                                type="button"
+                                onClick={() => setShowPassphraseModal(false)}
+                                className="ml-1 text-gray-400 hover:text-white underline"
+                            >
+                                Skip
+                            </button>
+                        </p>
+                    )}
+                </form>
             </div>
         </div>
     );
@@ -266,14 +279,22 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
     if (!isAuthenticated) {
         return (
             <>
-                <button
-                    onClick={() => openAuthModal(false)}
-                    className="flex items-center gap-2 w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors"
-                >
-                    <LogIn size={16} />
-                    <span className="text-sm font-medium">Sign In</span>
-                </button>
-                {authModalContent}
+                <div className="flex flex-col gap-2 w-full">
+                    <button
+                        onClick={() => openSignIn()}
+                        className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                    >
+                        <LogIn size={16} />
+                        <span className="text-sm font-medium">Sign In</span>
+                    </button>
+                    <button
+                        onClick={() => openSignUp()}
+                        className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-gray-600 hover:bg-gray-700/50 text-gray-300 transition-colors"
+                    >
+                        <User size={16} />
+                        <span className="text-sm font-medium">Create Account</span>
+                    </button>
+                </div>
             </>
         );
     }
@@ -306,6 +327,9 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                                 {device?.deviceName || 'This device'}
                             </div>
                         </div>
+                        {!isEncryptionReady && (
+                            <Lock size={14} className="text-yellow-400" title="Encryption not set up" />
+                        )}
                         <ChevronDown size={14} className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                     </>
                 )}
@@ -342,15 +366,31 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                         </div>
                     </div>
 
-                    {/* Sync status */}
+                    {/* Sync/Encryption status */}
                     <div className="px-3 py-2 border-b border-gray-700">
-                        <div className="flex items-center gap-2 text-xs">
-                            <Cloud size={14} className="text-green-400" />
-                            <span className="text-gray-300">Sync enabled</span>
-                        </div>
-                        <div className="mt-1 text-xs text-gray-400">
-                            Storage: {formatStorageUsed(user?.storageUsedBytes || 0)} / {formatStorageUsed(user?.storageLimitBytes || 209715200)}
-                        </div>
+                        {isEncryptionReady ? (
+                            <>
+                                <div className="flex items-center gap-2 text-xs">
+                                    <Cloud size={14} className="text-green-400" />
+                                    <span className="text-gray-300">Sync enabled</span>
+                                </div>
+                                <div className="mt-1 text-xs text-gray-400">
+                                    Storage: {formatStorageUsed(user?.storageUsedBytes || 0)} / {formatStorageUsed(user?.storageLimitBytes || 209715200)}
+                                </div>
+                            </>
+                        ) : (
+                            <button
+                                onClick={() => {
+                                    setIsOpen(false);
+                                    setShowPassphraseModal(true);
+                                    setIsSettingUpPassphrase(needsPassphraseSetup);
+                                }}
+                                className="flex items-center gap-2 text-xs text-yellow-400 hover:text-yellow-300"
+                            >
+                                <Lock size={14} />
+                                <span>{needsPassphraseSetup ? 'Set up encryption to sync' : 'Unlock to sync'}</span>
+                            </button>
+                        )}
                     </div>
 
                     {/* Device info - editable */}
@@ -394,6 +434,19 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                                 Settings
                             </button>
                         )}
+                        {isEncryptionReady && (
+                            <button
+                                onClick={() => {
+                                    setIsOpen(false);
+                                    setShowPassphraseModal(true);
+                                    setIsSettingUpPassphrase(false);
+                                }}
+                                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-300 hover:bg-gray-700/50"
+                            >
+                                <Key size={14} />
+                                Change Passphrase
+                            </button>
+                        )}
                         <button
                             onClick={() => {
                                 setIsOpen(false);
@@ -415,7 +468,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ onOpenSettings, compact = false }) 
                 </div>
             )}
 
-            {authModalContent}
+            {passphraseModalContent}
         </div>
     );
 };

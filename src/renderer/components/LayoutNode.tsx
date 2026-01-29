@@ -486,6 +486,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 document.removeEventListener('keydown', onKeyDown);
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';
+                document.body.classList.remove('layout-resizing');
             };
 
             const onMouseMove = (moveEvent: MouseEvent) => {
@@ -532,6 +533,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
             // Set cursor for entire document during drag
             document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize';
             document.body.style.userSelect = 'none';
+            // Add class to block webview interaction during resize
+            document.body.classList.add('layout-resizing');
 
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp, { once: true });
@@ -547,10 +550,13 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         </div>
                         {index < node.children.length - 1 && (
                             <div
-                                className={`flex-shrink-0 ${node.direction === 'horizontal' ? 'w-1.5 cursor-col-resize' : 'h-1.5 cursor-row-resize'} bg-gray-600 hover:bg-blue-500 active:bg-blue-400 transition-colors`}
+                                className={`flex-shrink-0 relative flex items-center justify-center group ${node.direction === 'horizontal' ? 'w-2 cursor-col-resize' : 'h-2 cursor-row-resize'}`}
                                 onMouseDown={(e) => handleResize(e, index)}
                                 style={{ touchAction: 'none' }}
-                            />
+                            >
+                                {/* Visible resize bar - smaller visual but larger hit area via parent */}
+                                <div className={`${node.direction === 'horizontal' ? 'w-px h-full' : 'h-px w-full'} bg-gray-600 group-hover:bg-blue-500 group-active:bg-blue-400 transition-colors`} />
+                            </div>
                         )}
                     </React.Fragment>
                 ))}

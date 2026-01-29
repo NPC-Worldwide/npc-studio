@@ -2173,6 +2173,16 @@ ipcMain.handle('open-file', async (_event, filePath) => {
   }
 });
 
+ipcMain.handle('show-item-in-folder', async (_event, filePath) => {
+  const { shell } = require('electron');
+  try {
+    shell.showItemInFolder(filePath);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
   
   ipcMain.handle('show-open-dialog', async (event, options) => {
     const result = await dialog.showOpenDialog(options);
@@ -3063,7 +3073,11 @@ ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, curr
             // Check if cancelled
             if (controller.signal.aborted) {
                 fileStream.destroy();
-                fs.unlinkSync(finalPath);
+                // On Windows, wait briefly for the file handle to be released before deleting
+                try { fs.unlinkSync(finalPath); } catch (e) {
+                    // If unlink fails (e.g. Windows file lock), try async after a short delay
+                    setTimeout(() => { try { fs.unlinkSync(finalPath); } catch (_) {} }, 500);
+                }
                 throw new Error('Download cancelled');
             }
 
@@ -3081,7 +3095,10 @@ ipcMain.handle('browser-save-link', async (event, { url, suggestedFilename, curr
             }
         }
 
-        fileStream.end();
+        await new Promise((resolve, reject) => {
+            fileStream.end(() => resolve());
+            fileStream.on('error', reject);
+        });
         activeDownloads.delete(downloadFilename);
 
         log(`[BROWSER] Download completed: ${finalPath}`);
@@ -10730,6 +10747,26 @@ ipcMain.handle('request-media-permissions', async () => {
   }
 
   return { camera: cameraStatus, microphone: micStatus };
+});
+
+ipcMain.handle('open-system-preferences', async (_, pane) => {
+  if (process.platform !== 'darwin') return false;
+  const paneMap = {
+    camera: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
+    microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+    screen_recording: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+    accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+    privacy: 'x-apple.systempreferences:com.apple.preference.security?Privacy',
+  };
+  const url = paneMap[pane] || paneMap.privacy;
+  shell.openExternal(url);
+  return true;
+});
+
+ipcMain.handle('get-screen-capture-status', async () => {
+  if (process.platform !== 'darwin') return { granted: true };
+  const status = systemPreferences.getMediaAccessStatus('screen');
+  return { granted: status === 'granted', status };
 });
 
 // Version update checker

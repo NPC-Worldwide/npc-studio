@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- App Sandbox (REQUIRED for Mac App Store) -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
     <!-- Hardened Runtime exceptions for Electron + native modules -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
@@ -32,8 +36,14 @@
     <key>com.apple.security.files.downloads.read-write</key>
     <true/>
 
-    <!-- Automation (opening System Preferences etc.) -->
+    <!-- Automation -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>
+
+    <!-- Temporary exception for spawning child processes (backend binary) -->
+    <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+    <array>
+        <string>com.incognide.chat.backend</string>
+    </array>
 </dict>
 </plist>

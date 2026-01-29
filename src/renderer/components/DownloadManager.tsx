@@ -125,7 +125,7 @@ const DownloadManager: React.FC<DownloadManagerProps> = ({ isOpen, onClose, curr
 
             // Auto-start download with current path
             try {
-                updateDownload(id, { status: 'downloading', savePath: `${saveDir}/${data.filename}` });
+                updateDownload(id, { status: 'downloading', savePath: null });
 
                 const result = await api?.browserSaveLink?.(data.url, data.filename, saveDir);
 
@@ -195,9 +195,8 @@ const DownloadManager: React.FC<DownloadManagerProps> = ({ isOpen, onClose, curr
         (window as any).api?.openFile?.(path);
     }, []);
 
-    const openFolder = useCallback((path: string) => {
-        const dir = path.substring(0, path.lastIndexOf('/'));
-        (window as any).api?.openFile?.(dir);
+    const openFolder = useCallback((filePath: string) => {
+        (window as any).api?.showItemInFolder?.(filePath);
     }, []);
 
     const formatBytes = (bytes: number) => {

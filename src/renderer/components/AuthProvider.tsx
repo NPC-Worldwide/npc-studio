@@ -1,12 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { useUser, useAuth as useClerkAuth, useClerk } from '@clerk/clerk-react';
 import { deriveKey, setEncryptionKey, clearEncryptionKey, hasEncryptionKey } from '../utils/encryption';
 
 // API base URL for incognide backend
-const API_BASE_URL = 'https://app.incognide.com';
+const API_BASE_URL = 'https://api.incognide.com';
 
 // Auth types
 interface User {
     id: string;
+    clerkId: string;
     email: string;
     name: string;
     profilePicture?: string;
@@ -29,11 +31,14 @@ interface AuthContextType {
     device: Device | null;
     isAuthenticated: boolean;
     isLoading: boolean;
-    isEncryptionReady: boolean;  // True when encryption key is derived and ready for sync
-    signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-    signUp: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
+    isEncryptionReady: boolean;
+    hasPassphrase: boolean;
+    needsPassphraseSetup: boolean;
+    setupPassphrase: (passphrase: string) => Promise<{ success: boolean; error?: string }>;
+    unlockWithPassphrase: (passphrase: string) => Promise<{ success: boolean; error?: string }>;
     signOut: () => Promise<void>;
     refreshUser: () => Promise<void>;
+    getToken: () => Promise<string | null>;
     error: string | null;
 }
 
@@ -43,10 +48,13 @@ const AuthContext = createContext<AuthContextType>({
     isAuthenticated: false,
     isLoading: true,
     isEncryptionReady: false,
-    signIn: async () => ({ success: false }),
-    signUp: async () => ({ success: false }),
+    hasPassphrase: false,
+    needsPassphraseSetup: false,
+    setupPassphrase: async () => ({ success: false }),
+    unlockWithPassphrase: async () => ({ success: false }),
     signOut: async () => {},
     refreshUser: async () => {},
+    getToken: async () => null,
     error: null,
 });
 
@@ -57,55 +65,107 @@ interface AuthProviderProps {
 }
 
 // Local storage keys
-const AUTH_TOKEN_KEY = 'incognide-auth-token';
 const USER_DATA_KEY = 'incognide-user-data';
 const ENCRYPTION_SALT_KEY = 'incognide-encryption-salt';
+const HAS_PASSPHRASE_KEY = 'incognide-has-passphrase';
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+    const { user: clerkUser, isLoaded: clerkLoaded, isSignedIn } = useUser();
+    const { getToken: getClerkToken, signOut: clerkSignOut } = useClerkAuth();
+    const clerk = useClerk();
+
     const [user, setUser] = useState<User | null>(null);
     const [device, setDevice] = useState<Device | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isEncryptionReady, setIsEncryptionReady] = useState(false);
+    const [hasPassphrase, setHasPassphrase] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Load stored user data on mount
+    // Check if user has set up a passphrase before
     useEffect(() => {
-        const loadStoredAuth = async () => {
+        const stored = localStorage.getItem(HAS_PASSPHRASE_KEY);
+        setHasPassphrase(stored === 'true');
+    }, []);
+
+    // Sync Clerk user to our backend when signed in
+    useEffect(() => {
+        const syncUserToBackend = async () => {
+            if (!clerkLoaded) return;
+
+            if (!isSignedIn || !clerkUser) {
+                setUser(null);
+                setIsLoading(false);
+                return;
+            }
+
+            setIsLoading(true);
+
             try {
-                // Check for stored token
-                const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
-                const storedUserData = localStorage.getItem(USER_DATA_KEY);
-
-                if (storedToken && storedUserData) {
-                    const userData = JSON.parse(storedUserData);
-                    setUser(userData);
-
-                    // Validate token with backend (if online)
-                    try {
-                        const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-                            headers: {
-                                'Authorization': `Bearer ${storedToken}`
-                            }
-                        });
-
-                        if (response.ok) {
-                            const freshUserData = await response.json();
-                            setUser(freshUserData);
-                            localStorage.setItem(USER_DATA_KEY, JSON.stringify(freshUserData));
-                        } else if (response.status === 401) {
-                            // Token expired, clear auth
-                            localStorage.removeItem(AUTH_TOKEN_KEY);
-                            localStorage.removeItem(USER_DATA_KEY);
-                            setUser(null);
-                        }
-                    } catch (e) {
-                        console.warn('[AUTH] Failed to validate token, using cached data:', e);
-                        // Continue with cached data if offline
-                    }
+                // Get Clerk token
+                const token = await getClerkToken();
+                if (!token) {
+                    throw new Error('Failed to get auth token');
                 }
 
-                // Load device info
+                // Get device info
                 const deviceInfo = await (window as any).api?.getDeviceInfo?.();
+
+                // Sync user to our backend (creates if not exists)
+                const response = await fetch(`${API_BASE_URL}/api/auth/clerk-sync`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        clerk_id: clerkUser.id,
+                        email: clerkUser.primaryEmailAddress?.emailAddress,
+                        name: clerkUser.fullName || clerkUser.firstName || 'User',
+                        profile_picture: clerkUser.imageUrl,
+                        device_id: deviceInfo?.deviceId,
+                        device_name: deviceInfo?.deviceName,
+                        device_type: deviceInfo?.deviceType
+                    })
+                });
+
+                if (response.ok) {
+                    const userData = await response.json();
+                    const mappedUser: User = {
+                        id: userData.id,
+                        clerkId: clerkUser.id,
+                        email: userData.email,
+                        name: userData.name,
+                        profilePicture: userData.profilePicture || clerkUser.imageUrl,
+                        isPremium: userData.isPremium || false,
+                        storageUsedBytes: userData.storageUsedBytes || 0,
+                        storageLimitBytes: userData.storageLimitBytes || 209715200, // 200MB default
+                    };
+                    setUser(mappedUser);
+                    localStorage.setItem(USER_DATA_KEY, JSON.stringify(mappedUser));
+
+                    // Check if user has encryption salt (meaning they've set up passphrase)
+                    if (userData.encryptionSalt) {
+                        localStorage.setItem(ENCRYPTION_SALT_KEY, userData.encryptionSalt);
+                        localStorage.setItem(HAS_PASSPHRASE_KEY, 'true');
+                        setHasPassphrase(true);
+                    }
+                } else {
+                    // Fallback to Clerk user data if backend sync fails
+                    console.warn('[AUTH] Backend sync failed, using Clerk data');
+                    const fallbackUser: User = {
+                        id: clerkUser.id,
+                        clerkId: clerkUser.id,
+                        email: clerkUser.primaryEmailAddress?.emailAddress || '',
+                        name: clerkUser.fullName || clerkUser.firstName || 'User',
+                        profilePicture: clerkUser.imageUrl,
+                        isPremium: false,
+                        storageUsedBytes: 0,
+                        storageLimitBytes: 209715200,
+                    };
+                    setUser(fallbackUser);
+                }
+
+                // Set device info
                 if (deviceInfo) {
                     setDevice({
                         id: deviceInfo.deviceId,
@@ -117,146 +177,120 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                     });
                 }
             } catch (e) {
-                console.error('[AUTH] Error loading stored auth:', e);
-                setError('Failed to load authentication');
+                console.error('[AUTH] Error syncing user:', e);
+                setError('Failed to sync user data');
+
+                // Still set user from Clerk data
+                if (clerkUser) {
+                    const fallbackUser: User = {
+                        id: clerkUser.id,
+                        clerkId: clerkUser.id,
+                        email: clerkUser.primaryEmailAddress?.emailAddress || '',
+                        name: clerkUser.fullName || clerkUser.firstName || 'User',
+                        profilePicture: clerkUser.imageUrl,
+                        isPremium: false,
+                        storageUsedBytes: 0,
+                        storageLimitBytes: 209715200,
+                    };
+                    setUser(fallbackUser);
+                }
             } finally {
                 setIsLoading(false);
             }
         };
 
-        loadStoredAuth();
-    }, []);
+        syncUserToBackend();
+    }, [clerkLoaded, isSignedIn, clerkUser, getClerkToken]);
 
-    // Helper to safely parse JSON response
-    const safeJsonParse = async (response: Response): Promise<any> => {
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-            throw new Error('Auth service unavailable. Please try again later.');
+    // Set up a new passphrase (first time setup)
+    const setupPassphrase = useCallback(async (passphrase: string): Promise<{ success: boolean; error?: string }> => {
+        if (!user) {
+            return { success: false, error: 'Not signed in' };
         }
-        return response.json();
-    };
 
-    // Sign in with email/password
-    const signIn = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-        setIsLoading(true);
-        setError(null);
-        setIsEncryptionReady(false);
+        if (passphrase.length < 8) {
+            return { success: false, error: 'Passphrase must be at least 8 characters' };
+        }
 
         try {
-            const deviceInfo = await (window as any).api?.getDeviceInfo?.();
+            // Generate a new salt
+            const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+            const salt = btoa(String.fromCharCode(...saltBytes));
 
-            const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    email,
-                    password,
-                    device_id: deviceInfo?.deviceId,
-                    device_name: deviceInfo?.deviceName,
-                    device_type: deviceInfo?.deviceType
-                })
-            });
+            // Derive encryption key
+            const encryptionKey = await deriveKey(passphrase, salt);
+            setEncryptionKey(encryptionKey);
 
-            const data = await safeJsonParse(response);
+            // Store salt locally and sync to backend
+            localStorage.setItem(ENCRYPTION_SALT_KEY, salt);
+            localStorage.setItem(HAS_PASSPHRASE_KEY, 'true');
+            setHasPassphrase(true);
+            setIsEncryptionReady(true);
 
-            if (!response.ok) {
-                setError(data.error || 'Sign in failed');
-                return { success: false, error: data.error || 'Sign in failed' };
+            // Sync salt to backend
+            const token = await getClerkToken();
+            if (token) {
+                await fetch(`${API_BASE_URL}/api/auth/set-encryption-salt`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ encryption_salt: salt })
+                });
             }
 
-            // Store token and user data
-            localStorage.setItem(AUTH_TOKEN_KEY, data.token);
-            localStorage.setItem(USER_DATA_KEY, JSON.stringify(data.user));
-            setUser(data.user);
+            console.log('[AUTH] Passphrase set up successfully');
+            return { success: true };
+        } catch (e: any) {
+            console.error('[AUTH] Failed to set up passphrase:', e);
+            return { success: false, error: e.message || 'Failed to set up passphrase' };
+        }
+    }, [user, getClerkToken]);
 
-            // Derive and store encryption key for E2E sync
-            if (data.encryptionSalt) {
-                try {
-                    localStorage.setItem(ENCRYPTION_SALT_KEY, data.encryptionSalt);
-                    const encryptionKey = await deriveKey(password, data.encryptionSalt);
-                    setEncryptionKey(encryptionKey);
-                    setIsEncryptionReady(true);
-                    console.log('[AUTH] Encryption key derived successfully');
-                } catch (encErr) {
-                    console.error('[AUTH] Failed to derive encryption key:', encErr);
-                    // Sign-in still succeeds, but sync won't work
+    // Unlock with existing passphrase
+    const unlockWithPassphrase = useCallback(async (passphrase: string): Promise<{ success: boolean; error?: string }> => {
+        if (!user) {
+            return { success: false, error: 'Not signed in' };
+        }
+
+        try {
+            // Get stored salt
+            let salt = localStorage.getItem(ENCRYPTION_SALT_KEY);
+
+            // If no local salt, try to fetch from backend
+            if (!salt) {
+                const token = await getClerkToken();
+                if (token) {
+                    const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.encryptionSalt) {
+                            salt = data.encryptionSalt;
+                            localStorage.setItem(ENCRYPTION_SALT_KEY, salt);
+                        }
+                    }
                 }
             }
 
-            console.log('[AUTH] Sign in successful');
-            return { success: true };
-
-        } catch (e: any) {
-            const errorMsg = e.message || 'Failed to sign in';
-            setError(errorMsg);
-            return { success: false, error: errorMsg };
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-
-    // Sign up with email/password
-    const signUp = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
-        setIsLoading(true);
-        setError(null);
-        setIsEncryptionReady(false);
-
-        try {
-            const deviceInfo = await (window as any).api?.getDeviceInfo?.();
-
-            const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    email,
-                    password,
-                    name,
-                    device_id: deviceInfo?.deviceId,
-                    device_name: deviceInfo?.deviceName,
-                    device_type: deviceInfo?.deviceType
-                })
-            });
-
-            const data = await safeJsonParse(response);
-
-            if (!response.ok) {
-                setError(data.error || 'Sign up failed');
-                return { success: false, error: data.error || 'Sign up failed' };
+            if (!salt) {
+                return { success: false, error: 'No encryption data found. Please set up a new passphrase.' };
             }
 
-            // Store token and user data
-            localStorage.setItem(AUTH_TOKEN_KEY, data.token);
-            localStorage.setItem(USER_DATA_KEY, JSON.stringify(data.user));
-            setUser(data.user);
+            // Derive key and test it
+            const encryptionKey = await deriveKey(passphrase, salt);
+            setEncryptionKey(encryptionKey);
+            setIsEncryptionReady(true);
 
-            // Derive and store encryption key for E2E sync
-            if (data.encryptionSalt) {
-                try {
-                    localStorage.setItem(ENCRYPTION_SALT_KEY, data.encryptionSalt);
-                    const encryptionKey = await deriveKey(password, data.encryptionSalt);
-                    setEncryptionKey(encryptionKey);
-                    setIsEncryptionReady(true);
-                    console.log('[AUTH] Encryption key derived successfully');
-                } catch (encErr) {
-                    console.error('[AUTH] Failed to derive encryption key:', encErr);
-                }
-            }
-
-            console.log('[AUTH] Sign up successful');
+            console.log('[AUTH] Unlocked with passphrase successfully');
             return { success: true };
-
         } catch (e: any) {
-            const errorMsg = e.message || 'Failed to sign up';
-            setError(errorMsg);
-            return { success: false, error: errorMsg };
-        } finally {
-            setIsLoading(false);
+            console.error('[AUTH] Failed to unlock:', e);
+            return { success: false, error: 'Invalid passphrase' };
         }
-    }, []);
+    }, [user, getClerkToken]);
 
     // Sign out
     const signOut = useCallback(async () => {
@@ -264,26 +298,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         try {
             // Clear local storage
-            localStorage.removeItem(AUTH_TOKEN_KEY);
             localStorage.removeItem(USER_DATA_KEY);
             localStorage.removeItem(ENCRYPTION_SALT_KEY);
+            // Note: Keep HAS_PASSPHRASE_KEY so user knows they have a passphrase set
             setUser(null);
+            setIsEncryptionReady(false);
 
             // Clear encryption key from memory
             clearEncryptionKey();
-            setIsEncryptionReady(false);
 
-            // Note: Device info is preserved - user data stays local even when signed out
+            // Sign out from Clerk
+            await clerkSignOut();
         } catch (e: any) {
             setError(e.message || 'Failed to sign out');
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [clerkSignOut]);
 
     // Refresh user data
     const refreshUser = useCallback(async () => {
-        const token = localStorage.getItem(AUTH_TOKEN_KEY);
+        const token = await getClerkToken();
         if (!token) return;
 
         try {
@@ -295,13 +330,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
             if (response.ok) {
                 const userData = await response.json();
-                setUser(userData);
+                setUser(prev => prev ? { ...prev, ...userData } : null);
                 localStorage.setItem(USER_DATA_KEY, JSON.stringify(userData));
             }
         } catch (e) {
             console.error('[AUTH] Failed to refresh user:', e);
         }
-    }, []);
+    }, [getClerkToken]);
+
+    // Get auth token for API requests
+    const getToken = useCallback(async (): Promise<string | null> => {
+        return await getClerkToken();
+    }, [getClerkToken]);
+
+    // Determine if user needs to set up passphrase
+    const needsPassphraseSetup = !!user && !hasPassphrase;
 
     return (
         <AuthContext.Provider
@@ -309,12 +352,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 user,
                 device,
                 isAuthenticated: !!user,
-                isLoading,
+                isLoading: isLoading || !clerkLoaded,
                 isEncryptionReady,
-                signIn,
-                signUp,
+                hasPassphrase,
+                needsPassphraseSetup,
+                setupPassphrase,
+                unlockWithPassphrase,
                 signOut,
                 refreshUser,
+                getToken,
                 error
             }}
         >
