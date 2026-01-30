@@ -361,8 +361,8 @@ jobs:
           echo "${{ secrets.APPLE_MAS_PROVISIONING_PROFILE }}" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/incognide_mas.provisionprofile
           echo "${{ secrets.APPLE_MAS_PROVISIONING_PROFILE }}" | base64 --decode > incognide_mas.provisionprofile
 
-          # Do NOT set CSC_LINK — electron-builder will find identities
-          # directly from mas_build.keychain in the search list
+          echo "CSC_INSTALLER_LINK=$(pwd)/mas_installer_cert.p12" >> $GITHUB_ENV
+          echo "CSC_INSTALLER_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
 
           # Verify what identities are actually in the keychain
           echo "=== All identities in keychain ==="
