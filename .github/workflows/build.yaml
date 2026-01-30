@@ -361,11 +361,8 @@ jobs:
           echo "${{ secrets.APPLE_MAS_PROVISIONING_PROFILE }}" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/incognide_mas.provisionprofile
           echo "${{ secrets.APPLE_MAS_PROVISIONING_PROFILE }}" | base64 --decode > incognide_mas.provisionprofile
 
-          # Set env vars for electron-builder
-          echo "CSC_LINK=$(pwd)/mas_app_cert.p12" >> $GITHUB_ENV
-          echo "CSC_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
-          echo "CSC_INSTALLER_LINK=$(pwd)/mas_installer_cert.p12" >> $GITHUB_ENV
-          echo "CSC_INSTALLER_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
+          # Do NOT set CSC_LINK — electron-builder will find identities
+          # directly from mas_build.keychain in the search list
 
           # Verify what identities are actually in the keychain
           echo "=== All identities in keychain ==="
@@ -391,8 +388,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CSC_INSTALLER_LINK: ${{ github.workspace }}/mas_installer_cert.p12
-          CSC_INSTALLER_KEY_PASSWORD: ${{ secrets.APPLE_MAS_CERTIFICATE_PASSWORD }}
 
       - name: Prepare MAS artifact
         id: prepare_mas
