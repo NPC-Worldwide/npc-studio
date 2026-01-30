@@ -340,14 +340,18 @@ jobs:
 
           # Import 3rd Party Mac Developer Application certificate (for signing the app)
           echo "${{ secrets.APPLE_MAS_APPLICATION_CERT }}" | base64 --decode > mas_app_cert.p12
-          security import mas_app_cert.p12 -k mas_build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security import mas_app_cert.p12 -k mas_build.keychain -P "$P12_PASSWORD" -A
 
           # Import 3rd Party Mac Developer Installer certificate (for signing the pkg)
           echo "${{ secrets.APPLE_MAS_INSTALLER_CERT }}" | base64 --decode > mas_installer_cert.p12
-          security import mas_installer_cert.p12 -k mas_build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          if [ ! -s mas_installer_cert.p12 ]; then
+            echo "ERROR: APPLE_MAS_INSTALLER_CERT secret is empty or not set"
+            exit 1
+          fi
+          security import mas_installer_cert.p12 -k mas_build.keychain -P "$P12_PASSWORD" -A
 
-          # Allow access
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$P12_PASSWORD" mas_build.keychain
+          # Allow access to all imported certs
+          security set-key-partition-list -S apple-tool:,apple:,productbuild: -s -k "$P12_PASSWORD" mas_build.keychain
 
           # Install provisioning profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
@@ -364,8 +368,10 @@ jobs:
           # Verify imported identities
           echo "=== Available signing identities ==="
           security find-identity -v -p codesigning mas_build.keychain
-          echo "=== Available installer identities ==="
+          echo "=== All identities (including installer) ==="
           security find-identity -v mas_build.keychain
+          echo "=== Checking for installer identity ==="
+          security find-identity -v mas_build.keychain | grep -i "installer" || echo "WARNING: No installer identity found - check APPLE_MAS_INSTALLER_CERT secret"
 
       - name: Sign the backend binary for MAS
         run: |
@@ -385,6 +391,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_INSTALLER_LINK: ${{ github.workspace }}/mas_installer_cert.p12
+          CSC_INSTALLER_KEY_PASSWORD: ${{ secrets.APPLE_MAS_CERTIFICATE_PASSWORD }}
 
       - name: Prepare MAS artifact
         id: prepare_mas
