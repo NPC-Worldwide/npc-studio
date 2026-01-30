@@ -87,7 +87,7 @@
         "NSMicrophoneUsageDescription": "This app needs microphone access for audio recording and voice input.",
         "NSScreenCaptureUsageDescription": "This app needs screen capture access for screenshots.",
         "NSAppleEventsUsageDescription": "This app needs automation access to open System Settings."
-      },
+      }
     },
     "win": {
       "target": [
