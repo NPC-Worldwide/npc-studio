@@ -79,10 +79,12 @@
       "entitlements": "resources/entitlements.mas.plist",
       "entitlementsInherit": "resources/entitlements.mas.inherit.plist",
       "hardenedRuntime": false,
+      "minimumSystemVersion": "12.0",
       "category": "public.app-category.productivity",
       "provisioningProfile": "incognide_mas.provisionprofile",
       "identity": "Apple Distribution",
       "extendInfo": {
+        "LSMinimumSystemVersion": "12.0",
         "NSCameraUsageDescription": "This app needs camera access for video calls and media capture.",
         "NSMicrophoneUsageDescription": "This app needs microphone access for audio recording and voice input.",
         "NSScreenCaptureUsageDescription": "This app needs screen capture access for screenshots.",
