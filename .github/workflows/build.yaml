@@ -348,6 +348,9 @@ jobs:
             echo "ERROR: APPLE_MAS_INSTALLER_CERT secret is empty or not set"
             exit 1
           fi
+          # Show what's in the installer cert
+          echo "=== Installer cert CN ==="
+          openssl pkcs12 -in mas_installer_cert.p12 -passin pass:"$P12_PASSWORD" -nokeys -clcerts 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || echo "Could not read cert subject"
           security import mas_installer_cert.p12 -k mas_build.keychain -P "$P12_PASSWORD" -A
 
           # Allow access to all imported certs
@@ -356,7 +359,6 @@ jobs:
           # Install provisioning profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "${{ secrets.APPLE_MAS_PROVISIONING_PROFILE }}" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/incognide_mas.provisionprofile
-          # Also copy to project root for electron-builder
           echo "${{ secrets.APPLE_MAS_PROVISIONING_PROFILE }}" | base64 --decode > incognide_mas.provisionprofile
 
           # Set env vars for electron-builder
@@ -365,13 +367,11 @@ jobs:
           echo "CSC_INSTALLER_LINK=$(pwd)/mas_installer_cert.p12" >> $GITHUB_ENV
           echo "CSC_INSTALLER_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
 
-          # Verify imported identities
-          echo "=== Available signing identities ==="
-          security find-identity -v -p codesigning mas_build.keychain
-          echo "=== All identities (including installer) ==="
+          # Verify what identities are actually in the keychain
+          echo "=== All identities in keychain ==="
           security find-identity -v mas_build.keychain
-          echo "=== Checking for installer identity ==="
-          security find-identity -v mas_build.keychain | grep -i "installer" || echo "WARNING: No installer identity found - check APPLE_MAS_INSTALLER_CERT secret"
+          echo "=== Installer identity check ==="
+          security find-identity -v mas_build.keychain | grep -i "installer" || echo "FATAL: No installer identity found. The APPLE_MAS_INSTALLER_CERT secret does not contain a '3rd Party Mac Developer Installer' certificate."
 
       - name: Sign the backend binary for MAS
         run: |
