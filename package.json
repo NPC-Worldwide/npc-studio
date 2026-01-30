@@ -88,12 +88,6 @@
         "NSScreenCaptureUsageDescription": "This app needs screen capture access for screenshots.",
         "NSAppleEventsUsageDescription": "This app needs automation access to open System Settings."
       },
-      "extraResources": [
-        {
-          "from": "resources/backend/incognide_serve",
-          "to": "backend/incognide_serve"
-        }
-      ]
     },
     "win": {
       "target": [
