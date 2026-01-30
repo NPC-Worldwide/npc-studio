@@ -384,6 +384,7 @@ jobs:
       - name: Build MAS package
         run: |
           rm -rf dist-electron
+          find node_modules -name "macCodeSign.js" -path "*/codeSign/*" -exec sed -i '' 's/"find-identity", "-v", "-p", "codesigning"/"find-identity", "-v"/g' {} \;
           npx electron-builder --mac mas --arm64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
