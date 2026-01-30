@@ -134,6 +134,8 @@ jobs:
 
       - name: Build frontend
         run: npm run build:vite
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
 
       - name: Rebuild native modules for Electron (Linux/macOS)
         if: runner.os != 'Windows'
@@ -317,6 +319,8 @@ jobs:
 
       - name: Build frontend
         run: npm run build:vite
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
 
       - name: Rebuild native modules for Electron
         run: |
@@ -332,6 +336,7 @@ jobs:
           security default-keychain -s mas_build.keychain
           security unlock-keychain -p "$P12_PASSWORD" mas_build.keychain
           security set-keychain-settings -t 3600 -u mas_build.keychain
+          security list-keychains -d user -s mas_build.keychain login.keychain-db
 
           # Import 3rd Party Mac Developer Application certificate (for signing the app)
           echo "${{ secrets.APPLE_MAS_APPLICATION_CERT }}" | base64 --decode > mas_app_cert.p12
@@ -355,6 +360,12 @@ jobs:
           echo "CSC_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
           echo "CSC_INSTALLER_LINK=$(pwd)/mas_installer_cert.p12" >> $GITHUB_ENV
           echo "CSC_INSTALLER_KEY_PASSWORD=$P12_PASSWORD" >> $GITHUB_ENV
+
+          # Verify imported identities
+          echo "=== Available signing identities ==="
+          security find-identity -v -p codesigning mas_build.keychain
+          echo "=== Available installer identities ==="
+          security find-identity -v mas_build.keychain
 
       - name: Sign the backend binary for MAS
         run: |
